@@ -5,7 +5,10 @@ Extends base.py with hardened security, S3 storage, and Sentry error tracking.
 All sensitive values must be provided via environment variables — no defaults.
 """
 
+import warnings
+
 import sentry_sdk
+from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
@@ -34,7 +37,6 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 # ALLOWED_HOSTS is read from DJANGO_ALLOWED_HOSTS env var (set in base.py).
 # Default is [] which causes Django to reject all requests — set the env var in deployment.
 # Example: DJANGO_ALLOWED_HOSTS=govstack.ca,www.govstack.ca
-from django.core.exceptions import ImproperlyConfigured
 if not ALLOWED_HOSTS:
     raise ImproperlyConfigured(
         "DJANGO_ALLOWED_HOSTS env var must be set in production. "

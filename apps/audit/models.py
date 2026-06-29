@@ -2,8 +2,10 @@
 Immutable audit log model.
 
 Design principles:
-- Append-only: no update or delete operations ever. Enforced at the DB level
-  via a trigger (see migration) and at the model level by overriding save/delete.
+- Append-only: no update or delete operations ever. Enforced at the Django
+  model layer by overriding save() and delete() to raise ValueError.
+  Note: QuerySet.update() and QuerySet.delete() bypass these guards.
+  For maximum assurance, add a PostgreSQL trigger in a future migration.
 - Chain of custody: each entry includes a hash of the previous entry to detect
   tampering with the log sequence.
 - No PII in log messages: PII lives in resource_id references, not in the

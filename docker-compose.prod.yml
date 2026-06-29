@@ -53,6 +53,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health/live/"]
       interval: 30s
@@ -104,6 +106,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - govstack_net
     logging:
@@ -130,6 +134,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - govstack_net
     logging:
@@ -165,13 +171,13 @@ services:
     restart: always
     command: >
       redis-server
-        --requirepass ${REDIS_PASSWORD:-changeme-set-in-env}
+        --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env.prod}
         --maxmemory 512mb
         --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env.prod}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5

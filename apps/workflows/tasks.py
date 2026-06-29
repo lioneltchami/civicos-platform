@@ -7,6 +7,7 @@ check_sla_breaches: runs every 15 minutes, marks overdue WorkItems.
 import logging
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,12 @@ def check_sla_breaches_task(self):
         if count:
             logger.info("SLA breach check: %d item(s) newly marked as breached.", count)
         return count
+    except SoftTimeLimitExceeded:
+        logger.warning(
+            "check_sla_breaches_task: soft time limit exceeded — "
+            "will retry at next schedule"
+        )
+        return  # Don't retry — next cron firing will pick up where this left off
     except Exception as exc:
         logger.exception("check_sla_breaches_task failed: %s", exc)
         raise self.retry(exc=exc, countdown=60)

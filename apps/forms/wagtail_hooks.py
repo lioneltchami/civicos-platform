@@ -22,6 +22,7 @@ from wagtail.admin.widgets import Button as WagtailButton
 from wagtail.contrib.forms.views import SubmissionsListView
 
 from .models import FormPage, FormSubmission
+from .utils import _mask_ip
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ def redact_submission(request, page_id, submission_id):
                 outcome="success",
                 actor_id=str(request.user.pk),
                 actor_email="",
-                actor_ip=request.META.get("REMOTE_ADDR"),
+                actor_ip=_mask_ip(request.META.get("REMOTE_ADDR") or ""),
                 actor_user_agent=request.META.get("HTTP_USER_AGENT", "")[:255],
                 resource_type="forms.FormSubmission",
                 resource_id=str(submission_id),

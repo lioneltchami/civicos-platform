@@ -61,12 +61,20 @@ def _write_audit(event_type: str, user, request: HttpRequest, detail: dict | Non
 
 
 def _get_client_ip(request: HttpRequest) -> str | None:
-    """Extract the real client IP, respecting X-Forwarded-For if present."""
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if x_forwarded_for:
-        # Take the first (leftmost) IP — the originating client
-        ip = x_forwarded_for.split(",")[0].strip()
-        return ip or None
+    """
+    Extract the real client IP.
+
+    SECURITY: X-Forwarded-For is only trusted when SECURE_PROXY_SSL_HEADER is
+    configured in settings (i.e., we are provably behind a reverse proxy that
+    strips/rewrites the header). Without that guard, any client can forge the
+    header and spoof their audit-log IP.
+    """
+    if getattr(settings, "SECURE_PROXY_SSL_HEADER", None):
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        if x_forwarded_for:
+            # Take the first (leftmost) IP — the originating client
+            ip = x_forwarded_for.split(",")[0].strip()
+            return ip or None
     return request.META.get("REMOTE_ADDR") or None
 
 

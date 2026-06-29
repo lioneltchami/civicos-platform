@@ -37,5 +37,5 @@ max_requests = int(os.environ.get("GUNICORN_MAX_REQUESTS", "1000"))
 max_requests_jitter = int(os.environ.get("GUNICORN_MAX_REQUESTS_JITTER", "100"))
 
 # ---- Trusted proxies (nginx) ----
-forwarded_allow_ips = os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1,::1")
+forwarded_allow_ips = os.environ.get("FORWARDED_ALLOW_IPS", "*")
 proxy_protocol = False

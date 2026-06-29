@@ -38,7 +38,7 @@ class Command(BaseCommand):
         _, created = PeriodicTask.objects.update_or_create(
             name="flush-expired-jwt-tokens",
             defaults={
-                "task": "token_blacklist.flush_expired_tokens",
+                "task": "auth_extension.flush_expired_jwt_tokens",
                 "crontab": schedule,
                 "interval": None,
                 "solar": None,
@@ -66,7 +66,7 @@ class Command(BaseCommand):
         _, created = PeriodicTask.objects.update_or_create(
             name="check-sla-breaches",
             defaults={
-                "task": "apps.workflows.tasks.check_sla_breaches_task",
+                "task": "workflows.check_sla_breaches",
                 "crontab": schedule,
                 "interval": None,
                 "solar": None,

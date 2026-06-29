@@ -110,8 +110,8 @@ INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "csp.middleware.CSPMiddleware",          # Must be before WhiteNoise so static responses carry CSP headers
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "csp.middleware.CSPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",           # i18n language detection
     "django.middleware.common.CommonMiddleware",
