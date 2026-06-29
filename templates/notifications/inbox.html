@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Notifications / Notifications" %}{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="page-header">
+    <h1>{% trans "Notifications / Notifications" %}</h1>
+    {% if unread_count %}
+    <span class="badge badge--blue" aria-label="{% blocktrans with count=unread_count %}{{ count }} unread{% endblocktrans %}">
+      {{ unread_count }}
+    </span>
+    {% endif %}
+  </div>
+
+  {# Mark all read form #}
+  {% if unread_count %}
+  <form method="post" action="{% url 'notifications:mark-all-read' %}" style="display:inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn--secondary btn--sm">
+      {% trans "Mark all as read / Tout marquer comme lu" %}
+    </button>
+  </form>
+  {% endif %}
+
+  {# Filter tabs #}
+  <nav aria-label="{% trans 'Filter notifications' %}" style="margin: 1.5rem 0">
+    <a href="{% url 'notifications:inbox' %}"
+       {% if active_filter == 'all' %}aria-current="page"{% endif %}
+       class="tab {% if active_filter == 'all' %}tab--active{% endif %}">
+      {% trans "All / Tous" %}
+    </a>
+    <a href="?filter=unread"
+       {% if active_filter == 'unread' %}aria-current="page"{% endif %}
+       class="tab {% if active_filter == 'unread' %}tab--active{% endif %}">
+      {% trans "Unread / Non lus" %}
+    </a>
+    <a href="?filter=read"
+       {% if active_filter == 'read' %}aria-current="page"{% endif %}
+       class="tab {% if active_filter == 'read' %}tab--active{% endif %}">
+      {% trans "Read / Lus" %}
+    </a>
+  </nav>
+
+  {# Notification list #}
+  {% if notifications %}
+  <ul class="notification-list" role="list" aria-label="{% trans 'Notification list' %}">
+    {% for notification in notifications %}
+    <li class="notification-item {% if not notification.read_at %}notification-item--unread{% endif %}">
+      <div class="notification-item__meta">
+        <span class="notification-item__channel" aria-label="{% trans 'Channel' %}">
+          {{ notification.get_channel_display }}
+        </span>
+        <time datetime="{{ notification.created_at|date:'c' }}" class="notification-item__date">
+          {{ notification.created_at|date:"N j, Y, g:i a" }}
+        </time>
+        {% if not notification.read_at %}
+        <span class="badge badge--blue" aria-label="{% trans 'Unread' %}">{% trans "New" %}</span>
+        {% endif %}
+      </div>
+      <div class="notification-item__content">
+        {% if notification.subject %}
+        <p class="notification-item__subject"><strong>{{ notification.subject }}</strong></p>
+        {% endif %}
+        <p class="notification-item__body">{{ notification.body|truncatewords:30 }}</p>
+      </div>
+      {% if not notification.read_at %}
+      <form method="post" action="{% url 'notifications:mark-read' notification.pk %}" style="display:inline">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button type="submit" class="btn btn--ghost btn--sm">
+          {% trans "Mark as read / Marquer comme lu" %}
+        </button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+
+  {# Pagination #}
+  {% if is_paginated %}
+  <nav aria-label="{% trans 'Pagination' %}" style="margin-top: 2rem">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}{% if active_filter %}&filter={{ active_filter }}{% endif %}">
+      &laquo; {% trans "Previous" %}
+    </a>
+    {% endif %}
+    <span aria-current="page">
+      {% blocktrans with current=page_obj.number total=page_obj.paginator.num_pages %}
+      Page {{ current }} of {{ total }}
+      {% endblocktrans %}
+    </span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}{% if active_filter %}&filter={{ active_filter }}{% endif %}">
+      {% trans "Next" %} &raquo;
+    </a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state" role="status">
+    <p>
+      {% if active_filter == 'unread' %}
+        {% trans "No unread notifications. / Aucune notification non lue." %}
+      {% else %}
+        {% trans "No notifications yet. / Aucune notification pour l'instant." %}
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+
+  <nav aria-label="{% trans 'Quick links' %}" style="margin-top: 2rem">
+    <a href="{% url 'portal:dashboard' %}">&larr; {% trans "Back to Dashboard / Retour au tableau de bord" %}</a>
+  </nav>
+</div>
+{% endblock %}

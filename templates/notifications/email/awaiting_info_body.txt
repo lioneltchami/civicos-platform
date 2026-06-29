@@ -1,0 +1,14 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}
+
+{% blocktrans with ref=reference %}We need additional information to process your service request {{ ref }}.{% endblocktrans %}
+
+{% trans "Please sign in to your portal account to view what is needed and provide the requested information." %}
+
+{{ portal_link }}
+
+{% trans "If you do not respond within 30 days, your request may be closed." %}
+
+---
+{% trans "This is an automated message. Please do not reply directly to this email." %}
+{% endautoescape %}

@@ -45,6 +45,8 @@ urlpatterns = [
 urlpatterns += i18n_patterns(
     # Citizen portal
     path("portal/", include("apps.portal.urls", namespace="portal")),
+    # Citizen notification inbox
+    path("notifications/", include("apps.notifications.urls", namespace="notifications")),
     # Citizen account (auth_extension building block)
     path("account/", include("apps.auth_extension.urls", namespace="auth_extension")),
     # Public-facing pages (Wagtail CMS) — must be last

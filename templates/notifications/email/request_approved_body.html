@@ -4,34 +4,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% blocktrans with ref=reference %}Update on request {{ ref }}{% endblocktrans %}</title>
+  <title>{% blocktrans with ref=reference %}Your request {{ ref }} has been approved{% endblocktrans %}</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; color: #1a1a1a; margin: 0; padding: 0; background: #f4f6f7; }
     .wrapper { max-width: 600px; margin: 2rem auto; background: #ffffff; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .header { background: #1a5276; padding: 1.5rem 2rem; }
+    .header { background: #27ae60; padding: 1.5rem 2rem; }
     .header h1 { color: #ffffff; margin: 0; font-size: 1.25rem; }
     .body { padding: 2rem; }
     .body p { line-height: 1.6; margin: 0 0 1rem; }
-    .status-box { background: #d6eaf8; border-left: 4px solid #1a5276; padding: 1rem 1.25rem; border-radius: 0 4px 4px 0; margin: 1.5rem 0; }
-    .status-box .label { font-size: 0.875rem; color: #595959; margin: 0 0 0.25rem; }
-    .status-box .value { font-size: 1.125rem; font-weight: 700; color: #1a5276; margin: 0; }
+    .approved-box { background: #eafaf1; border-left: 4px solid #27ae60; padding: 1rem 1.25rem; border-radius: 0 4px 4px 0; margin: 1.5rem 0; }
+    .approved-box .label { font-size: 0.875rem; color: #595959; margin: 0 0 0.25rem; }
+    .approved-box .value { font-size: 1.125rem; font-weight: 700; color: #1e8449; margin: 0; }
     .cta { margin: 1.5rem 0; }
-    .btn { display: inline-block; background: #1a5276; color: #ffffff; text-decoration: none; padding: 0.75rem 1.5rem; border-radius: 4px; font-weight: 600; }
+    .btn { display: inline-block; background: #27ae60; color: #ffffff; text-decoration: none; padding: 0.75rem 1.5rem; border-radius: 4px; font-weight: 600; }
     .footer { padding: 1rem 2rem; background: #f4f6f7; color: #595959; font-size: 0.875rem; }
   </style>
 </head>
 <body>
   <div class="wrapper">
     <div class="header">
-      <h1>{% trans "Request status update" %}</h1>
+      <h1>{% trans "Request approved" %}</h1>
     </div>
     <div class="body">
       <p>{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}</p>
-      <p>{% blocktrans with ref=reference %}The status of your service request <strong>{{ ref }}</strong> has been updated.{% endblocktrans %}</p>
-      <div class="status-box">
-        <p class="label">{% trans "New status" %}</p>
-        <p class="value">{{ new_status }}</p>
+      <p>{% blocktrans with ref=reference %}We are pleased to inform you that your service request <strong>{{ ref }}</strong> has been approved.{% endblocktrans %}</p>
+      <div class="approved-box">
+        <p class="label">{% trans "Request reference" %}</p>
+        <p class="value">{{ reference }}</p>
       </div>
+      <p>{% trans "Sign in to your portal account to view the details of your approved request." %}</p>
       <div class="cta">
         <a href="{{ portal_link }}" class="btn">{% trans "View your request" %}</a>
       </div>

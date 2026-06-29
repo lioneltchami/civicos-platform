@@ -186,7 +186,11 @@ def _fire_notification(service_request: ServiceRequest, new_status: str) -> None
     try:
         from apps.notifications.tasks import send_status_update_notification
 
-        send_status_update_notification.delay(str(service_request.pk), new_status)
+        send_status_update_notification.delay(
+            citizen_id=str(service_request.citizen_id),
+            request_reference=service_request.reference_number,
+            new_status=new_status,
+        )
     except Exception:
         logger.exception(
             "Failed to fire notification for request=%s status=%s",

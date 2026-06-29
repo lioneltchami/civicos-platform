@@ -1,0 +1,12 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}
+
+{% blocktrans with ref=reference %}We are pleased to inform you that your service request {{ ref }} has been approved.{% endblocktrans %}
+
+{% trans "Sign in to your portal account to view the details of your approved request." %}
+
+{{ portal_link }}
+
+---
+{% trans "This is an automated message. Please do not reply directly to this email." %}
+{% endautoescape %}

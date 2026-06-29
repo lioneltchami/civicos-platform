@@ -1,0 +1,14 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}
+
+{% blocktrans with ref=reference %}After careful review, we are unable to approve your service request {{ ref }} at this time.{% endblocktrans %}
+
+{% trans "If your circumstances change, you are welcome to submit a new request through the portal." %}
+
+{{ portal_link }}
+
+{% trans "If you have questions about this decision, please contact us through the portal." %}
+
+---
+{% trans "This is an automated message. Please do not reply directly to this email." %}
+{% endautoescape %}

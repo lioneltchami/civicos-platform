@@ -1,0 +1,1 @@
+{% load i18n %}{% blocktrans with ref=reference %}Action required on your request {{ ref }}{% endblocktrans %}
