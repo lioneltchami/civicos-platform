@@ -109,6 +109,7 @@ LOCAL_APPS = [
     "apps.consent",
     "apps.audit",
     "apps.api",
+    "apps.payments",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS

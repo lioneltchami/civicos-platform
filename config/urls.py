@@ -50,6 +50,10 @@ urlpatterns = [
     # Back-office — staff-only; access control enforced via StaffRequiredMixin on every view.
     # Mounted outside i18n_patterns: staff tools do not require language prefixes.
     path("backoffice/", include("apps.backoffice.urls", namespace="backoffice")),
+    # Payments building block — gateway webhooks and payment flows (no language prefix)
+    path("payments/", include("apps.payments.urls", namespace="payments")),
+    # Donations public-facing flows
+    path("donate/", include("apps.payments.donation_urls", namespace="donate")),
     # Django i18n — provides the {% url 'set_language' %} view used in base.html
     # Must be a non-i18n (language-prefix-free) URL so the language switcher works
     # regardless of which language is currently active.
