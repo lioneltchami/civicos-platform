@@ -17,6 +17,7 @@ from django.conf.urls.i18n import i18n_patterns
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 from wagtail import urls as wagtail_urls
 from wagtail.admin import urls as wagtailadmin_urls
 from wagtail.documents import urls as wagtaildocs_urls
@@ -44,6 +45,14 @@ urlpatterns = [
 
 # Internationalised URL patterns — wrapped in language prefix (/en/, /fr/)
 urlpatterns += i18n_patterns(
+    # Redirect allauth's bare login URL to the MFA-enforcing two_factor login.
+    # Must come before the allauth include so it intercepts /en/account/login/
+    # and /fr/account/login/ before allauth can serve a single-factor form.
+    path(
+        "account/login/",
+        RedirectView.as_view(pattern_name="two_factor:login", permanent=True),
+        name="account_login_redirect",
+    ),
     # Citizen portal
     path("portal/", include("apps.portal.urls", namespace="portal")),
     # Citizen notification inbox

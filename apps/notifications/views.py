@@ -50,9 +50,14 @@ class NotificationListView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs) -> dict:
         ctx = super().get_context_data(**kwargs)
-        ctx["unread_count"] = Notification.objects.filter(
+        # Build a channel-scoped unread count matching the active channel filter
+        unread_qs = Notification.objects.filter(
             recipient=self.request.user, read_at__isnull=True
-        ).count()
+        )
+        channel = self.request.GET.get("channel", "")
+        if channel in ("email", "sms", "in_app"):
+            unread_qs = unread_qs.filter(channel=channel)
+        ctx["unread_count"] = unread_qs.count()
         ctx["active_filter"] = self.request.GET.get("filter", "all")
         ctx["active_channel"] = self.request.GET.get("channel", "")
         return ctx

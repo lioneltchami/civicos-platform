@@ -148,6 +148,21 @@ class FormPage(AbstractEmailForm):
             submission.consent_text_shown = self.consent_text
 
         submission.save(update_fields=["submitter_ip", "consent_given", "consent_text_shown"])
+
+        try:
+            from apps.core.signals import form_submission_received
+            form_submission_received.send(
+                sender=self.__class__,
+                form_page=self,
+                submission=submission,
+                request=request,
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to emit form_submission_received signal for page_id=%s", self.pk
+            )
+
         return submission
 
     content_panels = AbstractEmailForm.content_panels + [

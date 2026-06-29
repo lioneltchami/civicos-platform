@@ -21,7 +21,12 @@ app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 @app.task(bind=True, ignore_result=True)
 def debug_task(self):
-    """Diagnostic task — prints worker request info."""
-    print(f"Request: {self.request!r}")
+    """Diagnostic task — logs worker request info."""
+    logger.info("Debug task request: %r", self.request)

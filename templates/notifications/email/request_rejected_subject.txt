@@ -1,1 +1,1 @@
-{% load i18n %}{% blocktrans with ref=reference %}Update on your request {{ ref }}{% endblocktrans %}
+{% load i18n %}{% blocktrans with ref=reference %}A decision has been reached on your request {{ ref }}{% endblocktrans %}

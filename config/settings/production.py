@@ -28,9 +28,6 @@ SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 
-# Referrer policy
-SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
-
 # ALLOWED_HOSTS is read from DJANGO_ALLOWED_HOSTS env var (set in base.py).
 # Default is [] which causes Django to reject all requests — set the env var in deployment.
 # Example: DJANGO_ALLOWED_HOSTS=govstack.ca,www.govstack.ca

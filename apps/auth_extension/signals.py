@@ -40,9 +40,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _get_client_ip(request) -> str | None:
-    x_forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if x_forwarded:
-        return x_forwarded.split(",")[0].strip()
+    """
+    Extract the real client IP.
+    Only trusts X-Forwarded-For when a known reverse proxy is configured
+    (SECURE_PROXY_SSL_HEADER set), preventing IP spoofing in audit records.
+    """
+    from django.conf import settings
+    if getattr(settings, "SECURE_PROXY_SSL_HEADER", None):
+        x_forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
+        if x_forwarded:
+            return x_forwarded.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR") or None
 
 

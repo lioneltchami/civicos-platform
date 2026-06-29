@@ -15,6 +15,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.template import TemplateDoesNotExist
+from django.template.exceptions import TemplateSyntaxError
 from django.template.loader import render_to_string
 from django.utils import translation
 
@@ -57,12 +58,13 @@ def send_email_notification(
                 f"notifications/email/{subject_key}_body.txt",
                 {**context, "recipient": recipient},
             )
-    except TemplateDoesNotExist:
+    except (TemplateDoesNotExist, TemplateSyntaxError) as exc:
         logger.error(
-            "Notification template missing for subject_key=%r language=%r — "
-            "create templates/notifications/email/%s_*.txt/html",
+            "Notification template error for subject_key=%r language=%r: %s — "
+            "create/fix templates/notifications/email/%s_*.txt/html",
             subject_key,
             language,
+            exc,
             subject_key,
         )
         return False

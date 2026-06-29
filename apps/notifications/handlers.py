@@ -12,10 +12,7 @@ import logging
 
 from django.dispatch import receiver
 
-from apps.core.signals import (
-    form_submission_received,
-    service_request_status_changed,
-)
+from apps.core.signals import form_submission_received
 
 logger = logging.getLogger(__name__)
 
@@ -40,30 +37,3 @@ def notify_on_form_submission(sender, form_page, submission, request, **kwargs):
             )
 
 
-@receiver(service_request_status_changed)
-def notify_on_status_change(sender, instance, old_status, new_status, actor, **kwargs):
-    """
-    Notify citizen when their service request status changes.
-
-    NOTE (architectural): apps/portal/services.py::update_request_status() calls
-    _fire_notification() directly via transaction.on_commit(), bypassing this
-    signal entirely. This handler is currently DEAD CODE — the signal
-    service_request_status_changed is defined in apps/core/signals.py but
-    portal/services.py never emits it. If this handler is ever activated by
-    wiring the signal emit in portal/services.py, notifications will be sent
-    TWICE (once via this handler, once via _fire_notification). Before activating
-    this handler, remove the direct task call from _fire_notification.
-    """
-    from .tasks import send_status_update_notification
-    try:
-        send_status_update_notification.delay(
-            citizen_id=str(instance.citizen_id),
-            request_reference=instance.reference_number,
-            new_status=new_status,
-        )
-    except Exception:
-        logger.exception(
-            "Failed to queue status update notification for request=%s status=%s",
-            getattr(instance, "reference_number", "?"),
-            new_status,
-        )

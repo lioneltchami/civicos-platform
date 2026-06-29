@@ -553,7 +553,6 @@ class NewsPage(Page):
 
     class Meta:
         verbose_name = _("News article")
-        ordering = ["-publication_date"]
 
     parent_page_types = ["cms.NewsIndexPage"]
     subpage_types = []

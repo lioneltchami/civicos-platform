@@ -36,6 +36,8 @@ SECRET_KEY = env("DJANGO_SECRET_KEY")
 
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 
+SITE_ID = 1
+
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
 
 DJANGO_APPS = [
@@ -47,6 +49,7 @@ DJANGO_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.sitemaps",
     "django.contrib.humanize",
+    "django.contrib.sites",
 ]
 
 WAGTAIL_APPS = [
@@ -310,7 +313,8 @@ WAGTAIL_ENABLE_WHATS_NEW_BANNER = False
 WAGTAIL_SLIM_SIDEBAR = True
 
 # Restrict document / image file types
-WAGTAILIMAGES_EXTENSIONS = ["gif", "jpg", "jpeg", "png", "webp", "svg"]
+# SVG excluded — requires django-svg-sanitize or equivalent before enabling
+WAGTAILIMAGES_EXTENSIONS = ["gif", "jpg", "jpeg", "png", "webp"]
 WAGTAILDOCS_EXTENSIONS = ["pdf", "docx", "xlsx", "csv", "txt"]
 
 # Search
@@ -326,6 +330,7 @@ WAGTAILSEARCH_BACKENDS = {
 
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
 # CSP configured via django-csp — see apps/core/middleware.py or settings overrides
 CSP_DEFAULT_SRC = ("'self'",)
