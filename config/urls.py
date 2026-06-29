@@ -65,6 +65,8 @@ urlpatterns += i18n_patterns(
     path("notifications/", include("apps.notifications.urls", namespace="notifications")),
     # Forms building block — staff submission management
     path("forms/", include("apps.forms.urls", namespace="forms")),
+    # Staff workflow queue (workflows building block)
+    path("workflows/", include("apps.workflows.urls", namespace="workflows")),
     # Citizen account (auth_extension building block)
     path("account/", include("apps.auth_extension.urls", namespace="auth_extension")),
     # Public-facing pages (Wagtail CMS) — must be last

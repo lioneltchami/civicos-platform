@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Staff Queue" %} — Govstack{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="row mb-3">
+    <div class="col-md-8">
+      <h1 class="h2">{% trans "Work Queue" %} / <span lang="fr">File de travail</span></h1>
+      <p class="text-muted">
+        {% blocktrans with total=total_open mine=my_items_count %}
+          {{ total }} open items — {{ mine }} assigned to you
+        {% endblocktrans %}
+      </p>
+    </div>
+  </div>
+
+  {# Filter bar #}
+  <form method="get" class="row g-2 mb-4" aria-label="{% trans 'Filter work items' %}">
+    <div class="col-md-3">
+      <label for="filter-status" class="visually-hidden">{% trans "Status" %}</label>
+      <select id="filter-status" name="status" class="form-select" onchange="this.form.submit()">
+        <option value="">{% trans "All statuses" %}</option>
+        {% for val, label in status_choices %}
+          <option value="{{ val }}" {% if val == current_status %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-auto">
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="filter-mine" name="mine"
+               value="1" {% if mine_only %}checked{% endif %} onchange="this.form.submit()">
+        <label class="form-check-label" for="filter-mine">{% trans "Mine only" %}</label>
+      </div>
+    </div>
+    <div class="col-md-auto">
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="filter-unassigned" name="unassigned"
+               value="1" {% if unassigned_only %}checked{% endif %} onchange="this.form.submit()">
+        <label class="form-check-label" for="filter-unassigned">{% trans "Unassigned" %}</label>
+      </div>
+    </div>
+    <div class="col-md-2">
+      <label for="filter-priority" class="visually-hidden">{% trans "Priority" %}</label>
+      <select id="filter-priority" name="priority" class="form-select" onchange="this.form.submit()">
+        <option value="">{% trans "All priorities" %}</option>
+        <option value="1" {% if current_priority == "1" %}selected{% endif %}>{% trans "Critical" %}</option>
+        <option value="2" {% if current_priority == "2" %}selected{% endif %}>{% trans "High" %}</option>
+        <option value="3" {% if current_priority == "3" %}selected{% endif %}>{% trans "Normal" %}</option>
+        <option value="4" {% if current_priority == "4" %}selected{% endif %}>{% trans "Low" %}</option>
+      </select>
+    </div>
+    <div class="col-md-auto">
+      <a href="{% url 'workflows:queue' %}" class="btn btn-outline-secondary">{% trans "Clear" %}</a>
+    </div>
+  </form>
+
+  {# Messages #}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Close' %}"></button>
+    </div>
+  {% endfor %}
+
+  {# Work items table #}
+  {% if work_items %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle" aria-label="{% trans 'Work items' %}">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">{% trans "Title" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">{% trans "Priority" %}</th>
+            <th scope="col">{% trans "Assigned to" %}</th>
+            <th scope="col">{% trans "Due" %}</th>
+            <th scope="col">{% trans "SLA" %}</th>
+            <th scope="col"><span class="visually-hidden">{% trans "Actions" %}</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in work_items %}
+          <tr>
+            <td>
+              <a href="{% url 'workflows:detail' item.pk %}">{{ item.title }}</a>
+              {% if item.is_escalated %}
+                <span class="badge bg-danger ms-1" aria-label="{% trans 'Escalated' %}">
+                  {% trans "Escalated" %}
+                </span>
+              {% endif %}
+            </td>
+            <td>
+              {% if item.status == "pending" %}<span class="badge bg-secondary">{% endif %}
+              {% if item.status == "in_progress" %}<span class="badge bg-primary">{% endif %}
+              {% if item.status == "waiting" %}<span class="badge bg-warning text-dark">{% endif %}
+              {{ item.get_status_display }}
+              </span>
+            </td>
+            <td>
+              {% if item.priority == 1 %}<span class="badge bg-danger">{% trans "Critical" %}</span>{% endif %}
+              {% if item.priority == 2 %}<span class="badge bg-warning text-dark">{% trans "High" %}</span>{% endif %}
+              {% if item.priority == 3 %}<span class="badge bg-info text-dark">{% trans "Normal" %}</span>{% endif %}
+              {% if item.priority == 4 %}<span class="badge bg-light text-dark border">{% trans "Low" %}</span>{% endif %}
+            </td>
+            <td>
+              {% if item.assigned_to %}
+                {{ item.assigned_to.display_name }}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if item.due_at %}
+                <time datetime="{{ item.due_at|date:'c' }}">{{ item.due_at|date:"Y-m-d H:i" }}</time>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if item.is_sla_breached %}
+                <span class="badge bg-danger" aria-label="{% trans 'SLA breached' %}">⚠ {% trans "Breached" %}</span>
+              {% elif item.is_overdue %}
+                <span class="badge bg-warning text-dark" aria-label="{% trans 'Overdue' %}">⚠ {% trans "Overdue" %}</span>
+              {% else %}
+                <span class="badge bg-success">{% trans "On track" %}</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'workflows:detail' item.pk %}" class="btn btn-sm btn-outline-primary">
+                {% trans "View" %}
+              </a>
+              {% if not item.assigned_to %}
+                <form method="post" action="{% url 'workflows:claim' item.pk %}" class="d-inline">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-sm btn-outline-success">{% trans "Claim" %}</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Pagination #}
+    {% if is_paginated %}
+      <nav aria-label="{% trans 'Work items pagination' %}">
+        <ul class="pagination">
+          {% if page_obj.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_status %}&status={{ current_status }}{% endif %}">
+                &laquo; {% trans "Previous" %}
+              </a>
+            </li>
+          {% endif %}
+          <li class="page-item disabled">
+            <span class="page-link">
+              {% blocktrans with current=page_obj.number total=page_obj.paginator.num_pages %}
+                Page {{ current }} of {{ total }}
+              {% endblocktrans %}
+            </span>
+          </li>
+          {% if page_obj.has_next %}
+            <li class="page-item">
+              <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_status %}&status={{ current_status }}{% endif %}">
+                {% trans "Next" %} &raquo;
+              </a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+
+  {% else %}
+    <div class="alert alert-info" role="status">
+      {% trans "No work items match the current filters." %}
+      / <span lang="fr">Aucune tâche ne correspond aux filtres actuels.</span>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

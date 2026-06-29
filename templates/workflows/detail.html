@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{{ work_item.title }} — {% trans "Work Item" %}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+  {# Breadcrumb #}
+  <nav aria-label="{% trans 'Breadcrumb' %}">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'workflows:queue' %}">{% trans "Queue" %}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ work_item.title }}</li>
+    </ol>
+  </nav>
+
+  {# Messages #}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Close' %}"></button>
+    </div>
+  {% endfor %}
+
+  <div class="row g-4">
+
+    {# === Left column: details + history + comments === #}
+    <div class="col-lg-8">
+
+      {# Header #}
+      <div class="card mb-4">
+        <div class="card-header d-flex align-items-center gap-2">
+          <h1 class="h4 mb-0 flex-grow-1">{{ work_item.title }}</h1>
+
+          {# Priority badge #}
+          {% if work_item.priority == 1 %}<span class="badge bg-danger">{% trans "Critical" %}</span>{% endif %}
+          {% if work_item.priority == 2 %}<span class="badge bg-warning text-dark">{% trans "High" %}</span>{% endif %}
+          {% if work_item.priority == 3 %}<span class="badge bg-info text-dark">{% trans "Normal" %}</span>{% endif %}
+          {% if work_item.priority == 4 %}<span class="badge bg-light text-dark border">{% trans "Low" %}</span>{% endif %}
+
+          {# SLA badge #}
+          {% if work_item.is_sla_breached %}
+            <span class="badge bg-danger">⚠ {% trans "SLA Breached" %}</span>
+          {% elif work_item.is_overdue %}
+            <span class="badge bg-warning text-dark">⚠ {% trans "Overdue" %}</span>
+          {% endif %}
+
+          {# Escalation badge #}
+          {% if work_item.is_escalated %}
+            <span class="badge bg-danger">
+              {% blocktrans with level=work_item.escalation_level %}Escalated (level {{ level }}){% endblocktrans %}
+            </span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-sm-3">{% trans "Status" %}</dt>
+            <dd class="col-sm-9">{{ work_item.get_status_display }}</dd>
+
+            <dt class="col-sm-3">{% trans "Assigned to" %}</dt>
+            <dd class="col-sm-9">
+              {% if work_item.assigned_to %}
+                {{ work_item.assigned_to.display_name }}
+              {% else %}
+                <span class="text-muted">{% trans "Unassigned" %}</span>
+              {% endif %}
+            </dd>
+
+            <dt class="col-sm-3">{% trans "Due" %}</dt>
+            <dd class="col-sm-9">
+              {% if work_item.due_at %}
+                <time datetime="{{ work_item.due_at|date:'c' }}">{{ work_item.due_at|date:"Y-m-d H:i" }}</time>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </dd>
+
+            <dt class="col-sm-3">{% trans "Created" %}</dt>
+            <dd class="col-sm-9">
+              <time datetime="{{ work_item.created_at|date:'c' }}">{{ work_item.created_at|date:"Y-m-d H:i" }}</time>
+            </dd>
+
+            {% if work_item.description %}
+            <dt class="col-sm-3">{% trans "Description" %}</dt>
+            <dd class="col-sm-9">{{ work_item.description }}</dd>
+            {% endif %}
+          </dl>
+        </div>
+      </div>
+
+      {# History timeline #}
+      <section aria-labelledby="history-heading" class="mb-4">
+        <h2 class="h5" id="history-heading">{% trans "History" %} / <span lang="fr">Historique</span></h2>
+        {% if history %}
+          <ol class="list-group list-group-flush" reversed>
+            {% for entry in history %}
+              <li class="list-group-item px-0">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>
+                    <strong>{{ entry.action }}</strong>
+                    {% if entry.old_status and entry.new_status %}
+                      <span class="text-muted">
+                        {{ entry.old_status }} → {{ entry.new_status }}
+                      </span>
+                    {% endif %}
+                    {% if entry.notes %}
+                      <p class="mb-0 mt-1 text-secondary small">{{ entry.notes }}</p>
+                    {% endif %}
+                  </div>
+                  <small class="text-muted text-nowrap ms-3">
+                    {% if entry.actor %}{{ entry.actor.display_name }},{% endif %}
+                    <time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"Y-m-d H:i" }}</time>
+                  </small>
+                </div>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <p class="text-muted">{% trans "No history yet." %}</p>
+        {% endif %}
+      </section>
+
+      {# Comments #}
+      <section aria-labelledby="comments-heading" class="mb-4">
+        <h2 class="h5" id="comments-heading">
+          {% trans "Internal Notes" %} / <span lang="fr">Notes internes</span>
+        </h2>
+        {% if comments %}
+          <ul class="list-group list-group-flush mb-3">
+            {% for comment in comments %}
+              <li class="list-group-item px-0">
+                <p class="mb-1">{{ comment.body }}</p>
+                <small class="text-muted">
+                  {% if comment.author %}{{ comment.author.display_name }}{% endif %},
+                  <time datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:"Y-m-d H:i" }}</time>
+                </small>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted mb-3">{% trans "No comments yet." %}</p>
+        {% endif %}
+
+        {# Add comment form #}
+        <form method="post" action="{% url 'workflows:add-comment' work_item.pk %}"
+              aria-label="{% trans 'Add internal note' %}">
+          {% csrf_token %}
+          <div class="mb-2">
+            <label for="id_body" class="form-label fw-semibold">{% trans "Add note" %}</label>
+            {{ comment_form.body }}
+            {% if comment_form.body.errors %}
+              <div class="invalid-feedback d-block">{{ comment_form.body.errors }}</div>
+            {% endif %}
+          </div>
+          <button type="submit" class="btn btn-outline-secondary btn-sm">
+            {% trans "Add note" %} / <span lang="fr">Ajouter une note</span>
+          </button>
+        </form>
+      </section>
+
+    </div>{# /left column #}
+
+    {# === Right column: action panels === #}
+    <div class="col-lg-4">
+
+      {# Claim (only if unassigned and not terminal) #}
+      {% if not work_item.assigned_to and work_item.status not in "completed,cancelled" %}
+        <div class="card mb-3 border-success">
+          <div class="card-header bg-success text-white">{% trans "Claim" %}</div>
+          <div class="card-body">
+            <p class="card-text small">{% trans "Claim this item and set status to In Progress." %}</p>
+            <form method="post" action="{% url 'workflows:claim' work_item.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-success w-100">
+                {% trans "Claim" %} / <span lang="fr">Réclamer</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endif %}
+
+      {# Assign #}
+      {% if work_item.status not in "completed,cancelled" %}
+        <div class="card mb-3">
+          <div class="card-header">{% trans "Assign" %} / <span lang="fr">Assigner</span></div>
+          <div class="card-body">
+            <form method="post" action="{% url 'workflows:assign' work_item.pk %}">
+              {% csrf_token %}
+              <div class="mb-2">
+                <label for="{{ assign_form.assignee.id_for_label }}" class="form-label small">
+                  {% trans "Staff member" %}
+                </label>
+                {{ assign_form.assignee }}
+              </div>
+              <button type="submit" class="btn btn-outline-primary btn-sm w-100">
+                {% trans "Assign" %}
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endif %}
+
+      {# Advance status #}
+      {% if work_item.status not in "completed,cancelled" %}
+        <div class="card mb-3">
+          <div class="card-header">{% trans "Update Status" %} / <span lang="fr">Mettre à jour le statut</span></div>
+          <div class="card-body">
+            <form method="post" action="{% url 'workflows:advance-status' work_item.pk %}">
+              {% csrf_token %}
+              <div class="mb-2">
+                <label for="{{ advance_form.new_status.id_for_label }}" class="form-label small">
+                  {% trans "New status" %}
+                </label>
+                {{ advance_form.new_status }}
+              </div>
+              <div class="mb-2">
+                <label for="{{ advance_form.notes.id_for_label }}" class="form-label small">
+                  {% trans "Notes" %}
+                </label>
+                {{ advance_form.notes }}
+              </div>
+              <button type="submit" class="btn btn-outline-primary btn-sm w-100">
+                {% trans "Update" %}
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endif %}
+
+      {# Escalate #}
+      {% if work_item.escalation_level < 2 and work_item.status not in "completed,cancelled" %}
+        <div class="card mb-3 border-warning">
+          <div class="card-header bg-warning text-dark">{% trans "Escalate" %} / <span lang="fr">Escalader</span></div>
+          <div class="card-body">
+            <p class="card-text small">
+              {% blocktrans with level=work_item.escalation_level %}
+                Current escalation level: {{ level }}
+              {% endblocktrans %}
+            </p>
+            <form method="post" action="{% url 'workflows:escalate' work_item.pk %}">
+              {% csrf_token %}
+              <div class="mb-2">
+                <label for="{{ escalate_form.reason.id_for_label }}" class="form-label small">
+                  {% trans "Reason" %}
+                </label>
+                {{ escalate_form.reason }}
+              </div>
+              <button type="submit" class="btn btn-warning btn-sm w-100">
+                {% trans "Escalate" %}
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endif %}
+
+    </div>{# /right column #}
+  </div>{# /row #}
+</div>
+{% endblock %}
