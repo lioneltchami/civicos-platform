@@ -103,3 +103,56 @@ def send_email_notification(
         notification.status = NotificationStatus.FAILED
         notification.save(update_fields=["status"])
         raise  # Re-raise so Celery autoretry_for=(Exception,) can retry the task.
+
+
+def send_ad_hoc_notification(
+    *,
+    recipient,
+    subject: str,
+    body: str,
+    from_email: str | None = None,
+) -> None:
+    """
+    Send a free-form (non-templated) email notification to a citizen.
+
+    Used by the back-office staff notification send view for ad-hoc messages
+    that do not correspond to a system event template.
+
+    Creates a Notification record (PENDING → SENT/FAILED) and sends via
+    Django's mail backend.  Raises on SMTP failure so the caller can handle
+    the error.  Logs recipient.pk only — never logs email (PII).
+    """
+    from django.utils import timezone
+
+    from .models import Notification, NotificationChannel, NotificationStatus
+
+    from_email = from_email or settings.DEFAULT_FROM_EMAIL
+
+    notification = Notification.objects.create(
+        recipient=recipient,
+        channel=NotificationChannel.EMAIL,
+        subject=subject,
+        body=body,
+        status=NotificationStatus.PENDING,
+    )
+
+    try:
+        send_mail(
+            subject=subject,
+            message=body,
+            from_email=from_email,
+            recipient_list=[recipient.email],
+            fail_silently=False,
+        )
+        notification.status = NotificationStatus.SENT
+        notification.sent_at = timezone.now()
+        notification.save(update_fields=["status", "sent_at"])
+
+    except Exception:
+        notification.status = NotificationStatus.FAILED
+        notification.save(update_fields=["status"])
+        logger.exception(
+            "Failed to send ad-hoc notification to recipient_id=%s",
+            recipient.pk,
+        )
+        raise

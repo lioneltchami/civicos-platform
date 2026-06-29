@@ -9,21 +9,17 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import redirect, render
-from django.utils import timezone
 from django.utils.translation import gettext as _
 from django.views import View
 from django.views.generic import ListView
 
 from apps.backoffice.forms.staff_notifications import StaffNotificationSendForm
 from apps.backoffice.mixins import StaffRequiredMixin
-from apps.notifications.models import (
-    Notification,
-    NotificationChannel,
-    NotificationStatus,
-)
+from apps.notifications.models import Notification, NotificationChannel, NotificationStatus
+from apps.notifications.services import send_ad_hoc_notification
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +58,6 @@ class StaffNotificationListView(StaffRequiredMixin, ListView):
         # --- free-text search (recipient email or subject) ---
         q = self.request.GET.get("q", "").strip()
         if q:
-            from django.db.models import Q
-
             qs = qs.filter(
                 Q(recipient__email__icontains=q) | Q(subject__icontains=q)
             )
@@ -92,11 +86,10 @@ class StaffNotificationSendView(StaffRequiredMixin, View):
     Allow staff to send a one-off email notification to a single citizen.
 
     GET  — render the send form.
-    POST — validate, look up citizen, send email, redirect on success.
+    POST — validate, look up citizen, send email via service layer, redirect on success.
 
     Uses POST-redirect-GET to prevent form re-submission on browser refresh.
-    Wraps the send operation in a database transaction so the Notification
-    record is always consistent with the email send attempt.
+    send_ad_hoc_notification() handles Notification record creation and SMTP.
     """
 
     template_name = "backoffice/staff_notifications/send.html"
@@ -115,10 +108,7 @@ class StaffNotificationSendView(StaffRequiredMixin, View):
         body = form.cleaned_data["body"]
 
         # Look up the citizen — must exist and must not be staff.
-        recipient = (
-            User.objects.filter(email=recipient_email, is_staff=False)
-            .first()
-        )
+        recipient = User.objects.filter(email=recipient_email, is_staff=False).first()
         if recipient is None:
             form.add_error(
                 "recipient_email",
@@ -127,9 +117,19 @@ class StaffNotificationSendView(StaffRequiredMixin, View):
             return render(request, self.template_name, {"form": form})
 
         try:
-            self._send_notification(request, recipient, subject, body)
+            with transaction.atomic():
+                send_ad_hoc_notification(
+                    recipient=recipient,
+                    subject=subject,
+                    body=body,
+                )
+            logger.info(
+                "backoffice: ad-hoc email sent to citizen pk=%d by staff pk=%d",
+                recipient.pk,
+                request.user.pk,
+            )
         except Exception:
-            # _send_notification logs the exception; re-render with a generic error.
+            # send_ad_hoc_notification logs the exception; show a user-facing error.
             messages.error(
                 request,
                 _("The notification could not be sent due to a delivery error. Please try again."),
@@ -138,52 +138,3 @@ class StaffNotificationSendView(StaffRequiredMixin, View):
 
         messages.success(request, _("Notification sent."))
         return redirect("backoffice:notification-list")
-
-    @staticmethod
-    @transaction.atomic
-    def _send_notification(request, recipient, subject: str, body: str) -> None:
-        """
-        Create the Notification record and send the email inside a transaction.
-
-        We create the record with PENDING status first so we have a database
-        record even if the SMTP call raises.  On success the status is updated
-        to SENT; on failure we set FAILED and re-raise so the outer try/except
-        can show the user an error.
-        """
-        from django.conf import settings
-
-        notification = Notification.objects.create(
-            recipient=recipient,
-            channel=NotificationChannel.EMAIL,
-            subject=subject,
-            body=body,
-            status=NotificationStatus.PENDING,
-        )
-
-        try:
-            send_mail(
-                subject=subject,
-                message=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[recipient.email],
-                fail_silently=False,
-            )
-            notification.status = NotificationStatus.SENT
-            notification.sent_at = timezone.now()
-            notification.save(update_fields=["status", "sent_at"])
-
-            logger.info(
-                "backoffice: email notification sent to citizen pk=%d by staff pk=%d",
-                recipient.pk,
-                request.user.pk,
-            )
-
-        except Exception:
-            notification.status = NotificationStatus.FAILED
-            notification.save(update_fields=["status"])
-            logger.exception(
-                "backoffice: failed to send email notification to citizen pk=%d by staff pk=%d",
-                recipient.pk,
-                request.user.pk,
-            )
-            raise

@@ -78,8 +78,7 @@ class ServiceRequestListTests(TestCase):
     def test_unauthenticated_redirects(self):
         """Unauthenticated users are redirected to login (302)."""
         response = self.client.get(self.list_url)
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("/login", response["Location"])
+        self.assertRedirects(response, "/account/login/?next=/backoffice/service-requests/")
 
     def test_list_requires_staff(self):
         """Authenticated non-staff citizens receive HTTP 403."""

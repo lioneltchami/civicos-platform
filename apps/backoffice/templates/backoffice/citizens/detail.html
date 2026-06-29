@@ -1,7 +1,7 @@
 {% extends "backoffice/base.html" %}
 {% load i18n %}
 
-{% block backoffice_title %}{% trans "Citizen" %} — {{ object.email }}{% endblock %}
+{% block backoffice_title %}{% trans "Citizen" %} — {{ citizen.email }}{% endblock %}
 
 {% block backoffice_content %}
 
@@ -29,9 +29,9 @@
   <div class="card-body">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
       <div>
-        <h1 class="h4 mb-1">{{ object.email }}</h1>
+        <h1 class="h4 mb-1">{{ citizen.email }}</h1>
         <div class="d-flex flex-wrap gap-2 align-items-center">
-          {% if object.is_active %}
+          {% if citizen.is_active %}
             <span class="badge bg-success" aria-label="{% trans 'Account is active' %}">✓ {% trans "Active" %}</span>
           {% else %}
             <span class="badge bg-danger" aria-label="{% trans 'Account is inactive' %}">✗ {% trans "Inactive" %}</span>
@@ -40,12 +40,12 @@
         <dl class="row mt-3 mb-0 small">
           <dt class="col-sm-4">{% trans "Date Joined" %}</dt>
           <dd class="col-sm-8">
-            <time datetime="{{ object.date_joined|date:'c' }}">{{ object.date_joined|date:"Y-m-d H:i" }}</time>
+            <time datetime="{{ citizen.date_joined|date:'c' }}">{{ citizen.date_joined|date:"Y-m-d H:i" }}</time>
           </dd>
           <dt class="col-sm-4">{% trans "Last Login" %}</dt>
           <dd class="col-sm-8">
-            {% if object.last_login %}
-              <time datetime="{{ object.last_login|date:'c' }}">{{ object.last_login|date:"Y-m-d H:i" }}</time>
+            {% if citizen.last_login %}
+              <time datetime="{{ citizen.last_login|date:'c' }}">{{ citizen.last_login|date:"Y-m-d H:i" }}</time>
             {% else %}
               <span class="text-muted">{% trans "Never" %}</span>
             {% endif %}
@@ -57,17 +57,17 @@
 
       {# ---- Deactivate / Reactivate button ---- #}
       <div>
-        <form method="post" action="{% url 'backoffice:citizen-deactivate' pk=object.pk %}">
+        <form method="post" action="{% url 'backoffice:citizen-deactivate' pk=citizen.pk %}">
           {% csrf_token %}
-          {% if object.is_active %}
+          {% if citizen.is_active %}
             <button type="submit" class="btn btn-danger"
-                    aria-label="{% blocktrans with email=object.email %}Deactivate citizen account {{ email }}{% endblocktrans %}"
+                    aria-label="{% blocktrans with email=citizen.email %}Deactivate citizen account {{ email }}{% endblocktrans %}"
                     onclick="return confirm('{% trans "Are you sure you want to deactivate this account?" %}')">
               {% trans "Deactivate Account" %}
             </button>
           {% else %}
             <button type="submit" class="btn btn-success"
-                    aria-label="{% blocktrans with email=object.email %}Reactivate citizen account {{ email }}{% endblocktrans %}"
+                    aria-label="{% blocktrans with email=citizen.email %}Reactivate citizen account {{ email }}{% endblocktrans %}"
                     onclick="return confirm('{% trans "Are you sure you want to reactivate this account?" %}')">
               {% trans "Reactivate Account" %}
             </button>

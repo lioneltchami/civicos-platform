@@ -1,10 +1,9 @@
 {% extends "backoffice/base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Service Requests" %}{% endblock %}
+{% block backoffice_title %}{% trans "Service Requests" %}{% endblock %}
 
-{% block content %}
-<div class="container">
+{% block backoffice_content %}
 
   <div class="page-header">
     <h1 class="page-header__title">{% trans "Service Requests" %}</h1>
@@ -214,5 +213,4 @@
     </div>
   {% endif %}
 
-</div>
-{% endblock %}
+{% endblock backoffice_content %}

@@ -1,10 +1,9 @@
 {% extends "backoffice/base.html" %}
 {% load i18n %}
 
-{% block title %}{% blocktrans with ref=service_request.reference_number %}Request {{ ref }}{% endblocktrans %}{% endblock %}
+{% block backoffice_title %}{% blocktrans with ref=service_request.reference_number %}Request {{ ref }}{% endblocktrans %}{% endblock %}
 
-{% block content %}
-<div class="container">
+{% block backoffice_content %}
 
   {# Back navigation #}
   <nav aria-label="{% trans 'Breadcrumb' %}" class="mb-3">
@@ -265,7 +264,7 @@
             {% csrf_token %}
 
             <div class="mb-3">
-              <label for="id_internal_notes" class="form-label visually-hidden">
+              <label for="id_internal_notes" class="form-label">
                 {{ notes_form.internal_notes.label }}
               </label>
               <textarea id="id_internal_notes"
@@ -309,5 +308,4 @@
 
   </div>{# /row #}
 
-</div>
-{% endblock %}
+{% endblock backoffice_content %}

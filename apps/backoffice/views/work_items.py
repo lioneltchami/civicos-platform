@@ -77,6 +77,8 @@ class WorkItemListView(StaffRequiredMixin, ListView):
         params = self.request.GET
 
         status_filter = params.get("status") or None
+        if status_filter and status_filter not in WorkItemStatus.values:
+            status_filter = None
         assigned_to_me = params.get("mine") == "1"
         unassigned_only = params.get("unassigned") == "1"
 

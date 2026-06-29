@@ -245,9 +245,10 @@ class ServiceRequestNotesView(StaffRequiredMixin, View):
 
         # Direct update: internal_notes has no audit/signal requirements.
         # The service layer is intentionally bypassed here — see module docstring.
-        ServiceRequest.objects.filter(pk=sr.pk).update(
-            internal_notes=form.cleaned_data["internal_notes"]
-        )
+        with transaction.atomic():
+            ServiceRequest.objects.filter(pk=sr.pk).update(
+                internal_notes=form.cleaned_data["internal_notes"]
+            )
         logger.info(
             "backoffice: internal notes updated on SR %s by staff pk=%d",
             sr.reference_number,

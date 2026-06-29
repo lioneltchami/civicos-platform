@@ -97,6 +97,7 @@ class CitizenDetailView(StaffRequiredMixin, DetailView):
     """
 
     template_name = "backoffice/citizens/detail.html"
+    context_object_name = "citizen"
 
     def get_object(self, queryset=None):
         return get_object_or_404(User, pk=self.kwargs["pk"], is_staff=False)

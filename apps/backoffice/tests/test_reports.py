@@ -33,8 +33,7 @@ class ReportsViewTests(TestCase):
     def test_requires_staff_unauthenticated(self):
         """Unauthenticated requests are redirected to the login page."""
         response = self.client.get(REPORTS_URL)
-        self.assertIn(response.status_code, [301, 302])
-        self.assertIn("login", response["Location"])
+        self.assertRedirects(response, "/account/login/?next=/backoffice/reports/")
 
     def test_requires_staff_citizen_gets_403(self):
         """Authenticated non-staff users receive HTTP 403."""

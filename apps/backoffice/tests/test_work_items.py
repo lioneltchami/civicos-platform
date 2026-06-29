@@ -306,3 +306,59 @@ class WorkItemCommentTests(TestCase):
             reverse("backoffice:wi-detail", kwargs={"pk": wi.pk}),
             fetch_redirect_response=False,
         )
+
+
+# ---------------------------------------------------------------------------
+# WorkItemAssignView
+# ---------------------------------------------------------------------------
+
+
+class WorkItemAssignTests(TestCase):
+    def setUp(self):
+        self.staff = _make_staff("staff@example.gov")
+        self.citizen = _make_citizen("citizen@example.gov")
+
+    def _url(self, pk):
+        return reverse("backoffice:wi-assign", kwargs={"pk": pk})
+
+    def test_unauthenticated_redirects(self):
+        """Unauthenticated GET to assign URL redirects to login."""
+        wi = _make_work_item()
+        resp = self.client.get(self._url(wi.pk))
+        self.assertRedirects(
+            resp,
+            f"/account/login/?next={self._url(wi.pk)}",
+            fetch_redirect_response=False,
+        )
+
+    def test_citizen_gets_403(self):
+        """Authenticated non-staff citizen receives 403 on POST."""
+        wi = _make_work_item()
+        self.client.force_login(self.citizen)
+        resp = self.client.post(self._url(wi.pk), {"assignee_id": str(self.staff.pk)})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_assign_to_staff_succeeds(self):
+        """POST with valid assignee_id calls assign_work_item and redirects to detail."""
+        wi = _make_work_item()
+        assignee = _make_staff("assignee@example.gov")
+
+        with patch("apps.backoffice.views.work_items.assign_work_item") as mock_assign:
+            mock_assign.return_value = wi
+            self.client.force_login(self.staff)
+            resp = self.client.post(self._url(wi.pk), {"assignee_id": str(assignee.pk)})
+
+        self.assertRedirects(
+            resp,
+            reverse("backoffice:wi-detail", kwargs={"pk": wi.pk}),
+            fetch_redirect_response=False,
+        )
+        mock_assign.assert_called_once_with(wi, assignee, self.staff)
+
+    def test_assign_to_nonexistent_staff_shows_error(self):
+        """POST with invalid assignee_id (non-existent user) returns 404."""
+        wi = _make_work_item()
+        self.client.force_login(self.staff)
+        resp = self.client.post(self._url(wi.pk), {"assignee_id": "99999"})
+        # get_object_or_404 on a non-existent staff user returns 404
+        self.assertEqual(resp.status_code, 404)
