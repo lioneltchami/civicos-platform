@@ -218,6 +218,9 @@ SESSION_SAVE_EVERY_REQUEST = True  # Reset timeout on every request
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 
 CSRF_COOKIE_SECURE = True
+# IMPORTANT: CSRF_COOKIE_HTTPONLY=True prevents JS from reading the cookie.
+# AJAX views must read the CSRF token from <meta name="csrf-token"> in base.html.
+# Do NOT use getCookie('csrftoken') — it will silently return undefined here.
 CSRF_COOKIE_HTTPONLY = True
 
 # ---------------------------------------------------------------------------
@@ -360,14 +363,21 @@ X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
-# CSP configured via django-csp — see apps/core/middleware.py or settings overrides
+# ── Content Security Policy ───────────────────────────────────────────────────
+# Stripe requires js.stripe.com in script-src and frame-src.
+# See: https://stripe.com/docs/security/guide#content-security-policy
 CSP_DEFAULT_SRC = ("'self'",)
-CSP_SCRIPT_SRC = ("'self'",)
-CSP_STYLE_SRC = ("'self'",)
-CSP_IMG_SRC = ("'self'", "data:")
-CSP_FONT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'",)
+CSP_SCRIPT_SRC  = ("'self'", "https://js.stripe.com")
+CSP_CONNECT_SRC = ("'self'", "https://api.stripe.com")
+CSP_FRAME_SRC   = ("https://js.stripe.com",)
+CSP_IMG_SRC     = ("'self'", "data:")
+CSP_STYLE_SRC   = ("'self'", "'unsafe-inline'")  # Bootstrap/inline styles
+CSP_FONT_SRC    = ("'self'",)
 CSP_FRAME_ANCESTORS = ("'none'",)
+# NOTE: Inline <script> blocks in fee_payment_confirm.html use a nonce.
+# django-csp adds the nonce automatically when CSP_INCLUDE_NONCE_IN is set.
+# The {% script %}...{% endscript %} template tag injects the nonce automatically.
+CSP_INCLUDE_NONCE_IN = ["script-src"]
 
 # ---------------------------------------------------------------------------
 # Logging

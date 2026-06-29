@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n csp %}
 
 {% block title %}{% trans "Confirm Payment" %}{% endblock %}
 
@@ -60,7 +60,8 @@
            class="field-error"
            role="alert"
            aria-live="assertive"
-           aria-atomic="true"></p>
+           aria-atomic="true"
+           tabindex="-1"></p>
       </div>
 
       <div class="form-actions">
@@ -76,20 +77,19 @@
           {% trans "Cancel" %}
         </a>
       </div>
+      <div id="payment-status"
+           aria-live="polite"
+           aria-atomic="true"
+           class="visually-hidden"></div>
     </form>
   </section>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-{#
-  CSP requirement: add the following to your settings before going live:
-    CSP_SCRIPT_SRC  += ("https://js.stripe.com",)
-    CSP_CONNECT_SRC += ("https://api.stripe.com",)
-    CSP_FRAME_SRC   += ("https://js.stripe.com",)
-#}
-<script src="https://js.stripe.com/v3/" defer></script>
-<script>
+{# Stripe.js — loaded from https://js.stripe.com as required by CSP_SCRIPT_SRC. #}
+{% script src="https://js.stripe.com/v3/" defer=True %}{% endscript %}
+{% script %}
 (function () {
   'use strict';
 
@@ -98,6 +98,7 @@
   var SUCCESS_URL       = '{% url "payments:fee_payment_success" %}';
 
   // Read CSRF token from the <meta> tag that base.html always renders.
+  // CSRF_COOKIE_HTTPONLY=True means JS cannot read the cookie directly.
   function getCsrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
     return meta ? meta.content : '';
@@ -110,16 +111,16 @@
   }
 
   function setLoading(loading) {
-    var btn     = document.getElementById('submit-button');
-    var spinner = document.getElementById('spinner');
-    var text    = document.getElementById('button-text');
+    var btn          = document.getElementById('submit-button');
+    var spinner      = document.getElementById('spinner');
+    var btnText      = document.getElementById('button-text');
+    var statusRegion = document.getElementById('payment-status');
     btn.disabled = loading;
-    if (loading) {
-      spinner.removeAttribute('hidden');
-      text.setAttribute('aria-hidden', 'true');
-    } else {
-      spinner.setAttribute('hidden', '');
-      text.removeAttribute('aria-hidden');
+    btn.setAttribute('aria-disabled', loading ? 'true' : 'false');
+    spinner.hidden = !loading;
+    btnText.setAttribute('aria-busy', loading ? 'true' : 'false');
+    if (statusRegion) {
+      statusRegion.textContent = loading ? 'Processing payment, please wait…' : '';
     }
   }
 
@@ -208,5 +209,5 @@
     });
   });
 }());
-</script>
+{% endscript %}
 {% endblock %}

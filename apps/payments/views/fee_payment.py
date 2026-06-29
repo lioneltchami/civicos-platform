@@ -36,10 +36,13 @@ add "https://js.stripe.com" to CSP_SCRIPT_SRC and "https://api.stripe.com"
 to CSP_CONNECT_SRC in config/settings/base.py (or production.py).
 """
 import logging
+import uuid as _uuid
 import uuid
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.translation import gettext_lazy as _
@@ -49,6 +52,18 @@ from apps.payments.forms import FeePaymentForm
 from apps.payments.gateway import get_gateway
 from apps.payments.gateways.exceptions import GatewayError
 from apps.payments.models import PaymentIntent, TenantPaymentConfig
+
+TWO_PLACES = Decimal("0.01")
+
+
+def _check_rate_limit(user_pk: str) -> bool:
+    """Return True if the request is within rate limit (5 POST per minute)."""
+    key = f"payments:create_intent:rl:{user_pk}"
+    count = cache.get(key, 0)
+    if count >= 5:
+        return False
+    cache.set(key, count + 1, timeout=60)
+    return True
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +81,8 @@ class FeePaymentSelectView(LoginRequiredMixin, FormView):
         cd = form.cleaned_data
         fee = cd["fee"]
         # Store everything the confirm step needs.  No PII beyond payer_reference.
+        # Quantize monetary values to exactly 2 decimal places to avoid
+        # floating-point drift and session serialisation surprises.
         self.request.session[SESSION_KEY] = {
             "fee_pk": str(fee.pk),
             "fee_code": cd["fee_code"],
@@ -73,16 +90,18 @@ class FeePaymentSelectView(LoginRequiredMixin, FormView):
             "province": cd["province"],
             "quantity": cd["quantity"],
             "payer_reference": cd.get("payer_reference", ""),
-            "subtotal": str(cd["subtotal"]),
-            "tax_amount": str(cd["tax_amount"]),
-            "total": str(cd["total"]),
+            "subtotal": str(cd["subtotal"].quantize(TWO_PLACES, rounding=ROUND_HALF_UP)),
+            "tax_amount": str(cd["tax_amount"].quantize(TWO_PLACES, rounding=ROUND_HALF_UP)),
+            "total": str(cd["total"].quantize(TWO_PLACES, rounding=ROUND_HALF_UP)),
             "is_taxable": fee.is_taxable,
         }
         return redirect("payments:fee_payment_confirm")
 
     def get_success_url(self):
-        # Unused — form_valid handles redirect directly.
-        return ""
+        # form_valid() handles the redirect directly.
+        # This fallback is required by FormView's contract.
+        from django.urls import reverse
+        return reverse("payments:fee_payment_confirm")
 
 
 class FeePaymentConfirmView(LoginRequiredMixin, TemplateView):
@@ -133,6 +152,13 @@ def create_payment_intent_api(request):
     if not request.user.is_authenticated:
         return JsonResponse({"error": "Authentication required."}, status=401)
 
+    # Rate-limit: 5 POST per minute per user to prevent double-click and abuse.
+    if not _check_rate_limit(str(request.user.pk)):
+        return JsonResponse(
+            {"error": "Too many requests. Please wait a moment."},
+            status=429,
+        )
+
     session_data = request.session.get(SESSION_KEY)
     if not session_data:
         logger.warning(
@@ -146,11 +172,33 @@ def create_payment_intent_api(request):
 
     try:
         total = Decimal(session_data["total"])
-    except (KeyError, Exception):
+    except Exception:
         return JsonResponse({"error": "Invalid session data."}, status=400)
 
     if total <= Decimal("0.00"):
         return JsonResponse({"error": "Amount must be greater than zero."}, status=400)
+
+    # Idempotency guard — prevents double-click creating two Stripe intents.
+    existing_pk = session_data.get("payment_intent_pk")
+    if existing_pk:
+        try:
+            existing_intent = PaymentIntent.objects.get(
+                pk=existing_pk,
+                payer=request.user,
+                status=PaymentIntent.STATUS_PENDING,
+            )
+            # Re-use the existing pending intent — do not create another.
+            logger.info(
+                "payments.create_intent.reusing_existing intent_pk=%s",
+                str(existing_intent.pk),
+            )
+            # Signal the client to wait and retry.
+            return JsonResponse(
+                {"error": "A payment is already in progress. Please wait a moment and try again."},
+                status=409,
+            )
+        except PaymentIntent.DoesNotExist:
+            pass  # Stale or completed — proceed to create a fresh one
 
     idempotency_key = str(uuid.uuid4())
 
@@ -191,19 +239,39 @@ def create_payment_intent_api(request):
         )
 
     # Create the PaymentIntent model row.
-    # payer is required — the LoginRequiredMixin above guarantees request.user is set.
-    intent = PaymentIntent.objects.create(
-        payer=request.user,
-        amount=total,
-        tax_amount=Decimal(session_data.get("tax_amount", "0.00")),
-        currency="CAD",
-        purpose=PaymentIntent.PURPOSE_SERVICE_FEE,
-        status=PaymentIntent.STATUS_PENDING,
-        gateway=PaymentIntent.GATEWAY_STRIPE,
-        gateway_intent_id=gateway_result["gateway_intent_id"],
-        idempotency_key=uuid.UUID(idempotency_key),
-        metadata=metadata,
-    )
+    # payer is required — the login check above guarantees request.user is set.
+    # Wrapped in try/except: if the DB write fails after the Stripe intent is
+    # created, we cancel the Stripe intent to avoid an orphaned charge.
+    try:
+        intent = PaymentIntent.objects.create(
+            payer=request.user,
+            amount=total,
+            tax_amount=Decimal(session_data.get("tax_amount", "0.00")),
+            currency="CAD",
+            purpose=PaymentIntent.PURPOSE_SERVICE_FEE,
+            status=PaymentIntent.STATUS_PENDING,
+            gateway=PaymentIntent.GATEWAY_STRIPE,
+            gateway_intent_id=gateway_result["gateway_intent_id"],
+            idempotency_key=uuid.UUID(idempotency_key),
+            metadata=metadata,
+        )
+    except Exception as db_exc:
+        logger.error(
+            "payments.create_intent.db_error type=%s — cancelling Stripe intent pi_id=%s",
+            type(db_exc).__name__,
+            gateway_result["gateway_intent_id"],
+        )
+        try:
+            gateway.cancel_payment_intent(gateway_result["gateway_intent_id"])
+        except GatewayError:
+            logger.error(
+                "payments.create_intent.orphan_stripe_pi pi_id=%s",
+                gateway_result["gateway_intent_id"],
+            )
+        return JsonResponse(
+            {"error": "A database error occurred. Please try again."},
+            status=500,
+        )
 
     # Store intent PK in session for success page lookup.
     session_data["payment_intent_pk"] = str(intent.pk)
@@ -229,10 +297,16 @@ class FeePaymentSuccessView(LoginRequiredMixin, TemplateView):
     template_name = "payments/fee_payment_success.html"
 
     def get(self, request, *args, **kwargs):
-        intent_pk = request.GET.get("payment_intent_pk") or (
+        intent_pk_raw = request.GET.get("payment_intent_pk") or (
             request.session.get(SESSION_KEY) or {}
         ).get("payment_intent_pk")
-        if not intent_pk:
+        if not intent_pk_raw:
+            return redirect("payments:fee_payment_select")
+        # Validate UUID format before DB round-trip to prevent injection via
+        # crafted query strings.
+        try:
+            intent_pk = _uuid.UUID(str(intent_pk_raw))
+        except ValueError:
             return redirect("payments:fee_payment_select")
         # Verify the intent belongs to the current user (IDOR protection).
         self.intent = get_object_or_404(
@@ -246,8 +320,9 @@ class FeePaymentSuccessView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["payment_intent"] = self.intent
-        ctx["reference"] = self.intent.reference
+        intent = getattr(self, "intent", None)
+        ctx["payment_intent"] = intent
+        ctx["reference"] = intent.reference if intent else ""
         return ctx
 
 
