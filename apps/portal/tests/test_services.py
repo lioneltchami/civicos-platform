@@ -277,3 +277,72 @@ class GetCitizenRequestsTest(TestCase):
         make_service_request(citizen=self.citizen)
         qs = get_citizen_requests(self.citizen)
         self.assertEqual(qs.count(), 2)
+
+
+class PortalWorkflowsIntegrationTest(TestCase):
+    """
+    Verify that submitting a ServiceRequest automatically creates a WorkItem
+    in the workflows building block via the service_request_submitted signal.
+    """
+
+    def setUp(self):
+        self.citizen = make_user("citizen@example.com")
+
+    @patch("apps.portal.services._fire_notification")
+    @patch("apps.portal.services._write_audit")
+    def test_work_item_created_on_service_request_submission(self, mock_audit, mock_notify):
+        from apps.workflows.models import WorkItem
+        before = WorkItem.objects.count()
+        with self.captureOnCommitCallbacks(execute=True):
+            create_service_request(self.citizen, "Pothole Repair", {"description": "Big hole"})
+        self.assertEqual(WorkItem.objects.count(), before + 1)
+
+    @patch("apps.portal.services._fire_notification")
+    @patch("apps.portal.services._write_audit")
+    def test_work_item_title_includes_reference_number(self, mock_audit, mock_notify):
+        from apps.workflows.models import WorkItem
+        with self.captureOnCommitCallbacks(execute=True):
+            sr = create_service_request(self.citizen, "Pothole Repair", {})
+        item = WorkItem.objects.latest("created_at")
+        self.assertIn(sr.reference_number, item.title)
+
+    @patch("apps.portal.services._fire_notification")
+    @patch("apps.portal.services._write_audit")
+    def test_work_item_linked_to_service_request_via_generic_fk(self, mock_audit, mock_notify):
+        from django.contrib.contenttypes.models import ContentType
+        from apps.workflows.models import WorkItem
+        from apps.portal.models import ServiceRequest
+        with self.captureOnCommitCallbacks(execute=True):
+            sr = create_service_request(self.citizen, "Pothole Repair", {})
+        ct = ContentType.objects.get_for_model(ServiceRequest)
+        item = WorkItem.objects.get(content_type=ct, object_id=str(sr.pk))
+        self.assertIsNotNone(item)
+
+    @patch("apps.portal.services._fire_notification")
+    @patch("apps.portal.services._write_audit")
+    def test_work_item_status_is_pending(self, mock_audit, mock_notify):
+        from apps.workflows.models import WorkItem, WorkItemStatus
+        with self.captureOnCommitCallbacks(execute=True):
+            create_service_request(self.citizen, "Test Service", {})
+        item = WorkItem.objects.latest("created_at")
+        self.assertEqual(item.status, WorkItemStatus.PENDING)
+
+    @patch("apps.portal.services._fire_notification")
+    @patch("apps.portal.services._write_audit")
+    def test_work_item_has_history_record(self, mock_audit, mock_notify):
+        from apps.workflows.models import WorkItem
+        with self.captureOnCommitCallbacks(execute=True):
+            create_service_request(self.citizen, "Test Service", {})
+        item = WorkItem.objects.latest("created_at")
+        self.assertEqual(item.history.count(), 1)
+        self.assertEqual(item.history.first().action, "created")
+
+    @patch("apps.portal.services._fire_notification")
+    @patch("apps.portal.services._write_audit")
+    def test_work_item_actor_is_none_system_action(self, mock_audit, mock_notify):
+        """WorkItem created by system (no staff actor) — history actor is None."""
+        from apps.workflows.models import WorkItem
+        with self.captureOnCommitCallbacks(execute=True):
+            create_service_request(self.citizen, "Test Service", {})
+        item = WorkItem.objects.latest("created_at")
+        self.assertIsNone(item.history.first().actor)

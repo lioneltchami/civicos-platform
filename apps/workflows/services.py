@@ -90,8 +90,8 @@ def create_work_item(
     """
     if not title:
         raise ValueError("title is required")
-    if actor is None or getattr(actor, "pk", None) is None:
-        raise ValueError("A valid staff actor is required to create a work item")
+    # actor may be None for system-initiated work items (e.g. portal submission trigger).
+    # History entry will record actor=None in that case, which is acceptable and auditable.
 
     ct = ContentType.objects.get_for_model(content_object.__class__)
     computed_due = due_at or _compute_due_at(priority)

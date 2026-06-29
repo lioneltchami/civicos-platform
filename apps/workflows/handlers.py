@@ -13,6 +13,7 @@ import logging
 from django.dispatch import receiver
 
 from apps.audit.services import record_event
+from apps.core.signals import service_request_submitted
 from apps.workflows.models import WorkItem, WorkItemPriority
 from apps.workflows.signals import (
     work_item_assigned,
@@ -27,6 +28,20 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Portal → Workflows integration
 # ---------------------------------------------------------------------------
+
+@receiver(service_request_submitted)
+def on_service_request_submitted(sender, instance, actor=None, **kwargs) -> None:
+    """
+    Automatically create a WorkItem when a ServiceRequest is submitted.
+
+    Fired by portal.services.create_service_request() via transaction.on_commit()
+    so the ServiceRequest is fully committed before the WorkItem is created.
+
+    actor is the citizen who submitted; WorkItem is created as a system action
+    (actor=None in history) because citizens are not workflow staff actors.
+    """
+    create_work_item_for_service_request(instance, actor=None)
+
 
 def create_work_item_for_service_request(service_request, actor=None) -> None:
     """

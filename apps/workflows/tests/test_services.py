@@ -103,9 +103,13 @@ class CreateWorkItemTest(TestCase):
         with self.assertRaises(ValueError):
             create_work_item(self.content_object, title="", actor=self.actor)
 
-    def test_raises_if_actor_is_none(self):
-        with self.assertRaises(ValueError):
-            create_work_item(self.content_object, title="T", actor=None)
+    def test_actor_none_allowed_for_system_created_items(self):
+        """actor=None is permitted for system-initiated WorkItems (e.g. portal signal handler).
+        History entry records actor=None, which is acceptable and auditable."""
+        with self.captureOnCommitCallbacks(execute=True):
+            item = create_work_item(self.content_object, title="System item", actor=None)
+        self.assertIsNotNone(item.pk)
+        self.assertIsNone(item.history.first().actor)
 
     def test_fires_work_item_created_signal(self):
         from apps.workflows.signals import work_item_created

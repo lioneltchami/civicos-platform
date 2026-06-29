@@ -13,6 +13,8 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
+from apps.core.signals import service_request_submitted
+
 from .models import ServiceRequest, ServiceRequestStatus, StatusUpdate
 
 logger = logging.getLogger(__name__)
@@ -73,6 +75,16 @@ def create_service_request(
         )
         transaction.on_commit(
             lambda: _write_audit(request, "workflow.submission.received", citizen)
+        )
+        # Notify cross-cutting consumers (workflows, audit) via signal.
+        # send_robust() ensures all handlers run even if one raises.
+        _captured_request = request
+        transaction.on_commit(
+            lambda: service_request_submitted.send_robust(
+                sender=ServiceRequest,
+                instance=_captured_request,
+                actor=citizen,
+            )
         )
 
     return request
