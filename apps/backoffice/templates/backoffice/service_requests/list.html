@@ -1,0 +1,218 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Service Requests" %}{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <div class="page-header">
+    <h1 class="page-header__title">{% trans "Service Requests" %}</h1>
+  </div>
+
+  {# ===================================================================
+     Filter bar
+     GET form — filters stay in the URL so results are shareable/bookmarkable.
+     =================================================================== #}
+  <section class="filter-bar" aria-label="{% trans 'Filter service requests' %}">
+    <form method="get" action="" class="filter-bar__form">
+      <div class="row g-3 align-items-end">
+
+        {# Status dropdown #}
+        <div class="col-12 col-md-3">
+          <label for="id_status" class="form-label">{% trans "Status" %}</label>
+          <select id="id_status"
+                  name="status"
+                  class="form-select"
+                  aria-label="{% trans 'Filter by status' %}">
+            <option value="">{% trans "All statuses" %}</option>
+            {% for value, label in status_choices %}
+              <option value="{{ value }}"
+                {% if filter_status == value %}selected{% endif %}>
+                {{ label }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Service name #}
+        <div class="col-12 col-md-3">
+          <label for="id_service" class="form-label">{% trans "Service" %}</label>
+          <input type="text"
+                 id="id_service"
+                 name="service"
+                 value="{{ filter_service|default:'' }}"
+                 class="form-control"
+                 placeholder="{% trans 'e.g. Passport renewal' %}"
+                 aria-label="{% trans 'Filter by service name' %}">
+        </div>
+
+        {# Free-text search #}
+        <div class="col-12 col-md-4">
+          <label for="id_q" class="form-label">{% trans "Search" %}</label>
+          <input type="search"
+                 id="id_q"
+                 name="q"
+                 value="{{ filter_q|default:'' }}"
+                 class="form-control"
+                 placeholder="{% trans 'Reference number or citizen email' %}"
+                 aria-label="{% trans 'Search by reference number or citizen email' %}">
+        </div>
+
+        {# Action buttons #}
+        <div class="col-12 col-md-2 d-flex gap-2">
+          <button type="submit" class="btn btn-primary">
+            {% trans "Filter" %}
+          </button>
+          <a href="{% url 'backoffice:sr-list' %}"
+             class="btn btn-outline-secondary"
+             aria-label="{% trans 'Clear all filters' %}">
+            {% trans "Clear" %}
+          </a>
+        </div>
+
+      </div>
+    </form>
+  </section>
+
+  {# ===================================================================
+     Result summary line
+     =================================================================== #}
+  <p class="result-summary mt-3 text-muted" aria-live="polite">
+    {% blocktrans with count=page_obj.paginator.count total=total_count %}
+      Showing {{ count }} of {{ total }} requests
+    {% endblocktrans %}
+  </p>
+
+  {# ===================================================================
+     Results table
+     =================================================================== #}
+  {% if service_requests %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle" aria-label="{% trans 'Service requests' %}">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">{% trans "Reference" %}</th>
+            <th scope="col">{% trans "Service" %}</th>
+            <th scope="col">{% trans "Citizen" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">{% trans "Created" %}</th>
+            <th scope="col">
+              <span class="visually-hidden">{% trans "Actions" %}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sr in service_requests %}
+            <tr>
+              <td>
+                <code>{{ sr.reference_number }}</code>
+              </td>
+              <td>{{ sr.service_name }}</td>
+              <td>{{ sr.citizen.email }}</td>
+              <td>
+                {# Status badge — colour consistent across the back-office UI #}
+                {% if sr.status == "submitted" %}
+                  <span class="badge bg-primary">{{ sr.get_status_display }}</span>
+                {% elif sr.status == "in_review" %}
+                  <span class="badge bg-warning text-dark">{{ sr.get_status_display }}</span>
+                {% elif sr.status == "awaiting_info" %}
+                  <span class="badge bg-warning text-dark" style="background-color:#fd7e14!important">{{ sr.get_status_display }}</span>
+                {% elif sr.status == "approved" %}
+                  <span class="badge bg-success">{{ sr.get_status_display }}</span>
+                {% elif sr.status == "rejected" %}
+                  <span class="badge bg-danger">{{ sr.get_status_display }}</span>
+                {% elif sr.status == "closed" %}
+                  <span class="badge bg-secondary">{{ sr.get_status_display }}</span>
+                {% else %}
+                  <span class="badge bg-secondary">{{ sr.get_status_display }}</span>
+                {% endif %}
+              </td>
+              <td>
+                <time datetime="{{ sr.created_at|date:'c' }}">
+                  {{ sr.created_at|date:"Y-m-d H:i" }}
+                </time>
+              </td>
+              <td>
+                <a href="{% url 'backoffice:sr-detail' sr.reference_number %}"
+                   class="btn btn-sm btn-outline-primary">
+                  {% trans "View" %}
+                </a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# ===================================================================
+       Pagination
+       =================================================================== #}
+    {% if is_paginated %}
+      <nav aria-label="{% trans 'Pagination' %}">
+        <ul class="pagination justify-content-center">
+
+          {% if page_obj.has_previous %}
+            <li class="page-item">
+              <a class="page-link"
+                 href="?page={{ page_obj.previous_page_number }}&status={{ filter_status }}&service={{ filter_service }}&q={{ filter_q }}"
+                 aria-label="{% trans 'Previous page' %}">
+                &laquo; {% trans "Previous" %}
+              </a>
+            </li>
+          {% else %}
+            <li class="page-item disabled" aria-disabled="true">
+              <span class="page-link">&laquo; {% trans "Previous" %}</span>
+            </li>
+          {% endif %}
+
+          {% for num in paginator.page_range %}
+            {% if page_obj.number == num %}
+              <li class="page-item active" aria-current="page">
+                <span class="page-link">{{ num }}</span>
+              </li>
+            {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+              <li class="page-item">
+                <a class="page-link"
+                   href="?page={{ num }}&status={{ filter_status }}&service={{ filter_service }}&q={{ filter_q }}"
+                   aria-label="{% blocktrans with page=num %}Page {{ page }}{% endblocktrans %}">
+                  {{ num }}
+                </a>
+              </li>
+            {% endif %}
+          {% endfor %}
+
+          {% if page_obj.has_next %}
+            <li class="page-item">
+              <a class="page-link"
+                 href="?page={{ page_obj.next_page_number }}&status={{ filter_status }}&service={{ filter_service }}&q={{ filter_q }}"
+                 aria-label="{% trans 'Next page' %}">
+                {% trans "Next" %} &raquo;
+              </a>
+            </li>
+          {% else %}
+            <li class="page-item disabled" aria-disabled="true">
+              <span class="page-link">{% trans "Next" %} &raquo;</span>
+            </li>
+          {% endif %}
+
+        </ul>
+      </nav>
+    {% endif %}
+
+  {% else %}
+    {# Empty state #}
+    <div class="empty-state text-center py-5">
+      <p class="text-muted fs-5">
+        {% trans "No service requests match your filters." %}
+      </p>
+      {% if filter_status or filter_service or filter_q %}
+        <a href="{% url 'backoffice:sr-list' %}" class="btn btn-outline-secondary">
+          {% trans "Clear filters and show all" %}
+        </a>
+      {% endif %}
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

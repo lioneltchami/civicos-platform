@@ -1,0 +1,226 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block backoffice_title %}{% trans "Audit Log" %} — {% trans "Back-office" %}{% endblock %}
+
+{% block backoffice_content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{% trans "Audit Log" %}</h1>
+</div>
+
+{# -----------------------------------------------------------------------
+   Filter bar
+   ----------------------------------------------------------------------- #}
+<form method="get" action="" class="mb-4" aria-label="{% trans 'Filter audit log entries' %}">
+  <div class="row g-2 align-items-end">
+
+    {# Event type #}
+    <div class="col-sm-6 col-md-3">
+      <label class="form-label fw-semibold" for="id_event_type">{% trans "Event type" %}</label>
+      <select
+        id="id_event_type"
+        name="event_type"
+        class="form-select form-select-sm"
+        aria-label="{% trans 'Filter by event type' %}"
+      >
+        <option value="">{% trans "All types" %}</option>
+        {% for value, label in event_type_choices %}
+          <option value="{{ value }}" {% if current_event_type == value %}selected{% endif %}>
+            {{ label }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# Outcome #}
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label fw-semibold" for="id_outcome">{% trans "Outcome" %}</label>
+      <select
+        id="id_outcome"
+        name="outcome"
+        class="form-select form-select-sm"
+        aria-label="{% trans 'Filter by outcome' %}"
+      >
+        <option value="">{% trans "All outcomes" %}</option>
+        <option value="success" {% if current_outcome == "success" %}selected{% endif %}>{% trans "Success" %}</option>
+        <option value="failure" {% if current_outcome == "failure" %}selected{% endif %}>{% trans "Failure" %}</option>
+      </select>
+    </div>
+
+    {# Date from #}
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label fw-semibold" for="id_date_from">{% trans "From date" %}</label>
+      <input
+        type="date"
+        id="id_date_from"
+        name="date_from"
+        class="form-control form-control-sm"
+        value="{{ current_date_from }}"
+        aria-label="{% trans 'Filter from date (YYYY-MM-DD)' %}"
+      >
+    </div>
+
+    {# Date to #}
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label fw-semibold" for="id_date_to">{% trans "To date" %}</label>
+      <input
+        type="date"
+        id="id_date_to"
+        name="date_to"
+        class="form-control form-control-sm"
+        value="{{ current_date_to }}"
+        aria-label="{% trans 'Filter to date (YYYY-MM-DD)' %}"
+      >
+    </div>
+
+    {# Resource type #}
+    <div class="col-sm-6 col-md-2">
+      <label class="form-label fw-semibold" for="id_resource_type">{% trans "Resource type" %}</label>
+      <input
+        type="text"
+        id="id_resource_type"
+        name="resource_type"
+        class="form-control form-control-sm"
+        value="{{ current_resource_type }}"
+        placeholder="{% trans 'e.g. portal.ServiceRequest' %}"
+        aria-label="{% trans 'Filter by resource type (partial match)' %}"
+      >
+    </div>
+
+    {# Buttons #}
+    <div class="col-sm-12 col-md-1 d-flex gap-2 align-items-end">
+      <button type="submit" class="btn btn-primary btn-sm" aria-label="{% trans 'Apply filters' %}">
+        {% trans "Apply" %}
+      </button>
+    </div>
+
+  </div>
+
+  {# Clear link — only shown when any filter is active #}
+  {% if current_event_type or current_outcome or current_date_from or current_date_to or current_resource_type %}
+  <div class="mt-2">
+    <a href="{% url 'backoffice:audit-list' %}" class="small text-muted" aria-label="{% trans 'Clear all filters' %}">
+      {% trans "Clear filters" %}
+    </a>
+  </div>
+  {% endif %}
+</form>
+
+{# -----------------------------------------------------------------------
+   Summary
+   ----------------------------------------------------------------------- #}
+<p class="text-muted small mb-3" role="status" aria-live="polite">
+  {% blocktrans with shown=page_obj.object_list|length total=total_count %}
+    Showing {{ shown }} of {{ total }} entries
+  {% endblocktrans %}
+</p>
+
+{# -----------------------------------------------------------------------
+   Audit log table
+   ----------------------------------------------------------------------- #}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle" aria-label="{% trans 'Audit log entries' %}">
+    <thead class="table-light">
+      <tr>
+        <th scope="col">{% trans "Timestamp" %}</th>
+        <th scope="col">{% trans "Event type" %}</th>
+        <th scope="col">{% trans "Outcome" %}</th>
+        <th scope="col">{% trans "Actor ID" %}</th>
+        <th scope="col">{% trans "Resource type" %}</th>
+        <th scope="col">{% trans "Resource ID" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr>
+        <td class="text-nowrap font-monospace small">
+          {{ entry.timestamp|date:"Y-m-d H:i:s" }} UTC
+        </td>
+        <td>
+          <span class="badge bg-secondary text-light" title="{{ entry.event_type }}">
+            {{ entry.get_event_type_display }}
+          </span>
+        </td>
+        <td>
+          {% if entry.outcome == "success" %}
+            <span class="badge bg-success">{% trans "Success" %}</span>
+          {% else %}
+            <span class="badge bg-danger">{% trans "Failure" %}</span>
+          {% endif %}
+        </td>
+        <td class="font-monospace small">
+          {{ entry.actor_id|default:"—" }}
+        </td>
+        <td class="small">{{ entry.resource_type|default:"—" }}</td>
+        <td class="font-monospace small">{{ entry.resource_id|default:"—" }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="6" class="text-center text-muted py-4">
+          {% trans "No audit log entries match the current filters." %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# -----------------------------------------------------------------------
+   Pagination
+   ----------------------------------------------------------------------- #}
+{% if is_paginated %}
+<nav aria-label="{% trans 'Audit log pagination' %}">
+  <ul class="pagination pagination-sm justify-content-center mt-3">
+    {% if page_obj.has_previous %}
+      <li class="page-item">
+        <a class="page-link"
+           href="?{{ filter_params }}&page=1"
+           aria-label="{% trans 'First page' %}">
+          &laquo;
+        </a>
+      </li>
+      <li class="page-item">
+        <a class="page-link"
+           href="?{{ filter_params }}&page={{ page_obj.previous_page_number }}"
+           aria-label="{% trans 'Previous page' %}">
+          &lsaquo;
+        </a>
+      </li>
+    {% endif %}
+
+    <li class="page-item disabled" aria-current="page">
+      <span class="page-link">
+        {% blocktrans with current=page_obj.number total=page_obj.paginator.num_pages %}
+          Page {{ current }} of {{ total }}
+        {% endblocktrans %}
+      </span>
+    </li>
+
+    {% if page_obj.has_next %}
+      <li class="page-item">
+        <a class="page-link"
+           href="?{{ filter_params }}&page={{ page_obj.next_page_number }}"
+           aria-label="{% trans 'Next page' %}">
+          &rsaquo;
+        </a>
+      </li>
+      <li class="page-item">
+        <a class="page-link"
+           href="?{{ filter_params }}&page={{ page_obj.paginator.num_pages }}"
+           aria-label="{% trans 'Last page' %}">
+          &raquo;
+        </a>
+      </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+
+{# -----------------------------------------------------------------------
+   Immutability notice
+   ----------------------------------------------------------------------- #}
+<div class="alert alert-info mt-4 small" role="note">
+  <strong>{% trans "Read-only log:" %}</strong>
+  {% trans "This log is immutable. Entries cannot be modified or deleted." %}
+</div>
+{% endblock backoffice_content %}

@@ -1,0 +1,275 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block backoffice_title %}{{ work_item.title }}{% endblock %}
+
+{% block backoffice_content %}
+
+{# ---- Back link ---- #}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="mb-3">
+  <a href="{% url 'backoffice:wi-list' %}" class="btn btn-sm btn-outline-secondary">
+    &larr; {% trans "Back to Work Item Queue" %}
+  </a>
+</nav>
+
+{# ---- Messages ---- #}
+{% if messages %}
+  <div aria-live="polite" aria-atomic="true">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Dismiss notification' %}"></button>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{# ---- Header card ---- #}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex flex-wrap gap-2 align-items-start mb-2">
+      <h1 class="h4 mb-0 me-3">{{ work_item.title }}</h1>
+
+      {# Status badge #}
+      {% if work_item.status == "pending" %}
+        <span class="badge bg-secondary" aria-label="{% trans 'Status: Pending' %}">{% trans "Pending" %}</span>
+      {% elif work_item.status == "in_progress" %}
+        <span class="badge bg-primary" aria-label="{% trans 'Status: In Progress' %}">{% trans "In Progress" %}</span>
+      {% elif work_item.status == "waiting" %}
+        <span class="badge bg-warning text-dark" aria-label="{% trans 'Status: Waiting' %}">{% trans "Waiting" %}</span>
+      {% elif work_item.status == "completed" %}
+        <span class="badge bg-success" aria-label="{% trans 'Status: Completed' %}">{% trans "Completed" %}</span>
+      {% elif work_item.status == "cancelled" %}
+        <span class="badge bg-secondary" aria-label="{% trans 'Status: Cancelled' %}">{% trans "Cancelled" %}</span>
+      {% endif %}
+
+      {# Priority badge #}
+      {% if work_item.priority == 1 %}
+        <span class="badge bg-danger" aria-label="{% trans 'Priority: Critical' %}">{% trans "Critical" %}</span>
+      {% elif work_item.priority == 2 %}
+        <span class="badge bg-warning text-dark" aria-label="{% trans 'Priority: High' %}">{% trans "High" %}</span>
+      {% elif work_item.priority == 3 %}
+        <span class="badge bg-primary" aria-label="{% trans 'Priority: Normal' %}">{% trans "Normal" %}</span>
+      {% else %}
+        <span class="badge bg-secondary" aria-label="{% trans 'Priority: Low' %}">{% trans "Low" %}</span>
+      {% endif %}
+
+      {# SLA badge #}
+      {% if work_item.sla_breached_at %}
+        <span class="badge bg-danger" aria-label="{% trans 'SLA has been breached' %}">⚠ {% trans "SLA Breached" %}</span>
+      {% endif %}
+
+      {# Escalation badge #}
+      {% if work_item.escalation_level > 0 %}
+        <span class="badge bg-warning text-dark" aria-label="{% trans 'Escalated' %}">
+          {% blocktrans with level=work_item.escalation_level %}Escalation Level {{ level }}{% endblocktrans %}
+        </span>
+      {% endif %}
+    </div>
+
+    <dl class="row mb-0 small">
+      <dt class="col-sm-3">{% trans "Assigned To" %}</dt>
+      <dd class="col-sm-9">
+        {% if work_item.assigned_to %}
+          {{ work_item.assigned_to.email }}
+        {% else %}
+          <span class="text-muted">{% trans "Unassigned" %}</span>
+        {% endif %}
+      </dd>
+
+      <dt class="col-sm-3">{% trans "Due At" %}</dt>
+      <dd class="col-sm-9">
+        {% if work_item.due_at %}
+          <span class="{% if work_item.is_overdue %}text-danger fw-bold{% endif %}">
+            {{ work_item.due_at|date:"Y-m-d H:i" }}
+            {% if work_item.is_overdue %} — <strong>{% trans "OVERDUE" %}</strong>{% endif %}
+          </span>
+        {% else %}
+          <span class="text-muted">{% trans "None" %}</span>
+        {% endif %}
+      </dd>
+
+      <dt class="col-sm-3">{% trans "Created" %}</dt>
+      <dd class="col-sm-9">{{ work_item.created_at|date:"Y-m-d H:i" }}</dd>
+    </dl>
+  </div>
+</div>
+
+{# ---- Two-column layout ---- #}
+<div class="row g-4">
+
+  {# ======== LEFT COLUMN: description, linked request, history ======== #}
+  <div class="col-lg-7">
+
+    {# Description #}
+    {% if work_item.description %}
+      <div class="card mb-4">
+        <div class="card-header"><h2 class="h6 mb-0">{% trans "Description" %}</h2></div>
+        <div class="card-body">{{ work_item.description|linebreaksbr }}</div>
+      </div>
+    {% endif %}
+
+    {# Linked service request #}
+    {% if linked_service_request %}
+      <div class="card mb-4">
+        <div class="card-header"><h2 class="h6 mb-0">{% trans "Linked Service Request" %}</h2></div>
+        <div class="card-body">
+          <a href="{% url 'backoffice:sr-detail' reference_number=linked_service_request.reference_number %}">
+            {{ linked_service_request.reference_number }} — {{ linked_service_request.service_name }}
+          </a>
+          <span class="badge bg-secondary ms-2">{{ linked_service_request.status }}</span>
+        </div>
+      </div>
+    {% endif %}
+
+    {# History #}
+    <div class="card mb-4">
+      <div class="card-header"><h2 class="h6 mb-0">{% trans "History" %}</h2></div>
+      {% if history %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" aria-label="{% trans 'Work item history' %}">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">{% trans "Action" %}</th>
+                <th scope="col">{% trans "Transition" %}</th>
+                <th scope="col">{% trans "Actor" %}</th>
+                <th scope="col">{% trans "Notes" %}</th>
+                <th scope="col">{% trans "Timestamp" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in history %}
+                <tr>
+                  <td>{{ entry.action }}</td>
+                  <td>
+                    {% if entry.old_status or entry.new_status %}
+                      <span class="text-muted">{{ entry.old_status|default:"—" }}</span>
+                      &rarr;
+                      <strong>{{ entry.new_status|default:"—" }}</strong>
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td>{% if entry.actor %}{{ entry.actor.email }}{% else %}<span class="text-muted">{% trans "System" %}</span>{% endif %}</td>
+                  <td>{{ entry.notes|truncatechars:80|default:"—" }}</td>
+                  <td><time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"Y-m-d H:i" }}</time></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="card-body text-muted">{% trans "No history entries yet." %}</div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  {# ======== RIGHT COLUMN: actions + comments ======== #}
+  <div class="col-lg-5">
+
+    {# Actions panel #}
+    <div class="card mb-4">
+      <div class="card-header"><h2 class="h6 mb-0">{% trans "Actions" %}</h2></div>
+      <div class="card-body d-grid gap-3">
+
+        {# -- Claim -- #}
+        {% if not work_item.assigned_to and not is_terminal %}
+          <form method="post" action="{% url 'backoffice:wi-claim' pk=work_item.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-success w-100" aria-label="{% trans 'Claim this work item for yourself' %}">
+              {% trans "Claim" %}
+            </button>
+          </form>
+        {% endif %}
+
+        {# -- Assign to staff -- #}
+        {% if not is_terminal %}
+          <form method="post" action="{% url 'backoffice:wi-assign' pk=work_item.pk %}">
+            {% csrf_token %}
+            <label for="assignee-select" class="form-label fw-semibold">{% trans "Assign to Staff" %}</label>
+            <select id="assignee-select" name="assignee_id" class="form-select form-select-sm mb-2"
+                    aria-label="{% trans 'Select staff member to assign work item to' %}" required>
+              <option value="">{% trans "— Select staff member —" %}</option>
+              {% for staff in staff_users %}
+                <option value="{{ staff.pk }}" {% if work_item.assigned_to_id == staff.pk %}selected{% endif %}>
+                  {{ staff.email }}
+                </option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm btn-primary" aria-label="{% trans 'Confirm assignment' %}">
+              {% trans "Assign" %}
+            </button>
+          </form>
+        {% endif %}
+
+        {# -- Update Status -- #}
+        {% if not is_terminal and status_choices %}
+          <form method="post" action="{% url 'backoffice:wi-status' pk=work_item.pk %}">
+            {% csrf_token %}
+            <label for="status-select" class="form-label fw-semibold">{% trans "Update Status" %}</label>
+            <select id="status-select" name="new_status" class="form-select form-select-sm mb-2"
+                    aria-label="{% trans 'Select new status for this work item' %}" required>
+              <option value="">{% trans "— Select status —" %}</option>
+              {% for value, label in status_choices %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <label for="status-notes" class="form-label">{% trans "Notes" %} <span class="text-muted">({% trans "optional" %})</span></label>
+            <textarea id="status-notes" name="notes" class="form-control form-control-sm mb-2" rows="2"
+                      aria-label="{% trans 'Notes for status change' %}" maxlength="2000"></textarea>
+            <button type="submit" class="btn btn-sm btn-warning" aria-label="{% trans 'Submit status update' %}">
+              {% trans "Update Status" %}
+            </button>
+          </form>
+        {% endif %}
+
+        {% if is_terminal %}
+          <p class="text-muted small mb-0">
+            {% trans "This work item is in a terminal state and cannot be further actioned." %}
+          </p>
+        {% endif %}
+
+      </div>
+    </div>
+
+    {# Comments #}
+    <div class="card">
+      <div class="card-header"><h2 class="h6 mb-0">{% trans "Internal Comments" %}</h2></div>
+      <div class="card-body">
+
+        {% if comments %}
+          <ul class="list-unstyled mb-4" aria-label="{% trans 'Comment list' %}">
+            {% for comment in comments %}
+              <li class="border-bottom pb-2 mb-2">
+                <div class="d-flex justify-content-between align-items-baseline">
+                  <strong class="small">{% if comment.author %}{{ comment.author.email }}{% else %}{% trans "Unknown" %}{% endif %}</strong>
+                  <time class="text-muted small" datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:"Y-m-d H:i" }}</time>
+                </div>
+                <p class="mb-0 mt-1 small">{{ comment.body|linebreaksbr }}</p>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted small">{% trans "No comments yet." %}</p>
+        {% endif %}
+
+        {# Add comment form #}
+        <form method="post" action="{% url 'backoffice:wi-comment' pk=work_item.pk %}">
+          {% csrf_token %}
+          <label for="comment-body" class="form-label fw-semibold">{% trans "Add Comment" %}</label>
+          <textarea id="comment-body" name="body" class="form-control form-control-sm mb-2" rows="3"
+                    maxlength="5000" required
+                    aria-label="{% trans 'Internal comment body — not visible to citizens' %}"
+                    placeholder="{% trans 'Internal note (not visible to citizens)…' %}"></textarea>
+          <button type="submit" class="btn btn-sm btn-outline-primary" aria-label="{% trans 'Post comment' %}">
+            {% trans "Post Comment" %}
+          </button>
+        </form>
+      </div>
+    </div>
+
+  </div>{# /right column #}
+
+</div>{# /row #}
+{% endblock backoffice_content %}

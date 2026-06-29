@@ -1,0 +1,218 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+{# Dashboard: SR stats, WI queue health, quick links, recent audit log. #}
+
+{% block backoffice_title %}{% trans "Dashboard" %}{% endblock %}
+
+{% block backoffice_content %}
+
+{# =========================================================================
+   Page heading
+   ========================================================================= #}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h1 class="h3 mb-0">{% trans "Back-office Dashboard" %}</h1>
+  <span class="text-muted small">
+    {% trans "Staff overview — read-only" %}
+  </span>
+</div>
+
+{# =========================================================================
+   Section: Service Request stats
+   ========================================================================= #}
+<section aria-labelledby="sr-stats-heading">
+  <h2 class="h5 mb-3" id="sr-stats-heading">{% trans "Service Requests" %}</h2>
+
+  <div class="row g-3 mb-4">
+
+    {# Total #}
+    <div class="col-6 col-md-3">
+      <div class="card stat-card stat-card--primary h-100" aria-label="{% blocktrans with count=sr_total %}Total service requests: {{ count }}{% endblocktrans %}">
+        <div class="card-body">
+          <p class="stat-card__value">{{ sr_total }}</p>
+          <p class="stat-card__label">{% trans "Total" %}</p>
+        </div>
+      </div>
+    </div>
+
+    {# Submitted #}
+    <div class="col-6 col-md-3">
+      <div class="card stat-card stat-card--primary h-100" aria-label="{% blocktrans with count=sr_submitted %}Submitted requests: {{ count }}{% endblocktrans %}">
+        <div class="card-body">
+          <p class="stat-card__value">{{ sr_submitted }}</p>
+          <p class="stat-card__label">{% trans "Submitted" %}</p>
+        </div>
+      </div>
+    </div>
+
+    {# In Review #}
+    <div class="col-6 col-md-3">
+      <div class="card stat-card stat-card--primary h-100" aria-label="{% blocktrans with count=sr_in_review %}Requests in review: {{ count }}{% endblocktrans %}">
+        <div class="card-body">
+          <p class="stat-card__value">{{ sr_in_review }}</p>
+          <p class="stat-card__label">{% trans "In Review" %}</p>
+        </div>
+      </div>
+    </div>
+
+    {# Awaiting Information #}
+    <div class="col-6 col-md-3">
+      <div class="card stat-card stat-card--warning h-100" aria-label="{% blocktrans with count=sr_awaiting %}Requests awaiting information: {{ count }}{% endblocktrans %}">
+        <div class="card-body">
+          <p class="stat-card__value">{{ sr_awaiting }}</p>
+          <p class="stat-card__label">{% trans "Awaiting Info" %}</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+{# =========================================================================
+   Section: Work item stats
+   ========================================================================= #}
+<section aria-labelledby="wi-stats-heading">
+  <h2 class="h5 mb-3" id="wi-stats-heading">{% trans "Work Queue" %}</h2>
+
+  <div class="row g-3 mb-4">
+
+    {# Open work items #}
+    <div class="col-6 col-md-4">
+      <div class="card stat-card stat-card--primary h-100" aria-label="{% blocktrans with count=wi_open %}Open work items: {{ count }}{% endblocktrans %}">
+        <div class="card-body">
+          <p class="stat-card__value">{{ wi_open }}</p>
+          <p class="stat-card__label">{% trans "Open" %}</p>
+        </div>
+      </div>
+    </div>
+
+    {# Overdue — highlight in red when count > 0 #}
+    <div class="col-6 col-md-4">
+      <div class="card stat-card {% if wi_overdue > 0 %}stat-card--danger{% else %}stat-card--primary{% endif %} h-100"
+           aria-label="{% blocktrans with count=wi_overdue %}Overdue work items: {{ count }}{% endblocktrans %}">
+        <div class="card-body">
+          <p class="stat-card__value {% if wi_overdue > 0 %}text-danger{% endif %}">{{ wi_overdue }}</p>
+          <p class="stat-card__label">{% trans "Overdue (SLA breached)" %}</p>
+        </div>
+      </div>
+    </div>
+
+    {# Unassigned — highlight in orange when count > 0 #}
+    <div class="col-6 col-md-4">
+      <div class="card stat-card {% if wi_unassigned > 0 %}stat-card--warning{% else %}stat-card--primary{% endif %} h-100"
+           aria-label="{% blocktrans with count=wi_unassigned %}Unassigned work items: {{ count }}{% endblocktrans %}">
+        <div class="card-body">
+          <p class="stat-card__value {% if wi_unassigned > 0 %}text-warning{% endif %}">{{ wi_unassigned }}</p>
+          <p class="stat-card__label">{% trans "Unassigned" %}</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+{# =========================================================================
+   Section: Quick links
+   ========================================================================= #}
+<section aria-labelledby="quicklinks-heading" class="mb-4">
+  <h2 class="h5 mb-3" id="quicklinks-heading">{% trans "Quick Links" %}</h2>
+
+  <div class="row g-2">
+    <div class="col-auto">
+      <a href="{% url 'backoffice:sr-list' %}"
+         class="btn btn-outline-primary"
+         aria-label="{% trans 'Browse all service requests' %}">
+        {% trans "All Service Requests" %}
+      </a>
+    </div>
+    <div class="col-auto">
+      <a href="{% url 'backoffice:wi-list' %}"
+         class="btn btn-outline-primary"
+         aria-label="{% trans 'Browse work items queue' %}">
+        {% trans "Work Queue" %}
+      </a>
+    </div>
+    <div class="col-auto">
+      <a href="{% url 'backoffice:citizen-list' %}"
+         class="btn btn-outline-secondary"
+         aria-label="{% trans 'Browse citizens list' %}">
+        {% trans "Citizens" %}
+        <span class="badge bg-secondary ms-1">{{ citizen_count }}</span>
+      </a>
+    </div>
+    <div class="col-auto">
+      <a href="{% url 'backoffice:audit-list' %}"
+         class="btn btn-outline-secondary"
+         aria-label="{% trans 'View full audit log' %}">
+        {% trans "Full Audit Log" %}
+      </a>
+    </div>
+  </div>
+</section>
+
+{# =========================================================================
+   Section: Recent audit log
+   ========================================================================= #}
+<section aria-labelledby="audit-heading">
+  <h2 class="h5 mb-3" id="audit-heading">{% trans "Recent Audit Events" %}</h2>
+
+  {% if recent_audit %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle" aria-label="{% trans 'Recent audit log entries' %}">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">{% trans "Timestamp" %}</th>
+            <th scope="col">{% trans "Event" %}</th>
+            <th scope="col">{% trans "Outcome" %}</th>
+            <th scope="col">{% trans "Actor ID" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in recent_audit %}
+            <tr>
+              <td>
+                <time datetime="{{ entry.timestamp|date:'c' }}">
+                  {{ entry.timestamp|date:"Y-m-d H:i:s" }}
+                </time>
+              </td>
+              <td>
+                <code class="small">{{ entry.event_type }}</code>
+              </td>
+              <td>
+                {% if entry.outcome == "success" %}
+                  <span class="badge bg-success" aria-label="{% trans 'Outcome: success' %}">
+                    {% trans "Success" %}
+                  </span>
+                {% else %}
+                  <span class="badge bg-danger" aria-label="{% trans 'Outcome: failure' %}">
+                    {% trans "Failure" %}
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                {% if entry.actor_id %}
+                  <code class="small text-muted">{{ entry.actor_id }}</code>
+                {% else %}
+                  <span class="text-muted fst-italic">{% trans "System / anonymous" %}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-end">
+      <a href="{% url 'backoffice:audit-list' %}" aria-label="{% trans 'View all audit log entries' %}">
+        {% trans "View full audit log →" %}
+      </a>
+    </p>
+
+  {% else %}
+    <div class="alert alert-info" role="status">
+      {% trans "No audit events recorded yet." %}
+    </div>
+  {% endif %}
+
+</section>
+
+{% endblock backoffice_content %}

@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% load i18n static %}
+{# Back-office base template.
+   Extends the public base.html but replaces the navigation and content blocks
+   with a staff-specific two-column layout (sidebar + main area).
+   Blocks: backoffice_title, extra_css, backoffice_content, extra_js #}
+
+{% block title %}{% block backoffice_title %}{% trans "Back-office" %}{% endblock %}{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* -----------------------------------------------------------------------
+     Back-office layout
+     Two-column: fixed sidebar + scrollable main content area.
+     ----------------------------------------------------------------------- */
+
+  .bo-layout {
+    display: flex;
+    min-height: calc(100vh - 60px);
+  }
+
+  /* ---- Sidebar ---- */
+  .bo-sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    background-color: #1e293b;
+    color: #e2e8f0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .bo-sidebar__section-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    padding: 1rem 1.25rem 0.25rem;
+    margin: 0;
+  }
+
+  .bo-sidebar__nav {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .bo-sidebar__link {
+    display: block;
+    padding: 0.6rem 1.25rem;
+    color: #e2e8f0;
+    text-decoration: none;
+    font-size: 0.875rem;
+    border-left: 3px solid transparent;
+    transition: background-color 0.15s, border-color 0.15s;
+  }
+
+  .bo-sidebar__link:hover,
+  .bo-sidebar__link:focus-visible {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-left-color: #3b82f6;
+    color: #fff;
+    outline: 2px solid #3b82f6;
+    outline-offset: -2px;
+  }
+
+  .bo-sidebar__link[aria-current="page"] {
+    background-color: rgba(255, 255, 255, 0.12);
+    border-left-color: #3b82f6;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .bo-sidebar__user {
+    margin-top: auto;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 0.75rem;
+    color: #94a3b8;
+    word-break: break-all;
+  }
+
+  .bo-sidebar__user strong {
+    color: #e2e8f0;
+  }
+
+  /* ---- Main content ---- */
+  .bo-main {
+    flex: 1;
+    overflow-x: hidden;
+    padding: 2rem 1.5rem;
+    background-color: #f8fafc;
+  }
+
+  /* Ensure visible focus indicators across all interactive elements — WCAG 2.1 */
+  .bo-main :focus-visible {
+    outline: 3px solid #3b82f6;
+    outline-offset: 2px;
+  }
+
+  /* Stat card accent colours */
+  .stat-card--danger  { border-left: 4px solid #dc3545; }
+  .stat-card--warning { border-left: 4px solid #fd7e14; }
+  .stat-card--success { border-left: 4px solid #198754; }
+  .stat-card--primary { border-left: 4px solid #0d6efd; }
+
+  .stat-card__value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .stat-card__label {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+  }
+</style>
+{% endblock extra_css %}
+
+{% block navigation %}
+{# =========================================================================
+   Back-office sidebar navigation
+   Replaces the public site nav with a staff-specific sidebar menu.
+   The <nav> landmark is provided by base.html's wrapper element.
+   ========================================================================= #}
+<ul class="bo-sidebar__nav" role="list">
+  <li>
+    <a class="bo-sidebar__link"
+       href="{% url 'backoffice:dashboard' %}"
+       aria-label="{% trans 'Dashboard' %}">{% trans "Dashboard" %}</a>
+  </li>
+</ul>
+{% endblock navigation %}
+
+{% block content %}
+{# =========================================================================
+   Two-column back-office layout.
+   Overrides the <main> content block from base.html.
+   ========================================================================= #}
+<div class="bo-layout" id="bo-layout">
+
+  {# ---- Sidebar ---- #}
+  <nav class="bo-sidebar" aria-label="{% trans 'Back-office navigation' %}">
+
+    {# Platform #}
+    <p class="bo-sidebar__section-label" aria-hidden="true">{% trans "Platform" %}</p>
+    <ul class="bo-sidebar__nav" role="list">
+      <li>
+        <a class="bo-sidebar__link"
+           href="{% url 'backoffice:dashboard' %}"
+           aria-label="{% trans 'Dashboard' %}"
+           {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}>
+          {% trans "Dashboard" %}
+        </a>
+      </li>
+    </ul>
+
+    {# Service Requests #}
+    <p class="bo-sidebar__section-label" aria-hidden="true">{% trans "Service Requests" %}</p>
+    <ul class="bo-sidebar__nav" role="list">
+      <li>
+        <a class="bo-sidebar__link"
+           href="{% url 'backoffice:sr-list' %}"
+           aria-label="{% trans 'All service requests' %}"
+           {% if request.resolver_match.url_name == 'sr-list' %}aria-current="page"{% endif %}>
+          {% trans "Service Requests" %}
+        </a>
+      </li>
+    </ul>
+
+    {# Work Queue #}
+    <p class="bo-sidebar__section-label" aria-hidden="true">{% trans "Work Queue" %}</p>
+    <ul class="bo-sidebar__nav" role="list">
+      <li>
+        <a class="bo-sidebar__link"
+           href="{% url 'backoffice:wi-list' %}"
+           aria-label="{% trans 'Work items queue' %}"
+           {% if request.resolver_match.url_name == 'wi-list' %}aria-current="page"{% endif %}>
+          {% trans "Work Items" %}
+        </a>
+      </li>
+    </ul>
+
+    {# Users #}
+    <p class="bo-sidebar__section-label" aria-hidden="true">{% trans "Users" %}</p>
+    <ul class="bo-sidebar__nav" role="list">
+      <li>
+        <a class="bo-sidebar__link"
+           href="{% url 'backoffice:citizen-list' %}"
+           aria-label="{% trans 'Citizens list' %}"
+           {% if request.resolver_match.url_name == 'citizen-list' %}aria-current="page"{% endif %}>
+          {% trans "Citizens" %}
+        </a>
+      </li>
+    </ul>
+
+    {# Compliance #}
+    <p class="bo-sidebar__section-label" aria-hidden="true">{% trans "Compliance" %}</p>
+    <ul class="bo-sidebar__nav" role="list">
+      <li>
+        <a class="bo-sidebar__link"
+           href="{% url 'backoffice:audit-list' %}"
+           aria-label="{% trans 'Audit log' %}"
+           {% if request.resolver_match.url_name == 'audit-list' %}aria-current="page"{% endif %}>
+          {% trans "Audit Log" %}
+        </a>
+      </li>
+      <li>
+        <a class="bo-sidebar__link"
+           href="{% url 'backoffice:reports' %}"
+           aria-label="{% trans 'Reports' %}"
+           {% if request.resolver_match.url_name == 'reports' %}aria-current="page"{% endif %}>
+          {% trans "Reports" %}
+        </a>
+      </li>
+    </ul>
+
+    {# Communications #}
+    <p class="bo-sidebar__section-label" aria-hidden="true">{% trans "Communications" %}</p>
+    <ul class="bo-sidebar__nav" role="list">
+      <li>
+        <a class="bo-sidebar__link"
+           href="{% url 'backoffice:notification-list' %}"
+           aria-label="{% trans 'Staff notifications' %}"
+           {% if request.resolver_match.url_name == 'notification-list' %}aria-current="page"{% endif %}>
+          {% trans "Notifications" %}
+        </a>
+      </li>
+    </ul>
+
+    {# Logged-in staff indicator.
+       Showing the staff user's own email in the admin sidebar is intentional:
+       it lets staff quickly confirm which privileged account is active. #}
+    <div class="bo-sidebar__user"
+         aria-label="{% blocktrans with email=request.user.email %}Logged in as {{ email }}{% endblocktrans %}">
+      <span aria-hidden="true">{% trans "Logged in as" %}</span><br>
+      <strong>{{ request.user.email }}</strong>
+    </div>
+
+  </nav>
+
+  {# ---- Main content area ---- #}
+  <main class="bo-main" id="main-content" role="main" tabindex="-1">
+    {% block backoffice_content %}{% endblock %}
+  </main>
+
+</div>
+{% endblock content %}
+
+{% block extra_js %}{% endblock %}

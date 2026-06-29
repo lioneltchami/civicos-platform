@@ -98,6 +98,7 @@ LOCAL_APPS = [
     "apps.forms",
     "apps.portal",
     "apps.workflows",
+    "apps.backoffice",
     "apps.auth_extension",  # Extends Django auth; named to avoid collision
     "apps.notifications",
     "apps.audit",

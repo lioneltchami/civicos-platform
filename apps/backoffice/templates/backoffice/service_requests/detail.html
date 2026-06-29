@@ -1,0 +1,313 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block title %}{% blocktrans with ref=service_request.reference_number %}Request {{ ref }}{% endblocktrans %}{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  {# Back navigation #}
+  <nav aria-label="{% trans 'Breadcrumb' %}" class="mb-3">
+    <a href="{% url 'backoffice:sr-list' %}" class="btn btn-sm btn-outline-secondary">
+      &larr; {% trans "Back to service requests" %}
+    </a>
+  </nav>
+
+  {# ===================================================================
+     Two-column layout: left=details, right=actions panel
+     =================================================================== #}
+  <div class="row g-4">
+
+    {# ================================================================
+       LEFT COLUMN — request details
+       ================================================================ #}
+    <div class="col-12 col-lg-8">
+
+      {# --- Header card ------------------------------------------ #}
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-start">
+          <div>
+            <h1 class="h4 mb-0">
+              <code>{{ service_request.reference_number }}</code>
+            </h1>
+            <p class="text-muted mb-0">{{ service_request.service_name }}</p>
+          </div>
+          {# Status badge — colours consistent with list view #}
+          <div>
+            {% if service_request.status == "submitted" %}
+              <span class="badge bg-primary fs-6">{{ service_request.get_status_display }}</span>
+            {% elif service_request.status == "in_review" %}
+              <span class="badge bg-warning text-dark fs-6">{{ service_request.get_status_display }}</span>
+            {% elif service_request.status == "awaiting_info" %}
+              <span class="badge bg-warning text-dark fs-6" style="background-color:#fd7e14!important">{{ service_request.get_status_display }}</span>
+            {% elif service_request.status == "approved" %}
+              <span class="badge bg-success fs-6">{{ service_request.get_status_display }}</span>
+            {% elif service_request.status == "rejected" %}
+              <span class="badge bg-danger fs-6">{{ service_request.get_status_display }}</span>
+            {% elif service_request.status == "closed" %}
+              <span class="badge bg-secondary fs-6">{{ service_request.get_status_display }}</span>
+            {% else %}
+              <span class="badge bg-secondary fs-6">{{ service_request.get_status_display }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-sm-4">{% trans "Created" %}</dt>
+            <dd class="col-sm-8">
+              <time datetime="{{ service_request.created_at|date:'c' }}">
+                {{ service_request.created_at|date:"Y-m-d H:i" }}
+              </time>
+            </dd>
+            {% if service_request.expires_at %}
+              <dt class="col-sm-4">{% trans "Expires" %}</dt>
+              <dd class="col-sm-8">
+                <time datetime="{{ service_request.expires_at|date:'c' }}">
+                  {{ service_request.expires_at|date:"Y-m-d" }}
+                </time>
+              </dd>
+            {% endif %}
+            <dt class="col-sm-4">{% trans "Last updated" %}</dt>
+            <dd class="col-sm-8">
+              <time datetime="{{ service_request.updated_at|date:'c' }}">
+                {{ service_request.updated_at|date:"Y-m-d H:i" }}
+              </time>
+            </dd>
+          </dl>
+        </div>
+      </div>
+
+      {# --- Citizen card ----------------------------------------- #}
+      <div class="card mb-4">
+        <div class="card-header">
+          <h2 class="h6 mb-0">{% trans "Citizen" %}</h2>
+        </div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-sm-4">{% trans "Email" %}</dt>
+            <dd class="col-sm-8">{{ service_request.citizen.email }}</dd>
+            <dt class="col-sm-4">{% trans "Total requests" %}</dt>
+            <dd class="col-sm-8">{{ citizen_requests_count }}</dd>
+          </dl>
+        </div>
+      </div>
+
+      {# --- Submission data card --------------------------------- #}
+      <div class="card mb-4">
+        <div class="card-header">
+          <h2 class="h6 mb-0">{% trans "Submission data" %}</h2>
+        </div>
+        <div class="card-body">
+          {% if service_request.submission_data %}
+            <dl class="row mb-0">
+              {% for key, value in service_request.submission_data.items %}
+                <dt class="col-sm-4">
+                  {# Format key: replace underscores with spaces and title-case it #}
+                  {{ key|lower|title }}
+                </dt>
+                <dd class="col-sm-8">
+                  {% if value %}
+                    {{ value }}
+                  {% else %}
+                    <span class="text-muted fst-italic">{% trans "—" %}</span>
+                  {% endif %}
+                </dd>
+              {% endfor %}
+            </dl>
+          {% else %}
+            <p class="text-muted mb-0">{% trans "No submission data recorded." %}</p>
+          {% endif %}
+        </div>
+      </div>
+
+      {# --- Status history table --------------------------------- #}
+      <div class="card mb-4">
+        <div class="card-header">
+          <h2 class="h6 mb-0">{% trans "Status history" %}</h2>
+        </div>
+        <div class="card-body p-0">
+          {% if status_updates %}
+            <div class="table-responsive">
+              <table class="table table-sm mb-0" aria-label="{% trans 'Status history' %}">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">{% trans "From" %}</th>
+                    <th scope="col">{% trans "To" %}</th>
+                    <th scope="col">{% trans "Changed by" %}</th>
+                    <th scope="col">{% trans "Note" %}</th>
+                    <th scope="col">{% trans "Date" %}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for update in status_updates %}
+                    <tr>
+                      <td>
+                        {% if update.old_status %}
+                          {{ update.get_old_status_display }}
+                        {% else %}
+                          <span class="text-muted fst-italic">{% trans "—" %}</span>
+                        {% endif %}
+                      </td>
+                      <td>{{ update.get_new_status_display }}</td>
+                      <td>
+                        {# Show staff email — this is a staff-only view; we are
+                           displaying which staff member took an action, not citizen PII #}
+                        {% if update.changed_by %}
+                          {{ update.changed_by.email }}
+                        {% else %}
+                          <span class="text-muted fst-italic">{% trans "System" %}</span>
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if update.public_note %}
+                          {{ update.public_note }}
+                        {% else %}
+                          <span class="text-muted fst-italic">{% trans "—" %}</span>
+                        {% endif %}
+                      </td>
+                      <td>
+                        <time datetime="{{ update.created_at|date:'c' }}">
+                          {{ update.created_at|date:"Y-m-d H:i" }}
+                        </time>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="p-3">
+              <p class="text-muted mb-0">{% trans "No status history yet." %}</p>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>{# /col left #}
+
+    {# ================================================================
+       RIGHT COLUMN — actions panel
+       ================================================================ #}
+    <div class="col-12 col-lg-4">
+
+      {# --- Update status form ----------------------------------- #}
+      {# Only show if the request is NOT in a terminal state #}
+      {% if not service_request.is_terminal %}
+        <div class="card mb-4 border-primary">
+          <div class="card-header bg-primary text-white">
+            <h2 class="h6 mb-0">{% trans "Update Status" %}</h2>
+          </div>
+          <div class="card-body">
+            <form method="post"
+                  action="{% url 'backoffice:sr-status' service_request.reference_number %}"
+                  novalidate>
+              {% csrf_token %}
+
+              <div class="mb-3">
+                <label for="id_new_status" class="form-label">
+                  {{ status_form.new_status.label }}
+                </label>
+                <select id="id_new_status"
+                        name="new_status"
+                        class="form-select"
+                        aria-label="{% trans 'Select new status' %}"
+                        required>
+                  {% for value, label in status_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="mb-3">
+                <label for="id_public_note" class="form-label">
+                  {{ status_form.public_note.label }}
+                </label>
+                <textarea id="id_public_note"
+                          name="public_note"
+                          rows="3"
+                          class="form-control"
+                          maxlength="500"
+                          aria-describedby="id_public_note_help"
+                          placeholder="{% trans 'Optional — visible to the citizen' %}"></textarea>
+                <div id="id_public_note_help" class="form-text">
+                  {{ status_form.public_note.help_text }}
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary w-100">
+                {% trans "Save status" %}
+              </button>
+            </form>
+          </div>
+        </div>
+      {% else %}
+        <div class="card mb-4 border-secondary">
+          <div class="card-body text-center text-muted">
+            <p class="mb-0">
+              {% trans "This request is in a terminal state and cannot be advanced further." %}
+            </p>
+          </div>
+        </div>
+      {% endif %}
+
+      {# --- Internal notes form ---------------------------------- #}
+      <div class="card mb-4">
+        <div class="card-header">
+          <h2 class="h6 mb-0">
+            {% trans "Internal Notes" %}
+            <span class="badge bg-secondary ms-1">{% trans "Staff only" %}</span>
+          </h2>
+        </div>
+        <div class="card-body">
+          <form method="post"
+                action="{% url 'backoffice:sr-notes' service_request.reference_number %}"
+                novalidate>
+            {% csrf_token %}
+
+            <div class="mb-3">
+              <label for="id_internal_notes" class="form-label visually-hidden">
+                {{ notes_form.internal_notes.label }}
+              </label>
+              <textarea id="id_internal_notes"
+                        name="internal_notes"
+                        rows="6"
+                        class="form-control"
+                        maxlength="5000"
+                        aria-label="{% trans 'Internal staff notes — never shown to citizen' %}"
+                        aria-describedby="id_internal_notes_help"
+                        placeholder="{% trans 'Add staff notes here…' %}">{{ notes_form.initial.internal_notes|default:'' }}</textarea>
+              <div id="id_internal_notes_help" class="form-text">
+                {{ notes_form.fields.internal_notes.help_text }}
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-outline-secondary w-100">
+              {% trans "Save notes" %}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {# --- Linked work item ------------------------------------- #}
+      {% if work_item %}
+        <div class="card mb-4">
+          <div class="card-header">
+            <h2 class="h6 mb-0">{% trans "Linked Work Item" %}</h2>
+          </div>
+          <div class="card-body">
+            <p class="mb-1"><strong>{{ work_item.title }}</strong></p>
+            <p class="text-muted mb-2 small">{% trans "Status" %}: {{ work_item.get_status_display }}</p>
+            <a href="{% url 'backoffice:wi-detail' work_item.pk %}"
+               class="btn btn-sm btn-outline-primary">
+              {% trans "View work item" %}
+            </a>
+          </div>
+        </div>
+      {% endif %}
+
+    </div>{# /col right #}
+
+  </div>{# /row #}
+
+</div>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block backoffice_title %}{% trans "Send Notification" %} — {% trans "Back-office" %}{% endblock %}
+
+{% block backoffice_content %}
+<div class="mb-3">
+  <a href="{% url 'backoffice:notification-list' %}" class="text-muted small"
+     aria-label="{% trans 'Back to notifications list' %}">
+    &larr; {% trans "Back to notifications" %}
+  </a>
+</div>
+
+<h1 class="h3 mb-4">{% trans "Send Notification" %}</h1>
+
+{# -----------------------------------------------------------------------
+   Warning
+   ----------------------------------------------------------------------- #}
+<div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+  <span aria-hidden="true">&#9888;</span>
+  <div>
+    <strong>{% trans "Important:" %}</strong>
+    {% trans "This will send a real email to the citizen. Verify the address before sending." %}
+  </div>
+</div>
+
+{# -----------------------------------------------------------------------
+   Form-level non-field errors (e.g. from add_error calls in view)
+   ----------------------------------------------------------------------- #}
+{% if form.non_field_errors %}
+<div class="alert alert-danger" role="alert">
+  {% for error in form.non_field_errors %}
+    <p class="mb-0">{{ error }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# -----------------------------------------------------------------------
+   Send form
+   ----------------------------------------------------------------------- #}
+<form method="post"
+      action="{% url 'backoffice:notification-send' %}"
+      novalidate
+      aria-label="{% trans 'Send email notification form' %}">
+  {% csrf_token %}
+
+  <div class="mb-3">
+    <label for="{{ form.recipient_email.id_for_label }}" class="form-label fw-semibold">
+      {{ form.recipient_email.label }}
+    </label>
+    {{ form.recipient_email }}
+    {% if form.recipient_email.help_text %}
+      <div id="{{ form.recipient_email.id_for_label }}_help" class="form-text">
+        {{ form.recipient_email.help_text }}
+      </div>
+    {% endif %}
+    {% if form.recipient_email.errors %}
+      <div class="invalid-feedback d-block" role="alert">
+        {% for error in form.recipient_email.errors %}
+          {{ error }}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="mb-3">
+    <label for="{{ form.subject.id_for_label }}" class="form-label fw-semibold">
+      {{ form.subject.label }}
+    </label>
+    {{ form.subject }}
+    {% if form.subject.errors %}
+      <div class="invalid-feedback d-block" role="alert">
+        {% for error in form.subject.errors %}
+          {{ error }}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="mb-3">
+    <label for="{{ form.body.id_for_label }}" class="form-label fw-semibold">
+      {{ form.body.label }}
+    </label>
+    {{ form.body }}
+    {% if form.body.errors %}
+      <div class="invalid-feedback d-block" role="alert">
+        {% for error in form.body.errors %}
+          {{ error }}
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary"
+            aria-label="{% trans 'Send the email notification' %}">
+      {% trans "Send notification" %}
+    </button>
+    <a href="{% url 'backoffice:notification-list' %}" class="btn btn-outline-secondary"
+       aria-label="{% trans 'Cancel and return to notifications list' %}">
+      {% trans "Cancel" %}
+    </a>
+  </div>
+</form>
+
+{% endblock backoffice_content %}

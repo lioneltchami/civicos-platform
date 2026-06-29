@@ -1,0 +1,159 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block backoffice_title %}{% trans "Citizen" %} — {{ object.email }}{% endblock %}
+
+{% block backoffice_content %}
+
+{# ---- Back link ---- #}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="mb-3">
+  <a href="{% url 'backoffice:citizen-list' %}" class="btn btn-sm btn-outline-secondary">
+    &larr; {% trans "Back to Citizens" %}
+  </a>
+</nav>
+
+{# ---- Messages ---- #}
+{% if messages %}
+  <div aria-live="polite" aria-atomic="true">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Dismiss notification' %}"></button>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{# ---- Header card ---- #}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+      <div>
+        <h1 class="h4 mb-1">{{ object.email }}</h1>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          {% if object.is_active %}
+            <span class="badge bg-success" aria-label="{% trans 'Account is active' %}">✓ {% trans "Active" %}</span>
+          {% else %}
+            <span class="badge bg-danger" aria-label="{% trans 'Account is inactive' %}">✗ {% trans "Inactive" %}</span>
+          {% endif %}
+        </div>
+        <dl class="row mt-3 mb-0 small">
+          <dt class="col-sm-4">{% trans "Date Joined" %}</dt>
+          <dd class="col-sm-8">
+            <time datetime="{{ object.date_joined|date:'c' }}">{{ object.date_joined|date:"Y-m-d H:i" }}</time>
+          </dd>
+          <dt class="col-sm-4">{% trans "Last Login" %}</dt>
+          <dd class="col-sm-8">
+            {% if object.last_login %}
+              <time datetime="{{ object.last_login|date:'c' }}">{{ object.last_login|date:"Y-m-d H:i" }}</time>
+            {% else %}
+              <span class="text-muted">{% trans "Never" %}</span>
+            {% endif %}
+          </dd>
+          <dt class="col-sm-4">{% trans "Service Requests" %}</dt>
+          <dd class="col-sm-8">{{ request_count }}</dd>
+        </dl>
+      </div>
+
+      {# ---- Deactivate / Reactivate button ---- #}
+      <div>
+        <form method="post" action="{% url 'backoffice:citizen-deactivate' pk=object.pk %}">
+          {% csrf_token %}
+          {% if object.is_active %}
+            <button type="submit" class="btn btn-danger"
+                    aria-label="{% blocktrans with email=object.email %}Deactivate citizen account {{ email }}{% endblocktrans %}"
+                    onclick="return confirm('{% trans "Are you sure you want to deactivate this account?" %}')">
+              {% trans "Deactivate Account" %}
+            </button>
+          {% else %}
+            <button type="submit" class="btn btn-success"
+                    aria-label="{% blocktrans with email=object.email %}Reactivate citizen account {{ email }}{% endblocktrans %}"
+                    onclick="return confirm('{% trans "Are you sure you want to reactivate this account?" %}')">
+              {% trans "Reactivate Account" %}
+            </button>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---- Service requests ---- #}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h2 class="h6 mb-0">{% trans "Service Requests" %} <span class="badge bg-secondary">{% trans "last 20" %}</span></h2>
+  </div>
+  {% if service_requests %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0" aria-label="{% trans 'Service requests for this citizen' %}">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">{% trans "Reference" %}</th>
+            <th scope="col">{% trans "Service" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">{% trans "Submitted" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sr in service_requests %}
+            <tr>
+              <td>
+                <a href="{% url 'backoffice:sr-detail' reference_number=sr.reference_number %}">
+                  {{ sr.reference_number }}
+                </a>
+              </td>
+              <td>{{ sr.service_name }}</td>
+              <td>
+                <span class="badge bg-secondary">{{ sr.get_status_display }}</span>
+              </td>
+              <td>
+                <time datetime="{{ sr.created_at|date:'c' }}">{{ sr.created_at|date:"Y-m-d" }}</time>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="card-body text-muted">{% trans "No service requests found." %}</div>
+  {% endif %}
+</div>
+
+{# ---- Recent notifications ---- #}
+<div class="card mb-4">
+  <div class="card-header">
+    <h2 class="h6 mb-0">{% trans "Recent Notifications" %} <span class="badge bg-secondary">{% trans "last 10" %}</span></h2>
+  </div>
+  {% if notifications %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0" aria-label="{% trans 'Recent notifications sent to this citizen' %}">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">{% trans "Channel" %}</th>
+            <th scope="col">{% trans "Subject" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">{% trans "Sent" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for n in notifications %}
+            <tr>
+              <td>{{ n.get_channel_display }}</td>
+              <td>{{ n.subject|default:"—"|truncatechars:60 }}</td>
+              <td>
+                <span class="badge bg-secondary">{{ n.get_status_display }}</span>
+              </td>
+              <td>
+                <time datetime="{{ n.created_at|date:'c' }}">{{ n.created_at|date:"Y-m-d H:i" }}</time>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="card-body text-muted">{% trans "No notifications found." %}</div>
+  {% endif %}
+</div>
+
+{% endblock backoffice_content %}

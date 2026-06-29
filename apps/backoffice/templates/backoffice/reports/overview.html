@@ -1,0 +1,241 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block backoffice_title %}{% trans "Reports" %} — {% trans "Back-office" %}{% endblock %}
+
+{% block backoffice_content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{% trans "Reports" %}</h1>
+  <span class="text-muted small">
+    {% trans "Generated at" %}: {{ generated_at|date:"Y-m-d H:i" }} UTC
+  </span>
+</div>
+
+{# -----------------------------------------------------------------------
+   Service Requests by Status
+   ----------------------------------------------------------------------- #}
+<section aria-labelledby="heading-sr-status" class="mb-5">
+  <h2 id="heading-sr-status" class="h5 border-bottom pb-2 mb-3">
+    {% trans "Service Requests by Status" %}
+  </h2>
+
+  {% if sr_by_status %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle" aria-label="{% trans 'Service requests by status' %}">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col" class="text-end">{% trans "Count" %}</th>
+            <th scope="col" style="width:40%">{% trans "Distribution" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in sr_by_status %}
+          <tr>
+            <td>{{ row.status|title }}</td>
+            <td class="text-end fw-semibold">{{ row.count }}</td>
+            <td>
+              {% if sr_max_count > 0 %}
+              {% widthratio row.count sr_max_count 100 as pct %}
+              <div class="progress" style="height:16px;" aria-label="{% blocktrans with count=row.count total=sr_total %}{{ count }} of {{ total }} requests{% endblocktrans %}">
+                <div class="progress-bar bg-primary" role="progressbar"
+                     style="width:{{ pct }}%"
+                     aria-valuenow="{{ pct }}"
+                     aria-valuemin="0"
+                     aria-valuemax="100">
+                  {{ pct }}%
+                </div>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-bold">
+          <tr>
+            <td>{% trans "Total" %}</td>
+            <td class="text-end">{{ sr_total }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-muted">{% trans "No service request data available." %}</p>
+  {% endif %}
+</section>
+
+{# -----------------------------------------------------------------------
+   Top Services
+   ----------------------------------------------------------------------- #}
+<section aria-labelledby="heading-top-services" class="mb-5">
+  <h2 id="heading-top-services" class="h5 border-bottom pb-2 mb-3">
+    {% trans "Top Services" %}
+  </h2>
+
+  {% if sr_by_service %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle" aria-label="{% trans 'Top services by request count' %}">
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Service name" %}</th>
+          <th scope="col" class="text-end">{% trans "Requests" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in sr_by_service %}
+        <tr>
+          <td>{{ row.service_name }}</td>
+          <td class="text-end fw-semibold">{{ row.count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-muted">{% trans "No service data available." %}</p>
+  {% endif %}
+</section>
+
+{# -----------------------------------------------------------------------
+   Work Items — SLA Breaches by Priority
+   ----------------------------------------------------------------------- #}
+<section aria-labelledby="heading-sla" class="mb-5">
+  <h2 id="heading-sla" class="h5 border-bottom pb-2 mb-3">
+    {% trans "Work Items — SLA Breaches by Priority" %}
+  </h2>
+
+  {% if sla_breaches %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle" aria-label="{% trans 'SLA breaches by work item priority' %}">
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Priority" %}</th>
+          <th scope="col" class="text-end">{% trans "Breach count" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in sla_breaches %}
+        <tr>
+          <td>
+            {% if row.priority == 1 %}
+              <span class="badge bg-danger">{% trans "Critical" %}</span>
+            {% elif row.priority == 2 %}
+              <span class="badge bg-warning text-dark">{% trans "High" %}</span>
+            {% elif row.priority == 3 %}
+              <span class="badge bg-primary">{% trans "Normal" %}</span>
+            {% else %}
+              <span class="badge bg-secondary">{% trans "Low" %}</span>
+            {% endif %}
+          </td>
+          <td class="text-end fw-semibold text-danger">{{ row.count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-muted">{% trans "No SLA breaches recorded." %}</p>
+  {% endif %}
+</section>
+
+{# -----------------------------------------------------------------------
+   Average Time to Completion
+   ----------------------------------------------------------------------- #}
+<section aria-labelledby="heading-completion" class="mb-5">
+  <h2 id="heading-completion" class="h5 border-bottom pb-2 mb-3">
+    {% trans "Average Time to Completion" %}
+  </h2>
+
+  <div class="card stat-card--primary p-3 d-inline-block">
+    {% if avg_completion %}
+      {% with total_seconds=avg_completion.total_seconds %}
+      {% if total_seconds >= 86400 %}
+        {# Display in days #}
+        <div class="stat-card__value">
+          {% widthratio total_seconds 86400 1 %} {% trans "days" %}
+        </div>
+      {% else %}
+        {# Display in hours #}
+        <div class="stat-card__value">
+          {% widthratio total_seconds 3600 1 %} {% trans "hours" %}
+        </div>
+      {% endif %}
+      {% endwith %}
+    {% else %}
+      <div class="stat-card__value text-muted">{% trans "No data" %}</div>
+    {% endif %}
+    <div class="stat-card__label">{% trans "Average time to completion (completed work items)" %}</div>
+  </div>
+</section>
+
+{# -----------------------------------------------------------------------
+   Notifications — side by side
+   ----------------------------------------------------------------------- #}
+<section aria-labelledby="heading-notifs" class="mb-5">
+  <h2 id="heading-notifs" class="h5 border-bottom pb-2 mb-3">
+    {% trans "Notifications" %}
+  </h2>
+
+  <div class="row g-4">
+
+    {# By channel #}
+    <div class="col-md-6">
+      <h3 class="h6 mb-2">{% trans "By channel" %}</h3>
+      {% if notif_by_channel %}
+      <table class="table table-sm table-hover align-middle" aria-label="{% trans 'Notifications by channel' %}">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">{% trans "Channel" %}</th>
+            <th scope="col" class="text-end">{% trans "Count" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in notif_by_channel %}
+          <tr>
+            <td>{{ row.channel|title }}</td>
+            <td class="text-end fw-semibold">{{ row.count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-bold">
+          <tr>
+            <td>{% trans "Total" %}</td>
+            <td class="text-end">{{ notif_total }}</td>
+          </tr>
+        </tfoot>
+      </table>
+      {% else %}
+        <p class="text-muted">{% trans "No notification data." %}</p>
+      {% endif %}
+    </div>
+
+    {# By status #}
+    <div class="col-md-6">
+      <h3 class="h6 mb-2">{% trans "By status" %}</h3>
+      {% if notif_by_status %}
+      <table class="table table-sm table-hover align-middle" aria-label="{% trans 'Notifications by status' %}">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col" class="text-end">{% trans "Count" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in notif_by_status %}
+          <tr>
+            <td>{{ row.status|title }}</td>
+            <td class="text-end fw-semibold">{{ row.count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <p class="text-muted">{% trans "No notification data." %}</p>
+      {% endif %}
+    </div>
+
+  </div>
+</section>
+
+{% endblock backoffice_content %}

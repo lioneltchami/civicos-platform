@@ -1,0 +1,188 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block backoffice_title %}{% trans "Notifications" %} — {% trans "Back-office" %}{% endblock %}
+
+{% block backoffice_content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">{% trans "Notifications" %}</h1>
+  <a href="{% url 'backoffice:notification-send' %}" class="btn btn-primary btn-sm"
+     aria-label="{% trans 'Send a new notification to a citizen' %}">
+    {% trans "Send Notification" %}
+  </a>
+</div>
+
+{# -----------------------------------------------------------------------
+   Filter bar
+   ----------------------------------------------------------------------- #}
+<form method="get" action="" class="mb-4" aria-label="{% trans 'Filter notifications' %}">
+  <div class="row g-2 align-items-end">
+
+    {# Channel filter #}
+    <div class="col-sm-6 col-md-3">
+      <label class="form-label fw-semibold" for="id_channel">{% trans "Channel" %}</label>
+      <select
+        id="id_channel"
+        name="channel"
+        class="form-select form-select-sm"
+        aria-label="{% trans 'Filter by notification channel' %}"
+      >
+        <option value="">{% trans "All channels" %}</option>
+        {% for value, label in channel_choices %}
+          <option value="{{ value }}" {% if current_channel == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# Status filter #}
+    <div class="col-sm-6 col-md-3">
+      <label class="form-label fw-semibold" for="id_status">{% trans "Status" %}</label>
+      <select
+        id="id_status"
+        name="status"
+        class="form-select form-select-sm"
+        aria-label="{% trans 'Filter by notification status' %}"
+      >
+        <option value="">{% trans "All statuses" %}</option>
+        {% for value, label in status_choices %}
+          <option value="{{ value }}" {% if current_status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {# Free-text search #}
+    <div class="col-sm-8 col-md-4">
+      <label class="form-label fw-semibold" for="id_q">{% trans "Search" %}</label>
+      <input
+        type="search"
+        id="id_q"
+        name="q"
+        class="form-control form-control-sm"
+        value="{{ current_q }}"
+        placeholder="{% trans 'Recipient email or subject…' %}"
+        aria-label="{% trans 'Search by recipient email or subject' %}"
+      >
+    </div>
+
+    {# Apply button #}
+    <div class="col-sm-4 col-md-2 d-flex gap-2 align-items-end">
+      <button type="submit" class="btn btn-primary btn-sm" aria-label="{% trans 'Apply filters' %}">
+        {% trans "Apply" %}
+      </button>
+    </div>
+
+  </div>
+
+  {# Clear link #}
+  {% if current_channel or current_status or current_q %}
+  <div class="mt-2">
+    <a href="{% url 'backoffice:notification-list' %}" class="small text-muted"
+       aria-label="{% trans 'Clear all filters' %}">
+      {% trans "Clear filters" %}
+    </a>
+  </div>
+  {% endif %}
+</form>
+
+{# -----------------------------------------------------------------------
+   Notifications table
+   ----------------------------------------------------------------------- #}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle" aria-label="{% trans 'Outbound notifications' %}">
+    <thead class="table-light">
+      <tr>
+        <th scope="col">{% trans "Recipient" %}</th>
+        <th scope="col">{% trans "Channel" %}</th>
+        <th scope="col">{% trans "Subject" %}</th>
+        <th scope="col">{% trans "Status" %}</th>
+        <th scope="col">{% trans "Sent at" %}</th>
+        <th scope="col">{% trans "Created at" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for notif in notifications %}
+      <tr>
+        <td class="small">{{ notif.recipient.email }}</td>
+        <td>
+          {% if notif.channel == "email" %}
+            <span class="badge bg-info text-dark">{% trans "Email" %}</span>
+          {% elif notif.channel == "sms" %}
+            <span class="badge bg-warning text-dark">{% trans "SMS" %}</span>
+          {% else %}
+            <span class="badge bg-secondary">{% trans "In-app" %}</span>
+          {% endif %}
+        </td>
+        <td class="small">{{ notif.subject|default:"—"|truncatechars:60 }}</td>
+        <td>
+          {% if notif.status == "pending" %}
+            <span class="badge bg-secondary">{% trans "Pending" %}</span>
+          {% elif notif.status == "sent" %}
+            <span class="badge bg-primary">{% trans "Sent" %}</span>
+          {% elif notif.status == "delivered" %}
+            <span class="badge bg-success">{% trans "Delivered" %}</span>
+          {% elif notif.status == "failed" %}
+            <span class="badge bg-danger">{% trans "Failed" %}</span>
+          {% elif notif.status == "bounced" %}
+            <span class="badge bg-warning text-dark">{% trans "Bounced" %}</span>
+          {% else %}
+            <span class="badge bg-light text-dark">{{ notif.status }}</span>
+          {% endif %}
+        </td>
+        <td class="small text-nowrap">{{ notif.sent_at|date:"Y-m-d H:i"|default:"—" }}</td>
+        <td class="small text-nowrap">{{ notif.created_at|date:"Y-m-d H:i" }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="6" class="text-center text-muted py-4">
+          {% trans "No notifications match the current filters." %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# -----------------------------------------------------------------------
+   Pagination
+   ----------------------------------------------------------------------- #}
+{% if is_paginated %}
+<nav aria-label="{% trans 'Notifications pagination' %}">
+  <ul class="pagination pagination-sm justify-content-center mt-3">
+    {% if page_obj.has_previous %}
+      <li class="page-item">
+        <a class="page-link"
+           href="?{{ filter_params }}&page=1"
+           aria-label="{% trans 'First page' %}">&laquo;</a>
+      </li>
+      <li class="page-item">
+        <a class="page-link"
+           href="?{{ filter_params }}&page={{ page_obj.previous_page_number }}"
+           aria-label="{% trans 'Previous page' %}">&lsaquo;</a>
+      </li>
+    {% endif %}
+
+    <li class="page-item disabled" aria-current="page">
+      <span class="page-link">
+        {% blocktrans with current=page_obj.number total=page_obj.paginator.num_pages %}
+          Page {{ current }} of {{ total }}
+        {% endblocktrans %}
+      </span>
+    </li>
+
+    {% if page_obj.has_next %}
+      <li class="page-item">
+        <a class="page-link"
+           href="?{{ filter_params }}&page={{ page_obj.next_page_number }}"
+           aria-label="{% trans 'Next page' %}">&rsaquo;</a>
+      </li>
+      <li class="page-item">
+        <a class="page-link"
+           href="?{{ filter_params }}&page={{ page_obj.paginator.num_pages }}"
+           aria-label="{% trans 'Last page' %}">&raquo;</a>
+      </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+
+{% endblock backoffice_content %}

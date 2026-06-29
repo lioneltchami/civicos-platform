@@ -1,0 +1,128 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block backoffice_title %}{% trans "Citizens" %}{% endblock %}
+
+{% block backoffice_content %}
+<div class="bo-page-header mb-4">
+  <h1 class="h3 mb-0">{% trans "Citizens" %}</h1>
+</div>
+
+{# ---- Messages ---- #}
+{% if messages %}
+  <div aria-live="polite" aria-atomic="true">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Dismiss notification' %}"></button>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{# ---- Filter bar ---- #}
+<form method="get" class="row g-2 mb-4 align-items-end" role="search" aria-label="{% trans 'Filter citizens' %}">
+  <div class="col-auto">
+    <label for="search-q" class="form-label">{% trans "Search" %}</label>
+    <input id="search-q" type="search" name="q" class="form-control form-control-sm"
+           value="{{ search_query }}" placeholder="{% trans 'Search by email…' %}"
+           aria-label="{% trans 'Search citizens by email address' %}">
+  </div>
+
+  <div class="col-auto">
+    <label for="filter-active" class="form-label">{% trans "Account Status" %}</label>
+    <select id="filter-active" name="active" class="form-select form-select-sm"
+            aria-label="{% trans 'Filter by account active status' %}">
+      <option value="" {% if active_filter == "" %}selected{% endif %}>{% trans "All" %}</option>
+      <option value="1" {% if active_filter == "1" %}selected{% endif %}>{% trans "Active" %}</option>
+      <option value="0" {% if active_filter == "0" %}selected{% endif %}>{% trans "Inactive" %}</option>
+    </select>
+  </div>
+
+  <div class="col-auto">
+    <button type="submit" class="btn btn-sm btn-primary" aria-label="{% trans 'Apply citizen filters' %}">{% trans "Filter" %}</button>
+    <a href="{% url 'backoffice:citizen-list' %}" class="btn btn-sm btn-outline-secondary ms-1" aria-label="{% trans 'Clear all citizen filters' %}">{% trans "Clear" %}</a>
+  </div>
+</form>
+
+{# ---- Table ---- #}
+{% if citizens %}
+  <p class="text-muted small mb-2">
+    {% blocktrans with n=total_count %}{{ n }} citizen(s) found{% endblocktrans %}
+  </p>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle" aria-label="{% trans 'Citizens list' %}">
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Email" %}</th>
+          <th scope="col">{% trans "Active" %}</th>
+          <th scope="col">{% trans "Date Joined" %}</th>
+          <th scope="col">{% trans "Last Login" %}</th>
+          <th scope="col">{% trans "Requests" %}</th>
+          <th scope="col"><span class="visually-hidden">{% trans "Actions" %}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for citizen in citizens %}
+          <tr>
+            <td>{{ citizen.email }}</td>
+            <td>
+              {% if citizen.is_active %}
+                <span class="badge bg-success" aria-label="{% trans 'Account is active' %}">✓ {% trans "Active" %}</span>
+              {% else %}
+                <span class="badge bg-danger" aria-label="{% trans 'Account is inactive' %}">✗ {% trans "Inactive" %}</span>
+              {% endif %}
+            </td>
+            <td><time datetime="{{ citizen.date_joined|date:'c' }}">{{ citizen.date_joined|date:"Y-m-d" }}</time></td>
+            <td>
+              {% if citizen.last_login %}
+                <time datetime="{{ citizen.last_login|date:'c' }}">{{ citizen.last_login|date:"Y-m-d" }}</time>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>{{ citizen.request_count }}</td>
+            <td>
+              <a href="{% url 'backoffice:citizen-detail' pk=citizen.pk %}"
+                 class="btn btn-sm btn-outline-primary"
+                 aria-label="{% blocktrans with email=citizen.email %}View citizen {{ email }}{% endblocktrans %}">
+                {% trans "View" %}
+              </a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ---- Pagination ---- #}
+  {% if is_paginated %}
+    <nav aria-label="{% trans 'Citizens pagination' %}">
+      <ul class="pagination pagination-sm">
+        {% if page_obj.has_previous %}
+          <li class="page-item">
+            <a class="page-link" href="?{% if search_query %}q={{ search_query }}&{% endif %}{% if active_filter %}active={{ active_filter }}&{% endif %}page={{ page_obj.previous_page_number }}" aria-label="{% trans 'Previous page' %}">{% trans "Previous" %}</a>
+          </li>
+        {% endif %}
+        <li class="page-item disabled">
+          <span class="page-link" aria-current="page">
+            {% blocktrans with current=page_obj.number total=page_obj.paginator.num_pages %}Page {{ current }} of {{ total }}{% endblocktrans %}
+          </span>
+        </li>
+        {% if page_obj.has_next %}
+          <li class="page-item">
+            <a class="page-link" href="?{% if search_query %}q={{ search_query }}&{% endif %}{% if active_filter %}active={{ active_filter }}&{% endif %}page={{ page_obj.next_page_number }}" aria-label="{% trans 'Next page' %}">{% trans "Next" %}</a>
+          </li>
+        {% endif %}
+      </ul>
+    </nav>
+  {% endif %}
+
+{% else %}
+  <div class="text-center py-5 text-muted" role="status" aria-live="polite">
+    <p class="mb-0">{% trans "No citizens match your search." %}</p>
+    <a href="{% url 'backoffice:citizen-list' %}" class="btn btn-sm btn-outline-secondary mt-2">{% trans "Clear filters" %}</a>
+  </div>
+{% endif %}
+
+{% endblock backoffice_content %}

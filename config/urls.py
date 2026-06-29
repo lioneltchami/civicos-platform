@@ -9,6 +9,7 @@ Structure:
   /two-factor/          → MFA login flow
   /portal/              → Authenticated citizen portal
   /api/v1/              → REST API (notifications, workflows, portal)
+  /backoffice/          → Staff back-office (StaffRequiredMixin enforced at view level)
   /__debug__/           → Django Debug Toolbar (development only)
 """
 
@@ -45,6 +46,9 @@ urlpatterns = [
     path("health/", include("apps.core.urls.health")),
     # REST API v1 — language-prefix-free; authentication via JWT / Token
     path("api/v1/", include("apps.api.urls", namespace="api-v1")),
+    # Back-office — staff-only; access control enforced via StaffRequiredMixin on every view.
+    # Mounted outside i18n_patterns: staff tools do not require language prefixes.
+    path("backoffice/", include("apps.backoffice.urls", namespace="backoffice")),
     # Django i18n — provides the {% url 'set_language' %} view used in base.html
     # Must be a non-i18n (language-prefix-free) URL so the language switcher works
     # regardless of which language is currently active.

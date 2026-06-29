@@ -1,0 +1,200 @@
+{% extends "backoffice/base.html" %}
+{% load i18n %}
+
+{% block backoffice_title %}{% trans "Work Item Queue" %}{% endblock %}
+
+{% block backoffice_content %}
+<div class="bo-page-header mb-4">
+  <h1 class="h3 mb-0">{% trans "Work Item Queue" %}</h1>
+</div>
+
+{# ---- Messages ---- #}
+{% if messages %}
+  <div aria-live="polite" aria-atomic="true">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Dismiss notification' %}"></button>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{# ---- Stats bar ---- #}
+<div class="row g-3 mb-4" role="region" aria-label="{% trans 'Queue summary' %}">
+  <div class="col-auto">
+    <div class="card text-center px-3 py-2">
+      <div class="fs-4 fw-bold">{{ wi_open }}</div>
+      <div class="text-muted small">{% trans "Open" %}</div>
+    </div>
+  </div>
+  <div class="col-auto">
+    <div class="card text-center px-3 py-2">
+      <div class="fs-4 fw-bold">{{ wi_mine }}</div>
+      <div class="text-muted small">{% trans "Mine" %}</div>
+    </div>
+  </div>
+  <div class="col-auto">
+    <div class="card text-center px-3 py-2 {% if wi_overdue > 0 %}border-danger{% endif %}">
+      <div class="fs-4 fw-bold {% if wi_overdue > 0 %}text-danger{% endif %}">
+        {{ wi_overdue }}
+        {% if wi_overdue > 0 %}<span class="badge bg-danger ms-1" aria-label="{% trans 'SLA breached' %}">SLA</span>{% endif %}
+      </div>
+      <div class="text-muted small">{% trans "SLA Breached" %}</div>
+    </div>
+  </div>
+</div>
+
+{# ---- Filter bar ---- #}
+<form method="get" class="row g-2 mb-4 align-items-end" role="search" aria-label="{% trans 'Filter work items' %}">
+  <div class="col-auto">
+    <label for="filter-status" class="form-label">{% trans "Status" %}</label>
+    <select id="filter-status" name="status" class="form-select form-select-sm" aria-label="{% trans 'Filter by status' %}">
+      <option value="">{% trans "All statuses" %}</option>
+      {% for value, label in status_choices %}
+        <option value="{{ value }}" {% if current_status == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-auto">
+    <label for="filter-priority" class="form-label">{% trans "Priority" %}</label>
+    <select id="filter-priority" name="priority" class="form-select form-select-sm" aria-label="{% trans 'Filter by priority' %}">
+      <option value="">{% trans "All priorities" %}</option>
+      {% for value, label in priority_choices %}
+        <option value="{{ value }}" {% if current_priority == value|stringformat:"s" %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-auto">
+    <div class="form-check mt-4">
+      <input class="form-check-input" type="checkbox" id="filter-mine" name="mine" value="1"
+             {% if current_mine == "1" %}checked{% endif %}
+             aria-label="{% trans 'Show only items assigned to me' %}">
+      <label class="form-check-label" for="filter-mine">{% trans "Mine only" %}</label>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <div class="form-check mt-4">
+      <input class="form-check-input" type="checkbox" id="filter-unassigned" name="unassigned" value="1"
+             {% if current_unassigned == "1" %}checked{% endif %}
+             aria-label="{% trans 'Show only unassigned items' %}">
+      <label class="form-check-label" for="filter-unassigned">{% trans "Unassigned" %}</label>
+    </div>
+  </div>
+
+  <div class="col-auto">
+    <button type="submit" class="btn btn-sm btn-primary" aria-label="{% trans 'Apply filters' %}">{% trans "Filter" %}</button>
+    <a href="{% url 'backoffice:wi-list' %}" class="btn btn-sm btn-outline-secondary ms-1" aria-label="{% trans 'Clear all filters' %}">{% trans "Clear" %}</a>
+  </div>
+</form>
+
+{# ---- Table ---- #}
+{% if work_items %}
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle" aria-label="{% trans 'Work items list' %}">
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Title" %}</th>
+          <th scope="col">{% trans "Status" %}</th>
+          <th scope="col">{% trans "Priority" %}</th>
+          <th scope="col">{% trans "Assigned To" %}</th>
+          <th scope="col">{% trans "Due At" %}</th>
+          <th scope="col">{% trans "SLA" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for wi in work_items %}
+          <tr>
+            <td>
+              <a href="{% url 'backoffice:wi-detail' pk=wi.pk %}">{{ wi.title }}</a>
+            </td>
+            <td>
+              {% if wi.status == "pending" %}
+                <span class="badge bg-secondary">{% trans "Pending" %}</span>
+              {% elif wi.status == "in_progress" %}
+                <span class="badge bg-primary">{% trans "In Progress" %}</span>
+              {% elif wi.status == "waiting" %}
+                <span class="badge bg-warning text-dark">{% trans "Waiting" %}</span>
+              {% elif wi.status == "completed" %}
+                <span class="badge bg-success">{% trans "Completed" %}</span>
+              {% elif wi.status == "cancelled" %}
+                <span class="badge bg-secondary">{% trans "Cancelled" %}</span>
+              {% else %}
+                <span class="badge bg-light text-dark">{{ wi.status }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if wi.priority == 1 %}
+                <span class="badge bg-danger">{% trans "Critical" %}</span>
+              {% elif wi.priority == 2 %}
+                <span class="badge bg-warning text-dark">{% trans "High" %}</span>
+              {% elif wi.priority == 3 %}
+                <span class="badge bg-primary">{% trans "Normal" %}</span>
+              {% else %}
+                <span class="badge bg-secondary">{% trans "Low" %}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if wi.assigned_to %}
+                {{ wi.assigned_to.email }}
+              {% else %}
+                <span class="text-muted">{% trans "Unassigned" %}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if wi.due_at %}
+                <span class="{% if wi.is_overdue %}text-danger fw-bold{% endif %}">
+                  {{ wi.due_at|date:"Y-m-d H:i" }}
+                  {% if wi.is_overdue %}<span class="visually-hidden">{% trans "(overdue)" %}</span>{% endif %}
+                </span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if wi.sla_breached_at %}
+                <span class="badge bg-danger" aria-label="{% trans 'SLA breached' %}">⚠ {% trans "Breached" %}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ---- Pagination ---- #}
+  {% if is_paginated %}
+    <nav aria-label="{% trans 'Work items pagination' %}">
+      <ul class="pagination pagination-sm">
+        {% if page_obj.has_previous %}
+          <li class="page-item">
+            <a class="page-link" href="?{% if current_status %}status={{ current_status }}&{% endif %}{% if current_priority %}priority={{ current_priority }}&{% endif %}{% if current_mine %}mine={{ current_mine }}&{% endif %}{% if current_unassigned %}unassigned={{ current_unassigned }}&{% endif %}page={{ page_obj.previous_page_number }}" aria-label="{% trans 'Previous page' %}">{% trans "Previous" %}</a>
+          </li>
+        {% endif %}
+        <li class="page-item disabled">
+          <span class="page-link" aria-current="page">
+            {% blocktrans with current=page_obj.number total=page_obj.paginator.num_pages %}Page {{ current }} of {{ total }}{% endblocktrans %}
+          </span>
+        </li>
+        {% if page_obj.has_next %}
+          <li class="page-item">
+            <a class="page-link" href="?{% if current_status %}status={{ current_status }}&{% endif %}{% if current_priority %}priority={{ current_priority }}&{% endif %}{% if current_mine %}mine={{ current_mine }}&{% endif %}{% if current_unassigned %}unassigned={{ current_unassigned }}&{% endif %}page={{ page_obj.next_page_number }}" aria-label="{% trans 'Next page' %}">{% trans "Next" %}</a>
+          </li>
+        {% endif %}
+      </ul>
+    </nav>
+  {% endif %}
+
+{% else %}
+  <div class="text-center py-5 text-muted" role="status" aria-live="polite">
+    <p class="mb-0">{% trans "No work items match your current filters." %}</p>
+    <a href="{% url 'backoffice:wi-list' %}" class="btn btn-sm btn-outline-secondary mt-2">{% trans "Clear filters" %}</a>
+  </div>
+{% endif %}
+
+{% endblock backoffice_content %}
