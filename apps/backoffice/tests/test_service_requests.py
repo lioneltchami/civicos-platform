@@ -184,7 +184,7 @@ class ServiceRequestDetailTests(TestCase):
     def test_unauthenticated_redirects(self):
         """Unauthenticated user is redirected to login."""
         response = self.client.get(self.detail_url)
-        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"/account/login/?next={self.detail_url}")
 
     def test_staff_can_view_detail(self):
         """Staff can access the detail page and see the reference number."""
@@ -294,7 +294,7 @@ class ServiceRequestStatusTests(TestCase):
             self.status_url,
             {"new_status": ServiceRequestStatus.IN_REVIEW},
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"/account/login/?next={self.status_url}")
 
     def test_csrf_required(self):
         """POST without CSRF token returns HTTP 403 when CSRF enforcement is on."""
@@ -335,6 +335,11 @@ class ServiceRequestNotesTests(TestCase):
         self.citizen = _make_citizen("citizen@example.com")
         self.sr = _make_sr(self.citizen, "GS-NOTES-001")
         self.notes_url = reverse("backoffice:sr-notes", args=["GS-NOTES-001"])
+
+    def test_unauthenticated_redirects(self):
+        """Unauthenticated POST to the notes endpoint redirects to login."""
+        response = self.client.post(self.notes_url, {"internal_notes": "test"})
+        self.assertRedirects(response, f"/account/login/?next={self.notes_url}")
 
     def test_notes_update_succeeds(self):
         """Staff can update internal notes and are redirected to detail."""

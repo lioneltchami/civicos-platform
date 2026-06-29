@@ -296,7 +296,7 @@
           <div class="card-body">
             <p class="mb-1"><strong>{{ work_item.title }}</strong></p>
             <p class="text-muted mb-2 small">{% trans "Status" %}: {{ work_item.get_status_display }}</p>
-            <a href="{% url 'backoffice:wi-detail' work_item.pk %}"
+            <a href="{% url 'backoffice:wi-detail' pk=work_item.pk %}"
                class="btn btn-sm btn-outline-primary">
               {% trans "View work item" %}
             </a>

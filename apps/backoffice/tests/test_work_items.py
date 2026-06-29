@@ -123,9 +123,27 @@ class WorkItemListTests(TestCase):
 class WorkItemDetailTests(TestCase):
     def setUp(self):
         self.staff = _make_staff("staff@example.gov")
+        self.citizen = _make_citizen("citizen@example.gov")
+        self.wi = _make_work_item()
+        self.url = self._url(self.wi.pk)
 
     def _url(self, pk):
         return reverse("backoffice:wi-detail", kwargs={"pk": pk})
+
+    def test_unauthenticated_redirects(self):
+        """Unauthenticated GET redirects to login."""
+        resp = self.client.get(self.url)
+        self.assertRedirects(
+            resp,
+            f"/account/login/?next={self.url}",
+            fetch_redirect_response=False,
+        )
+
+    def test_citizen_gets_403(self):
+        """Authenticated non-staff citizen receives 403."""
+        self.client.force_login(self.citizen)
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 403)
 
     def test_detail_200(self):
         """Staff user can view work item detail."""
@@ -169,9 +187,27 @@ class WorkItemDetailTests(TestCase):
 class WorkItemClaimTests(TestCase):
     def setUp(self):
         self.staff = _make_staff("staff@example.gov")
+        self.citizen = _make_citizen("citizen@example.gov")
+        self.wi = _make_work_item(status=WorkItemStatus.PENDING)
+        self.url = self._url(self.wi.pk)
 
     def _url(self, pk):
         return reverse("backoffice:wi-claim", kwargs={"pk": pk})
+
+    def test_unauthenticated_redirects(self):
+        """Unauthenticated POST redirects to login."""
+        resp = self.client.post(self.url)
+        self.assertRedirects(
+            resp,
+            f"/account/login/?next={self.url}",
+            fetch_redirect_response=False,
+        )
+
+    def test_citizen_gets_403(self):
+        """Authenticated non-staff citizen receives 403."""
+        self.client.force_login(self.citizen)
+        resp = self.client.post(self.url)
+        self.assertEqual(resp.status_code, 403)
 
     def test_claim_succeeds(self):
         """POST to wi-claim calls claim_work_item and redirects to detail."""
@@ -220,9 +256,27 @@ class WorkItemClaimTests(TestCase):
 class WorkItemStatusTests(TestCase):
     def setUp(self):
         self.staff = _make_staff("staff@example.gov")
+        self.citizen = _make_citizen("citizen@example.gov")
+        self.wi = _make_work_item(status=WorkItemStatus.PENDING)
+        self.url = self._url(self.wi.pk)
 
     def _url(self, pk):
         return reverse("backoffice:wi-status", kwargs={"pk": pk})
+
+    def test_unauthenticated_redirects(self):
+        """Unauthenticated POST redirects to login."""
+        resp = self.client.post(self.url, {"new_status": WorkItemStatus.IN_PROGRESS, "notes": ""})
+        self.assertRedirects(
+            resp,
+            f"/account/login/?next={self.url}",
+            fetch_redirect_response=False,
+        )
+
+    def test_citizen_gets_403(self):
+        """Authenticated non-staff citizen receives 403."""
+        self.client.force_login(self.citizen)
+        resp = self.client.post(self.url, {"new_status": WorkItemStatus.IN_PROGRESS, "notes": ""})
+        self.assertEqual(resp.status_code, 403)
 
     def test_advance_status_succeeds(self):
         """pending → in_progress is a valid transition; service is called."""
@@ -272,9 +326,27 @@ class WorkItemStatusTests(TestCase):
 class WorkItemCommentTests(TestCase):
     def setUp(self):
         self.staff = _make_staff("staff@example.gov")
+        self.citizen = _make_citizen("citizen@example.gov")
+        self.wi = _make_work_item()
+        self.url = self._url(self.wi.pk)
 
     def _url(self, pk):
         return reverse("backoffice:wi-comment", kwargs={"pk": pk})
+
+    def test_unauthenticated_redirects(self):
+        """Unauthenticated POST redirects to login."""
+        resp = self.client.post(self.url, {"body": "test"})
+        self.assertRedirects(
+            resp,
+            f"/account/login/?next={self.url}",
+            fetch_redirect_response=False,
+        )
+
+    def test_citizen_gets_403(self):
+        """Authenticated non-staff citizen receives 403."""
+        self.client.force_login(self.citizen)
+        resp = self.client.post(self.url, {"body": "test"})
+        self.assertEqual(resp.status_code, 403)
 
     def test_add_comment_succeeds(self):
         """Valid body calls add_comment and redirects."""

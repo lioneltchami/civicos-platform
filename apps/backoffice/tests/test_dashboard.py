@@ -60,8 +60,7 @@ class DashboardAccessTests(TestCase):
         to the dashboard.
         """
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("login", response["Location"].lower())
+        self.assertRedirects(response, "/account/login/?next=/backoffice/")
 
     # ------------------------------------------------------------------
     # Authenticated — not staff

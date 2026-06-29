@@ -64,6 +64,7 @@ class AuditLogListView(StaffRequiredMixin, ListView):
 
         # --- resource_type filter ---
         resource_type = self.request.GET.get("resource_type", "").strip()
+        resource_type = resource_type[:100]  # Cap length to prevent excessive DB work
         if resource_type:
             qs = qs.filter(resource_type__icontains=resource_type)
 

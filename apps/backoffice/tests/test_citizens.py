@@ -65,6 +65,12 @@ class CitizenListTests(TestCase):
             fetch_redirect_response=False,
         )
 
+    def test_citizen_gets_403(self):
+        """Authenticated non-staff citizen receives HTTP 403."""
+        self.client.force_login(self.citizen_a)
+        resp = self.client.get(self._url())
+        self.assertEqual(resp.status_code, 403)
+
     def test_staff_sees_citizens(self):
         """Staff user gets 200 and sees non-staff users."""
         self.client.force_login(self.staff)
@@ -108,6 +114,21 @@ class CitizenDetailTests(TestCase):
     def _url(self, pk):
         return reverse("backoffice:citizen-detail", kwargs={"pk": pk})
 
+    def test_unauthenticated_redirects(self):
+        """Unauthenticated GET redirects to login."""
+        resp = self.client.get(self._url(self.citizen.pk))
+        self.assertRedirects(
+            resp,
+            f"/account/login/?next={self._url(self.citizen.pk)}",
+            fetch_redirect_response=False,
+        )
+
+    def test_citizen_gets_403(self):
+        """Authenticated non-staff citizen receives 403."""
+        self.client.force_login(self.citizen)
+        resp = self.client.get(self._url(self.citizen.pk))
+        self.assertEqual(resp.status_code, 403)
+
     def test_detail_200(self):
         """Staff can view a citizen's detail page."""
         self.client.force_login(self.staff)
@@ -145,6 +166,21 @@ class CitizenDeactivateTests(TestCase):
 
     def _url(self, pk):
         return reverse("backoffice:citizen-deactivate", kwargs={"pk": pk})
+
+    def test_unauthenticated_redirects(self):
+        """Unauthenticated POST redirects to login."""
+        resp = self.client.post(self._url(self.citizen.pk))
+        self.assertRedirects(
+            resp,
+            f"/account/login/?next={self._url(self.citizen.pk)}",
+            fetch_redirect_response=False,
+        )
+
+    def test_citizen_gets_403(self):
+        """Authenticated non-staff citizen receives 403."""
+        self.client.force_login(self.citizen)
+        resp = self.client.post(self._url(self.citizen.pk))
+        self.assertEqual(resp.status_code, 403)
 
     def test_deactivate_citizen(self):
         """POST deactivates an active citizen account."""
