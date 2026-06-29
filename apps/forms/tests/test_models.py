@@ -199,19 +199,19 @@ class FormPageConsentInjectionTest(TestCase):
         page = make_form_page(consent_text="I agree to data collection.")
         make_form_field(page, label="Name")
         form_class = page.get_form_class()
-        self.assertIn("consent", form_class.base_fields)
+        self.assertIn("_consent", form_class.base_fields)
 
     def test_form_class_has_no_consent_field_when_consent_text_empty(self):
         page = make_form_page(consent_text="")
         make_form_field(page, label="Name")
         form_class = page.get_form_class()
-        self.assertNotIn("consent", form_class.base_fields)
+        self.assertNotIn("_consent", form_class.base_fields)
 
     def test_consent_field_is_required(self):
         page = make_form_page(consent_text="I agree.")
         make_form_field(page, label="Name")
         form_class = page.get_form_class()
-        consent_field = form_class.base_fields["consent"]
+        consent_field = form_class.base_fields["_consent"]
         self.assertTrue(consent_field.required)
 
     def test_consent_field_label_matches_consent_text(self):
@@ -219,7 +219,7 @@ class FormPageConsentInjectionTest(TestCase):
         page = make_form_page(consent_text=consent_text)
         make_form_field(page, label="Name")
         form_class = page.get_form_class()
-        self.assertEqual(form_class.base_fields["consent"].label, consent_text)
+        self.assertEqual(form_class.base_fields["_consent"].label, consent_text)
 
     def test_form_class_subclass_does_not_mutate_parent(self):
         """get_form_class() must create a new class each call, not mutate the cached one."""
@@ -229,8 +229,8 @@ class FormPageConsentInjectionTest(TestCase):
         make_form_field(page_without, label="Name")
         cls_with = page_with_consent.get_form_class()
         cls_without = page_without.get_form_class()
-        self.assertIn("consent", cls_with.base_fields)
-        self.assertNotIn("consent", cls_without.base_fields)
+        self.assertIn("_consent", cls_with.base_fields)
+        self.assertNotIn("_consent", cls_without.base_fields)
 
     def test_get_submissions_list_url_returns_correct_path(self):
         page = make_form_page()

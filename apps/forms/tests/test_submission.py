@@ -5,7 +5,7 @@ retention date setting, and signal emission.
 """
 import uuid
 from unittest.mock import patch, MagicMock, call
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from wagtail.models import Page
 
@@ -105,13 +105,13 @@ class ProcessFormSubmissionTest(TestCase):
         mock_request = MagicMock()
         mock_request.META = {"REMOTE_ADDR": "10.0.0.1"}
         mock_form = _make_mock_form(request=mock_request)
+        # SECURE_PROXY_SSL_HEADER not set → use REMOTE_ADDR
         with patch(self._PARENT, return_value=real_sub):
-            with patch("apps.forms.models.settings") as mock_settings:
-                mock_settings.SECURE_PROXY_SSL_HEADER = None
-                result = page.process_form_submission(mock_form)
+            result = page.process_form_submission(mock_form)
         result.refresh_from_db()
         self.assertEqual(result.submitter_ip, "10.0.0.1")
 
+    @override_settings(SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"))
     def test_submitter_ip_uses_x_forwarded_for_behind_proxy(self):
         """When SECURE_PROXY_SSL_HEADER is set, use X-Forwarded-For (first IP)."""
         page = make_form_page()
@@ -124,9 +124,7 @@ class ProcessFormSubmissionTest(TestCase):
         }
         mock_form = _make_mock_form(request=mock_request)
         with patch(self._PARENT, return_value=real_sub):
-            with patch("apps.forms.models.settings") as mock_settings:
-                mock_settings.SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-                result = page.process_form_submission(mock_form)
+            result = page.process_form_submission(mock_form)
         result.refresh_from_db()
         self.assertEqual(result.submitter_ip, "203.0.113.5")
 
@@ -146,7 +144,7 @@ class ProcessFormSubmissionTest(TestCase):
         page = make_form_page(consent_text="I agree to data collection.")
         make_form_field(page, label="Name")
         real_sub = _make_real_submission(page)
-        mock_form = _make_mock_form(cleaned_data={"name": "Test", "consent": True})
+        mock_form = _make_mock_form(cleaned_data={"name": "Test", "_consent": True})
         with patch(self._PARENT, return_value=real_sub):
             result = page.process_form_submission(mock_form)
         result.refresh_from_db()
@@ -171,7 +169,7 @@ class ProcessFormSubmissionTest(TestCase):
         page = make_form_page(consent_text=consent)
         make_form_field(page, label="Name")
         real_sub = _make_real_submission(page)
-        mock_form = _make_mock_form(cleaned_data={"name": "Test", "consent": True})
+        mock_form = _make_mock_form(cleaned_data={"name": "Test", "_consent": True})
         with patch(self._PARENT, return_value=real_sub):
             result = page.process_form_submission(mock_form)
         result.refresh_from_db()
@@ -278,17 +276,21 @@ class FormPageServingTest(TestCase):
 
     def setUp(self):
         from wagtail.models import Site
+        from django.core.cache import cache
         root_page = Page.objects.filter(depth=1).first()
         if root_page is None:
             root_page = Page.add_root(title="Root", slug="root")
         self.root_page = root_page
         # Ensure a Wagtail Site exists pointing to root
-        if not Site.objects.exists():
-            Site.objects.create(
-                hostname="localhost",
-                root_page=root_page,
-                is_default_site=True,
-            )
+        Site.objects.all().delete()
+        Site.objects.create(
+            hostname="localhost",
+            port=80,
+            root_page=root_page,
+            is_default_site=True,
+        )
+        # Clear Wagtail's site root paths cache so the new site is visible
+        cache.clear()
 
     def _make_live_form_page(self, consent_text="", retention_days=365):
         """Create a published FormPage under root."""
@@ -309,13 +311,13 @@ class FormPageServingTest(TestCase):
     def test_get_renders_form_page(self):
         page = self._make_live_form_page()
         make_form_field(page, label="Name")
-        response = self.client.get(page.full_url)
+        response = self.client.get(page.url)
         self.assertEqual(response.status_code, 200)
 
     def test_form_in_context_on_get(self):
         page = self._make_live_form_page()
         make_form_field(page, label="Name")
-        response = self.client.get(page.full_url)
+        response = self.client.get(page.url)
         self.assertIn("form", response.context)
 
     def test_valid_post_creates_submission(self):
@@ -323,7 +325,7 @@ class FormPageServingTest(TestCase):
         page = self._make_live_form_page()
         make_form_field(page, label="Name")
         count_before = FormSubmission.objects.filter(page=page).count()
-        self.client.post(page.full_url, data={"name": "Test Citizen"})
+        self.client.post(page.url, data={"name": "Test Citizen"})
         self.assertEqual(
             FormSubmission.objects.filter(page=page).count(),
             count_before + 1,
@@ -333,7 +335,7 @@ class FormPageServingTest(TestCase):
         from apps.forms.models import FormSubmission
         page = self._make_live_form_page(retention_days=90)
         make_form_field(page, label="Name")
-        self.client.post(page.full_url, data={"name": "Test Citizen"})
+        self.client.post(page.url, data={"name": "Test Citizen"})
         sub = FormSubmission.objects.filter(page=page).latest("submit_time")
         self.assertIsNotNone(sub.expires_at)
 
@@ -342,7 +344,7 @@ class FormPageServingTest(TestCase):
         page = self._make_live_form_page()
         make_form_field(page, label="Name")
         self.client.post(
-            page.full_url,
+            page.url,
             data={"name": "Test Citizen"},
             REMOTE_ADDR="127.0.0.1",
         )
@@ -353,7 +355,7 @@ class FormPageServingTest(TestCase):
         from apps.forms.models import FormSubmission
         page = self._make_live_form_page(consent_text="I agree.")
         make_form_field(page, label="Name")
-        self.client.post(page.full_url, data={"name": "Test", "consent": True})
+        self.client.post(page.url, data={"name": "Test", "_consent": True})
         sub = FormSubmission.objects.filter(page=page).latest("submit_time")
         self.assertTrue(sub.consent_given)
         self.assertEqual(sub.consent_text_shown, "I agree.")
@@ -365,7 +367,7 @@ class FormPageServingTest(TestCase):
         make_form_field(page, label="Name")
         count_before = FormSubmission.objects.filter(page=page).count()
         # Omit 'consent' from POST data
-        self.client.post(page.full_url, data={"name": "Test"})
+        self.client.post(page.url, data={"name": "Test"})
         # No new submission should be created
         self.assertEqual(
             FormSubmission.objects.filter(page=page).count(),
@@ -375,7 +377,7 @@ class FormPageServingTest(TestCase):
     def test_valid_post_redirects_to_landing_page(self):
         page = self._make_live_form_page()
         make_form_field(page, label="Name")
-        response = self.client.post(page.full_url, data={"name": "Test"})
+        response = self.client.post(page.url, data={"name": "Test"})
         # Wagtail's default behaviour is to render the landing page (200),
         # not a redirect, but this depends on render_landing_page() implementation.
         # Accept either 200 (rendered landing) or 302 (redirect to landing).

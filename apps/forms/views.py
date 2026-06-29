@@ -27,11 +27,23 @@ logger = logging.getLogger(__name__)
 
 
 class StaffRequiredMixin(UserPassesTestMixin):
-    """Restrict access to staff users only. Returns 403 for authenticated non-staff."""
+    """Restrict access to staff users only.
+    - Anonymous users → 302 redirect to login
+    - Authenticated non-staff → 403 Forbidden
+    """
     raise_exception = True
 
     def test_func(self) -> bool:
         return self.request.user.is_authenticated and self.request.user.is_staff
+
+    def handle_no_permission(self):
+        if not self.request.user.is_authenticated:
+            from django.conf import settings as django_settings
+            from django.shortcuts import redirect as django_redirect
+            login_url = getattr(django_settings, "LOGIN_URL", "/account/login/")
+            return django_redirect(f"{login_url}?next={self.request.get_full_path()}")
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
 
 
 class SubmissionListView(StaffRequiredMixin, ListView):
@@ -62,12 +74,15 @@ class SubmissionListView(StaffRequiredMixin, ListView):
         date_to = self.request.GET.get("to", "")
         if date_from:
             try:
-                from datetime import date
+                from datetime import date as _date
+                _date.fromisoformat(date_from)  # Validate before passing to ORM
                 qs = qs.filter(submit_time__date__gte=date_from)
             except (ValueError, TypeError):
                 pass
         if date_to:
             try:
+                from datetime import date as _date
+                _date.fromisoformat(date_to)  # Validate before passing to ORM
                 qs = qs.filter(submit_time__date__lte=date_to)
             except (ValueError, TypeError):
                 pass
