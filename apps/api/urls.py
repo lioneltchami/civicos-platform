@@ -14,7 +14,7 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView,
 )
 
-from apps.api.throttling import TokenObtainThrottle
+from apps.api.throttling import TokenObtainThrottle, TokenRefreshThrottle
 
 app_name = "api-v1"
 
@@ -29,7 +29,7 @@ urlpatterns = [
     ),
     path(
         "auth/token/refresh/",
-        TokenRefreshView.as_view(),
+        TokenRefreshView.as_view(throttle_classes=[TokenRefreshThrottle]),
         name="token-refresh",
     ),
     path(

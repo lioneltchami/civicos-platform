@@ -468,6 +468,10 @@ SIMPLE_JWT = {
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
     "TOKEN_OBTAIN_SERIALIZER": "rest_framework_simplejwt.serializers.TokenObtainPairSerializer",
+    # Explicitly check is_active on token refresh — do NOT rely on simplejwt version
+    # defaults.  Without this, a deactivated user can continue refreshing tokens
+    # until their refresh token expires (up to 1 day).
+    "USER_AUTHENTICATION_RULE": "rest_framework_simplejwt.authentication.default_user_authentication_rule",
 }
 
 # ---------------------------------------------------------------------------

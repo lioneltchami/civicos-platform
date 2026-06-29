@@ -422,18 +422,22 @@ class CancelServiceRequestTests(TestCase):
 
         self.assertEqual(resp.status_code, 401)
 
-    @patch(_PATCH_AUDIT)
     @patch(_PATCH_NOTIFICATION)
-    def test_cancel_with_optional_reason_succeeds(self, mock_notif, mock_audit):
+    @patch(_PATCH_AUDIT)
+    def test_cancel_with_optional_reason_succeeds(self, mock_audit, mock_notif):
         # The optional reason field must be accepted without validation errors.
-        resp = self.client.post(
-            _cancel_url(self.sr.reference_number),
-            {"reason": "I no longer need this service."},
-            format="json",
-            **_bearer(self.client, self.citizen),
-        )
+        # on_commit hooks (notification + audit) are verified via captureOnCommitCallbacks.
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                _cancel_url(self.sr.reference_number),
+                {"reason": "I no longer need this service."},
+                format="json",
+                **_bearer(self.client, self.citizen),
+            )
 
         self.assertEqual(resp.status_code, 200)
+        mock_notif.assert_called_once()
+        mock_audit.assert_called_once()
 
     def test_cancel_already_approved_request_returns_400_with_envelope(self):
         # A terminal (approved) request cannot be cancelled.

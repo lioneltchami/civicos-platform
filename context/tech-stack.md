@@ -69,8 +69,8 @@ Documented technology decisions for Govstack. Each decision includes a rationale
 - `django-celery-beat` for periodic tasks (cron-style scheduling managed in the database)
 
 ### Django Cache (Redis)
-- `django-redis` as the cache backend
-- Session storage: database (default) or Redis for high-traffic deployments
+- Django's built-in Redis cache backend
+- Session storage: database by default, with Redis as an optional deployment choice
 - Cache timeout conventions: short-lived (5 min) for public pages, no cache for authenticated views with PII
 
 ---

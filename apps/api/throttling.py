@@ -43,3 +43,15 @@ class TokenObtainThrottle(AnonRateThrottle):
     """
 
     scope = "token_obtain"
+
+
+class TokenRefreshThrottle(AnonRateThrottle):
+    """
+    Throttle for the token-refresh endpoint (POST /auth/token/refresh/).
+
+    A stolen refresh token can be exchanged many times before expiry; applying
+    the same 5/minute IP-level limit as token-obtain caps that attack surface.
+    Scope key: "token_obtain" (reuses the same rate — no separate scope needed).
+    """
+
+    scope = "token_obtain"

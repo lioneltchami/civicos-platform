@@ -60,7 +60,7 @@ The foundation. Every other module depends on `core`. It provides:
 
 ### `cms`
 Content management powered by Wagtail. Responsible for:
-- All public-facing page types (HomePage, ServicePage, NewsPage, EventPage, ContactPage)
+- All public-facing page types (HomePage, GenericPage, ServiceIndexPage, ServicePage, NewsIndexPage, NewsPage)
 - StreamField block library (rich text, call-to-action, accordion, media, table, etc.)
 - Snippet models for reusable content (menus, footer, alerts, contact info)
 - Site settings (via `wagtail.contrib.settings`)
@@ -151,7 +151,7 @@ govstack/
 │   │   ├── checks.py          # Django system checks
 │   │   └── utils/
 │   ├── cms/
-│   │   ├── models/            # Split by page type
+│   │   ├── models.py          # Page, snippet, and media models
 │   │   ├── blocks.py          # StreamField blocks
 │   │   ├── snippets.py
 │   │   └── wagtail_hooks.py
@@ -162,7 +162,7 @@ govstack/
 │   │   └── wagtail_hooks.py
 │   ├── portal/
 │   ├── workflows/
-│   ├── auth/
+│   ├── auth_extension/
 │   ├── notifications/
 │   └── audit/
 ├── config/

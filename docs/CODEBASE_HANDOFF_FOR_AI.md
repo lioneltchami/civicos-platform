@@ -65,7 +65,7 @@ It currently maps:
 - `/cms/` to Wagtail admin
 - `/django-admin/` to Django admin
 - `/documents/` to Wagtail documents
-- `/account/two-factor/` to two-factor auth views
+- `/account/login/` to two-factor auth views via the root-mounted `two_factor` include
 - `/account/` to django-allauth
 - `/health/` to health check URLs
 - `/portal/` to the citizen portal

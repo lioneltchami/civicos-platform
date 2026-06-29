@@ -73,63 +73,74 @@ def create_work_item_for_service_request(service_request, actor=None) -> None:
 # Workflows → Audit
 # ---------------------------------------------------------------------------
 
-def audit_work_item_created(sender, work_item: WorkItem, actor, **kwargs) -> None:
+def _record_work_item_event(
+    *,
+    event_type: str,
+    work_item: WorkItem,
+    actor,
+    event_detail: dict | None = None,
+) -> None:
+    """Write a workflow audit event using the shared audit service contract."""
     try:
         record_event(
-            event_type="workflows.work_item.created",
-            actor=actor,
+            event_type=event_type,
+            outcome="success",
+            actor_id=str(actor.pk) if actor and getattr(actor, "pk", None) else None,
+            actor_email="",
             resource_type="workflows.WorkItem",
             resource_id=str(work_item.pk),
-            metadata={"title": work_item.title, "priority": work_item.priority},
+            event_detail=event_detail or {},
         )
     except Exception:
-        logger.exception("Audit failed for work_item_created work_item_id=%s", work_item.pk)
+        logger.exception(
+            "Audit failed for %s work_item_id=%s",
+            event_type,
+            work_item.pk,
+        )
+
+
+def audit_work_item_created(sender, work_item: WorkItem, actor, **kwargs) -> None:
+    _record_work_item_event(
+        event_type="workflows.work_item.created",
+        work_item=work_item,
+        actor=actor,
+        event_detail={"title": work_item.title, "priority": work_item.priority},
+    )
 
 
 def audit_work_item_assigned(sender, work_item: WorkItem, assignee, actor, **kwargs) -> None:
-    try:
-        record_event(
-            event_type="workflows.work_item.assigned",
-            actor=actor,
-            resource_type="workflows.WorkItem",
-            resource_id=str(work_item.pk),
-            metadata={"assignee_id": str(assignee.pk) if assignee else None},
-        )
-    except Exception:
-        logger.exception("Audit failed for work_item_assigned work_item_id=%s", work_item.pk)
+    _record_work_item_event(
+        event_type="workflows.work_item.assigned",
+        work_item=work_item,
+        actor=actor,
+        event_detail={"assignee_id": str(assignee.pk) if assignee else None},
+    )
 
 
 def audit_work_item_status_changed(
     sender, work_item: WorkItem, old_status, new_status, actor, notes, **kwargs
 ) -> None:
-    try:
-        record_event(
-            event_type="workflows.work_item.status_changed",
-            actor=actor,
-            resource_type="workflows.WorkItem",
-            resource_id=str(work_item.pk),
-            metadata={
-                "old_status": old_status,
-                "new_status": new_status,
-                "notes": notes[:500] if notes else "",
-            },
-        )
-    except Exception:
-        logger.exception(
-            "Audit failed for work_item_status_changed work_item_id=%s", work_item.pk
-        )
+    _record_work_item_event(
+        event_type="workflows.work_item.status_changed",
+        work_item=work_item,
+        actor=actor,
+        event_detail={
+            "old_status": old_status,
+            "new_status": new_status,
+            "notes": notes[:500] if notes else "",
+        },
+    )
 
 
 def audit_work_item_escalated(
     sender, work_item: WorkItem, level, actor, reason, **kwargs
 ) -> None:
-    try:
-        record_event(
-            event_type="workflows.work_item.escalated",
-            actor=actor,
-            resource_type="workflows.WorkItem",
-            resource_id=str(work_item.pk),
-            metadata={"escalation_level": level, "reason": reason[:500] if reason else ""},
-        )
-    except Exception:
-        logger.exception("Audit failed for work_item_escalated work_item_id=%s", work_item.pk)
+    _record_work_item_event(
+        event_type="workflows.work_item.escalated",
+        work_item=work_item,
+        actor=actor,
+        event_detail={
+            "escalation_level": level,
+            "reason": reason[:500] if reason else "",
+        },
+    )
