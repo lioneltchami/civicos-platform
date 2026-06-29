@@ -1,0 +1,23 @@
+Dear {{ citizen.first_name|default:citizen.username }},
+
+This confirms that you have withdrawn your consent for:
+Ceci confirme que vous avez retiré votre consentement pour :
+
+  {{ category.name_en }}
+  {{ category.name_fr }}
+
+This change took effect immediately. You may re-grant this consent at any time through your
+portal account under Privacy & Your Data.
+
+Ce changement a pris effet immédiatement. Vous pouvez ré-accorder ce consentement à tout moment
+via votre compte du portail sous Confidentialité et vos données.
+
+---
+
+This withdrawal has been permanently recorded in accordance with PIPEDA.
+Ce retrait a été enregistré de façon permanente conformément à la LPRPDE.
+
+If you did not make this change, please contact support immediately.
+Si vous n'avez pas effectué ce changement, veuillez contacter le support immédiatement.
+
+GovStack Support / Soutien GovStack

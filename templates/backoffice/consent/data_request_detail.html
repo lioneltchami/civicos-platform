@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Data Export Request Detail" %} — {% trans "Back Office" %}{% endblock %}
+{% block meta_description %}{% trans "View details and audit trail for a citizen data export request." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'backoffice:dashboard' %}">{% trans "Back Office" %}</a></li>
+      <li><a href="{% url 'backoffice:data-request-list' %}">{% trans "Data Export Requests" %}</a></li>
+      <li aria-current="page">{% trans "Request Detail" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <a href="{% url 'backoffice:data-request-list' %}" class="back-link">
+    &larr; {% trans "Back to Data Export Requests" %}
+  </a>
+
+  <h1 class="page-title">{% trans "Data Export Request Detail" %}</h1>
+
+  {% if export_request %}
+
+    {# ============================================================
+       Request details
+       ============================================================ #}
+    <section class="detail-section" aria-labelledby="request-details-heading">
+      <h2 id="request-details-heading">{% trans "Request Information" %}</h2>
+
+      <dl class="detail-list">
+        <div class="detail-list__row">
+          <dt>{% trans "Request ID" %}</dt>
+          <dd><code>{{ export_request.pk }}</code></dd>
+        </div>
+        <div class="detail-list__row">
+          <dt>{% trans "Citizen ID" %}</dt>
+          <dd>
+            <code title="{% trans 'Citizen primary key (not email — PIPEDA)' %}">#{{ export_request.citizen.pk }}</code>
+            <a href="{% url 'backoffice:citizen-detail' pk=export_request.citizen.pk %}"
+               class="link-action link-action--inline"
+               aria-label="{% trans 'View citizen record' %}">
+              {% trans "View citizen" %}
+            </a>
+          </dd>
+        </div>
+        <div class="detail-list__row">
+          <dt>{% trans "Status" %}</dt>
+          <dd>
+            {% if export_request.status == 'pending' %}
+              <span class="badge badge--warning">{% trans "Pending" %}</span>
+            {% elif export_request.status == 'processing' %}
+              <span class="badge badge--warning">{% trans "Processing" %}</span>
+            {% elif export_request.status == 'ready' %}
+              <span class="badge badge--success">{% trans "Ready" %}</span>
+            {% elif export_request.status == 'delivered' %}
+              <span class="badge badge--info">{% trans "Delivered" %}</span>
+            {% elif export_request.status == 'failed' %}
+              <span class="badge badge--danger">{% trans "Failed" %}</span>
+            {% elif export_request.status == 'expired' %}
+              <span class="badge badge--neutral">{% trans "Expired" %}</span>
+            {% else %}
+              <span class="badge badge--neutral">{{ export_request.get_status_display }}</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div class="detail-list__row">
+          <dt>{% trans "Format" %}</dt>
+          <dd>{{ export_request.get_format_display }}</dd>
+        </div>
+        <div class="detail-list__row">
+          <dt>{% trans "Requested at" %}</dt>
+          <dd>
+            <time datetime="{{ export_request.requested_at|date:'c' }}">
+              {{ export_request.requested_at|date:"Y-m-d H:i:s" }}
+            </time>
+          </dd>
+        </div>
+        <div class="detail-list__row">
+          <dt>{% trans "Processed at" %}</dt>
+          <dd>
+            {% if export_request.processed_at %}
+              <time datetime="{{ export_request.processed_at|date:'c' }}">
+                {{ export_request.processed_at|date:"Y-m-d H:i:s" }}
+              </time>
+            {% else %}
+              <span class="text-muted">{% trans "Not yet processed" %}</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div class="detail-list__row">
+          <dt>{% trans "Expires at" %}</dt>
+          <dd>
+            {% if export_request.expires_at %}
+              <time datetime="{{ export_request.expires_at|date:'c' }}">
+                {{ export_request.expires_at|date:"Y-m-d H:i:s" }}
+              </time>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </dd>
+        </div>
+        {# download_token is a bearer credential — not rendered here (Fix 2). #}
+        {% if export_request.notes %}
+          <div class="detail-list__row">
+            <dt>{% trans "Staff notes" %}</dt>
+            <dd>{{ export_request.notes|linebreaksbr }}</dd>
+          </div>
+        {% endif %}
+      </dl>
+    </section>
+
+    {# ============================================================
+       Mark as Delivered — only for 'ready' requests
+       ============================================================ #}
+    {% if export_request.status == 'ready' %}
+      <section class="detail-section detail-section--action" aria-labelledby="mark-delivered-heading">
+        <h2 id="mark-delivered-heading">{% trans "Manual Delivery" %}</h2>
+        <p class="form-hint">
+          {% trans "If you delivered the export file to the citizen outside this system (e.g. by secure email), you can mark it as delivered here. This action will be recorded in the audit trail." %}
+        </p>
+        {# onclick="return confirm(...)" removed — not accessible (Fix 3).
+           The view has a server-side status == 'ready' guard that prevents double-marking. #}
+        <form method="post"
+              action="{% url 'backoffice:data-request-detail' pk=export_request.pk %}"
+              aria-label="{% trans 'Mark export request as delivered' %}">
+          {% csrf_token %}
+          <p class="help-text">{% trans "This confirms that the citizen has been provided their data through an alternative channel." %}</p>
+          <button type="submit" class="btn btn--warning">
+            {% trans "Mark as Delivered" %}
+          </button>
+        </form>
+      </section>
+    {% endif %}
+
+    {# ============================================================
+       Audit trail
+       ============================================================ #}
+    <section class="detail-section" aria-labelledby="audit-trail-heading">
+      <h2 id="audit-trail-heading">{% trans "Audit Trail" %}</h2>
+
+      {% if audit_trail %}
+        <div class="table-wrapper"
+             role="region"
+             aria-label="{% trans 'Audit trail for this export request' %}"
+             tabindex="0">
+          <table class="data-table data-table--audit">
+            <thead>
+              <tr>
+                <th scope="col">{% trans "Timestamp" %}</th>
+                <th scope="col">{% trans "Action" %}</th>
+                <th scope="col">{% trans "Actor IP" %}</th>
+                <th scope="col">{% trans "Details" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in audit_trail %}
+                <tr>
+                  <td>
+                    <time datetime="{{ entry.timestamp|date:'c' }}">
+                      {{ entry.timestamp|date:"Y-m-d H:i:s" }}
+                    </time>
+                  </td>
+                  <td>
+                    <code>{{ entry.action }}</code>
+                  </td>
+                  <td>
+                    {% if entry.actor_ip %}
+                      <code class="ip-masked" title="{% trans 'IP address masked for privacy' %}">
+                        {{ entry.actor_ip }}
+                      </code>
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if entry.details %}
+                      {# Rendered as pre-formatted text; a custom |as_json filter would
+                         improve this but is not available without a custom templatetag. #}
+                      <pre style="font-size: 0.85em; white-space: pre-wrap; margin: 0;">{{ entry.details }}</pre>
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state empty-state--inline">
+          <p class="empty-state__message">{% trans "No audit entries for this request." %}</p>
+        </div>
+      {% endif %}
+    </section>
+
+  {% else %}
+    <div class="notice-box notice-box--danger" role="alert">
+      <p>{% trans "Export request not found." %}</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

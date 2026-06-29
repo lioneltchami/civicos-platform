@@ -41,6 +41,10 @@ SITE_ID = 1
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
 
+# Public URL of the portal — used in email links (PIPEDA export ready notifications).
+# Must be set in production. Example: "https://portal.example.gov.ca"
+SITE_URL = env("SITE_URL", default="")
+
 DJANGO_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -102,6 +106,7 @@ LOCAL_APPS = [
     "apps.backoffice",
     "apps.auth_extension",  # Extends Django auth; named to avoid collision
     "apps.notifications",
+    "apps.consent",
     "apps.audit",
     "apps.api",
 ]
@@ -488,6 +493,19 @@ SIMPLE_JWT = {
     # until their refresh token expires (up to 1 day).
     "USER_AUTHENTICATION_RULE": "rest_framework_simplejwt.authentication.default_user_authentication_rule",
 }
+
+# ---------------------------------------------------------------------------
+# drf-spectacular — OpenAPI schema generation
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Consent & Privacy (PIPEDA)
+# ---------------------------------------------------------------------------
+
+# Increment this string whenever the consent text shown to citizens is updated.
+# The value is stored on ConsentRecord.consent_version so we have an audit trail
+# of exactly which version of the text each citizen agreed to.
+CONSENT_CURRENT_VERSION = "1.0"
 
 # ---------------------------------------------------------------------------
 # drf-spectacular — OpenAPI schema generation

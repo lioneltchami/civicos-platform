@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Data Export Requests" %} — {% trans "Back Office" %}{% endblock %}
+{% block meta_description %}{% trans "Review and manage citizen data export requests." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'backoffice:dashboard' %}">{% trans "Back Office" %}</a></li>
+      <li aria-current="page">{% trans "Data Export Requests" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <div class="page-header page-header--with-actions">
+    <h1 class="page-title">{% trans "Data Export Requests" %}</h1>
+    <a href="{% url 'backoffice:dashboard' %}" class="btn btn--secondary">
+      &larr; {% trans "Back to Dashboard" %}
+    </a>
+  </div>
+
+  {# ============================================================
+     Status filter form (GET)
+     ============================================================ #}
+  <form method="get" action="" class="filter-form" role="search" aria-label="{% trans 'Filter by status' %}">
+    <div class="filter-form__row">
+      <label for="status-filter" class="filter-form__label">
+        {% trans "Filter by status:" %}
+      </label>
+      <select id="status-filter"
+              name="status"
+              class="filter-form__select"
+              aria-label="{% trans 'Status filter' %}">
+        <option value="" {% if not current_status %}selected{% endif %}>
+          {% trans "All Statuses" %}
+        </option>
+        {% for value, label in status_choices %}
+          <option value="{{ value }}" {% if current_status == value %}selected{% endif %}>
+            {{ label }}
+          </option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn--secondary btn--small">
+        {% trans "Apply Filter" %}
+      </button>
+      {% if current_status %}
+        <a href="{% url 'backoffice:data-request-list' %}" class="link-action">
+          {% trans "Clear filter" %}
+        </a>
+      {% endif %}
+    </div>
+  </form>
+
+  {# ============================================================
+     Export requests table
+     ============================================================ #}
+  {# Use explicit context name set by the view (context_object_name = "export_requests") — Fix 4. #}
+  {% if export_requests %}
+    <div class="table-wrapper"
+         role="region"
+         aria-label="{% trans 'Data export requests' %}"
+         tabindex="0">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Citizen ID" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">{% trans "Format" %}</th>
+            <th scope="col">{% trans "Requested" %}</th>
+            <th scope="col">{% trans "Expires" %}</th>
+            <th scope="col">
+              <span class="visually-hidden">{% trans "Actions" %}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for req in export_requests %}
+            <tr>
+              <th scope="row">
+                <code class="citizen-id" title="{% trans 'Citizen primary key (not email — PIPEDA)' %}">
+                  #{{ req.citizen.pk }}
+                </code>
+              </th>
+              <td>
+                {% if req.status == 'pending' %}
+                  <span class="badge badge--warning">{% trans "Pending" %}</span>
+                {% elif req.status == 'processing' %}
+                  <span class="badge badge--warning">{% trans "Processing" %}</span>
+                {% elif req.status == 'ready' %}
+                  <span class="badge badge--success">{% trans "Ready" %}</span>
+                {% elif req.status == 'delivered' %}
+                  <span class="badge badge--info">{% trans "Delivered" %}</span>
+                {% elif req.status == 'failed' %}
+                  <span class="badge badge--danger">{% trans "Failed" %}</span>
+                {% elif req.status == 'expired' %}
+                  <span class="badge badge--neutral">{% trans "Expired" %}</span>
+                {% else %}
+                  <span class="badge badge--neutral">{{ req.get_status_display }}</span>
+                {% endif %}
+              </td>
+              <td>{{ req.get_format_display }}</td>
+              <td>
+                <time datetime="{{ req.requested_at|date:'c' }}">
+                  {{ req.requested_at|date:"Y-m-d H:i" }}
+                </time>
+              </td>
+              <td>
+                {% if req.expires_at %}
+                  <time datetime="{{ req.expires_at|date:'c' }}">
+                    {{ req.expires_at|date:"Y-m-d" }}
+                  </time>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                <a href="{% url 'backoffice:data-request-detail' pk=req.pk %}"
+                   class="link-action"
+                   aria-label="{% blocktrans with pk=req.pk %}View export request {{ pk }}{% endblocktrans %}">
+                  {% trans "View" %}
+                </a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Pagination #}
+    {% if is_paginated %}
+      <nav class="pagination" aria-label="{% trans 'Pagination' %}">
+        <ul class="pagination__list" role="list">
+          {% if page_obj.has_previous %}
+            <li>
+              <a href="?{% if current_status %}status={{ current_status }}&{% endif %}page={{ page_obj.previous_page_number }}"
+                 class="pagination__link"
+                 aria-label="{% trans 'Previous page' %}">
+                &larr; {% trans "Previous" %}
+              </a>
+            </li>
+          {% endif %}
+          <li class="pagination__info" aria-current="page">
+            {% blocktrans with page=page_obj.number pages=page_obj.paginator.num_pages %}
+              Page {{ page }} of {{ pages }}
+            {% endblocktrans %}
+          </li>
+          {% if page_obj.has_next %}
+            <li>
+              <a href="?{% if current_status %}status={{ current_status }}&{% endif %}page={{ page_obj.next_page_number }}"
+                 class="pagination__link"
+                 aria-label="{% trans 'Next page' %}">
+                {% trans "Next" %} &rarr;
+              </a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+
+  {% else %}
+    <div class="empty-state">
+      <p class="empty-state__message">
+        {% if current_status %}
+          {% blocktrans with status=current_status %}
+            No data export requests with status "{{ status }}".
+          {% endblocktrans %}
+        {% else %}
+          {% trans "No data export requests found." %}
+        {% endif %}
+      </p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

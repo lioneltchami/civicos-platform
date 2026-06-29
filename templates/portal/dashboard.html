@@ -137,6 +137,30 @@
   </section>
 
   {# ============================================================
+     Privacy & Your Data card — Consent & Privacy Building Block
+     ============================================================ #}
+  <section aria-labelledby="privacy-card-heading" class="dashboard-section dashboard-section--card">
+    <div class="dashboard-card dashboard-card--privacy">
+      <div class="dashboard-card__icon" aria-hidden="true">&#128737;</div>
+      <div class="dashboard-card__body">
+        <h2 id="privacy-card-heading" class="dashboard-card__heading">
+          {% trans "Privacy & Your Data / Confidentialité et vos données" %}
+        </h2>
+        <p class="dashboard-card__description">
+          {% trans "Manage your consent preferences and download a copy of your personal data held by this service." %}
+        </p>
+      </div>
+      <div class="dashboard-card__action">
+        <a href="{% url 'consent:dashboard' %}"
+           class="btn btn--secondary"
+           aria-label="{% trans 'Go to Privacy & Your Data — manage consent and data export' %}">
+          {% trans "Manage Privacy / Gérer la confidentialité" %} &rarr;
+        </a>
+      </div>
+    </div>
+  </section>
+
+  {# ============================================================
      Quick navigation
      ============================================================ #}
   <nav aria-label="{% trans 'Quick navigation' %}" class="quick-nav">
@@ -149,6 +173,11 @@
       <li>
         <a href="{% url 'portal:dashboard' %}" class="quick-nav__link">
           {% trans "My Account" %} &rarr;
+        </a>
+      </li>
+      <li>
+        <a href="{% url 'consent:dashboard' %}" class="quick-nav__link">
+          {% trans "Privacy & Your Data" %} &rarr;
         </a>
       </li>
     </ul>

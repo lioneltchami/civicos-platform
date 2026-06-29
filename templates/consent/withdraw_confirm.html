@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Withdraw Consent" %}{% endblock %}
+{% block meta_description %}{% trans "Confirm withdrawal of consent for a data processing category." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Dashboard" %}</a></li>
+      <li><a href="{% url 'consent:dashboard' %}">{% trans "Privacy & Your Data" %}</a></li>
+      <li aria-current="page">{% trans "Withdraw Consent" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+
+  <a href="{% url 'consent:dashboard' %}" class="back-link">
+    &larr; {% trans "Back to Privacy & Your Data" %}
+  </a>
+
+  {% if category.is_required %}
+    {# ============================================================
+       Required category — cannot be withdrawn
+       ============================================================ #}
+    <div class="notice-box notice-box--warning" role="alert">
+      <h1 class="notice-box__heading">{% trans "Consent Cannot Be Withdrawn" %}</h1>
+      <p>
+        {% blocktrans with name=category.get_name trimmed %}
+          <strong>{{ name }}</strong> is required for service delivery and cannot be withdrawn.
+          This processing is necessary to provide you with government services you have applied for.
+        {% endblocktrans %}
+      </p>
+      <p>
+        <a href="{% url 'consent:dashboard' %}" class="btn btn--secondary">
+          {% trans "Return to Privacy & Your Data" %}
+        </a>
+      </p>
+    </div>
+
+  {% else %}
+    {# ============================================================
+       Optional category — confirmation form
+       ============================================================ #}
+    <h1 class="page-title">
+      {% blocktrans with name=category.get_name %}Withdraw Consent: {{ name }}{% endblocktrans %}
+    </h1>
+
+    <div class="withdraw-confirm__purpose">
+      <h2 class="withdraw-confirm__purpose-heading">{% trans "What this consent is for" %}</h2>
+      <p>{{ category.get_purpose }}</p>
+    </div>
+
+    <div class="notice-box notice-box--warning" role="note">
+      <p>
+        <strong>{% trans "Please note:" %}</strong>
+        {% trans "Withdrawing this consent may affect related features. You can re-grant consent at any time from your Privacy & Your Data page." %}
+      </p>
+    </div>
+
+    <form method="post"
+          action="{% url 'consent:update' %}"
+          class="withdraw-confirm__form"
+          aria-label="{% trans 'Confirm consent withdrawal' %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="withdraw">
+      <input type="hidden" name="category_slug" value="{{ category.slug }}">
+
+      <div class="form-actions form-actions--spaced">
+        <button type="submit"
+                class="btn btn--danger"
+                aria-describedby="withdraw-consequences">
+          {% trans "Confirm Withdrawal" %}
+        </button>
+        <a href="{% url 'consent:dashboard' %}" class="btn btn--secondary">
+          {% trans "Cancel" %}
+        </a>
+      </div>
+      <p id="withdraw-consequences" class="form-hint">
+        {% trans "This action will be permanently recorded in the audit trail." %}
+      </p>
+    </form>
+
+  {% endif %}
+
+</div>
+{% endblock %}

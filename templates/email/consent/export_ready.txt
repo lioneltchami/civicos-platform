@@ -1,0 +1,46 @@
+Hello {{ citizen.first_name|default:citizen.username }},
+
+Your personal data export request has been processed and is now ready for download.
+
+Request ID: {{ export_request.pk }}
+Processed at: {{ export_request.processed_at|date:"N j, Y" }}
+Expires at: {{ export_request.expires_at|date:"N j, Y" }}
+
+To download your data, sign in to your GovStack portal account and go to:
+Privacy & Your Data > Data Export History
+
+{% if portal_url %}Portal: {{ portal_url }}{% endif %}
+
+This export contains all personal information held about you under PIPEDA s.4.9 (Right of Access).
+The download link will expire in 7 days.
+
+If you did not request this export, please contact us immediately.
+
+—
+GovStack Government Services
+
+---
+
+[Version française / French version]
+
+Bonjour {{ citizen.first_name|default:citizen.username }},
+
+Votre exportation de données est prête pour téléchargement.
+
+Numéro de demande : {{ export_request.pk }}
+Traitée le : {{ export_request.processed_at|date:"N j, Y" }}
+Expire le : {{ export_request.expires_at|date:"N j, Y" }}
+
+Connectez-vous à votre compte du portail GovStack pour télécharger vos données :
+Confidentialité et vos données > Historique des exportations
+
+{% if portal_url %}Portail : {{ portal_url }}{% endif %}
+
+Votre lien de téléchargement expirera dans 7 jours.
+
+Cette exportation a été préparée en réponse à votre demande en vertu de la Loi sur la
+protection des renseignements personnels et les documents électroniques (LPRPDE), article 4.9.
+
+Si vous n'avez pas effectué cette demande, veuillez contacter le soutien immédiatement.
+
+Support GovStack / Soutien GovStack

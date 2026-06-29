@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Data Export History" %}{% endblock %}
+{% block meta_description %}{% trans "View the status of your personal data export requests." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Dashboard" %}</a></li>
+      <li><a href="{% url 'consent:dashboard' %}">{% trans "Privacy & Your Data" %}</a></li>
+      <li aria-current="page">{% trans "Data Export History" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <a href="{% url 'consent:dashboard' %}" class="back-link">
+    &larr; {% trans "Back to Privacy & Your Data" %}
+  </a>
+
+  <h1 class="page-title">{% trans "Data Export History" %}</h1>
+
+  {# Show an in-progress notice if any export is pending or processing #}
+  {% for export in exports %}
+    {% if export.status == 'pending' or export.status == 'processing' %}
+      {% if forloop.first %}
+        <div class="notice-box notice-box--info" role="status" aria-live="polite">
+          <span class="badge badge--warning">{{ export.get_status_display }}</span>
+          {% trans "You already have a data export in progress. You will receive an email when it is ready." %}
+        </div>
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+
+  {# "Request New Export" link — always shown; the service layer enforces uniqueness #}
+  <div class="export-status__cta">
+    <a href="{% url 'consent:export-request' %}" class="btn btn--secondary">
+      {% trans "Request New Export" %}
+    </a>
+  </div>
+
+  {# Export history table #}
+  {% if exports %}
+    <div class="table-wrapper"
+         role="region"
+         aria-label="{% trans 'Data export requests' %}"
+         tabindex="0">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Date Requested" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">{% trans "Format" %}</th>
+            <th scope="col">{% trans "Expires" %}</th>
+            <th scope="col">
+              <span class="visually-hidden">{% trans "Actions" %}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for export in exports %}
+            <tr>
+              <td>
+                <time datetime="{{ export.requested_at|date:'c' }}">
+                  {{ export.requested_at|date:"Y-m-d H:i" }}
+                </time>
+              </td>
+              <td>
+                {% if export.status == 'pending' %}
+                  <span class="badge badge--warning">{% trans "Preparing" %}</span>
+                {% elif export.status == 'processing' %}
+                  <span class="badge badge--warning">{% trans "Processing" %}</span>
+                {% elif export.status == 'ready' %}
+                  <span class="badge badge--success">{% trans "Ready to Download" %}</span>
+                {% elif export.status == 'delivered' %}
+                  <span class="badge badge--info">{% trans "Downloaded" %}</span>
+                {% elif export.status == 'failed' %}
+                  <span class="badge badge--danger">{% trans "Failed — please request again" %}</span>
+                {% elif export.status == 'expired' %}
+                  <span class="badge badge--neutral">{% trans "Expired" %}</span>
+                {% else %}
+                  <span class="badge badge--neutral">{{ export.get_status_display }}</span>
+                {% endif %}
+              </td>
+              <td>{{ export.get_format_display }}</td>
+              <td>
+                {% if export.expires_at %}
+                  <time datetime="{{ export.expires_at|date:'c' }}">
+                    {{ export.expires_at|date:"Y-m-d" }}
+                  </time>
+                {% else %}
+                  <span class="text-muted">{% trans "N/A" %}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if export.status == 'ready' %}
+                  <a href="{% url 'consent:export-download' token=export.download_token %}"
+                     class="btn btn--primary btn--small"
+                     aria-label="{% trans 'Download your data export file' %}">
+                    {% trans "Download" %}
+                  </a>
+                {% elif export.status == 'failed' %}
+                  <a href="{% url 'consent:export-request' %}" class="link-action">
+                    {% trans "Request again" %}
+                  </a>
+                {% else %}
+                  <span aria-hidden="true">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  {% else %}
+    <div class="empty-state">
+      <p class="empty-state__message">
+        {% trans "You have not requested a data export." %}
+      </p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

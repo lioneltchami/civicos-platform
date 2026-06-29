@@ -9,6 +9,7 @@ Structure:
   /two-factor/          → MFA login flow
   /portal/              → Authenticated citizen portal
   /api/v1/              → REST API (notifications, workflows, portal)
+  /consent/             → Citizen consent & privacy dashboard (PIPEDA)
   /backoffice/          → Staff back-office (StaffRequiredMixin enforced at view level)
   /__debug__/           → Django Debug Toolbar (development only)
 """
@@ -75,6 +76,8 @@ urlpatterns += i18n_patterns(
     path("workflows/", include("apps.workflows.urls", namespace="workflows")),
     # Citizen account (auth_extension building block)
     path("account/", include("apps.auth_extension.urls", namespace="auth_extension")),
+    # Consent & Privacy building block
+    path("consent/", include("apps.consent.urls", namespace="consent")),
     # Public-facing pages (Wagtail CMS) — must be last
     path("", include(wagtail_urls)),
     prefix_default_language=False,  # /en/ not required; /fr/ prefix for French

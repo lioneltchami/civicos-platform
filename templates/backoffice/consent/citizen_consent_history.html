@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}
+  {% if citizen %}{% blocktrans with pk=citizen.pk %}Consent History — Citizen #{{ pk }}{% endblocktrans %}{% else %}{% trans "Consent History" %}{% endif %} — {% trans "Back Office" %}
+{% endblock %}
+{% block meta_description %}{% trans "View consent records and audit trail for a citizen." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'backoffice:dashboard' %}">{% trans "Back Office" %}</a></li>
+      {% if citizen %}
+        <li>
+          <a href="{% url 'backoffice:citizen-detail' pk=citizen.pk %}">
+            {% blocktrans with pk=citizen.pk %}Citizen #{{ pk }}{% endblocktrans %}
+          </a>
+        </li>
+      {% endif %}
+      <li aria-current="page">{% trans "Consent History" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  {% if citizen %}
+    <a href="{% url 'backoffice:citizen-detail' pk=citizen.pk %}" class="back-link">
+      &larr; {% blocktrans with pk=citizen.pk %}Back to Citizen #{{ pk }}{% endblocktrans %}
+    </a>
+  {% else %}
+    <a href="{% url 'backoffice:dashboard' %}" class="back-link">
+      &larr; {% trans "Back to Dashboard" %}
+    </a>
+  {% endif %}
+
+  <h1 class="page-title">
+    {% if citizen %}
+      {% blocktrans with pk=citizen.pk %}Consent History — Citizen #{{ pk }}{% endblocktrans %}
+    {% else %}
+      {% trans "Consent History" %}
+    {% endif %}
+  </h1>
+
+  <div class="notice-box notice-box--info">
+    <p>
+      <strong>{% trans "PIPEDA privacy notice:" %}</strong>
+      {% trans "This page displays consent records for audit and compliance purposes only. Citizen email addresses are not shown. All access to this page is logged." %}
+    </p>
+  </div>
+
+  {# ============================================================
+     Current consent records
+     ============================================================ #}
+  <section class="detail-section" aria-labelledby="consent-records-heading">
+    <h2 id="consent-records-heading">{% trans "Current Consent Records" %}</h2>
+
+    {% if consent_records %}
+      <div class="table-wrapper"
+           role="region"
+           aria-label="{% trans 'Current consent records for this citizen' %}"
+           tabindex="0">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">{% trans "Category" %}</th>
+              <th scope="col">{% trans "Status" %}</th>
+              <th scope="col">{% trans "Granted At" %}</th>
+              <th scope="col">{% trans "Withdrawn At" %}</th>
+              <th scope="col">{% trans "Source" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for record in consent_records %}
+              <tr>
+                <th scope="row">
+                  {{ record.category.get_name }}
+                  {% if record.category.is_required %}
+                    <span class="badge badge--neutral badge--small"
+                          title="{% trans 'Required for service delivery' %}">
+                      {% trans "Required" %}
+                    </span>
+                  {% endif %}
+                </th>
+                <td>
+                  {% if record.status == 'granted' %}
+                    <span class="badge badge--success">{% trans "Granted" %}</span>
+                  {% elif record.status == 'withdrawn' %}
+                    <span class="badge badge--danger">{% trans "Withdrawn" %}</span>
+                  {% else %}
+                    <span class="badge badge--neutral">{% trans "Pending" %}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if record.granted_at %}
+                    <time datetime="{{ record.granted_at|date:'c' }}">
+                      {{ record.granted_at|date:"Y-m-d H:i" }}
+                    </time>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if record.withdrawn_at %}
+                    <time datetime="{{ record.withdrawn_at|date:'c' }}">
+                      {{ record.withdrawn_at|date:"Y-m-d H:i" }}
+                    </time>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td>{{ record.get_source_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state empty-state--inline">
+        <p class="empty-state__message">{% trans "No consent records found for this citizen." %}</p>
+      </div>
+    {% endif %}
+  </section>
+
+  {# ============================================================
+     Audit trail
+     ============================================================ #}
+  <section class="detail-section" aria-labelledby="audit-trail-heading">
+    <h2 id="audit-trail-heading">{% trans "Consent Audit Trail" %}</h2>
+    <p class="form-hint">
+      {% trans "Showing the 100 most recent audit events. This log is append-only and cannot be modified." %}
+    </p>
+
+    {% if audit_trail %}
+      <div class="table-wrapper"
+           role="region"
+           aria-label="{% trans 'Consent audit trail for this citizen' %}"
+           tabindex="0">
+        <table class="data-table data-table--audit">
+          <thead>
+            <tr>
+              <th scope="col">{% trans "Timestamp" %}</th>
+              <th scope="col">{% trans "Action" %}</th>
+              <th scope="col">{% trans "Category" %}</th>
+              <th scope="col">{% trans "Actor IP" %}</th>
+              <th scope="col">{% trans "Details" %}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in audit_trail %}
+              <tr>
+                <td>
+                  <time datetime="{{ entry.timestamp|date:'c' }}">
+                    {{ entry.timestamp|date:"Y-m-d H:i:s" }}
+                  </time>
+                </td>
+                <td>
+                  <code>{{ entry.action }}</code>
+                </td>
+                <td>
+                  {% if entry.category %}
+                    {{ entry.category.get_name }}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if entry.actor_ip %}
+                    <code class="ip-masked" title="{% trans 'IP address masked for privacy' %}">
+                      {{ entry.actor_ip }}
+                    </code>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if entry.details %}
+                    <code class="details-json">{{ entry.details }}</code>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state empty-state--inline">
+        <p class="empty-state__message">{% trans "No audit entries found for this citizen." %}</p>
+      </div>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}

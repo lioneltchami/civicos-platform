@@ -35,6 +35,11 @@ from apps.backoffice.views.staff_notifications import (
     StaffNotificationListView,
     StaffNotificationSendView,
 )
+from apps.backoffice.views.consent import (
+    ConsentDataRequestListView,
+    ConsentDataRequestDetailView,
+    CitizenConsentHistoryView,
+)
 
 app_name = "backoffice"
 
@@ -99,6 +104,21 @@ urlpatterns = [
         "citizens/<int:pk>/deactivate/",
         CitizenDeactivateView.as_view(),
         name="citizen-deactivate",
+    ),
+
+    # ------------------------------------------------------------------
+    # Consent & Privacy (PIPEDA)
+    # ------------------------------------------------------------------
+    path("data-requests/", ConsentDataRequestListView.as_view(), name="data-request-list"),
+    path(
+        "data-requests/<uuid:pk>/",
+        ConsentDataRequestDetailView.as_view(),
+        name="data-request-detail",
+    ),
+    path(
+        "citizens/<int:pk>/consent/",
+        CitizenConsentHistoryView.as_view(),
+        name="citizen-consent-history",
     ),
 
     # ------------------------------------------------------------------

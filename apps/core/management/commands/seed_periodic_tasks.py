@@ -21,6 +21,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self._seed_flush_expired_tokens()
         self._seed_check_sla_breaches()
+        self._seed_cleanup_export_files()
         self.stdout.write(self.style.SUCCESS("✓ Periodic tasks seeded successfully."))
 
     # ------------------------------------------------------------------
@@ -80,3 +81,31 @@ class Command(BaseCommand):
         )
         verb = "created" if created else "updated"
         self.stdout.write(f"  check-sla-breaches: {verb}")
+
+    def _seed_cleanup_export_files(self):
+        """Delete expired PIPEDA data export files daily at 04:00 UTC."""
+        schedule, _ = CrontabSchedule.objects.get_or_create(
+            minute="0",
+            hour="4",
+            day_of_week="*",
+            day_of_month="*",
+            month_of_year="*",
+            timezone="UTC",
+        )
+        _, created = PeriodicTask.objects.update_or_create(
+            name="cleanup-export-files",
+            defaults={
+                "task": "consent.cleanup_export_files",
+                "crontab": schedule,
+                "interval": None,
+                "solar": None,
+                "clocked": None,
+                "enabled": True,
+                "description": (
+                    "Mark expired PIPEDA data export requests and delete stored files. "
+                    "Runs daily at 04:00 UTC."
+                ),
+            },
+        )
+        verb = "created" if created else "updated"
+        self.stdout.write(f"  cleanup-export-files: {verb}")

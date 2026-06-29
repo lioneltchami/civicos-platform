@@ -1,0 +1,28 @@
+Dear {{ citizen.first_name|default:citizen.username }},
+
+We have received your request for a copy of your personal information.
+Nous avons reçu votre demande d'une copie de vos renseignements personnels.
+
+This request is being processed under PIPEDA Section 4.9 (Right of Access).
+Cette demande est traitée en vertu de l'article 4.9 de la LPRPDE (Droit d'accès).
+
+---
+
+Request reference / Référence de la demande : {{ export_request.pk }}
+Date submitted / Date de soumission : {{ export_request.requested_at|date:"N j, Y" }}
+
+---
+
+Your export will be prepared and made available for download within 30 days. You will receive
+another email when it is ready, along with instructions to access your download.
+
+Votre exportation sera préparée et mise à disposition en téléchargement dans un délai de 30 jours.
+Vous recevrez un autre courriel lorsqu'elle sera prête, avec les instructions pour accéder à votre
+téléchargement.
+
+---
+
+If you did not submit this request, please contact support immediately.
+Si vous n'avez pas soumis cette demande, veuillez contacter le support immédiatement.
+
+GovStack Support / Soutien GovStack

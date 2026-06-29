@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Privacy & Your Data" %}{% endblock %}
+{% block meta_description %}{% trans "Manage your consent preferences and view or request a copy of your personal data." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Dashboard" %}</a></li>
+      <li aria-current="page">{% trans "Privacy & Your Data" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  {# ============================================================
+     Page heading
+     ============================================================ #}
+  <h1 class="page-title">{% trans "Privacy & Your Data" %}</h1>
+
+  {# ============================================================
+     PIPEDA introduction — plain language
+     ============================================================ #}
+  <section class="intro-section" aria-labelledby="pipeda-intro-heading">
+    <h2 id="pipeda-intro-heading" class="visually-hidden">{% trans "Your privacy rights" %}</h2>
+    <div class="notice-box notice-box--info">
+      <p>
+        {% blocktrans trimmed %}
+          Under Canada's <strong>Personal Information Protection and Electronic Documents Act (PIPEDA)</strong>,
+          you have the right to know what personal information this service collects about you,
+          the right to consent to — or withdraw consent from — optional uses of your data,
+          and the right to request a copy of all personal information we hold about you.
+        {% endblocktrans %}
+      </p>
+      <p>
+        {% trans "Required processing (for example, to deliver a service you applied for) does not require your consent under PIPEDA and cannot be turned off." %}
+      </p>
+    </div>
+  </section>
+
+  {# ============================================================
+     Consent categories
+     ============================================================ #}
+  <section aria-labelledby="consent-categories-heading" class="dashboard-section">
+    <h2 id="consent-categories-heading">{% trans "Your Consent Preferences" %}</h2>
+
+    {% if consent_items %}
+      <ul class="consent-list" role="list">
+        {% for item in consent_items %}
+          <li class="consent-card{% if item.category.is_required %} consent-card--required{% endif %}">
+
+            {# Category name & lawful basis #}
+            <div class="consent-card__header">
+              <h3 class="consent-card__title">
+                {% if item.category.is_required %}
+                  <span class="consent-card__lock" aria-hidden="true">&#128274;</span>
+                {% endif %}
+                {{ item.category.get_name }}
+              </h3>
+              <span class="consent-card__basis badge badge--neutral"
+                    title="{% trans 'Lawful basis for processing' %}">
+                {{ item.category.get_lawful_basis_display }}
+              </span>
+            </div>
+
+            {# Purpose description #}
+            <p class="consent-card__purpose">{{ item.category.get_purpose }}</p>
+
+            {# Status badge #}
+            <div class="consent-card__status">
+              {% if item.record and item.record.status == 'granted' %}
+                <span class="badge badge--success" role="status">{% trans "Granted" %}</span>
+              {% elif item.record and item.record.status == 'withdrawn' %}
+                <span class="badge badge--danger" role="status">{% trans "Withdrawn" %}</span>
+              {% else %}
+                <span class="badge badge--neutral" role="status">{% trans "Not Set" %}</span>
+              {% endif %}
+            </div>
+
+            {# Actions #}
+            <div class="consent-card__actions">
+              {% if item.category.is_required %}
+                <p class="consent-card__required-note">
+                  <span aria-hidden="true">&#128274;</span>
+                  {% trans "Required for service delivery — cannot be withdrawn." %}
+                </p>
+              {% elif item.can_withdraw %}
+                {# Withdraw action — GET link to confirmation page; withdrawing is irreversible
+                   and must go through the confirmation step (Fix 1). #}
+                <a href="{% url 'consent:withdraw-confirm' category_slug=item.category.slug %}"
+                   class="btn btn--danger btn--small"
+                   aria-label="{% blocktrans with name=item.category.get_name %}Withdraw consent for {{ name }}{% endblocktrans %}">
+                  {% trans "Withdraw Consent" %}
+                </a>
+              {% else %}
+                {# Grant action — one-click POST is fine; granting is low-stakes and reversible. #}
+                <form method="post" action="{% url 'consent:update' %}" class="consent-card__form">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="grant">
+                  <input type="hidden" name="category_slug" value="{{ item.category.slug }}">
+                  <button type="submit"
+                          class="btn btn--primary btn--small"
+                          aria-label="{% blocktrans with name=item.category.get_name %}Grant consent for {{ name }}{% endblocktrans %}">
+                    {% trans "Grant Consent" %}
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty-state">
+        <p class="empty-state__message">{% trans "No consent categories are currently configured." %}</p>
+      </div>
+    {% endif %}
+  </section>
+
+  {# ============================================================
+     Data Export — PIPEDA s.4.9 Right of Access
+     ============================================================ #}
+  <section aria-labelledby="export-heading" class="dashboard-section dashboard-section--card">
+    <h2 id="export-heading">{% trans "Your Data &amp; Right of Access" %}</h2>
+
+    <p>
+      {% blocktrans trimmed %}
+        Under PIPEDA, you have the right to request a copy of all personal information we hold
+        about you. Exports include your profile, service requests, notifications, form submissions,
+        and consent history.
+      {% endblocktrans %}
+    </p>
+
+    {% if pending_export %}
+      <div class="notice-box notice-box--warning" role="status">
+        <p>
+          <span class="badge badge--warning">
+            {{ pending_export.get_status_display }}
+          </span>
+          {% trans "Your export is being prepared. You will receive an email when it is ready." %}
+        </p>
+      </div>
+    {% else %}
+      <div class="export-actions">
+        <a href="{% url 'consent:export-request' %}"
+           class="btn btn--primary"
+           aria-label="{% trans 'Request a copy of all my personal data' %}">
+          {% trans "Request My Data" %}
+        </a>
+      </div>
+    {% endif %}
+
+    <p class="mt-sm">
+      <a href="{% url 'consent:export-status' %}" class="link-action">
+        {% trans "View Export History" %} &rarr;
+      </a>
+    </p>
+  </section>
+
+  {# ============================================================
+     Audit trail note
+     ============================================================ #}
+  <div class="audit-note" role="note">
+    <p>
+      <span aria-hidden="true">&#128196;</span>
+      {% trans "All consent changes are recorded in a permanent audit trail as required by PIPEDA." %}
+    </p>
+  </div>
+
+</div>
+{% endblock %}

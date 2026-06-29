@@ -56,4 +56,5 @@ urlpatterns = [
     path("portal/", include("apps.api.portal.urls")),
     path("notifications/", include("apps.api.notifications.urls")),
     path("workflows/", include("apps.api.workflows.urls")),
+    path("consent/", include("apps.consent.api_urls", namespace="consent")),
 ]
