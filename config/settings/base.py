@@ -8,6 +8,7 @@ Configuration is driven by environment variables following the 12-factor app
 pattern. Use django-environ to read from a .env file in development.
 """
 
+from datetime import timedelta
 from pathlib import Path
 
 import environ
@@ -83,6 +84,12 @@ THIRD_PARTY_APPS = [
     "django_celery_results",
     "storages",
     "anymail",
+    # REST API
+    "rest_framework",
+    "rest_framework.authtoken",
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
+    "drf_spectacular",
 ]
 
 LOCAL_APPS = [
@@ -94,6 +101,7 @@ LOCAL_APPS = [
     "apps.auth_extension",  # Extends Django auth; named to avoid collision
     "apps.notifications",
     "apps.audit",
+    "apps.api",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -404,4 +412,72 @@ GOVSTACK = {
     "MAX_LOGIN_ATTEMPTS": env.int("MAX_LOGIN_ATTEMPTS", default=5),
     # GC Notify API key (used by notifications app)
     "GC_NOTIFY_API_KEY": env("GC_NOTIFY_API_KEY", default=""),
+}
+
+# ---------------------------------------------------------------------------
+# Django REST Framework
+# ---------------------------------------------------------------------------
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "apps.api.authentication.GovstackTokenAuthentication",
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "apps.api.pagination.StandardPagination",
+    "PAGE_SIZE": 20,
+    "DEFAULT_THROTTLE_CLASSES": [
+        "apps.api.throttling.CitizenRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/hour",
+        "citizen": "300/hour",
+        "staff": "1000/hour",
+    },
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "apps.api.exceptions.govstack_exception_handler",
+    # Return 401 instead of 403 for unauthenticated requests (RFC 7235)
+    "UNAUTHENTICATED_USER": None,
+}
+
+# ---------------------------------------------------------------------------
+# SimpleJWT — short-lived access tokens, daily refresh
+# ---------------------------------------------------------------------------
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,  # SECRET_KEY already defined above
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+    "TOKEN_OBTAIN_SERIALIZER": "rest_framework_simplejwt.serializers.TokenObtainPairSerializer",
+}
+
+# ---------------------------------------------------------------------------
+# drf-spectacular — OpenAPI schema generation
+# ---------------------------------------------------------------------------
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Govstack API",
+    "DESCRIPTION": (
+        "Government service delivery platform REST API. "
+        "All endpoints require Bearer token authentication unless stated otherwise."
+    ),
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SORT_OPERATIONS": False,
 }

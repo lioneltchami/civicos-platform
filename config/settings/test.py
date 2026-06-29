@@ -84,6 +84,23 @@ SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
 
 # ---------------------------------------------------------------------------
+# REST Framework — disable throttling so rate limits don't interfere with tests
+# ---------------------------------------------------------------------------
+
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,  # inherit all base settings  # noqa: F405
+    "DEFAULT_THROTTLE_CLASSES": [],
+    # Keep named rates so view-level throttle classes (CitizenRateThrottle,
+    # StaffRateThrottle) can instantiate without ImproperlyConfigured.
+    # The rates are high enough that tests will never be throttled in practice.
+    "DEFAULT_THROTTLE_RATES": {
+        "citizen": "10000/minute",
+        "staff": "10000/minute",
+        "anon": "10000/minute",
+    },
+}
+
+# ---------------------------------------------------------------------------
 # Logging — silence in tests (let pytest capture output instead)
 # ---------------------------------------------------------------------------
 
