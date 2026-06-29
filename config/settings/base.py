@@ -524,3 +524,10 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SORT_OPERATIONS": False,
 }
+
+# ── Payments BB ──────────────────────────────────────────────────────────────
+PAYMENT_GATEWAY = env("PAYMENT_GATEWAY", default="stripe")
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", default="")
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
+# Stripe publishable key is safe for front-end — kept in settings for template context
+STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY", default="")
