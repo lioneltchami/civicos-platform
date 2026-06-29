@@ -15,6 +15,7 @@ import uuid
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -79,7 +80,7 @@ class PaymentIntent(TimestampedModel):
 
     # Allowed status transitions
     ALLOWED_TRANSITIONS = {
-        STATUS_PENDING: [STATUS_PROCESSING, STATUS_CANCELLED],
+        STATUS_PENDING: [STATUS_PROCESSING, STATUS_CANCELLED, STATUS_FAILED],
         STATUS_PROCESSING: [STATUS_COMPLETED, STATUS_FAILED],
         STATUS_COMPLETED: [STATUS_REFUNDED],
         STATUS_FAILED: [],
@@ -167,17 +168,29 @@ class PaymentIntent(TimestampedModel):
         ordering = ["-created_at"]
         verbose_name = _("Payment Intent")
         verbose_name_plural = _("Payment Intents")
+        indexes = [
+            models.Index(fields=["payer", "status"], name="payments_intent_payer_status"),
+            models.Index(fields=["status"], name="payments_intent_status"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="payments_intent_amount_positive",
+            ),
+            models.CheckConstraint(
+                check=models.Q(tax_amount__gte=0),
+                name="payments_intent_tax_nonneg",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.reference or str(self.id)
 
     def save(self, *args, **kwargs):
+        if not self.id:
+            self.id = uuid.uuid4()
         if not self.reference:
-            # id is already set by default=uuid.uuid4 before save()
-            self.reference = (
-                f"PMT-{timezone.now().year}-"
-                f"{str(self.id.int % 1_000_000).zfill(6)}"
-            )
+            self.reference = f"PMT-{timezone.now().year}-{str(self.id.int % 1_000_000).zfill(6)}"
         super().save(*args, **kwargs)
 
     def transition(self, new_status: str) -> None:
@@ -185,13 +198,22 @@ class PaymentIntent(TimestampedModel):
         Advance the status machine to new_status.
         Raises ValueError if the transition is not permitted.
         """
-        allowed = self.ALLOWED_TRANSITIONS.get(self.status, [])
-        if new_status not in allowed:
-            raise ValueError(
-                f"Cannot transition PaymentIntent from '{self.status}' to '{new_status}'."
+        from django.db import transaction
+        with transaction.atomic():
+            # Re-fetch from DB with row lock
+            refreshed = (
+                self.__class__.objects.select_for_update().get(pk=self.pk)
             )
-        self.status = new_status
-        self.save(update_fields=["status", "updated_at"])
+            allowed = self.ALLOWED_TRANSITIONS.get(refreshed.status, [])
+            if new_status not in allowed:
+                raise ValueError(
+                    f"Cannot transition PaymentIntent from "
+                    f"'{refreshed.status}' to '{new_status}'."
+                )
+            refreshed.status = new_status
+            refreshed.save(update_fields=["status", "updated_at"])
+            # Keep in-memory object consistent
+            self.status = new_status
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +314,10 @@ class Payment(TimestampedModel):
     def __str__(self) -> str:
         return f"Payment {self.gateway_charge_id}"
 
+    def save(self, *args, **kwargs):
+        self.net_amount = self.amount_paid - self.processor_fee
+        super().save(*args, **kwargs)
+
 
 # ---------------------------------------------------------------------------
 # Refund
@@ -361,6 +387,12 @@ class Refund(TimestampedModel):
         ordering = ["-refunded_at"]
         verbose_name = _("Refund")
         verbose_name_plural = _("Refunds")
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="payments_refund_amount_positive",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Refund {self.gateway_refund_id}"
@@ -432,6 +464,9 @@ class WebhookEvent(TimestampedModel):
         ordering = ["-created_at"]
         verbose_name = _("Webhook Event")
         verbose_name_plural = _("Webhook Events")
+        indexes = [
+            models.Index(fields=["processed", "gateway"], name="payments_webhook_proc_gw"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.gateway}:{self.event_type} ({self.gateway_event_id})"
@@ -535,11 +570,6 @@ class PaymentAuditEntry(TimestampedModel):
         verbose_name=_("Actor IP"),
         help_text="Always masked before storage. Never log full IP with PII.",
     )
-    timestamp = models.DateTimeField(
-        auto_now_add=True,
-        db_index=True,
-        verbose_name=_("Timestamp"),
-    )
     details = models.JSONField(
         default=dict,
         blank=True,
@@ -547,9 +577,13 @@ class PaymentAuditEntry(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-timestamp"]
+        ordering = ["-created_at"]
         verbose_name = _("Payment Audit Entry")
         verbose_name_plural = _("Payment Audit Entries")
+        indexes = [
+            models.Index(fields=["payment_intent"], name="payments_audit_intent"),
+            models.Index(fields=["created_at"], name="payments_audit_timestamp"),
+        ]
         constraints = [
             models.CheckConstraint(
                 check=models.Q(
@@ -579,13 +613,29 @@ class PaymentAuditEntry(TimestampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.action} @ {self.timestamp}"
+        return f"{self.action} @ {self.created_at}"
+
+    def _mask_ip(self, ip):
+        if not ip:
+            return ip
+        try:
+            import ipaddress
+            parsed = ipaddress.ip_address(ip)
+            if parsed.version == 4:
+                parts = ip.split(".")
+                return ".".join(parts[:3] + ["0"])
+            else:  # IPv6
+                # Zero the last 80 bits (last 5 groups of 4 hex digits)
+                packed = parsed.packed
+                masked = packed[:6] + b"\x00" * 10
+                return str(ipaddress.IPv6Address(masked))
+        except ValueError:
+            return ""  # Invalid IP — store empty rather than PII
 
     def save(self, *args, **kwargs):
-        if self.pk and self.__class__.objects.filter(pk=self.pk).exists():
-            raise ValueError(
-                "PaymentAuditEntry is append-only and cannot be modified."
-            )
+        self.actor_ip = self._mask_ip(self.actor_ip)
+        if self.pk and self.__class__._default_manager.filter(pk=self.pk).exists():
+            raise ValueError("PaymentAuditEntry is append-only and cannot be modified.")
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -648,10 +698,18 @@ class TenantPaymentConfig(TimestampedModel):
         mode = "TEST" if self.is_test_mode else "LIVE"
         return f"TenantPaymentConfig ({mode})"
 
+    def save(self, *args, **kwargs):
+        self.pk = _SINGLETON_PK
+        super().save(*args, **kwargs)
+
     @classmethod
     def get_solo(cls) -> "TenantPaymentConfig":
         """Return the singleton config row, creating it if it does not exist."""
-        obj, _ = cls.objects.get_or_create(pk=_SINGLETON_PK)
+        from django.db import IntegrityError
+        try:
+            obj, _ = cls.objects.get_or_create(pk=_SINGLETON_PK)
+        except IntegrityError:
+            obj = cls.objects.get(pk=_SINGLETON_PK)
         return obj
 
 
@@ -679,6 +737,12 @@ class CharitySettings(TimestampedModel):
         max_length=20,
         verbose_name=_("CRA Registration Number"),
         help_text="Format: 123456789 RR 0001",
+        validators=[
+            RegexValidator(
+                r"^\d{9}\s+RR\s+\d{4}$",
+                "Must match CRA format: 123456789 RR 0001",
+            )
+        ],
     )
     charity_address_line1 = models.CharField(
         max_length=255,
@@ -728,6 +792,13 @@ class CharitySettings(TimestampedModel):
     class Meta:
         verbose_name = _("Charity Settings")
         verbose_name_plural = _("Charity Settings")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_active"],
+                condition=models.Q(is_active=True),
+                name="payments_charitysettings_one_active",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.charity_legal_name
@@ -763,7 +834,6 @@ class FeeSchedule(TimestampedModel):
     )
     fee_code = models.CharField(
         max_length=50,
-        unique=True,
         verbose_name=_("Fee Code"),
     )
     amount = models.DecimalField(
@@ -806,6 +876,20 @@ class FeeSchedule(TimestampedModel):
         verbose_name = _("Fee Schedule")
         verbose_name_plural = _("Fee Schedules")
         ordering = ["fee_code", "-effective_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["fee_code", "province", "effective_date"],
+                name="payments_feeschedule_code_province_date_unique",
+            ),
+            models.CheckConstraint(
+                check=models.Q(amount__gte=0),
+                name="payments_feeschedule_amount_nonneg",
+            ),
+            models.CheckConstraint(
+                check=models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gt=models.F("effective_date")),
+                name="payments_feeschedule_dates_valid",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.fee_code} ({self.province}) — ${self.amount}"
@@ -856,20 +940,20 @@ class TaxRate(TimestampedModel):
         help_text="ISO 3166-2 province/territory code.",
     )
     federal_rate = models.DecimalField(
-        max_digits=5,
-        decimal_places=4,
+        max_digits=7,
+        decimal_places=5,
         verbose_name=_("Federal Rate"),
         help_text="e.g. 0.0500 for 5% GST.",
     )
     provincial_rate = models.DecimalField(
-        max_digits=5,
-        decimal_places=4,
+        max_digits=7,
+        decimal_places=5,
         verbose_name=_("Provincial Rate"),
         help_text="e.g. 0.0800 for 8% PST.",
     )
     combined_rate = models.DecimalField(
-        max_digits=5,
-        decimal_places=4,
+        max_digits=7,
+        decimal_places=5,
         verbose_name=_("Combined Rate"),
         help_text="Total tax rate applied to taxable fees.",
     )
@@ -949,9 +1033,9 @@ class ServiceFeePayment(TimestampedModel):
         verbose_name=_("Tax Amount"),
     )
     tax_rate_applied = models.DecimalField(
-        max_digits=5,
-        decimal_places=4,
-        default=Decimal("0.0000"),
+        max_digits=7,
+        decimal_places=5,
+        default=Decimal("0.00000"),
         verbose_name=_("Tax Rate Applied"),
         help_text="Snapshot of TaxRate.combined_rate at time of payment.",
     )
@@ -1177,6 +1261,10 @@ class RecurringGiftPlan(TimestampedModel):
         verbose_name = _("Recurring Gift Plan")
         verbose_name_plural = _("Recurring Gift Plans")
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["donor", "status"], name="payments_plan_donor_status"),
+            models.Index(fields=["next_charge_date", "status"], name="payments_plan_charge_date_st"),
+        ]
 
     def __str__(self) -> str:
         return f"RecurringPlan {self.gateway_subscription_id} ({self.status})"
@@ -1185,6 +1273,24 @@ class RecurringGiftPlan(TimestampedModel):
 # ---------------------------------------------------------------------------
 # Donation
 # ---------------------------------------------------------------------------
+
+class DonationQuerySet(models.QuerySet):
+    _FINANCIAL_FIELDS = frozenset({"amount", "advantage_amount", "eligible_amount"})
+
+    def update(self, **kwargs):
+        blocked = self._FINANCIAL_FIELDS & set(kwargs)
+        if blocked:
+            raise ValueError(
+                f"Cannot bulk-update financial fields on Donation: {blocked}. "
+                f"Use instance.save() to trigger eligible_amount recomputation."
+            )
+        return super().update(**kwargs)
+
+
+class DonationManager(models.Manager):
+    def get_queryset(self):
+        return DonationQuerySet(self.model, using=self._db)
+
 
 DONATION_STATUS_PENDING = "pending"
 DONATION_STATUS_COMPLETED = "completed"
@@ -1211,6 +1317,8 @@ class Donation(TimestampedModel):
     eligible_amount = amount - advantage_amount (CRA receipt rule).
     donor_name_snapshot and donor_address_snapshot satisfy CRA s.3500 requirements.
     """
+
+    objects = DonationManager()
 
     id = models.UUIDField(
         primary_key=True,
@@ -1310,6 +1418,33 @@ class Donation(TimestampedModel):
         verbose_name = _("Donation")
         verbose_name_plural = _("Donations")
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["donor"], name="payments_donation_donor"),
+            models.Index(fields=["campaign", "status"], name="payments_donation_camp_status"),
+            models.Index(fields=["status"], name="payments_donation_status"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="payments_donation_amount_positive",
+            ),
+            models.CheckConstraint(
+                check=models.Q(eligible_amount__gte=0),
+                name="payments_donation_eligible_nonneg",
+            ),
+            models.CheckConstraint(
+                check=models.Q(advantage_amount__lte=models.F("amount")),
+                name="payments_donation_advantage_lte_amount",
+            ),
+            models.CheckConstraint(
+                check=~models.Q(donor_name_snapshot=""),
+                name="payments_donation_donor_name_required",
+            ),
+            models.CheckConstraint(
+                check=~models.Q(donor_address_snapshot=""),
+                name="payments_donation_donor_address_required",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Donation ${self.amount} ({self.status})"
@@ -1512,14 +1647,42 @@ class OfficialDonationReceipt(TimestampedModel):
         verbose_name = _("Official Donation Receipt")
         verbose_name_plural = _("Official Donation Receipts")
         ordering = ["-issued_at"]
+        indexes = [
+            models.Index(fields=["donation", "status"], name="payments_receipt_don_status"),
+            models.Index(fields=["is_annual_consolidated", "receipt_date"], name="payments_receipt_annual_date"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(eligible_amount__gte=0),
+                name="payments_receipt_eligible_nonneg",
+            ),
+            models.CheckConstraint(
+                check=models.Q(advantage_amount__gte=0),
+                name="payments_receipt_advantage_nonneg",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Receipt {self.serial_number} ({self.status})"
 
     def save(self, *args, **kwargs):
+        if not self.serial_number:
+            from django.db import connection
+            year = timezone.now().year
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT nextval('payments_receipt_serial_seq')")
+                seq = cursor.fetchone()[0]
+            self.serial_number = f"{year}-{str(seq).zfill(6)}"
+
+        if self.receipt_date and self.donation_date and self.receipt_date < self.donation_date:
+            raise ValueError(
+                f"receipt_date ({self.receipt_date}) cannot be before "
+                f"donation_date ({self.donation_date})."
+            )
+
         if self.pk:
             try:
-                original = self.__class__.objects.get(pk=self.pk)
+                original = self.__class__._default_manager.using(self._state.db).get(pk=self.pk)
             except self.__class__.DoesNotExist:
                 pass  # Brand-new record — allow
             else:
@@ -1542,22 +1705,39 @@ class OfficialDonationReceipt(TimestampedModel):
 
     def cancel(self, reason: str, superseded_by: "OfficialDonationReceipt | None" = None) -> None:
         """Cancel this receipt. Only 'issued' receipts can be cancelled."""
-        if self.status != self.RECEIPT_STATUS_ISSUED:
-            raise ValueError(
-                f"Only 'issued' receipts can be cancelled. Current status: {self.status}"
+        from django.db import transaction
+        with transaction.atomic():
+            updated = self.__class__._base_manager.filter(
+                pk=self.pk, status=self.RECEIPT_STATUS_ISSUED
+            ).update(
+                status=self.RECEIPT_STATUS_CANCELLED,
+                cancellation_reason=reason,
+                superseded_by_id=superseded_by.pk if superseded_by else None,
             )
-        self.status = self.RECEIPT_STATUS_CANCELLED
-        self.cancellation_reason = reason
-        if superseded_by is not None:
-            self.superseded_by = superseded_by
-        self.save(update_fields=["status", "cancellation_reason", "superseded_by", "updated_at"])
+            if not updated:
+                raise ValueError(
+                    f"Receipt {self.serial_number} cannot be cancelled — "
+                    f"current status is not 'issued'."
+                )
+            self.status = self.RECEIPT_STATUS_CANCELLED
+            self.cancellation_reason = reason
+            if superseded_by:
+                self.superseded_by = superseded_by
 
     def mark_superseded(self, new_receipt: "OfficialDonationReceipt") -> None:
         """Mark this receipt as superseded by a corrected re-issue."""
-        if self.status != self.RECEIPT_STATUS_ISSUED:
-            raise ValueError(
-                f"Only 'issued' receipts can be superseded. Current status: {self.status}"
+        from django.db import transaction
+        with transaction.atomic():
+            updated = self.__class__._base_manager.filter(
+                pk=self.pk, status=self.RECEIPT_STATUS_ISSUED
+            ).update(
+                status=self.RECEIPT_STATUS_SUPERSEDED,
+                superseded_by_id=new_receipt.pk,
             )
-        self.status = self.RECEIPT_STATUS_SUPERSEDED
-        self.superseded_by = new_receipt
-        self.save(update_fields=["status", "superseded_by", "updated_at"])
+            if not updated:
+                raise ValueError(
+                    f"Receipt {self.serial_number} cannot be superseded — "
+                    f"current status is not 'issued'."
+                )
+            self.status = self.RECEIPT_STATUS_SUPERSEDED
+            self.superseded_by = new_receipt

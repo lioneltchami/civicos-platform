@@ -7,12 +7,14 @@ Access control policy:
   Payment                 — no add, no delete (created by gateway)
   Refund                  — no add, no delete (created by gateway)
   WebhookEvent            — no add, no delete (created by gateway)
-  TenantPaymentConfig     — webhook_endpoint_secret is read-only
+  TenantPaymentConfig     — stripe keys and webhook secret are read-only; row cannot be deleted
 
 Security:
-  - No PII (payer/donor email, legal name) in list_display
+  - No PII (payer/donor email, legal name) in list_display or search_fields
   - pdf_path never in any fieldset, list_display, or readonly_fields
   - Payer/donor FKs represented by .pk only
+  - webhook_endpoint_secret never shown in plain text (masked display only)
+  - gateway_payment_method_id not exposed in admin (Stripe reusable token)
 """
 from django.contrib import admin
 
@@ -83,6 +85,7 @@ class PaymentAdmin(admin.ModelAdmin):
         "paid_at",
     ]
     list_filter = ["payment_method_type", "card_brand"]
+    list_select_related = ["intent"]
     search_fields = ["gateway_charge_id", "intent__reference"]
     readonly_fields = [
         "id",
@@ -126,6 +129,7 @@ class RefundAdmin(admin.ModelAdmin):
         "refunded_at",
     ]
     list_filter = ["reason"]
+    list_select_related = ["payment", "authorized_by"]
     search_fields = ["gateway_refund_id", "payment__gateway_charge_id"]
     readonly_fields = [
         "id",
@@ -171,7 +175,7 @@ class WebhookEventAdmin(admin.ModelAdmin):
         "created_at",
     ]
     list_filter = ["gateway", "signature_verified", "processed"]
-    search_fields = ["gateway_event_id", "event_type"]
+    search_fields = ["gateway_event_id", "event_type", "payload"]  # payload LIKE scan — consider GIN index at scale
     readonly_fields = [
         "id",
         "gateway",
@@ -206,10 +210,11 @@ class PaymentAuditEntryAdmin(admin.ModelAdmin):
         "actor_pk",
         "payment_intent_reference",
         "actor_ip",
-        "timestamp",
+        "created_at",
     ]
     list_filter = ["action"]
-    search_fields = ["actor__pk", "payment_intent__reference"]
+    list_select_related = ["payment_intent", "actor"]
+    search_fields = ["payment_intent__reference"]
     readonly_fields = [
         "id",
         "actor",
@@ -218,12 +223,11 @@ class PaymentAuditEntryAdmin(admin.ModelAdmin):
         "payment",
         "refund",
         "actor_ip",
-        "timestamp",
         "details",
         "created_at",
         "updated_at",
     ]
-    ordering = ["-timestamp"]
+    ordering = ["-created_at"]
 
     @admin.display(description="Actor PK", ordering="actor_id")
     def actor_pk(self, obj):
@@ -250,7 +254,14 @@ class PaymentAuditEntryAdmin(admin.ModelAdmin):
 @admin.register(TenantPaymentConfig)
 class TenantPaymentConfigAdmin(admin.ModelAdmin):
     list_display = ["id", "use_connect", "is_test_mode", "updated_at"]
-    readonly_fields = ["id", "webhook_endpoint_secret", "created_at", "updated_at"]
+    readonly_fields = [
+        "id",
+        "stripe_publishable_key",
+        "stripe_connect_account_id",
+        "webhook_secret_display",
+        "created_at",
+        "updated_at",
+    ]
     fieldsets = [
         (
             "Mode",
@@ -265,13 +276,18 @@ class TenantPaymentConfigAdmin(admin.ModelAdmin):
                     "stripe_publishable_key",
                     "stripe_connect_account_id",
                 ],
+                "description": (
+                    "Stripe key fields are read-only in the admin. "
+                    "Changes must be made via environment variables and redeployment."
+                ),
             },
         ),
         (
             "Webhook",
             {
-                "fields": ["webhook_endpoint_secret"],
+                "fields": ["webhook_secret_display"],
                 "description": (
+                    "Webhook signing secret is masked for security. "
                     "Changing this requires rotating the Stripe webhook signing secret "
                     "and redeploying."
                 ),
@@ -285,6 +301,15 @@ class TenantPaymentConfigAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    def webhook_secret_display(self, obj):
+        if obj.webhook_endpoint_secret:
+            return f"{'*' * 8} (set — {len(obj.webhook_endpoint_secret)} chars)"
+        return "⚠ Not configured"
+    webhook_secret_display.short_description = "Webhook signing secret"
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +470,9 @@ class DonationCampaignAdmin(admin.ModelAdmin):
 
 @admin.register(Donation)
 class DonationAdmin(admin.ModelAdmin):
+    # NOTE: donor_name_snapshot and donor_address_snapshot are PII fields (CRA receipt requirement).
+    # Access restricted to staff with payments.view_donation permission.
+    # These fields are NOT searchable (not in search_fields) to prevent PII in URL params.
     list_display = [
         "donor_pk",
         "campaign",
@@ -457,6 +485,7 @@ class DonationAdmin(admin.ModelAdmin):
         "created_at",
     ]
     list_filter = ["status", "is_recurring", "is_anonymous", "dedication_type"]
+    list_select_related = ["campaign", "recurring_plan"]
     search_fields = ["payment_intent__reference"]
     readonly_fields = [
         "id",
@@ -517,7 +546,8 @@ class RecurringGiftPlanAdmin(admin.ModelAdmin):
         "frequency",
         "next_charge_date",
         "gateway_subscription_id",
-        "gateway_payment_method_id",
+        # gateway_payment_method_id intentionally excluded — reusable Stripe token;
+        # exposing it broadens the attack surface unnecessarily.
         "status",
         "cancelled_at",
         "cancellation_reason",
@@ -553,7 +583,8 @@ class OfficialDonationReceiptAdmin(admin.ModelAdmin):
         "issued_at",
     ]
     list_filter = ["status", "is_annual_consolidated", "donor_province"]
-    search_fields = ["serial_number", "donor_legal_name", "charity_registration_number"]
+    # donor_legal_name excluded from search_fields — PIPEDA: name in URL/logs is a privacy violation.
+    search_fields = ["serial_number", "charity_registration_number"]
     # pdf_path is intentionally excluded from readonly_fields, fieldsets, and list_display
     readonly_fields = [
         "id",

@@ -3,9 +3,23 @@
 import decimal
 import uuid
 
+import django.core.validators
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
+
+
+class ConditionalRunSQL(migrations.RunSQL):
+    """RunSQL that only executes on PostgreSQL, skips on SQLite (for tests)."""
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        engine = schema_editor.connection.settings_dict.get("ENGINE", "")
+        if "postgresql" in engine or "postgis" in engine:
+            super().database_forwards(app_label, schema_editor, from_state, to_state)
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        engine = schema_editor.connection.settings_dict.get("ENGINE", "")
+        if "postgresql" in engine or "postgis" in engine:
+            super().database_backwards(app_label, schema_editor, from_state, to_state)
 
 
 class Migration(migrations.Migration):
@@ -130,6 +144,12 @@ class Migration(migrations.Migration):
                         max_length=20,
                         verbose_name="CRA Registration Number",
                         help_text="Format: 123456789 RR 0001",
+                        validators=[
+                            django.core.validators.RegexValidator(
+                                r"^\d{9}\s+RR\s+\d{4}$",
+                                "Must match CRA format: 123456789 RR 0001",
+                            )
+                        ],
                     ),
                 ),
                 (
@@ -230,7 +250,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "fee_code",
-                    models.CharField(max_length=50, unique=True, verbose_name="Fee Code"),
+                    models.CharField(max_length=50, verbose_name="Fee Code"),
                 ),
                 (
                     "amount",
@@ -316,8 +336,8 @@ class Migration(migrations.Migration):
                 (
                     "federal_rate",
                     models.DecimalField(
-                        max_digits=5,
-                        decimal_places=4,
+                        max_digits=7,
+                        decimal_places=5,
                         verbose_name="Federal Rate",
                         help_text="e.g. 0.0500 for 5% GST.",
                     ),
@@ -325,8 +345,8 @@ class Migration(migrations.Migration):
                 (
                     "provincial_rate",
                     models.DecimalField(
-                        max_digits=5,
-                        decimal_places=4,
+                        max_digits=7,
+                        decimal_places=5,
                         verbose_name="Provincial Rate",
                         help_text="e.g. 0.0800 for 8% PST.",
                     ),
@@ -334,8 +354,8 @@ class Migration(migrations.Migration):
                 (
                     "combined_rate",
                     models.DecimalField(
-                        max_digits=5,
-                        decimal_places=4,
+                        max_digits=7,
+                        decimal_places=5,
                         verbose_name="Combined Rate",
                         help_text="Total tax rate applied to taxable fees.",
                     ),
@@ -1020,12 +1040,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "timestamp",
-                    models.DateTimeField(
-                        auto_now_add=True, db_index=True, verbose_name="Timestamp"
-                    ),
-                ),
-                (
                     "details",
                     models.JSONField(
                         default=dict, blank=True, verbose_name="Details"
@@ -1035,7 +1049,7 @@ class Migration(migrations.Migration):
             options={
                 "verbose_name": "Payment Audit Entry",
                 "verbose_name_plural": "Payment Audit Entries",
-                "ordering": ["-timestamp"],
+                "ordering": ["-created_at"],
             },
         ),
         migrations.AddConstraint(
@@ -1136,9 +1150,9 @@ class Migration(migrations.Migration):
                 (
                     "tax_rate_applied",
                     models.DecimalField(
-                        max_digits=5,
-                        decimal_places=4,
-                        default=decimal.Decimal("0.0000"),
+                        max_digits=7,
+                        decimal_places=5,
+                        default=decimal.Decimal("0.00000"),
                         verbose_name="Tax Rate Applied",
                         help_text="Snapshot of TaxRate.combined_rate at time of payment.",
                     ),
@@ -1651,39 +1665,195 @@ class Migration(migrations.Migration):
             },
         ),
         # ------------------------------------------------------------------
+        # Constraints — FeeSchedule (FIX 1, FIX 18)
+        # ------------------------------------------------------------------
+        migrations.AddConstraint(
+            model_name="feeschedule",
+            constraint=models.UniqueConstraint(
+                fields=["fee_code", "province", "effective_date"],
+                name="payments_feeschedule_code_province_date_unique",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="feeschedule",
+            constraint=models.CheckConstraint(
+                check=models.Q(amount__gte=0),
+                name="payments_feeschedule_amount_nonneg",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="feeschedule",
+            constraint=models.CheckConstraint(
+                check=models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gt=models.F("effective_date")),
+                name="payments_feeschedule_dates_valid",
+            ),
+        ),
+        # ------------------------------------------------------------------
+        # Constraints — PaymentIntent (FIX 2)
+        # ------------------------------------------------------------------
+        migrations.AddConstraint(
+            model_name="paymentintent",
+            constraint=models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="payments_intent_amount_positive",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="paymentintent",
+            constraint=models.CheckConstraint(
+                check=models.Q(tax_amount__gte=0),
+                name="payments_intent_tax_nonneg",
+            ),
+        ),
+        # ------------------------------------------------------------------
+        # Indexes — PaymentIntent (FIX 11)
+        # ------------------------------------------------------------------
+        migrations.AddIndex(
+            model_name="paymentintent",
+            index=models.Index(fields=["payer", "status"], name="payments_intent_payer_status"),
+        ),
+        migrations.AddIndex(
+            model_name="paymentintent",
+            index=models.Index(fields=["status"], name="payments_intent_status"),
+        ),
+        # ------------------------------------------------------------------
+        # Constraints — Refund (FIX 17)
+        # ------------------------------------------------------------------
+        migrations.AddConstraint(
+            model_name="refund",
+            constraint=models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="payments_refund_amount_positive",
+            ),
+        ),
+        # ------------------------------------------------------------------
+        # Indexes — WebhookEvent (FIX 11)
+        # ------------------------------------------------------------------
+        migrations.AddIndex(
+            model_name="webhookevent",
+            index=models.Index(fields=["processed", "gateway"], name="payments_webhook_proc_gw"),
+        ),
+        # ------------------------------------------------------------------
+        # Indexes — PaymentAuditEntry (FIX 11, FIX 14)
+        # ------------------------------------------------------------------
+        migrations.AddIndex(
+            model_name="paymentauditentry",
+            index=models.Index(fields=["payment_intent"], name="payments_audit_intent"),
+        ),
+        migrations.AddIndex(
+            model_name="paymentauditentry",
+            index=models.Index(fields=["created_at"], name="payments_audit_timestamp"),
+        ),
+        # ------------------------------------------------------------------
+        # Constraints — CharitySettings (FIX 8)
+        # ------------------------------------------------------------------
+        migrations.AddConstraint(
+            model_name="charitysettings",
+            constraint=models.UniqueConstraint(
+                fields=["is_active"],
+                condition=models.Q(is_active=True),
+                name="payments_charitysettings_one_active",
+            ),
+        ),
+        # ------------------------------------------------------------------
+        # Indexes — RecurringGiftPlan (FIX 11)
+        # ------------------------------------------------------------------
+        migrations.AddIndex(
+            model_name="recurringgiftplan",
+            index=models.Index(fields=["donor", "status"], name="payments_plan_donor_status"),
+        ),
+        migrations.AddIndex(
+            model_name="recurringgiftplan",
+            index=models.Index(fields=["next_charge_date", "status"], name="payments_plan_charge_date_st"),
+        ),
+        # ------------------------------------------------------------------
+        # Constraints — Donation (FIX 2, FIX 13)
+        # ------------------------------------------------------------------
+        migrations.AddConstraint(
+            model_name="donation",
+            constraint=models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="payments_donation_amount_positive",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="donation",
+            constraint=models.CheckConstraint(
+                check=models.Q(eligible_amount__gte=0),
+                name="payments_donation_eligible_nonneg",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="donation",
+            constraint=models.CheckConstraint(
+                check=models.Q(advantage_amount__lte=models.F("amount")),
+                name="payments_donation_advantage_lte_amount",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="donation",
+            constraint=models.CheckConstraint(
+                check=~models.Q(donor_name_snapshot=""),
+                name="payments_donation_donor_name_required",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="donation",
+            constraint=models.CheckConstraint(
+                check=~models.Q(donor_address_snapshot=""),
+                name="payments_donation_donor_address_required",
+            ),
+        ),
+        # ------------------------------------------------------------------
+        # Indexes — Donation (FIX 11)
+        # ------------------------------------------------------------------
+        migrations.AddIndex(
+            model_name="donation",
+            index=models.Index(fields=["donor"], name="payments_donation_donor"),
+        ),
+        migrations.AddIndex(
+            model_name="donation",
+            index=models.Index(fields=["campaign", "status"], name="payments_donation_camp_status"),
+        ),
+        migrations.AddIndex(
+            model_name="donation",
+            index=models.Index(fields=["status"], name="payments_donation_status"),
+        ),
+        # ------------------------------------------------------------------
+        # Constraints — OfficialDonationReceipt (FIX 12)
+        # ------------------------------------------------------------------
+        migrations.AddConstraint(
+            model_name="officialdonationreceipt",
+            constraint=models.CheckConstraint(
+                check=models.Q(eligible_amount__gte=0),
+                name="payments_receipt_eligible_nonneg",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="officialdonationreceipt",
+            constraint=models.CheckConstraint(
+                check=models.Q(advantage_amount__gte=0),
+                name="payments_receipt_advantage_nonneg",
+            ),
+        ),
+        # ------------------------------------------------------------------
+        # Indexes — OfficialDonationReceipt (FIX 11)
+        # ------------------------------------------------------------------
+        migrations.AddIndex(
+            model_name="officialdonationreceipt",
+            index=models.Index(fields=["donation", "status"], name="payments_receipt_don_status"),
+        ),
+        migrations.AddIndex(
+            model_name="officialdonationreceipt",
+            index=models.Index(fields=["is_annual_consolidated", "receipt_date"], name="payments_receipt_annual_date"),
+        ),
+        # ------------------------------------------------------------------
         # PostgreSQL sequence for receipt serial numbers.
         # Skipped automatically on SQLite (test/CI environments).
         # Must be after all CreateModel operations.
         # ------------------------------------------------------------------
-        migrations.RunSQL(
-            sql=(
-                "CREATE SEQUENCE IF NOT EXISTS payments_receipt_serial_seq "
-                "START WITH 1 INCREMENT BY 1 NO CYCLE;"
-            ),
+        ConditionalRunSQL(
+            sql="CREATE SEQUENCE IF NOT EXISTS payments_receipt_serial_seq START WITH 1 INCREMENT BY 1 NO CYCLE;",
             reverse_sql="DROP SEQUENCE IF EXISTS payments_receipt_serial_seq;",
-            # hints allow the migration router to skip this on non-PostgreSQL DBs
-            hints={"target_db": "postgresql"},
         ),
     ]
-
-    def apply(self, project_state, schema_editor, collect_sql=False):
-        """Override apply() to skip the RunSQL sequence on SQLite."""
-        # Wrap each operation individually; for RunSQL ops, check the engine.
-        from django.db import connections
-        from django.db.migrations.operations.special import RunSQL
-
-        db_alias = schema_editor.connection.alias
-        engine = connections[db_alias].settings_dict.get("ENGINE", "")
-
-        new_ops = []
-        for op in self.operations:
-            if isinstance(op, RunSQL) and "SEQUENCE" in op.sql and "sqlite" in engine:
-                continue  # Skip Postgres-only sequence DDL on SQLite
-            new_ops.append(op)
-
-        original_ops = self.operations
-        self.operations = new_ops
-        try:
-            return super().apply(project_state, schema_editor, collect_sql=collect_sql)
-        finally:
-            self.operations = original_ops
