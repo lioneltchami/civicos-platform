@@ -64,7 +64,7 @@ def _record_history(
     )
 
 
-def _compute_due_at(priority: int) -> "timezone.datetime":
+def _compute_due_at(priority: int):
     hours = SLA_HOURS.get(priority, SLA_HOURS[WorkItemPriority.NORMAL])
     return timezone.now() + timedelta(hours=hours)
 
@@ -86,12 +86,12 @@ def create_work_item(
     Create a WorkItem linked to any content object (ServiceRequest, etc.).
 
     Computes due_at from SLA policy if not explicitly provided.
-    Fires work_item_created signal after commit.
+    actor may be None for system-initiated items (portal signal handler).
+    History entry records actor=None in that case — auditable and intentional.
+    Fires work_item_created signal after the enclosing transaction commits.
     """
     if not title:
         raise ValueError("title is required")
-    # actor may be None for system-initiated work items (e.g. portal submission trigger).
-    # History entry will record actor=None in that case, which is acceptable and auditable.
 
     ct = ContentType.objects.get_for_model(content_object.__class__)
     computed_due = due_at or _compute_due_at(priority)
@@ -106,14 +106,17 @@ def create_work_item(
             due_at=computed_due,
         )
         _record_history(work_item, "created", actor, notes=description)
-
-    transaction.on_commit(
-        lambda: work_item_created.send_robust(
-            sender=WorkItem,
-            work_item=work_item,
-            actor=actor,
+        # Register on_commit INSIDE the atomic block so it fires at the correct
+        # savepoint level. If called from a nested atomic(), it fires when the
+        # *innermost* savepoint that contains it releases — correct semantics.
+        _pk = work_item.pk
+        transaction.on_commit(
+            lambda: work_item_created.send_robust(
+                sender=WorkItem,
+                work_item=WorkItem.objects.get(pk=_pk),
+                actor=actor,
+            )
         )
-    )
     return work_item
 
 
@@ -135,6 +138,8 @@ def claim_work_item(work_item: WorkItem, actor) -> WorkItem:
 
     old_status = work_item.status
     new_status = WorkItemStatus.IN_PROGRESS
+    _pk = work_item.pk
+    _actor_pk = actor.pk
 
     with transaction.atomic():
         work_item.assigned_to = actor
@@ -144,12 +149,23 @@ def claim_work_item(work_item: WorkItem, actor) -> WorkItem:
             work_item, "claimed", actor,
             old_status=old_status, new_status=new_status,
         )
-
-    transaction.on_commit(lambda: _fire_claim_signals(work_item, actor, old_status, new_status))
+        # Capture PKs; reload fresh instances in on_commit to avoid stale data.
+        transaction.on_commit(
+            lambda: _fire_claim_signals(_pk, _actor_pk, old_status, new_status)
+        )
     return work_item
 
 
-def _fire_claim_signals(work_item, actor, old_status, new_status):
+def _fire_claim_signals(work_item_pk, actor_pk, old_status, new_status):
+    """Reload fresh instances from DB before firing signals (avoids stale-data bugs)."""
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        work_item = WorkItem.objects.get(pk=work_item_pk)
+        actor = User.objects.get(pk=actor_pk)
+    except (WorkItem.DoesNotExist, User.DoesNotExist):
+        logger.warning("_fire_claim_signals: work_item or actor no longer exists pk=%s", work_item_pk)
+        return
     work_item_assigned.send_robust(sender=WorkItem, work_item=work_item, assignee=actor, actor=actor)
     work_item_status_changed.send_robust(
         sender=WorkItem,
@@ -175,6 +191,10 @@ def assign_work_item(work_item: WorkItem, assignee, actor) -> WorkItem:
     if not getattr(assignee, "is_staff", False):
         raise ValueError("Work items may only be assigned to staff users.")
 
+    _pk = work_item.pk
+    _assignee_pk = assignee.pk
+    _actor_pk = actor.pk
+
     with transaction.atomic():
         work_item.assigned_to = assignee
         work_item.save(update_fields=["assigned_to", "updated_at"])
@@ -182,16 +202,24 @@ def assign_work_item(work_item: WorkItem, assignee, actor) -> WorkItem:
             work_item, "assigned", actor,
             notes=f"Assigned to {assignee.display_name}",
         )
-
-    transaction.on_commit(
-        lambda: work_item_assigned.send_robust(
-            sender=WorkItem,
-            work_item=work_item,
-            assignee=assignee,
-            actor=actor,
+        transaction.on_commit(
+            lambda: _fire_assigned_signal(_pk, _assignee_pk, _actor_pk)
         )
-    )
     return work_item
+
+
+def _fire_assigned_signal(work_item_pk, assignee_pk, actor_pk):
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        work_item = WorkItem.objects.get(pk=work_item_pk)
+        assignee = User.objects.get(pk=assignee_pk)
+        actor = User.objects.get(pk=actor_pk)
+    except (WorkItem.DoesNotExist, User.DoesNotExist):
+        return
+    work_item_assigned.send_robust(
+        sender=WorkItem, work_item=work_item, assignee=assignee, actor=actor,
+    )
 
 
 def update_work_item_status(
@@ -218,6 +246,8 @@ def update_work_item_status(
         )
 
     old_status = work_item.status
+    _pk = work_item.pk
+    _actor_pk = actor.pk
 
     with transaction.atomic():
         work_item.status = new_status
@@ -232,18 +262,28 @@ def update_work_item_status(
             work_item, f"status_changed_to_{new_status}", actor,
             old_status=old_status, new_status=new_status, notes=notes,
         )
-
-    transaction.on_commit(
-        lambda: work_item_status_changed.send_robust(
-            sender=WorkItem,
-            work_item=work_item,
-            old_status=old_status,
-            new_status=new_status,
-            actor=actor,
-            notes=notes,
+        transaction.on_commit(
+            lambda: _fire_status_changed_signal(_pk, _actor_pk, old_status, new_status, notes)
         )
-    )
     return work_item
+
+
+def _fire_status_changed_signal(work_item_pk, actor_pk, old_status, new_status, notes):
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        work_item = WorkItem.objects.get(pk=work_item_pk)
+        actor = User.objects.get(pk=actor_pk)
+    except (WorkItem.DoesNotExist, User.DoesNotExist):
+        return
+    work_item_status_changed.send_robust(
+        sender=WorkItem,
+        work_item=work_item,
+        old_status=old_status,
+        new_status=new_status,
+        actor=actor,
+        notes=notes,
+    )
 
 
 def escalate_work_item(work_item: WorkItem, actor, *, reason: str = "") -> WorkItem:
@@ -262,6 +302,9 @@ def escalate_work_item(work_item: WorkItem, actor, *, reason: str = "") -> WorkI
         raise ValueError("Work item is already at maximum escalation level (director).")
 
     now = timezone.now()
+    _pk = work_item.pk
+    _actor_pk = actor.pk
+
     with transaction.atomic():
         work_item.escalation_level += 1
         if not work_item.escalated_at:
@@ -271,31 +314,45 @@ def escalate_work_item(work_item: WorkItem, actor, *, reason: str = "") -> WorkI
             work_item, "escalated", actor,
             notes=reason or f"Escalated to level {work_item.escalation_level}",
         )
-
-    level = work_item.escalation_level
-    transaction.on_commit(
-        lambda: work_item_escalated.send_robust(
-            sender=WorkItem,
-            work_item=work_item,
-            level=level,
-            actor=actor,
-            reason=reason,
+        _level = work_item.escalation_level
+        transaction.on_commit(
+            lambda: _fire_escalated_signal(_pk, _actor_pk, _level, reason)
         )
-    )
     return work_item
+
+
+def _fire_escalated_signal(work_item_pk, actor_pk, level, reason):
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        work_item = WorkItem.objects.get(pk=work_item_pk)
+        actor = User.objects.get(pk=actor_pk)
+    except (WorkItem.DoesNotExist, User.DoesNotExist):
+        return
+    work_item_escalated.send_robust(
+        sender=WorkItem, work_item=work_item, level=level, actor=actor, reason=reason,
+    )
 
 
 def add_comment(work_item: WorkItem, actor, body: str) -> WorkItemComment:
     """
     Add an internal staff comment to a WorkItem.
 
-    Raises ValueError if body is empty or work item is terminal.
+    Raises PermissionError if actor is not staff.
+    Raises ValueError if body is empty or work item is in a terminal status.
     """
     if not getattr(actor, "is_staff", False):
         raise PermissionError("Only staff users can comment on work items.")
+    if work_item.status in TERMINAL_STATUSES:
+        raise ValueError(
+            f"Cannot add a comment to a {work_item.status} work item."
+        )
     body = body.strip()
     if not body:
         raise ValueError("Comment body cannot be empty.")
+
+    _pk = work_item.pk
+    _actor_pk = actor.pk
 
     with transaction.atomic():
         comment = WorkItemComment.objects.create(
@@ -304,16 +361,25 @@ def add_comment(work_item: WorkItem, actor, body: str) -> WorkItemComment:
             body=body,
         )
         _record_history(work_item, "commented", actor, notes=body[:200])
-
-    transaction.on_commit(
-        lambda: work_item_commented.send_robust(
-            sender=WorkItem,
-            work_item=work_item,
-            comment=comment,
-            actor=actor,
+        _comment_pk = comment.pk
+        transaction.on_commit(
+            lambda: _fire_commented_signal(_pk, _actor_pk, _comment_pk)
         )
-    )
     return comment
+
+
+def _fire_commented_signal(work_item_pk, actor_pk, comment_pk):
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        work_item = WorkItem.objects.get(pk=work_item_pk)
+        actor = User.objects.get(pk=actor_pk)
+        comment = WorkItemComment.objects.get(pk=comment_pk)
+    except (WorkItem.DoesNotExist, User.DoesNotExist, WorkItemComment.DoesNotExist):
+        return
+    work_item_commented.send_robust(
+        sender=WorkItem, work_item=work_item, comment=comment, actor=actor,
+    )
 
 
 def get_staff_queue(
@@ -323,7 +389,7 @@ def get_staff_queue(
     assigned_to_me: bool = False,
     unassigned_only: bool = False,
     priority_filter: int | None = None,
-) -> "QuerySet[WorkItem]":
+):
     """
     Return a filtered WorkItem queryset for the staff queue view.
 
@@ -353,28 +419,49 @@ def check_sla_breaches() -> int:
     Mark overdue work items as SLA-breached.
 
     Called by Celery periodic task. Returns the count of newly-breached items.
-    Idempotent — items already marked are not updated again.
+
+    Uses select_for_update(skip_locked=True) to prevent duplicate processing
+    when multiple Celery workers run concurrently. Bulk-updates and bulk-creates
+    to avoid N+1 writes on large queues.
     """
     now = timezone.now()
-    breached = WorkItem.objects.filter(
-        due_at__lt=now,
-        sla_breached_at__isnull=True,
-    ).exclude(status__in=list(TERMINAL_STATUSES))
 
-    count = 0
-    for item in breached:
-        item.sla_breached_at = now
-        item.save(update_fields=["sla_breached_at", "updated_at"])
-        WorkItemHistory.objects.create(
-            work_item=item,
-            action="sla_breached",
-            actor=None,  # system action
-            notes=f"SLA deadline {item.due_at:%Y-%m-%d %H:%M} passed without resolution.",
+    with transaction.atomic():
+        breached_items = list(
+            WorkItem.objects.select_for_update(skip_locked=True)
+            .filter(due_at__lt=now, sla_breached_at__isnull=True)
+            .exclude(status__in=list(TERMINAL_STATUSES))
         )
-        count += 1
+
+        if not breached_items:
+            return 0
+
+        breached_ids = [item.pk for item in breached_items]
+
+        WorkItem.objects.filter(pk__in=breached_ids).update(
+            sla_breached_at=now,
+            updated_at=now,
+        )
+
+        WorkItemHistory.objects.bulk_create([
+            WorkItemHistory(
+                work_item=item,
+                action="sla_breached",
+                actor=None,
+                notes=(
+                    f"SLA deadline {item.due_at:%Y-%m-%d %H:%M} UTC "
+                    "passed without resolution."
+                ),
+            )
+            for item in breached_items
+        ])
+
+    count = len(breached_ids)
+    if count:
+        # Log IDs only — no titles, no PII
         logger.warning(
-            "SLA breached for work_item_id=%s title=%r priority=%s",
-            item.pk, item.title, item.priority,
+            "SLA breach check: %d item(s) newly marked. IDs: %s",
+            count,
+            [str(pk) for pk in breached_ids],
         )
-
     return count

@@ -102,6 +102,15 @@ class WorkItemQueueViewTest(TestCase):
         self.assertIn("total_open", response.context)
         self.assertEqual(response.context["total_open"], 2)
 
+    def test_context_my_items_count_reflects_assigned_items(self):
+        """my_items_count must count only items assigned to the current user."""
+        other = make_staff("other@gov.ca")
+        make_work_item(assigned_to=self.staff)   # mine
+        make_work_item(assigned_to=other)         # not mine
+        make_work_item()                          # unassigned
+        response = self.client.get(QUEUE_URL)
+        self.assertEqual(response.context["my_items_count"], 1)
+
 
 # ---------------------------------------------------------------------------
 # Detail view
@@ -194,6 +203,46 @@ class ClaimWorkItemViewTest(TestCase):
         c.force_login(self.staff)
         response = c.post(self.claim_url())
         self.assertEqual(response.status_code, 403)
+
+
+class CsrfEnforcementTest(TestCase):
+    """CSRF is enforced on all POST-only workflow action views."""
+
+    def setUp(self):
+        self.staff = make_staff()
+        self.item = make_work_item()
+
+    def _csrf_client(self):
+        from django.test import Client
+        c = Client(enforce_csrf_checks=True)
+        c.force_login(self.staff)
+        return c
+
+    def test_csrf_required_claim(self):
+        c = self._csrf_client()
+        url = reverse("workflows:claim", kwargs={"pk": self.item.pk})
+        self.assertEqual(c.post(url).status_code, 403)
+
+    def test_csrf_required_advance_status(self):
+        c = self._csrf_client()
+        url = reverse("workflows:advance-status", kwargs={"pk": self.item.pk})
+        self.assertEqual(c.post(url, {"new_status": "in_progress"}).status_code, 403)
+
+    def test_csrf_required_escalate(self):
+        c = self._csrf_client()
+        url = reverse("workflows:escalate", kwargs={"pk": self.item.pk})
+        self.assertEqual(c.post(url, {"reason": ""}).status_code, 403)
+
+    def test_csrf_required_add_comment(self):
+        c = self._csrf_client()
+        url = reverse("workflows:add-comment", kwargs={"pk": self.item.pk})
+        self.assertEqual(c.post(url, {"body": "note"}).status_code, 403)
+
+    def test_csrf_required_assign(self):
+        assignee = make_staff("worker@gov.ca")
+        c = self._csrf_client()
+        url = reverse("workflows:assign", kwargs={"pk": self.item.pk})
+        self.assertEqual(c.post(url, {"assignee": assignee.pk}).status_code, 403)
 
 
 # ---------------------------------------------------------------------------

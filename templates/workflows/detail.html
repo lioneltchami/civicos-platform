@@ -164,7 +164,7 @@
     <div class="col-lg-4">
 
       {# Claim (only if unassigned and not terminal) #}
-      {% if not work_item.assigned_to and work_item.status not in "completed,cancelled" %}
+      {% if not work_item.assigned_to and work_item.status not in terminal_statuses %}
         <div class="card mb-3 border-success">
           <div class="card-header bg-success text-white">{% trans "Claim" %}</div>
           <div class="card-body">
@@ -180,7 +180,7 @@
       {% endif %}
 
       {# Assign #}
-      {% if work_item.status not in "completed,cancelled" %}
+      {% if work_item.status not in terminal_statuses %}
         <div class="card mb-3">
           <div class="card-header">{% trans "Assign" %} / <span lang="fr">Assigner</span></div>
           <div class="card-body">
@@ -201,7 +201,7 @@
       {% endif %}
 
       {# Advance status #}
-      {% if work_item.status not in "completed,cancelled" %}
+      {% if work_item.status not in terminal_statuses %}
         <div class="card mb-3">
           <div class="card-header">{% trans "Update Status" %} / <span lang="fr">Mettre à jour le statut</span></div>
           <div class="card-body">
@@ -228,7 +228,7 @@
       {% endif %}
 
       {# Escalate #}
-      {% if work_item.escalation_level < 2 and work_item.status not in "completed,cancelled" %}
+      {% if work_item.escalation_level < 2 and work_item.status not in terminal_statuses %}
         <div class="card mb-3 border-warning">
           <div class="card-header bg-warning text-dark">{% trans "Escalate" %} / <span lang="fr">Escalader</span></div>
           <div class="card-body">

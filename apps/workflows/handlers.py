@@ -5,22 +5,16 @@ Two categories:
 1. Portal → Workflows: create a WorkItem when a ServiceRequest is submitted.
 2. Workflows → Audit: write an audit entry for every WorkItem state change.
 
-Handlers are connected in WorkflowsConfig.ready() to avoid import-time side effects.
+Handlers are connected explicitly in WorkflowsConfig.ready() — no @receiver
+decorators are used here. This prevents the double-connection bug that occurs
+when something imports this module before ready() is called: @receiver fires
+at import time AND again when ready() re-imports the module.
 """
 
 import logging
 
-from django.dispatch import receiver
-
 from apps.audit.services import record_event
-from apps.core.signals import service_request_submitted
 from apps.workflows.models import WorkItem, WorkItemPriority
-from apps.workflows.signals import (
-    work_item_assigned,
-    work_item_created,
-    work_item_escalated,
-    work_item_status_changed,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +23,6 @@ logger = logging.getLogger(__name__)
 # Portal → Workflows integration
 # ---------------------------------------------------------------------------
 
-@receiver(service_request_submitted)
 def on_service_request_submitted(sender, instance, actor=None, **kwargs) -> None:
     """
     Automatically create a WorkItem when a ServiceRequest is submitted.
@@ -80,7 +73,6 @@ def create_work_item_for_service_request(service_request, actor=None) -> None:
 # Workflows → Audit
 # ---------------------------------------------------------------------------
 
-@receiver(work_item_created)
 def audit_work_item_created(sender, work_item: WorkItem, actor, **kwargs) -> None:
     try:
         record_event(
@@ -94,7 +86,6 @@ def audit_work_item_created(sender, work_item: WorkItem, actor, **kwargs) -> Non
         logger.exception("Audit failed for work_item_created work_item_id=%s", work_item.pk)
 
 
-@receiver(work_item_assigned)
 def audit_work_item_assigned(sender, work_item: WorkItem, assignee, actor, **kwargs) -> None:
     try:
         record_event(
@@ -108,7 +99,6 @@ def audit_work_item_assigned(sender, work_item: WorkItem, assignee, actor, **kwa
         logger.exception("Audit failed for work_item_assigned work_item_id=%s", work_item.pk)
 
 
-@receiver(work_item_status_changed)
 def audit_work_item_status_changed(
     sender, work_item: WorkItem, old_status, new_status, actor, notes, **kwargs
 ) -> None:
@@ -130,7 +120,6 @@ def audit_work_item_status_changed(
         )
 
 
-@receiver(work_item_escalated)
 def audit_work_item_escalated(
     sender, work_item: WorkItem, level, actor, reason, **kwargs
 ) -> None:

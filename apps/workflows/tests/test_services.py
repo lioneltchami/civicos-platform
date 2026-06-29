@@ -334,6 +334,19 @@ class AddCommentTest(TestCase):
         with self.assertRaises(PermissionError):
             add_comment(self.item, citizen, "Note")
 
+    def test_raises_if_work_item_is_completed(self):
+        """Comments must not be addable to terminal work items (audit trail integrity)."""
+        self.item.status = WorkItemStatus.COMPLETED
+        self.item.save()
+        with self.assertRaises(ValueError, msg="add_comment should block terminal items"):
+            add_comment(self.item, self.actor, "Post-mortem note")
+
+    def test_raises_if_work_item_is_cancelled(self):
+        self.item.status = WorkItemStatus.CANCELLED
+        self.item.save()
+        with self.assertRaises(ValueError):
+            add_comment(self.item, self.actor, "Note on cancelled item")
+
 
 class GetStaffQueueTest(TestCase):
 

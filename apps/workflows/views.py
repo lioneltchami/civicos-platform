@@ -14,18 +14,19 @@ URL layout (mounted at /workflows/ in config/urls.py):
 """
 
 import logging
-from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
+from django.db.models import Prefetch
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import DetailView, ListView, View
 
 from apps.workflows.forms import AdvanceStatusForm, AssignForm, CommentForm, EscalateForm
-from apps.workflows.models import WorkItem, WorkItemStatus
+from apps.workflows.models import TERMINAL_STATUSES, WorkItem, WorkItemComment, WorkItemHistory, WorkItemStatus
 from apps.workflows.services import (
     add_comment,
     assign_work_item,
@@ -52,10 +53,9 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 
     def handle_no_permission(self):
         if not self.request.user.is_authenticated:
-            from django.conf import settings as django_settings
-            from django.shortcuts import redirect as django_redirect
-            login_url = getattr(django_settings, "LOGIN_URL", "/account/login/")
-            return django_redirect(f"{login_url}?next={self.request.get_full_path()}")
+            # redirect_to_login() uses urlunparse internally and only passes
+            # the path portion as `next` — no open-redirect risk.
+            return redirect_to_login(self.request.get_full_path())
         raise PermissionDenied
 
 
@@ -121,9 +121,21 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
     context_object_name = "work_item"
 
     def get_queryset(self):
+        # Use Prefetch with ordered querysets so that the cached results are
+        # in the right order — calling .order_by() on a prefetched manager
+        # bypasses the cache and triggers extra queries.
         return WorkItem.objects.select_related(
             "assigned_to", "content_type"
-        ).prefetch_related("history__actor", "comments__author")
+        ).prefetch_related(
+            Prefetch(
+                "history",
+                queryset=WorkItemHistory.objects.select_related("actor").order_by("created_at"),
+            ),
+            Prefetch(
+                "comments",
+                queryset=WorkItemComment.objects.select_related("author").order_by("created_at"),
+            ),
+        )
 
     def get_context_data(self, **kwargs) -> dict:
         ctx = super().get_context_data(**kwargs)
@@ -131,8 +143,10 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
         ctx["assign_form"] = AssignForm()
         ctx["escalate_form"] = EscalateForm()
         ctx["comment_form"] = CommentForm()
-        ctx["history"] = self.object.history.order_by("created_at")
-        ctx["comments"] = self.object.comments.order_by("created_at")
+        # Use list() to consume the prefetch cache rather than re-querying
+        ctx["history"] = list(self.object.history.all())
+        ctx["comments"] = list(self.object.comments.all())
+        ctx["terminal_statuses"] = list(TERMINAL_STATUSES)
         return ctx
 
 

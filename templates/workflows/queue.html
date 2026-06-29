@@ -91,11 +91,11 @@
               {% endif %}
             </td>
             <td>
-              {% if item.status == "pending" %}<span class="badge bg-secondary">{% endif %}
-              {% if item.status == "in_progress" %}<span class="badge bg-primary">{% endif %}
-              {% if item.status == "waiting" %}<span class="badge bg-warning text-dark">{% endif %}
-              {{ item.get_status_display }}
-              </span>
+              {% if item.status == "pending" %}<span class="badge bg-secondary">
+              {% elif item.status == "in_progress" %}<span class="badge bg-primary">
+              {% elif item.status == "waiting" %}<span class="badge bg-warning text-dark">
+              {% else %}<span class="badge bg-secondary">
+              {% endif %}{{ item.get_status_display }}</span>
             </td>
             <td>
               {% if item.priority == 1 %}<span class="badge bg-danger">{% trans "Critical" %}</span>{% endif %}
@@ -149,7 +149,7 @@
         <ul class="pagination">
           {% if page_obj.has_previous %}
             <li class="page-item">
-              <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_status %}&status={{ current_status }}{% endif %}">
+              <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_status %}&status={{ current_status }}{% endif %}{% if current_priority %}&priority={{ current_priority }}{% endif %}{% if mine_only %}&mine=1{% endif %}{% if unassigned_only %}&unassigned=1{% endif %}">
                 &laquo; {% trans "Previous" %}
               </a>
             </li>
@@ -163,7 +163,7 @@
           </li>
           {% if page_obj.has_next %}
             <li class="page-item">
-              <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_status %}&status={{ current_status }}{% endif %}">
+              <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_status %}&status={{ current_status }}{% endif %}{% if current_priority %}&priority={{ current_priority }}{% endif %}{% if mine_only %}&mine=1{% endif %}{% if unassigned_only %}&unassigned=1{% endif %}">
                 {% trans "Next" %} &raquo;
               </a>
             </li>

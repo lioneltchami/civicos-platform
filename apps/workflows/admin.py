@@ -40,12 +40,22 @@ class WorkItemAdmin(admin.ModelAdmin):
     )
     list_filter = ("status", "priority", "escalation_level")
     search_fields = ("title", "description")
+    # All fields are read-only — mutations must go through the service layer
+    # (via the staff queue views) so the audit trail is never bypassed.
     readonly_fields = (
-        "pk", "content_type", "object_id", "created_at", "updated_at",
-        "sla_breached_at", "escalated_at", "completed_at",
+        "pk", "content_type", "object_id",
+        "title", "description",
+        "status", "assigned_to", "priority", "due_at",
+        "sla_breached_at", "escalated_at", "escalation_level", "completed_at",
+        "created_at", "updated_at",
     )
     inlines = [WorkItemHistoryInline, WorkItemCommentInline]
     ordering = ["priority", "due_at"]
+    list_select_related = ("assigned_to",)
+
+    def has_change_permission(self, request, obj=None):
+        # Prevent any edits through admin — service layer is the only mutation path
+        return False
 
     def priority_badge(self, obj):
         colours = {1: "red", 2: "orange", 3: "blue", 4: "grey"}
@@ -76,6 +86,7 @@ class WorkItemHistoryAdmin(admin.ModelAdmin):
     list_filter = ("action",)
     search_fields = ("work_item__title", "notes")
     readonly_fields = ("work_item", "action", "old_status", "new_status", "actor", "notes", "created_at")
+    list_select_related = ("work_item", "actor")
 
     def has_add_permission(self, request):
         return False
