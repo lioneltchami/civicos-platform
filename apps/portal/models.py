@@ -49,6 +49,7 @@ class ServiceRequest(BaseModel):
     )
     service_name = models.CharField(
         max_length=255,
+        db_index=True,
         verbose_name=_("Service name"),
         help_text=_("Snapshot of service name at time of submission."),
     )

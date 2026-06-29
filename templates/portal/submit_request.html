@@ -111,6 +111,7 @@
                class="form-control {% if form.service_name.errors %}form-control--error{% endif %}"
                value="{{ form.service_name.value|default:service_name }}"
                aria-required="true"
+               {% if form.service_name.errors %}aria-invalid="true"{% endif %}
                aria-describedby="service_name-hint{% if form.service_name.errors %} service_name-error{% endif %}">
       {% endif %}
       <span id="service_name-hint" class="form-hint">
@@ -136,6 +137,7 @@
                 class="form-control {% if form.description.errors %}form-control--error{% endif %}"
                 rows="6"
                 aria-required="true"
+                {% if form.description.errors %}aria-invalid="true"{% endif %}
                 aria-describedby="description-hint{% if form.description.errors %} description-error{% endif %}">{{ form.description.value|default:"" }}</textarea>
       <span id="description-hint" class="form-hint">
         {% trans "Describe what you need. Include any relevant details, dates, or locations." %}
@@ -162,6 +164,7 @@
              value="{{ form.contact_email.value|default:request.user.email }}"
              autocomplete="email"
              aria-required="true"
+             {% if form.contact_email.errors %}aria-invalid="true"{% endif %}
              aria-describedby="contact_email-hint{% if form.contact_email.errors %} contact_email-error{% endif %}">
       <span id="contact_email-hint" class="form-hint">
         {% trans "We will use this email address to send you updates about your request." %}
@@ -187,6 +190,7 @@
              class="form-control {% if form.contact_phone.errors %}form-control--error{% endif %}"
              value="{{ form.contact_phone.value|default:"" }}"
              autocomplete="tel"
+             {% if form.contact_phone.errors %}aria-invalid="true"{% endif %}
              aria-describedby="contact_phone-hint{% if form.contact_phone.errors %} contact_phone-error{% endif %}">
       <span id="contact_phone-hint" class="form-hint">
         {% trans "Include area code, e.g. 613-555-0100. We may call you if we need more information." %}
@@ -215,6 +219,7 @@
                  {% if form.consent_given.value %}checked{% endif %}
                  required
                  aria-required="true"
+                 {% if form.consent_given.errors %}aria-invalid="true"{% endif %}
                  aria-describedby="consent-hint{% if form.consent_given.errors %} consent-error{% endif %}">
           <label for="id_consent_given" class="form-check__label">
             {% trans "I consent to the collection, use, and disclosure of my personal information as described in the Privacy Notice above for the purpose of processing my service request." %}

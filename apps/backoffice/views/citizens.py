@@ -79,7 +79,7 @@ class CitizenListView(StaffRequiredMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         ctx["search_query"] = self.request.GET.get("q", "")
         ctx["active_filter"] = self.request.GET.get("active", "")
-        ctx["total_count"] = self.get_queryset().count()
+        ctx["total_count"] = self.object_list.count()
         return ctx
 
 

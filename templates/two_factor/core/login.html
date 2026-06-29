@@ -60,6 +60,7 @@
             class="form-input {% if wizard.form.username.errors %}form-input--error{% endif %}"
             autocomplete="email"
             aria-required="true"
+            {% if wizard.form.username.errors %}aria-invalid="true"{% endif %}
             {% if wizard.form.username.errors %}aria-describedby="{{ wizard.form.username.id_for_label }}-error"{% endif %}
             value="{{ wizard.form.username.value|default:'' }}"
           >
@@ -82,6 +83,7 @@
             class="form-input {% if wizard.form.password.errors %}form-input--error{% endif %}"
             autocomplete="current-password"
             aria-required="true"
+            {% if wizard.form.password.errors %}aria-invalid="true"{% endif %}
             {% if wizard.form.password.errors %}aria-describedby="{{ wizard.form.password.id_for_label }}-error"{% endif %}
           >
         </div>
@@ -153,6 +155,7 @@
               maxlength="6"
               pattern="[0-9]{6}"
               aria-required="true"
+              {% if field.errors %}aria-invalid="true"{% endif %}
               {% if field.errors %}aria-describedby="{{ field.id_for_label }}-error"{% endif %}
               value="{{ field.value|default:'' }}"
             >
@@ -215,6 +218,7 @@
               class="form-input {% if field.errors %}form-input--error{% endif %}"
               autocomplete="off"
               aria-required="true"
+              {% if field.errors %}aria-invalid="true"{% endif %}
               {% if field.errors %}aria-describedby="{{ field.id_for_label }}-error"{% endif %}
             >
           </div>

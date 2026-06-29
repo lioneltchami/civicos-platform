@@ -91,6 +91,30 @@ CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
 
 # ---------------------------------------------------------------------------
+# JWT — generate a dev RSA key pair on-the-fly if not provided in .env
+# This means developers don't need to manually generate keys locally.
+# In production, JWT_PRIVATE_KEY / JWT_PUBLIC_KEY must be set explicitly.
+# ---------------------------------------------------------------------------
+
+if not SIMPLE_JWT.get("SIGNING_KEY"):  # type: ignore[name-defined]  # noqa: F405
+    try:
+        from cryptography.hazmat.primitives import serialization as _s
+        from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+        _dev_key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        SIMPLE_JWT["SIGNING_KEY"] = _dev_key.private_bytes(  # type: ignore[name-defined]  # noqa: F405
+            encoding=_s.Encoding.PEM,
+            format=_s.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=_s.NoEncryption(),
+        ).decode("utf-8")
+        SIMPLE_JWT["VERIFYING_KEY"] = _dev_key.public_key().public_bytes(  # type: ignore[name-defined]  # noqa: F405
+            encoding=_s.Encoding.PEM,
+            format=_s.PublicFormat.SubjectPublicKeyInfo,
+        ).decode("utf-8")
+    except ImportError:
+        pass  # cryptography not installed — JWT will fail; developer must install deps
+
+# ---------------------------------------------------------------------------
 # Logging — verbose output in dev
 # ---------------------------------------------------------------------------
 

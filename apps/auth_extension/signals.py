@@ -22,6 +22,7 @@ from apps.core.signals import (
     user_login_succeeded as gs_login_succeeded,
     user_logged_out as gs_logged_out,
 )
+from apps.forms.utils import _mask_ip
 
 try:
     from allauth.account.signals import (
@@ -64,7 +65,7 @@ def _write_audit(event_type: str, outcome: str, user, request) -> None:
     try:
         from apps.audit.models import AuditLogEntry
 
-        actor_ip = _get_client_ip(request)
+        actor_ip = _mask_ip(_get_client_ip(request) or "")
         actor_ua = request.META.get("HTTP_USER_AGENT", "")[:512]
 
         session_key = ""
@@ -102,7 +103,7 @@ def on_login_success(sender, request, user, **kwargs) -> None:
     # Update last login IP (use update() to avoid triggering full model save hooks)
     ip = _get_client_ip(request)
     if ip:
-        type(user).objects.filter(pk=user.pk).update(last_login_ip=ip)
+        type(user).objects.filter(pk=user.pk).update(last_login_ip=_mask_ip(ip))
     # Fire Govstack core signal for audit/notifications listeners
     # (audit/handlers.py:audit_login_success writes the entry via the signal)
     gs_login_succeeded.send(sender=sender, request=request, user=user)
@@ -120,7 +121,7 @@ def on_login_failure(sender, credentials, request, **kwargs) -> None:
     # No user object available on login failure — log with minimal context
     try:
         from apps.audit.models import AuditLogEntry
-        actor_ip = _get_client_ip(request)
+        actor_ip = _mask_ip(_get_client_ip(request) or "")
         actor_ua = request.META.get("HTTP_USER_AGENT", "")[:512]
         request_id = getattr(request, "request_id", "") or ""
         entry = AuditLogEntry(

@@ -73,7 +73,7 @@ class AuditLogListView(StaffRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["event_type_choices"] = AuditEventType.choices
-        ctx["total_count"] = self.get_queryset().count()
+        ctx["total_count"] = self.object_list.count()
 
         # Preserve current filter params for pagination links and template display
         params = self.request.GET.copy()

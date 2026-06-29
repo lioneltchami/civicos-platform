@@ -171,7 +171,7 @@
             {% endif %}
             {# Render with aria-describedby wired to hint / error spans #}
             {% if field.errors %}
-              {{ field.as_widget }}
+              {{ field|render_field_with_error_attrs }}
             {% elif field.help_text %}
               {{ field.as_widget }}
             {% else %}
@@ -206,10 +206,13 @@
             </span>
           {% endif %}
           <div class="checkbox-item">
-            {{ consent_field }}
+            {% if consent_field.errors %}
+              {{ consent_field|render_field_with_error_attrs:"id__consent-error" }}
+            {% else %}
+              {{ consent_field }}
+            {% endif %}
             <label for="{{ consent_field.id_for_label }}"
-                   class="form-label form-label--inline"
-                   {% if consent_field.errors %}aria-describedby="id__consent-error"{% endif %}>
+                   class="form-label form-label--inline">
               {% trans "I have read and accept the above statement. / J'ai lu et j'accepte la déclaration ci-dessus." %}
               <span class="form-required" aria-hidden="true">*</span>
               <span class="sr-only">{% trans "(required)" %}</span>

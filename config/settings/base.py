@@ -59,6 +59,7 @@ WAGTAIL_APPS = [
     "wagtail.contrib.settings",
     "wagtail.contrib.search_promotions",
     "wagtail.contrib.typed_table_block",
+    "wagtail.contrib.simple_translation",
     "wagtail.embeds",
     "wagtail.sites",
     "wagtail.users",
@@ -110,6 +111,7 @@ INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "csp.middleware.CSPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",           # i18n language detection
     "django.middleware.common.CommonMiddleware",
@@ -293,6 +295,13 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@govstack.ca")
 SERVER_EMAIL = env("SERVER_EMAIL", default="errors@govstack.ca")
 EMAIL_SUBJECT_PREFIX = "[Govstack] "
 
+# Admins receive 500 error emails via AdminEmailHandler (requires LOGGING config)
+# Format: comma-separated "Name:email@example.ca" pairs
+ADMINS = [
+    tuple(pair.split(":", 1))
+    for pair in env.list("DJANGO_ADMINS", default=[])
+]
+
 # ---------------------------------------------------------------------------
 # Celery
 # ---------------------------------------------------------------------------
@@ -307,6 +316,10 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_TRACK_STARTED = True  # Expose STARTED state for monitoring / long-running tasks
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
+# Task time limits — prevent runaway workers
+CELERY_TASK_SOFT_TIME_LIMIT = 300   # 5 min — SoftTimeLimitExceeded is raised
+CELERY_TASK_TIME_LIMIT = 360        # 6 min — worker SIGKILL after this
 
 # ---------------------------------------------------------------------------
 # Wagtail
@@ -462,8 +475,9 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
-    "ALGORITHM": "HS256",
-    "SIGNING_KEY": SECRET_KEY,  # SECRET_KEY already defined above
+    "ALGORITHM": "RS256",
+    "SIGNING_KEY": env("JWT_PRIVATE_KEY", default=None),
+    "VERIFYING_KEY": env("JWT_PUBLIC_KEY", default=None),
     "AUTH_HEADER_TYPES": ("Bearer",),
     "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
     "USER_ID_FIELD": "id",

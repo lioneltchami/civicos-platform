@@ -6,22 +6,25 @@ import ipaddress
 
 def _mask_ip(ip: str) -> str:
     """
-    Mask an IP address for privacy (PIPEDA compliance).
+    Mask an IP address for privacy-preserving storage (PIPEDA compliance).
 
-    IPv4: return first two octets only, e.g. "192.168.x.x"
-    IPv6: return first two groups (32 bits), mask the rest.
-    Returns empty string for empty input, "masked" for unparseable values.
+    IPv4: keeps first 3 octets, zeroes last octet.
+          192.168.1.123 → 192.168.1.0
+    IPv6: keeps first 32 bits (/32 prefix), zeroes the rest.
+          2001:db8::1 → 2001:db8::
+    Returns '0.0.0.0' on any parsing error.
     """
+    import ipaddress as _ipaddress
+
     if not ip:
-        return ""
+        return "0.0.0.0"
     try:
-        addr = ipaddress.ip_address(ip)
-        if addr.version == 4:
-            parts = ip.split(".")
-            return ".".join(parts[:2]) + ".x.x"
-        else:
-            # IPv6: show first 32 bits (2 groups), mask the rest
-            parts = ip.split(":")
-            return ":".join(parts[:2]) + ":xxxx:xxxx:xxxx:xxxx:xxxx:xxxx"
+        addr = _ipaddress.ip_address(ip.strip())
+        if isinstance(addr, _ipaddress.IPv4Address):
+            parts = str(addr).split(".")
+            return f"{parts[0]}.{parts[1]}.{parts[2]}.0"
+        else:  # IPv6
+            network = _ipaddress.ip_network(f"{addr}/32", strict=False)
+            return str(network.network_address)
     except ValueError:
-        return "masked"
+        return "0.0.0.0"

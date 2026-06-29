@@ -11,6 +11,21 @@ Optimized for speed and isolation:
 
 from .base import *  # noqa: F401, F403
 
+# Generate a fresh RSA key pair for test use only (never used in production)
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+_test_private_key = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_JWT_PRIVATE_KEY = _test_private_key.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.TraditionalOpenSSL,
+    encryption_algorithm=serialization.NoEncryption(),
+).decode("utf-8")
+_JWT_PUBLIC_KEY = _test_private_key.public_key().public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+).decode("utf-8")
+
 SECRET_KEY = "test-secret-key-not-for-production"
 
 DEBUG = False
@@ -86,6 +101,10 @@ CSRF_COOKIE_SECURE = False
 # ---------------------------------------------------------------------------
 # REST Framework — disable throttling so rate limits don't interfere with tests
 # ---------------------------------------------------------------------------
+
+SIMPLE_JWT["ALGORITHM"] = "RS256"
+SIMPLE_JWT["SIGNING_KEY"] = _JWT_PRIVATE_KEY
+SIMPLE_JWT["VERIFYING_KEY"] = _JWT_PUBLIC_KEY
 
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,  # inherit all base settings  # noqa: F405

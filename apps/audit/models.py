@@ -82,6 +82,7 @@ class AuditLogEntry(models.Model):
         max_length=16,
         choices=[("success", _("Success")), ("failure", _("Failure"))],
         default="success",
+        db_index=True,
         verbose_name=_("Outcome"),
     )
 

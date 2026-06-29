@@ -21,6 +21,22 @@ def get_item(dictionary, key):
     return dictionary.get(key, "")
 
 
+@register.filter(name="render_field_with_error_attrs")
+def render_field_with_error_attrs(field, describedby_id=""):
+    """
+    Render a BoundField's widget with aria-invalid="true" (and optionally
+    aria-describedby) added to its attributes.
+
+    Usage (when field has errors):
+        {{ field|render_field_with_error_attrs:"field-id-error" }}
+        {{ field|render_field_with_error_attrs }}
+    """
+    attrs = {"aria-invalid": "true"}
+    if describedby_id:
+        attrs["aria-describedby"] = describedby_id
+    return field.as_widget(attrs=attrs)
+
+
 @register.filter(name="get_form_field")
 def get_form_field(form, field_name):
     """

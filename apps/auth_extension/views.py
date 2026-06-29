@@ -21,6 +21,8 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView, UpdateView
 
+from apps.forms.utils import _mask_ip
+
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
@@ -45,7 +47,7 @@ def _write_audit(event_type: str, user, request: HttpRequest, detail: dict | Non
             outcome="success",
             actor_id=str(user.pk),
             actor_email=user.email,
-            actor_ip=_get_client_ip(request),
+            actor_ip=_mask_ip(_get_client_ip(request) or ""),
             actor_user_agent=request.META.get("HTTP_USER_AGENT", "")[:512],
             resource_type="User",
             resource_id=str(user.pk),

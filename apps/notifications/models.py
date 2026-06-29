@@ -65,7 +65,7 @@ class Notification(BaseModel):
         db_index=True,
         verbose_name=_("Status"),
     )
-    sent_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Sent at"))
+    sent_at = models.DateTimeField(null=True, blank=True, db_index=True, verbose_name=_("Sent at"))
     external_id = models.CharField(
         max_length=255,
         blank=True,

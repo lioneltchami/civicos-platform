@@ -38,6 +38,7 @@ class TimestampedModel(models.Model):
 
     created_at = models.DateTimeField(
         auto_now_add=True,
+        db_index=True,
         verbose_name=_("Created at"),
     )
     updated_at = models.DateTimeField(

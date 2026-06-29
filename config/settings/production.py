@@ -14,6 +14,9 @@ from sentry_sdk.integrations.redis import RedisIntegration
 from .base import *  # noqa: F401, F403
 from .base import env
 
+# Hard override — DEBUG must NEVER be True in production
+DEBUG = False
+
 # ---------------------------------------------------------------------------
 # Security — strict in production
 # ---------------------------------------------------------------------------
@@ -31,6 +34,12 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 # ALLOWED_HOSTS is read from DJANGO_ALLOWED_HOSTS env var (set in base.py).
 # Default is [] which causes Django to reject all requests — set the env var in deployment.
 # Example: DJANGO_ALLOWED_HOSTS=govstack.ca,www.govstack.ca
+from django.core.exceptions import ImproperlyConfigured
+if not ALLOWED_HOSTS:
+    raise ImproperlyConfigured(
+        "DJANGO_ALLOWED_HOSTS env var must be set in production. "
+        "Example: DJANGO_ALLOWED_HOSTS=yourdomain.ca,www.yourdomain.ca"
+    )
 
 # Wagtail email links (password reset, notification emails) must use HTTPS in production.
 # WAGTAILADMIN_BASE_URL must be set as an env var (e.g., https://cms.govstack.ca).
@@ -132,6 +141,20 @@ if SENTRY_DSN:
         environment=env("SENTRY_ENVIRONMENT", default="production"),
         send_default_pii=False,  # NEVER send PII to Sentry
     )
+else:
+    import warnings
+    warnings.warn(
+        "SENTRY_DSN is not configured — unhandled exceptions will not be reported.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
+# ---------------------------------------------------------------------------
+# JWT RS256 asymmetric signing — required in production
+# ---------------------------------------------------------------------------
+
+SIMPLE_JWT["SIGNING_KEY"] = env("JWT_PRIVATE_KEY")   # no default — must be set
+SIMPLE_JWT["VERIFYING_KEY"] = env("JWT_PUBLIC_KEY")   # no default — must be set
 
 # ---------------------------------------------------------------------------
 # Cache — Redis in production

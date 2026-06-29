@@ -51,6 +51,7 @@
           class="form-input {% if form.email.errors %}form-input--error{% endif %}"
           autocomplete="email"
           aria-required="true"
+          {% if form.email.errors %}aria-invalid="true"{% endif %}
           {% if form.email.errors %}aria-describedby="{{ form.email.id_for_label }}-error"{% endif %}
           value="{{ form.email.value|default:'' }}"
         >
@@ -74,6 +75,7 @@
           class="form-input {% if form.email2.errors %}form-input--error{% endif %}"
           autocomplete="email"
           aria-required="true"
+          {% if form.email2.errors %}aria-invalid="true"{% endif %}
           {% if form.email2.errors %}aria-describedby="{{ form.email2.id_for_label }}-error"{% endif %}
           value="{{ form.email2.value|default:'' }}"
         >
@@ -100,6 +102,7 @@
           class="form-input {% if form.password1.errors %}form-input--error{% endif %}"
           autocomplete="new-password"
           aria-required="true"
+          {% if form.password1.errors %}aria-invalid="true"{% endif %}
           aria-describedby="{{ form.password1.id_for_label }}-hint{% if form.password1.errors %} {{ form.password1.id_for_label }}-error{% endif %}"
         >
       </div>
@@ -122,6 +125,7 @@
           class="form-input {% if form.password2.errors %}form-input--error{% endif %}"
           autocomplete="new-password"
           aria-required="true"
+          {% if form.password2.errors %}aria-invalid="true"{% endif %}
           {% if form.password2.errors %}aria-describedby="{{ form.password2.id_for_label }}-error"{% endif %}
         >
       </div>
@@ -168,6 +172,7 @@
             id="id_terms_accepted"
             class="form-checkbox__input"
             aria-required="true"
+            {% if form.terms_accepted.errors %}aria-invalid="true"{% endif %}
             {% if form.terms_accepted.errors %}aria-describedby="id_terms_accepted-error"{% endif %}
           >
           <label for="id_terms_accepted" class="form-checkbox__label">

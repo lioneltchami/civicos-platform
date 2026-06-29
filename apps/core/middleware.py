@@ -28,7 +28,11 @@ class RequestIDMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        request_id = request.META.get(self.HEADER) or str(uuid.uuid4())
+        raw_id = request.META.get(self.HEADER, "")
+        try:
+            request_id = str(uuid.UUID(raw_id))
+        except (ValueError, AttributeError):
+            request_id = str(uuid.uuid4())
         request.request_id = request_id  # type: ignore[attr-defined]
 
         response = self.get_response(request)

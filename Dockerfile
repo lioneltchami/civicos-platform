@@ -106,7 +106,7 @@ COPY --chown=appuser:appgroup . .
 RUN DJANGO_SECRET_KEY=build-time-key \
     DJANGO_SETTINGS_MODULE=config.settings.base \
     DATABASE_URL=postgres://x:x@localhost/x \
-    python manage.py collectstatic --noinput || true
+    python manage.py collectstatic --noinput
 
 # Drop to non-root
 USER appuser
@@ -117,12 +117,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/health/ || exit 1
 
-CMD ["gunicorn", "config.wsgi:application", \
-    "--bind", "0.0.0.0:8000", \
-    "--workers", "4", \
-    "--worker-class", "sync", \
-    "--timeout", "30", \
-    "--keep-alive", "5", \
-    "--log-file", "-", \
-    "--access-logfile", "-", \
-    "--error-logfile", "-"]
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "config.wsgi:application"]

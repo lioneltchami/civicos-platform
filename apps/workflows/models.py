@@ -134,6 +134,7 @@ class WorkItem(BaseModel):
     sla_breached_at = models.DateTimeField(
         null=True,
         blank=True,
+        db_index=True,
         verbose_name=_("SLA breached at"),
         help_text=_("Set by periodic task when due_at passes without completion."),
     )
@@ -163,6 +164,7 @@ class WorkItem(BaseModel):
             models.Index(fields=["content_type", "object_id"]),
             models.Index(fields=["status", "due_at"]),
             models.Index(fields=["escalation_level", "status"]),
+            models.Index(fields=["sla_breached_at", "status"], name="workitem_sla_status_idx"),
         ]
 
     def __str__(self) -> str:

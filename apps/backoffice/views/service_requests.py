@@ -95,7 +95,7 @@ class ServiceRequestListView(StaffRequiredMixin, ListView):
         ctx["filter_service"] = self.request.GET.get("service", "")
         ctx["filter_q"] = self.request.GET.get("q", "")
         # Total count across all pages (not just this page)
-        ctx["total_count"] = self.get_queryset().count()
+        ctx["total_count"] = self.object_list.count()
         return ctx
 
 
