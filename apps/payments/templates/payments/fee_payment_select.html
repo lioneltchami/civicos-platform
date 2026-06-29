@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Pay a Government Fee" %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 640px; margin: 0 auto; padding: 2rem 1rem;">
+  <h1>{% trans "Pay a Government Fee" %}</h1>
+
+  {% if form.non_field_errors %}
+  <div role="alert" id="form-errors" aria-live="assertive" class="form-errors">
+    {% for error in form.non_field_errors %}
+      <p>{{ error }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="post" novalidate aria-describedby="{% if form.non_field_errors %}form-errors{% endif %}">
+    {% csrf_token %}
+
+    {% for field in form %}
+    <div class="form-group">
+      <label for="{{ field.id_for_label }}">
+        {{ field.label }}
+        {% if field.field.required %}<span aria-hidden="true" class="required-indicator">*</span>{% endif %}
+      </label>
+      {{ field }}
+      {% if field.help_text %}
+      <p class="form-help" id="{{ field.id_for_label }}-help">{{ field.help_text }}</p>
+      {% endif %}
+      {% if field.errors %}
+      <p class="field-error" id="{{ field.id_for_label }}-error" role="alert">
+        {% for error in field.errors %}{{ error }}{% endfor %}
+      </p>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <p class="form-required-note">
+      <span aria-hidden="true">*</span> {% trans "Required field" %}
+    </p>
+
+    <button type="submit" class="btn btn--primary">
+      {% trans "Continue to Payment" %}
+    </button>
+  </form>
+</div>
+{% endblock %}
