@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Request Submitted" %}{% endblock %}
+{% block meta_description %}{% trans "Your service request has been submitted successfully." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Dashboard" %}</a></li>
+      <li aria-current="page">{% trans "Request Submitted" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+
+  {# ============================================================
+     Success panel
+     ============================================================ #}
+  <div class="success-panel" role="region" aria-labelledby="confirmation-heading">
+
+    <div class="success-panel__icon" aria-hidden="true">
+      &#10003;
+    </div>
+
+    <h1 id="confirmation-heading" class="success-panel__heading">
+      {% trans "Your request has been submitted" %}
+    </h1>
+
+    <p class="success-panel__intro">
+      {% trans "Thank you. We have received your service request and will process it as soon as possible." %}
+    </p>
+
+    {# Reference number — most important piece of information #}
+    {% if reference_number %}
+      <div class="reference-callout reference-callout--large"
+           role="note"
+           aria-label="{% trans 'Your reference number' %}">
+        <p class="reference-callout__label">{% trans "Your reference number is:" %}</p>
+        <strong class="reference-callout__number">
+          <code>{{ reference_number }}</code>
+        </strong>
+        <p class="reference-callout__instruction">
+          {% trans "Please save or print this number. You will need it to track your request." %}
+        </p>
+      </div>
+    {% endif %}
+
+    {# What happens next #}
+    <section aria-labelledby="next-steps-heading" class="next-steps">
+      <h2 id="next-steps-heading" class="next-steps__heading">
+        {% trans "What happens next?" %}
+      </h2>
+      <ol class="next-steps__list" role="list">
+        <li>{% trans "A confirmation email has been sent to your registered email address." %}</li>
+        <li>{% trans "A staff member will review your request within 5 business days." %}</li>
+        <li>{% trans "You will receive notifications by email when the status of your request changes." %}</li>
+        <li>{% trans "You can track the progress of your request from your dashboard at any time." %}</li>
+      </ol>
+    </section>
+
+    {# Actions #}
+    <div class="success-panel__actions">
+      {% if service_request_pk %}
+        <a href="{% url 'portal:request-detail' service_request_pk %}" class="btn btn--primary">
+          {% trans "View your request" %}
+        </a>
+      {% endif %}
+      <a href="{% url 'portal:dashboard' %}" class="btn btn--secondary">
+        {% trans "Back to dashboard" %}
+      </a>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

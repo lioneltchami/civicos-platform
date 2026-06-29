@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}[{% trans "Staff" %}] {{ service_request.reference_number }}{% endblock %}
+{% block meta_description %}{% blocktrans with ref=service_request.reference_number %}Staff review of service request {{ ref }}.{% endblocktrans %}{% endblock %}
+
+{% block body_class %}staff-view{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:staff-queue' %}">{% trans "Case Queue" %}</a></li>
+      <li aria-current="page">{{ service_request.reference_number }}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container container--wide">
+
+  {# Back link #}
+  <p class="back-link-row">
+    <a href="{% url 'portal:staff-queue' %}" class="link-back">
+      &larr; {% trans "Back to Queue" %}
+    </a>
+  </p>
+
+  {# ============================================================
+     Page heading + prominent status badge
+     ============================================================ #}
+  <div class="detail-header">
+    <div class="detail-header__title">
+      <h1 class="page-title">
+        <code class="detail-header__reference">{{ service_request.reference_number }}</code>
+      </h1>
+      <p class="detail-header__service">{{ service_request.service_name }}</p>
+    </div>
+    <div class="detail-header__status">
+      <span class="status-badge status-badge--large status-badge--{{ service_request.status }}"
+            aria-label="{% trans 'Current status' %}: {{ service_request.get_status_display }}">
+        {{ service_request.get_status_display }}
+      </span>
+    </div>
+  </div>
+
+  {# ============================================================
+     Two-column staff layout
+     ============================================================ #}
+  <div class="detail-layout">
+
+    {# ---- LEFT COLUMN: Status update form + timeline ---- #}
+    <div class="detail-layout__primary">
+
+      {# ---- Status update form ---- #}
+      <section aria-labelledby="update-form-heading" class="detail-card detail-card--action">
+        <h2 id="update-form-heading" class="detail-card__heading">
+          {% trans "Update Status" %} / <span lang="fr">Mettre à jour le statut</span>
+        </h2>
+
+        {% if status_form.errors %}
+          <div class="error-summary"
+               role="alert"
+               aria-live="assertive"
+               aria-labelledby="status-error-summary-heading"
+               tabindex="-1">
+            <h3 id="status-error-summary-heading" class="error-summary__heading">
+              {% trans "Please correct the following errors:" %}
+            </h3>
+            <ul class="error-summary__list" role="list">
+              {% for field in status_form %}
+                {% for error in field.errors %}
+                  <li>
+                    <a href="#id_{{ field.html_name }}">{{ field.label }}: {{ error }}</a>
+                  </li>
+                {% endfor %}
+              {% endfor %}
+              {% for error in status_form.non_field_errors %}
+                <li>{{ error }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+
+        <form method="post"
+              action="{% url 'portal:staff-update-status' service_request.pk %}"
+              novalidate>
+          {% csrf_token %}
+
+          {# New status dropdown #}
+          <div class="form-group {% if status_form.new_status.errors %}form-group--error{% endif %}">
+            <label class="form-label" for="id_new_status">
+              {% trans "New Status" %}
+              <span class="form-label__required" aria-hidden="true">*</span>
+            </label>
+            <select id="id_new_status"
+                    name="new_status"
+                    class="form-control form-control--select {% if status_form.new_status.errors %}form-control--error{% endif %}"
+                    aria-required="true"
+                    aria-describedby="new_status-hint{% if status_form.new_status.errors %} new_status-error{% endif %}">
+              <option value="">{% trans "— Select new status —" %}</option>
+              {% for value, label in status_form.new_status.field.choices %}
+                {% if value %}
+                  <option value="{{ value }}"
+                          {% if status_form.new_status.value == value %}selected{% endif %}>
+                    {{ label }}
+                  </option>
+                {% endif %}
+              {% endfor %}
+            </select>
+            <span id="new_status-hint" class="form-hint">
+              {% trans "Choose the status to transition this request to." %}
+            </span>
+            {% if status_form.new_status.errors %}
+              <span id="new_status-error" class="form-error" role="alert">
+                {{ status_form.new_status.errors.0 }}
+              </span>
+            {% endif %}
+          </div>
+
+          {# Public note — visible to citizen #}
+          <div class="form-group {% if status_form.public_note.errors %}form-group--error{% endif %}">
+            <label class="form-label" for="id_public_note">
+              {% trans "Public Note" %}
+              <span class="form-label__optional">({% trans "visible to citizen" %})</span>
+            </label>
+            <textarea id="id_public_note"
+                      name="public_note"
+                      class="form-control {% if status_form.public_note.errors %}form-control--error{% endif %}"
+                      rows="4"
+                      aria-describedby="public_note-hint{% if status_form.public_note.errors %} public_note-error{% endif %}">{{ status_form.public_note.value|default:"" }}</textarea>
+            <span id="public_note-hint" class="form-hint">
+              {% trans "This note will be shown to the citizen in their request timeline. Do not include internal case notes here." %}
+            </span>
+            {% if status_form.public_note.errors %}
+              <span id="public_note-error" class="form-error" role="alert">
+                {{ status_form.public_note.errors.0 }}
+              </span>
+            {% endif %}
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn--primary">
+              {% trans "Update Status" %} / <span lang="fr">Mettre à jour le statut</span>
+            </button>
+          </div>
+
+        </form>
+      </section>
+
+      {# ---- Status timeline ---- #}
+      <section aria-labelledby="staff-timeline-heading">
+        <h2 id="staff-timeline-heading">{% trans "Status History" %}</h2>
+
+        {% if service_request.status_updates.exists %}
+          <ol class="status-timeline status-timeline--staff" role="list"
+              aria-label="{% trans 'Status history from oldest to newest' %}">
+            {% for update in service_request.status_updates.all %}
+              <li class="status-timeline__item
+                         {% if forloop.last %}status-timeline__item--current{% endif %}">
+
+                <div class="status-timeline__marker" aria-hidden="true"></div>
+
+                <div class="status-timeline__content">
+                  <time class="status-timeline__date"
+                        datetime="{{ update.created_at|date:'c' }}">
+                    {{ update.created_at|date:"Y-m-d H:i" }}
+                  </time>
+
+                  <p class="status-timeline__transition">
+                    {% if update.old_status %}
+                      <span class="status-badge status-badge--{{ update.old_status }} status-badge--small">
+                        {{ update.get_old_status_display }}
+                      </span>
+                      <span class="status-timeline__arrow" aria-label="{% trans 'changed to' %}">
+                        &rarr;
+                      </span>
+                    {% endif %}
+                    <span class="status-badge status-badge--{{ update.new_status }} status-badge--small">
+                      {{ update.get_new_status_display }}
+                    </span>
+                  </p>
+
+                  {% if update.changed_by %}
+                    <p class="status-timeline__staff">
+                      <span class="visually-hidden">{% trans "Changed by:" %}</span>
+                      <strong>{{ update.changed_by.get_full_name|default:update.changed_by.email }}</strong>
+                    </p>
+                  {% endif %}
+
+                  {% if update.public_note %}
+                    <div class="status-timeline__note status-timeline__note--public">
+                      <span class="status-timeline__note-label">
+                        {% trans "Public note:" %}
+                      </span>
+                      <p>{{ update.public_note }}</p>
+                    </div>
+                  {% endif %}
+
+                  {% if update.internal_note %}
+                    <div class="status-timeline__note status-timeline__note--internal">
+                      <span class="status-timeline__note-label">
+                        {% trans "Internal note:" %}
+                      </span>
+                      <p>{{ update.internal_note }}</p>
+                    </div>
+                  {% endif %}
+
+                </div>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <p class="empty-state__message">{% trans "No status updates recorded yet." %}</p>
+        {% endif %}
+      </section>
+
+    </div>
+
+    {# ---- RIGHT COLUMN: Citizen info + submission data ---- #}
+    <aside class="detail-layout__secondary" aria-label="{% trans 'Case details' %}">
+
+      {# Citizen information #}
+      <section class="detail-card" aria-labelledby="citizen-heading">
+        <h2 id="citizen-heading" class="detail-card__heading">
+          {% trans "Citizen Information" %}
+        </h2>
+        <dl class="definition-list">
+
+          <div class="definition-list__item">
+            <dt>{% trans "Email" %}</dt>
+            <dd>
+              <a href="mailto:{{ service_request.citizen.email }}">
+                {{ service_request.citizen.email }}
+              </a>
+            </dd>
+          </div>
+
+          <div class="definition-list__item">
+            <dt>{% trans "Service" %}</dt>
+            <dd>{{ service_request.service_name }}</dd>
+          </div>
+
+          <div class="definition-list__item">
+            <dt>{% trans "Reference #" %}</dt>
+            <dd><code class="reference-number">{{ service_request.reference_number }}</code></dd>
+          </div>
+
+          <div class="definition-list__item">
+            <dt>{% trans "Date Submitted" %}</dt>
+            <dd>
+              <time datetime="{{ service_request.created_at|date:'c' }}">
+                {{ service_request.created_at|date:"Y-m-d H:i" }}
+              </time>
+              <span class="text-muted">
+                ({{ service_request.created_at|timesince }} {% trans "ago" %})
+              </span>
+            </dd>
+          </div>
+
+          <div class="definition-list__item">
+            <dt>{% trans "Current Status" %}</dt>
+            <dd>
+              <span class="status-badge status-badge--{{ service_request.status }}">
+                {{ service_request.get_status_display }}
+              </span>
+            </dd>
+          </div>
+
+        </dl>
+      </section>
+
+      {# Submission data — render all key-value pairs #}
+      {% if service_request.submission_data %}
+        <section class="detail-card" aria-labelledby="submission-data-heading">
+          <h2 id="submission-data-heading" class="detail-card__heading">
+            {% trans "Submission Data" %}
+          </h2>
+          <dl class="definition-list">
+            {% for key, value in service_request.submission_data.items %}
+              <div class="definition-list__item">
+                <dt class="definition-list__key">{{ key }}</dt>
+                <dd class="definition-list__value">
+                  {% if value %}
+                    {{ value }}
+                  {% else %}
+                    <span class="text-muted">{% trans "(not provided)" %}</span>
+                  {% endif %}
+                </dd>
+              </div>
+            {% endfor %}
+          </dl>
+        </section>
+      {% endif %}
+
+      {# Internal notes (staff-only, editable via admin or separate form) #}
+      <section class="detail-card detail-card--internal" aria-labelledby="internal-notes-heading">
+        <h2 id="internal-notes-heading" class="detail-card__heading">
+          {% trans "Internal Notes" %}
+          <span class="detail-card__badge detail-card__badge--staff">{% trans "Staff only" %}</span>
+        </h2>
+        {% if service_request.internal_notes %}
+          <div class="internal-notes">
+            {{ service_request.internal_notes|linebreaks }}
+          </div>
+        {% else %}
+          <p class="text-muted">
+            {% trans "No internal notes. Add notes via the admin panel." %}
+          </p>
+        {% endif %}
+        <p class="detail-card__admin-link">
+          <a href="{% url 'wagtailadmin_home' %}"
+             class="link-action"
+             target="_blank"
+             rel="noopener noreferrer">
+            {% trans "Edit in admin" %}
+            <span class="visually-hidden">({% trans "opens in new tab" %})</span>
+          </a>
+        </p>
+      </section>
+
+    </aside>
+  </div>
+
+</div>
+{% endblock %}

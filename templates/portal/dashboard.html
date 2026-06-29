@@ -1,49 +1,158 @@
 {% extends "base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "My account" %}{% endblock %}
+{% block title %}{% trans "My Dashboard" %}{% endblock %}
 {% block meta_description %}{% trans "View your service requests and account information." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li aria-current="page">{% trans "My Dashboard" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
 
 {% block content %}
 <div class="container">
 
-  <h1>{% blocktrans with name=user.display_name %}Welcome, {{ name }}{% endblocktrans %}</h1>
+  {# ============================================================
+     Page heading
+     ============================================================ #}
+  <h1 class="page-title">
+    {% if user.display_name %}
+      {% blocktrans with name=user.display_name %}Welcome, {{ name }}{% endblocktrans %}
+    {% else %}
+      {% blocktrans with email=user.email %}Welcome, {{ email }}{% endblocktrans %}
+    {% endif %}
+  </h1>
 
   {# ============================================================
-     Service requests section
+     Unread notifications banner
      ============================================================ #}
-  <section aria-labelledby="requests-heading">
-    <h2 id="requests-heading">{% trans "Your service requests" %}</h2>
+  {% if unread_notification_count %}
+    <div class="notification-banner notification-banner--info" role="status" aria-live="polite">
+      <span class="notification-banner__icon" aria-hidden="true">&#9993;</span>
+      {% blocktrans count count=unread_notification_count with n=unread_notification_count %}
+        You have {{ n }} unread notification.
+      {% plural %}
+        You have {{ n }} unread notifications.
+      {% endblocktrans %}
+    </div>
+  {% endif %}
+
+  {# ============================================================
+     Summary statistics row
+     ============================================================ #}
+  <section aria-labelledby="stats-heading" class="stats-section">
+    <h2 id="stats-heading" class="visually-hidden">{% trans "Your request summary" %}</h2>
+    <ul class="stats-row" role="list">
+      <li class="stats-card">
+        <span class="stats-card__number">{{ total_requests|default:"0" }}</span>
+        <span class="stats-card__label">{% trans "Total Requests" %}</span>
+      </li>
+      <li class="stats-card stats-card--active">
+        <span class="stats-card__number">{{ active_requests|default:"0" }}</span>
+        <span class="stats-card__label">{% trans "Active Requests" %}</span>
+      </li>
+      <li class="stats-card stats-card--completed">
+        <span class="stats-card__number">{{ completed_requests|default:"0" }}</span>
+        <span class="stats-card__label">{% trans "Completed" %}</span>
+      </li>
+    </ul>
+  </section>
+
+  {# ============================================================
+     Primary CTA — Submit a new request
+     ============================================================ #}
+  <div class="dashboard-cta">
+    <a href="{% url 'portal:submit-request' %}" class="btn btn--primary btn--large">
+      {% trans "Submit a new request" %}
+      <span class="visually-hidden"> — {% trans "Go to the service request form" %}</span>
+    </a>
+  </div>
+
+  {# ============================================================
+     Recent requests table
+     ============================================================ #}
+  <section aria-labelledby="recent-heading" class="dashboard-section">
+    <div class="dashboard-section__header">
+      <h2 id="recent-heading">{% trans "Recent Requests" %}</h2>
+      <a href="{% url 'portal:request-list' %}" class="link-action">
+        {% trans "View all requests" %} &rarr;
+      </a>
+    </div>
 
     {% if recent_requests %}
-      <ul class="request-list" role="list">
-        {% for request in recent_requests %}
-          <li class="request-list__item">
-            <a href="{% url 'portal:request-detail' request.pk %}"
-               class="request-list__link">
-              <span class="request-list__reference">{{ request.reference_number }}</span>
-              <span class="request-list__service">{{ request.service_name }}</span>
-            </a>
-            <span class="request-list__status status-badge status-badge--{{ request.status }}">
-              {{ request.get_status_display }}
-            </span>
-            <time class="request-list__date" datetime="{{ request.created_at|date:'c' }}">
-              {{ request.created_at|date:"N j, Y" }}
-            </time>
-          </li>
-        {% endfor %}
-      </ul>
-
-      <a href="{% url 'portal:request-list' %}" class="link-more">
-        {% trans "View all requests" %}
-        <span class="visually-hidden">{% trans "for your account" %}</span>
-      </a>
-
+      <div class="table-wrapper" role="region" aria-label="{% trans 'Recent service requests' %}" tabindex="0">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">{% trans "Reference #" %}</th>
+              <th scope="col">{% trans "Service" %}</th>
+              <th scope="col">{% trans "Status" %}</th>
+              <th scope="col">{% trans "Date Submitted" %}</th>
+              <th scope="col">
+                <span class="visually-hidden">{% trans "Actions" %}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for req in recent_requests %}
+              <tr>
+                <th scope="row">
+                  <code class="reference-number">{{ req.reference_number }}</code>
+                </th>
+                <td>{{ req.service_name }}</td>
+                <td>
+                  <span class="status-badge status-badge--{{ req.status }}">
+                    {{ req.get_status_display }}
+                  </span>
+                </td>
+                <td>
+                  <time datetime="{{ req.created_at|date:'c' }}">
+                    {{ req.created_at|date:"Y-m-d" }}
+                  </time>
+                </td>
+                <td>
+                  <a href="{% url 'portal:request-detail' req.pk %}"
+                     class="link-action"
+                     aria-label="{% blocktrans with ref=req.reference_number %}View request {{ ref }}{% endblocktrans %}">
+                    {% trans "View" %}
+                  </a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
-      <p>{% trans "You have not submitted any service requests yet." %}</p>
+      <div class="empty-state">
+        <p class="empty-state__message">
+          {% trans "No requests yet. Submit your first request above." %}
+        </p>
+      </div>
     {% endif %}
-
   </section>
+
+  {# ============================================================
+     Quick navigation
+     ============================================================ #}
+  <nav aria-label="{% trans 'Quick navigation' %}" class="quick-nav">
+    <ul class="quick-nav__list" role="list">
+      <li>
+        <a href="{% url 'portal:request-list' %}" class="quick-nav__link">
+          {% trans "View all requests" %} &rarr;
+        </a>
+      </li>
+      <li>
+        <a href="{% url 'portal:dashboard' %}" class="quick-nav__link">
+          {% trans "My Account" %} &rarr;
+        </a>
+      </li>
+    </ul>
+  </nav>
 
 </div>
 {% endblock %}

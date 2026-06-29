@@ -1,7 +1,8 @@
 from django.apps import AppConfig
+from django.utils.translation import gettext_lazy as _
 
 
 class PortalConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
     name = "apps.portal"
-    verbose_name = "Citizen Portal"
+    verbose_name = _("Citizen Portal")
+    default_auto_field = "django.db.models.BigAutoField"

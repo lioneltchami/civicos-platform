@@ -1,47 +1,62 @@
 {% extends "base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "My Service Requests" %}{% endblock %}
-{% block meta_description %}{% trans "View all your service requests and their current status." %}{% endblock %}
+{% block title %}{% trans "Case Queue" %}{% endblock %}
+{% block meta_description %}{% trans "Staff case management queue — review and process incoming service requests." %}{% endblock %}
+
+{% block body_class %}staff-view{% endblock %}
 
 {% block breadcrumb %}
 <nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
   <div class="container">
     <ol class="breadcrumb" role="list">
-      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Dashboard" %}</a></li>
-      <li aria-current="page">{% trans "My Service Requests" %}</li>
+      <li><a href="{% url 'portal:staff-queue' %}">{% trans "Case Queue" %}</a></li>
+      {% if current_status %}
+        <li aria-current="page">{{ current_status_display }}</li>
+      {% else %}
+        <li aria-current="page">{% trans "All" %}</li>
+      {% endif %}
     </ol>
   </div>
 </nav>
 {% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container container--wide">
 
   {# ============================================================
      Page header
      ============================================================ #}
   <div class="page-header">
     <h1 class="page-title">
-      {% trans "My Service Requests" %}
-      <span class="page-title__subtitle" lang="fr">/ Mes demandes de service</span>
+      {% trans "Case Queue" %}
+      <span class="page-title__subtitle" lang="fr">/ File d'attente des dossiers</span>
     </h1>
-    <a href="{% url 'portal:submit-request' %}" class="btn btn--primary">
-      {% trans "Submit New Request" %}
-    </a>
+
+    {# Debug-only: submit test request #}
+    {% if debug %}
+      <a href="{% url 'portal:submit-request' %}" class="btn btn--secondary btn--small">
+        {% trans "[DEV] Submit test request" %}
+      </a>
+    {% endif %}
   </div>
 
   {# ============================================================
-     Status filter tabs
+     Status filter tabs with counts
      ============================================================ #}
-  <nav aria-label="{% trans 'Filter requests by status' %}" class="filter-tabs">
+  <nav aria-label="{% trans 'Filter queue by status' %}" class="filter-tabs">
     <ul class="filter-tabs__list" role="list">
 
       <li class="filter-tabs__item">
-        <a href="{% url 'portal:request-list' %}"
+        <a href="{% url 'portal:staff-queue' %}"
            class="filter-tabs__link {% if not current_status %}filter-tabs__link--active{% endif %}"
            {% if not current_status %}aria-current="page"{% endif %}>
           {% trans "All" %}
+          {% if counts.total %}
+            <span class="filter-tabs__count" aria-label="{{ counts.total }} {% trans 'total' %}">
+              {{ counts.total }}
+            </span>
+          {% endif %}
         </a>
       </li>
 
@@ -50,6 +65,12 @@
            class="filter-tabs__link {% if current_status == 'submitted' %}filter-tabs__link--active{% endif %}"
            {% if current_status == 'submitted' %}aria-current="page"{% endif %}>
           {% trans "Submitted" %}
+          {% if counts.submitted %}
+            <span class="filter-tabs__count filter-tabs__count--submitted"
+                  aria-label="{{ counts.submitted }} {% trans 'submitted' %}">
+              {{ counts.submitted }}
+            </span>
+          {% endif %}
         </a>
       </li>
 
@@ -58,6 +79,12 @@
            class="filter-tabs__link {% if current_status == 'in_review' %}filter-tabs__link--active{% endif %}"
            {% if current_status == 'in_review' %}aria-current="page"{% endif %}>
           {% trans "In Review" %}
+          {% if counts.in_review %}
+            <span class="filter-tabs__count filter-tabs__count--in-review"
+                  aria-label="{{ counts.in_review }} {% trans 'in review' %}">
+              {{ counts.in_review }}
+            </span>
+          {% endif %}
         </a>
       </li>
 
@@ -66,6 +93,12 @@
            class="filter-tabs__link {% if current_status == 'awaiting_info' %}filter-tabs__link--active{% endif %}"
            {% if current_status == 'awaiting_info' %}aria-current="page"{% endif %}>
           {% trans "Awaiting Info" %}
+          {% if counts.awaiting_info %}
+            <span class="filter-tabs__count filter-tabs__count--awaiting"
+                  aria-label="{{ counts.awaiting_info }} {% trans 'awaiting info' %}">
+              {{ counts.awaiting_info }}
+            </span>
+          {% endif %}
         </a>
       </li>
 
@@ -74,6 +107,12 @@
            class="filter-tabs__link {% if current_status == 'approved' %}filter-tabs__link--active{% endif %}"
            {% if current_status == 'approved' %}aria-current="page"{% endif %}>
           {% trans "Approved" %}
+          {% if counts.approved %}
+            <span class="filter-tabs__count filter-tabs__count--approved"
+                  aria-label="{{ counts.approved }} {% trans 'approved' %}">
+              {{ counts.approved }}
+            </span>
+          {% endif %}
         </a>
       </li>
 
@@ -82,14 +121,12 @@
            class="filter-tabs__link {% if current_status == 'rejected' %}filter-tabs__link--active{% endif %}"
            {% if current_status == 'rejected' %}aria-current="page"{% endif %}>
           {% trans "Rejected" %}
-        </a>
-      </li>
-
-      <li class="filter-tabs__item">
-        <a href="?status=closed"
-           class="filter-tabs__link {% if current_status == 'closed' %}filter-tabs__link--active{% endif %}"
-           {% if current_status == 'closed' %}aria-current="page"{% endif %}>
-          {% trans "Closed" %}
+          {% if counts.rejected %}
+            <span class="filter-tabs__count filter-tabs__count--rejected"
+                  aria-label="{{ counts.rejected }} {% trans 'rejected' %}">
+              {{ counts.rejected }}
+            </span>
+          {% endif %}
         </a>
       </li>
 
@@ -97,31 +134,29 @@
   </nav>
 
   {# ============================================================
-     Request count
+     Queue table — oldest first (FIFO)
      ============================================================ #}
   {% if requests %}
     <p class="result-count">
       {% blocktrans count count=paginator.count with n=paginator.count %}
-        {{ n }} request found.
+        {{ n }} request in queue.
       {% plural %}
-        {{ n }} requests found.
+        {{ n }} requests in queue.
       {% endblocktrans %}
+      <span class="result-count__note">
+        {% trans "(Oldest first — prioritize top of list)" %}
+      </span>
     </p>
-  {% endif %}
 
-  {# ============================================================
-     Requests table
-     ============================================================ #}
-  {% if requests %}
-    <div class="table-wrapper" role="region" aria-label="{% trans 'Service requests' %}" tabindex="0">
-      <table class="data-table">
+    <div class="table-wrapper" role="region" aria-label="{% trans 'Case queue' %}" tabindex="0">
+      <table class="data-table data-table--queue">
         <thead>
           <tr>
             <th scope="col">{% trans "Reference #" %}</th>
+            <th scope="col">{% trans "Citizen" %}</th>
             <th scope="col">{% trans "Service" %}</th>
+            <th scope="col">{% trans "Submitted" %}</th>
             <th scope="col">{% trans "Status" %}</th>
-            <th scope="col">{% trans "Date Submitted" %}</th>
-            <th scope="col">{% trans "Last Updated" %}</th>
             <th scope="col">
               <span class="visually-hidden">{% trans "Actions" %}</span>
             </th>
@@ -133,27 +168,29 @@
               <th scope="row">
                 <code class="reference-number">{{ req.reference_number }}</code>
               </th>
+              <td>
+                <span class="truncate" title="{{ req.citizen.email }}">
+                  {{ req.citizen.email }}
+                </span>
+              </td>
               <td>{{ req.service_name }}</td>
+              <td>
+                <time datetime="{{ req.created_at|date:'c' }}"
+                      title="{{ req.created_at|date:'Y-m-d H:i' }}">
+                  {{ req.created_at|timesince }}
+                  {% trans "ago" %}
+                </time>
+              </td>
               <td>
                 <span class="status-badge status-badge--{{ req.status }}">
                   {{ req.get_status_display }}
                 </span>
               </td>
               <td>
-                <time datetime="{{ req.created_at|date:'c' }}">
-                  {{ req.created_at|date:"Y-m-d" }}
-                </time>
-              </td>
-              <td>
-                <time datetime="{{ req.updated_at|date:'c' }}">
-                  {{ req.updated_at|date:"Y-m-d" }}
-                </time>
-              </td>
-              <td>
-                <a href="{% url 'portal:request-detail' req.pk %}"
-                   class="link-action"
-                   aria-label="{% blocktrans with ref=req.reference_number %}View request {{ ref }}{% endblocktrans %}">
-                  {% trans "View" %}
+                <a href="{% url 'portal:staff-request-detail' req.pk %}"
+                   class="btn btn--small btn--secondary"
+                   aria-label="{% blocktrans with ref=req.reference_number %}Review request {{ ref }}{% endblocktrans %}">
+                  {% trans "Review" %}
                 </a>
               </td>
             </tr>
@@ -162,9 +199,7 @@
       </table>
     </div>
 
-    {# ============================================================
-       Pagination — WCAG 2.4.8
-       ============================================================ #}
+    {# Pagination #}
     {% if is_paginated %}
       <nav aria-label="{% trans 'Pagination' %}" class="pagination-nav">
         <ul class="pagination" role="list">
@@ -180,29 +215,13 @@
             </li>
           {% endif %}
 
-          {% for page_num in paginator.page_range %}
-            {% if page_num == page_obj.number %}
-              <li class="pagination__item">
-                <span class="pagination__current"
-                      aria-current="page"
-                      aria-label="{% blocktrans with n=page_num %}Page {{ n }}, current page{% endblocktrans %}">
-                  {{ page_num }}
-                </span>
-              </li>
-            {% elif page_num == 1 or page_num == paginator.num_pages or page_num|add:"-1" == page_obj.number or page_num|add:"1" == page_obj.number %}
-              <li class="pagination__item">
-                <a href="?{% if current_status %}status={{ current_status }}&{% endif %}page={{ page_num }}"
-                   class="pagination__link"
-                   aria-label="{% blocktrans with n=page_num %}Page {{ n }}{% endblocktrans %}">
-                  {{ page_num }}
-                </a>
-              </li>
-            {% elif page_num|add:"-2" == page_obj.number or page_num|add:"2" == page_obj.number %}
-              <li class="pagination__item pagination__item--ellipsis" aria-hidden="true">
-                <span>&hellip;</span>
-              </li>
-            {% endif %}
-          {% endfor %}
+          <li class="pagination__item">
+            <span class="pagination__current" aria-current="page">
+              {% blocktrans with current=page_obj.number total=paginator.num_pages %}
+                Page {{ current }} of {{ total }}
+              {% endblocktrans %}
+            </span>
+          </li>
 
           {% if page_obj.has_next %}
             <li class="pagination__item">
@@ -216,40 +235,16 @@
           {% endif %}
 
         </ul>
-        <p class="pagination__info">
-          {% blocktrans with current=page_obj.number total=paginator.num_pages %}
-            Page {{ current }} of {{ total }}
-          {% endblocktrans %}
-        </p>
       </nav>
     {% endif %}
 
   {% else %}
     <div class="empty-state">
-      {% if current_status %}
-        <p class="empty-state__message">
-          {% trans "No requests match this filter. Try a different status or" %}
-          <a href="{% url 'portal:request-list' %}">{% trans "view all requests" %}</a>.
-        </p>
-      {% else %}
-        <p class="empty-state__message">
-          {% trans "You have not submitted any service requests yet." %}
-        </p>
-        <a href="{% url 'portal:submit-request' %}" class="btn btn--primary">
-          {% trans "Submit your first request" %}
-        </a>
-      {% endif %}
+      <p class="empty-state__message">
+        {% trans "No requests in this queue." %}
+      </p>
     </div>
   {% endif %}
-
-  {# ============================================================
-     Back link
-     ============================================================ #}
-  <p class="back-link-row">
-    <a href="{% url 'portal:dashboard' %}" class="link-back">
-      &larr; {% trans "Back to dashboard" %}
-    </a>
-  </p>
 
 </div>
 {% endblock %}

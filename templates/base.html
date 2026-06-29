@@ -62,22 +62,20 @@
           {% for lang in languages %}
             {% if lang.code != LANGUAGE_CODE %}
               <li>
-                <a href="{% url 'set_language' %}"
-                   hreflang="{{ lang.code }}"
-                   lang="{{ lang.code }}"
-                   class="language-switcher__link"
-                   data-language="{{ lang.code }}"
-                   onclick="document.getElementById('language-form-{{ lang.code }}').submit(); return false;">
-                  {{ lang.name_local }}
-                </a>
-                {# Hidden form — language switch requires a POST for CSRF safety #}
-                <form id="language-form-{{ lang.code }}"
-                      action="{% url 'set_language' %}"
+                {# POST form — language switch requires POST for CSRF safety.
+                   Button is the primary control so it works without JavaScript. #}
+                <form action="{% url 'set_language' %}"
                       method="post"
-                      style="display:none">
+                      class="language-switcher__form">
                   {% csrf_token %}
                   <input type="hidden" name="language" value="{{ lang.code }}">
                   <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit"
+                          hreflang="{{ lang.code }}"
+                          lang="{{ lang.code }}"
+                          class="language-switcher__link language-switcher__btn">
+                    {{ lang.name_local }}
+                  </button>
                 </form>
               </li>
             {% endif %}

@@ -1,85 +1,263 @@
 {% extends "base.html" %}
 {% load i18n %}
 
-{% block title %}{{ service_request.reference_number }} — {% trans "Service request" %}{% endblock %}
+{% block title %}{{ service_request.reference_number }} — {% trans "Service Request" %}{% endblock %}
 {% block meta_description %}{% blocktrans with ref=service_request.reference_number %}Details for service request {{ ref }}.{% endblocktrans %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Dashboard" %}</a></li>
+      <li><a href="{% url 'portal:request-list' %}">{% trans "My Requests" %}</a></li>
+      <li aria-current="page">{{ service_request.reference_number }}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
 
 {% block content %}
 <div class="container">
 
-  {# Breadcrumb #}
-  <nav aria-label="{% trans 'Breadcrumb' %}">
-    <ol class="breadcrumb" role="list">
-      <li><a href="{% url 'portal:dashboard' %}">{% trans "My account" %}</a></li>
-      <li><a href="{% url 'portal:request-list' %}">{% trans "My requests" %}</a></li>
-      <li aria-current="page">{{ service_request.reference_number }}</li>
-    </ol>
-  </nav>
-
-  <h1>{{ service_request.service_name }}</h1>
-
-  {# Summary card #}
-  <section aria-labelledby="summary-heading" class="detail-card">
-    <h2 id="summary-heading" class="detail-card__heading">{% trans "Request details" %}</h2>
-    <dl class="definition-list">
-      <div class="definition-list__item">
-        <dt>{% trans "Reference number" %}</dt>
-        <dd><code>{{ service_request.reference_number }}</code></dd>
-      </div>
-      <div class="definition-list__item">
-        <dt>{% trans "Status" %}</dt>
-        <dd>
-          <span class="status-badge status-badge--{{ service_request.status }}">
-            {{ service_request.get_status_display }}
-          </span>
-        </dd>
-      </div>
-      <div class="definition-list__item">
-        <dt>{% trans "Submitted" %}</dt>
-        <dd>
-          <time datetime="{{ service_request.created_at|date:'c' }}">
-            {{ service_request.created_at|date:"N j, Y" }}
-          </time>
-        </dd>
-      </div>
-      <div class="definition-list__item">
-        <dt>{% trans "Last updated" %}</dt>
-        <dd>
-          <time datetime="{{ service_request.updated_at|date:'c' }}">
-            {{ service_request.updated_at|date:"N j, Y" }}
-          </time>
-        </dd>
-      </div>
-    </dl>
-  </section>
-
-  {# Status history timeline #}
-  {% if service_request.status_updates.exists %}
-    <section aria-labelledby="history-heading">
-      <h2 id="history-heading">{% trans "Status history" %}</h2>
-      <ol class="status-timeline" role="list">
-        {% for update in service_request.status_updates.all %}
-          <li class="status-timeline__item">
-            <time class="status-timeline__date" datetime="{{ update.created_at|date:'c' }}">
-              {{ update.created_at|date:"N j, Y" }}
-            </time>
-            <span class="status-badge status-badge--{{ update.new_status }}">
-              {{ update.get_new_status_display }}
-            </span>
-            {% if update.public_note %}
-              <p class="status-timeline__note">{{ update.public_note }}</p>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ol>
-    </section>
-  {% endif %}
-
-  <p>
+  {# Back link #}
+  <p class="back-link-row">
     <a href="{% url 'portal:request-list' %}" class="link-back">
-      &larr; {% trans "Back to my requests" %}
+      &larr; {% trans "My Requests" %} / <span lang="fr">Mes demandes</span>
     </a>
   </p>
+
+  {# ============================================================
+     Page heading + prominent status badge
+     ============================================================ #}
+  <div class="detail-header">
+    <div class="detail-header__title">
+      <h1 class="page-title">
+        <span class="detail-header__reference">{{ service_request.reference_number }}</span>
+        <span class="detail-header__service">{{ service_request.service_name }}</span>
+      </h1>
+    </div>
+    <div class="detail-header__status">
+      <span class="status-badge status-badge--large status-badge--{{ service_request.status }}"
+            aria-label="{% trans 'Current status' %}: {{ service_request.get_status_display }}">
+        {{ service_request.get_status_display }}
+      </span>
+    </div>
+  </div>
+
+  {# ============================================================
+     Save-this-number callout
+     ============================================================ #}
+  <div class="reference-callout" role="note" aria-label="{% trans 'Save your reference number' %}">
+    <span class="reference-callout__label">{% trans "Save this number:" %}</span>
+    <strong class="reference-callout__number">
+      <code>{{ service_request.reference_number }}</code>
+    </strong>
+  </div>
+
+  {# ============================================================
+     Two-column layout: timeline (left) + details panel (right)
+     ============================================================ #}
+  <div class="detail-layout">
+
+    {# ---- LEFT COLUMN: Status timeline ---- #}
+    <section aria-labelledby="timeline-heading" class="detail-layout__primary">
+      <h2 id="timeline-heading">{% trans "Status Timeline" %}</h2>
+
+      {% if service_request.status_updates.exists %}
+        <ol class="status-timeline" role="list"
+            aria-label="{% trans 'Status history from oldest to newest' %}">
+          {% for update in service_request.status_updates.all %}
+            <li class="status-timeline__item
+                       {% if forloop.last %}status-timeline__item--current{% endif %}">
+
+              <div class="status-timeline__marker" aria-hidden="true"></div>
+
+              <div class="status-timeline__content">
+                <time class="status-timeline__date"
+                      datetime="{{ update.created_at|date:'c' }}">
+                  {{ update.created_at|date:"Y-m-d H:i" }}
+                </time>
+
+                <p class="status-timeline__transition">
+                  {% if update.old_status %}
+                    <span class="status-badge status-badge--{{ update.old_status }} status-badge--small">
+                      {{ update.get_old_status_display }}
+                    </span>
+                    <span class="status-timeline__arrow" aria-label="{% trans 'changed to' %}">
+                      &rarr;
+                    </span>
+                  {% endif %}
+                  <span class="status-badge status-badge--{{ update.new_status }} status-badge--small">
+                    {{ update.get_new_status_display }}
+                  </span>
+                </p>
+
+                {% if update.public_note %}
+                  <p class="status-timeline__note">{{ update.public_note }}</p>
+                {% endif %}
+
+                {% if forloop.last %}
+                  <p class="status-timeline__current-label">
+                    <strong>{% trans "Current status" %}</strong>
+                  </p>
+                {% endif %}
+              </div>
+
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p class="empty-state__message">
+          {% trans "No status updates yet. Your request has been received." %}
+        </p>
+      {% endif %}
+    </section>
+
+    {# ---- RIGHT COLUMN: Request details panel ---- #}
+    <aside class="detail-layout__secondary" aria-labelledby="details-heading">
+      <section class="detail-card" aria-labelledby="details-heading">
+        <h2 id="details-heading" class="detail-card__heading">{% trans "Request Details" %}</h2>
+        <dl class="definition-list">
+
+          <div class="definition-list__item">
+            <dt>{% trans "Reference Number" %}</dt>
+            <dd><code class="reference-number">{{ service_request.reference_number }}</code></dd>
+          </div>
+
+          <div class="definition-list__item">
+            <dt>{% trans "Service" %}</dt>
+            <dd>{{ service_request.service_name }}</dd>
+          </div>
+
+          <div class="definition-list__item">
+            <dt>{% trans "Status" %}</dt>
+            <dd>
+              <span class="status-badge status-badge--{{ service_request.status }}">
+                {{ service_request.get_status_display }}
+              </span>
+            </dd>
+          </div>
+
+          <div class="definition-list__item">
+            <dt>{% trans "Date Submitted" %}</dt>
+            <dd>
+              <time datetime="{{ service_request.created_at|date:'c' }}">
+                {{ service_request.created_at|date:"Y-m-d" }}
+              </time>
+            </dd>
+          </div>
+
+          <div class="definition-list__item">
+            <dt>{% trans "Last Updated" %}</dt>
+            <dd>
+              <time datetime="{{ service_request.updated_at|date:'c' }}">
+                {{ service_request.updated_at|date:"Y-m-d" }}
+              </time>
+            </dd>
+          </div>
+
+          {# Contact info from submission_data #}
+          {% if service_request.submission_data.contact_email %}
+            <div class="definition-list__item">
+              <dt>{% trans "Contact Email" %}</dt>
+              <dd>{{ service_request.submission_data.contact_email }}</dd>
+            </div>
+          {% endif %}
+
+          {% if service_request.submission_data.contact_phone %}
+            <div class="definition-list__item">
+              <dt>{% trans "Contact Phone" %}</dt>
+              <dd>{{ service_request.submission_data.contact_phone }}</dd>
+            </div>
+          {% endif %}
+
+        </dl>
+      </section>
+
+      {# ============================================================
+         Print hint
+         ============================================================ #}
+      <div class="print-hint" role="note">
+        <p>
+          {% trans "For your records — save or print this page and quote your reference number:" %}
+          <strong><code>{{ service_request.reference_number }}</code></strong>
+        </p>
+      </div>
+    </aside>
+  </div>
+
+  {# ============================================================
+     Cancel request section — <details> requires no JavaScript
+     ============================================================ #}
+  {% if can_cancel %}
+    <section aria-labelledby="cancel-heading" class="cancel-section">
+      <h2 id="cancel-heading" class="visually-hidden">{% trans "Cancel this request" %}</h2>
+      <details class="cancel-details">
+        <summary class="cancel-details__summary">
+          {% trans "Cancel this request" %} / <span lang="fr">Annuler cette demande</span>
+        </summary>
+
+        <div class="cancel-details__body">
+          <div class="warning-box" role="note">
+            <p class="warning-box__text">
+              <strong>{% trans "Warning:" %}</strong>
+              {% trans "Cancellation is irreversible. Once cancelled, this request cannot be reopened and you will need to submit a new request if you still require this service." %}
+            </p>
+          </div>
+
+          <form method="post"
+                action="{% url 'portal:cancel-request' service_request.pk %}"
+                novalidate>
+            {% csrf_token %}
+
+            <div class="form-group">
+              <label class="form-label" for="cancel-reason">
+                {% trans "Reason for cancellation" %}
+                <span class="form-label__optional">({% trans "optional" %})</span>
+              </label>
+              <textarea id="cancel-reason"
+                        name="reason"
+                        class="form-control"
+                        rows="4"
+                        maxlength="500"
+                        aria-describedby="cancel-reason-hint"
+                        placeholder="{% trans 'Briefly explain why you are cancelling this request.' %}"></textarea>
+              <span id="cancel-reason-hint" class="form-hint">
+                {% trans "Maximum 500 characters. This information helps us improve our services." %}
+              </span>
+            </div>
+
+            <div class="form-group">
+              <div class="form-check">
+                <input type="checkbox"
+                       id="cancel-confirm"
+                       name="confirm_cancel"
+                       class="form-check__input"
+                       required
+                       aria-required="true"
+                       aria-describedby="cancel-confirm-error">
+                <label for="cancel-confirm" class="form-check__label">
+                  {% trans "I understand that cancellation is permanent and cannot be undone." %}
+                </label>
+                <span id="cancel-confirm-error" class="form-error visually-hidden" role="alert"></span>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn--danger">
+              {% trans "Cancel this request" %}
+            </button>
+            {# Closing <details> natively via the <summary> toggle needs no extra button.
+               If JS is available, this button provides a secondary affordance. #}
+            <button type="button"
+                    class="btn btn--secondary"
+                    onclick="this.closest('details').removeAttribute('open')">
+              {% trans "Keep request open" %}
+            </button>
+          </form>
+        </div>
+      </details>
+    </section>
+  {% endif %}
 
 </div>
 {% endblock %}

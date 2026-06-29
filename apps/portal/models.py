@@ -4,8 +4,12 @@ Citizen portal models for Govstack.
 Provides authenticated self-service: submit requests, track status, receive updates.
 """
 
+import secrets
+import string
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import BaseModel
@@ -97,6 +101,64 @@ class ServiceRequest(BaseModel):
     def __str__(self) -> str:
         return f"{self.reference_number} — {self.service_name}"
 
+    @classmethod
+    def generate_reference_number(cls) -> str:
+        """
+        Generate a unique reference number in format GS-YYYY-XXXXXX.
+        GS = Govstack, YYYY = current year, XXXXXX = 6 random uppercase alphanumeric chars.
+        Retries up to 10 times to avoid collision.
+        Example: GS-2026-A3F9K2
+        """
+        year = timezone.now().year
+        for _ in range(10):
+            alphabet = string.ascii_uppercase + string.digits
+            suffix = "".join(secrets.choice(alphabet) for _ in range(6))
+            ref = f"GS-{year}-{suffix}"
+            if not cls.objects.filter(reference_number=ref).exists():
+                return ref
+        raise ValueError("Could not generate unique reference number after 10 attempts")
+
+    def save(self, *args, **kwargs) -> None:
+        if not self.reference_number:
+            self.reference_number = self.generate_reference_number()
+        super().save(*args, **kwargs)
+
+    def get_absolute_url(self) -> str:
+        from django.urls import reverse
+
+        return reverse("portal:request-detail", kwargs={"pk": self.pk})
+
+    def can_be_cancelled(self) -> bool:
+        """Citizens can cancel requests that haven't been approved/rejected/closed."""
+        return self.status in (
+            ServiceRequestStatus.DRAFT,
+            ServiceRequestStatus.SUBMITTED,
+            ServiceRequestStatus.IN_REVIEW,
+            ServiceRequestStatus.AWAITING_INFO,
+        )
+
+    def is_terminal(self) -> bool:
+        """True if the request is in a final state."""
+        return self.status in (
+            ServiceRequestStatus.APPROVED,
+            ServiceRequestStatus.REJECTED,
+            ServiceRequestStatus.CLOSED,
+        )
+
+    @property
+    def status_display_class(self) -> str:
+        """CSS class for status badge — used in templates."""
+        mapping = {
+            ServiceRequestStatus.DRAFT: "badge--grey",
+            ServiceRequestStatus.SUBMITTED: "badge--blue",
+            ServiceRequestStatus.IN_REVIEW: "badge--yellow",
+            ServiceRequestStatus.AWAITING_INFO: "badge--orange",
+            ServiceRequestStatus.APPROVED: "badge--green",
+            ServiceRequestStatus.REJECTED: "badge--red",
+            ServiceRequestStatus.CLOSED: "badge--grey",
+        }
+        return mapping.get(self.status, "badge--grey")
+
 
 class StatusUpdate(BaseModel):
     """
@@ -112,6 +174,7 @@ class StatusUpdate(BaseModel):
     )
     old_status = models.CharField(
         max_length=32,
+        blank=True,  # blank for the initial "created" record where there is no previous status
         choices=ServiceRequestStatus.choices,
         verbose_name=_("Previous status"),
     )
@@ -136,3 +199,16 @@ class StatusUpdate(BaseModel):
     class Meta:
         verbose_name = _("Status update")
         ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.service_request.reference_number}: "
+            f"{self.old_status} → {self.new_status}"
+        )
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            raise ValueError(
+                "StatusUpdate records are immutable. Create a new record instead."
+            )
+        super().save(*args, **kwargs)
