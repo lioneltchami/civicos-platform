@@ -69,6 +69,22 @@ class PaymentIntentAdmin(admin.ModelAdmin):
 
 
 # ---------------------------------------------------------------------------
+# RefundInline — shown on the Payment change page
+# ---------------------------------------------------------------------------
+
+class RefundInline(admin.TabularInline):
+    model = Refund
+    fields = ("amount", "reason", "gateway_refund_id", "authorized_by", "refunded_at")
+    readonly_fields = ("amount", "reason", "gateway_refund_id", "authorized_by", "refunded_at")
+    extra = 0
+    can_delete = False
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Payment
 # ---------------------------------------------------------------------------
 
@@ -83,6 +99,7 @@ class PaymentAdmin(admin.ModelAdmin):
         "processor_fee",
         "net_amount",
         "paid_at",
+        "refund_link",
     ]
     list_filter = ["payment_method_type", "card_brand"]
     list_select_related = ["intent"]
@@ -102,10 +119,18 @@ class PaymentAdmin(admin.ModelAdmin):
         "updated_at",
     ]
     ordering = ["-paid_at"]
+    inlines = [RefundInline]
 
     @admin.display(description="Intent Reference", ordering="intent__reference")
     def intent_reference(self, obj):
         return obj.intent.reference
+
+    @admin.display(description="Refund")
+    def refund_link(self, obj):
+        from django.utils.html import format_html
+        from django.urls import reverse
+        url = reverse("payments:refund_create", kwargs={"payment_pk": obj.pk})
+        return format_html('<a href="{}">Issue Refund</a>', url)
 
     def has_add_permission(self, request):
         return False  # Created by gateway receiver only

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Refund Detail" %}{% endblock %}
+
+{% block content %}
+<div class="container py-5" style="max-width: 640px;">
+  <h1 class="h2 mb-4">{% trans "Refund" %} <code>{{ refund.pk }}</code></h1>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-5">{% trans "Amount" %}</dt>
+        <dd class="col-sm-7">${{ refund.amount }}</dd>
+
+        <dt class="col-sm-5">{% trans "Reason" %}</dt>
+        <dd class="col-sm-7">{{ refund.get_reason_display }}</dd>
+
+        <dt class="col-sm-5">{% trans "Gateway Refund ID" %}</dt>
+        <dd class="col-sm-7"><code>{{ refund.gateway_refund_id }}</code></dd>
+
+        <dt class="col-sm-5">{% trans "Authorized By (PK)" %}</dt>
+        <dd class="col-sm-7">{{ refund.authorized_by_id }}</dd>
+
+        {% if refund.notes %}
+        <dt class="col-sm-5">{% trans "Notes" %}</dt>
+        <dd class="col-sm-7">{{ refund.notes }}</dd>
+        {% endif %}
+
+        <dt class="col-sm-5">{% trans "Refunded At" %}</dt>
+        <dd class="col-sm-7">{{ refund.refunded_at }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <a href="{% url 'admin:payments_payment_change' refund.payment.pk %}" class="btn btn-outline-secondary">
+    {% trans "&larr; Back to Payment" %}
+  </a>
+</div>
+{% endblock %}

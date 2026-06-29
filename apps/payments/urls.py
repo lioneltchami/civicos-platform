@@ -2,6 +2,7 @@
 Payments building block URL configuration.
 Views added in Wave 1 Round 2 (gateway + webhook endpoints).
 Fee payment flow added in Wave 3, Round 3a.
+Refund workflow added in Wave 3, Round 3b.
 """
 from django.urls import path
 
@@ -13,6 +14,7 @@ from apps.payments.views.fee_payment import (
     FeePaymentCancelView,
     create_payment_intent_api,
 )
+from apps.payments.views.refund import RefundCreateView, RefundDetailView
 
 app_name = "payments"
 
@@ -54,5 +56,17 @@ urlpatterns = [
         "fees/cancel/",
         FeePaymentCancelView.as_view(),
         name="fee_payment_cancel",
+    ),
+
+    # ── Refund workflow (staff only) ─────────────────────────────────────
+    path(
+        "refunds/<uuid:payment_pk>/create/",
+        RefundCreateView.as_view(),
+        name="refund_create",
+    ),
+    path(
+        "refunds/<uuid:refund_pk>/",
+        RefundDetailView.as_view(),
+        name="refund_detail",
     ),
 ]

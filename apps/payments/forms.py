@@ -1,9 +1,10 @@
 """
-Forms for the Payments BB fee payment flow.
+Forms for the Payments BB.
 
 Design decisions:
 - FeePaymentForm is intentionally minimal: province + fee_code + quantity.
   Amount is derived server-side from FeeSchedule — never trust client-submitted amounts.
+- RefundForm is staff-only: amount validated against amount_paid minus already-refunded.
 - No card fields here — Stripe Elements renders those in a Stripe-hosted iframe.
 - All fields have explicit labels for WCAG 2.1 AA compliance.
 - Tax is only applied when FeeSchedule.is_taxable is True.
@@ -12,9 +13,10 @@ import logging
 from decimal import Decimal
 
 from django import forms
+from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 
-from apps.payments.models import FeeSchedule, TaxRate
+from apps.payments.models import FeeSchedule, Refund, TaxRate
 
 logger = logging.getLogger(__name__)
 
@@ -115,3 +117,65 @@ class FeePaymentForm(forms.Form):
                 cleaned["total"] = cleaned["subtotal"]
 
         return cleaned
+
+
+class RefundForm(forms.Form):
+    """
+    Staff-initiated refund form.
+
+    Amount is validated against payment.amount_paid minus the sum of all
+    existing Refund rows on this payment.  Requires ``payment`` kwarg in
+    __init__.
+
+    The Refund model has no status field, so every existing refund row counts
+    toward the already-refunded total.
+    """
+
+    amount = forms.DecimalField(
+        label=_("Refund Amount (CAD)"),
+        min_value=Decimal("0.01"),
+        max_digits=10,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={
+            "class": "form-control",
+            "step": "0.01",
+            "min": "0.01",
+        }),
+    )
+    reason = forms.ChoiceField(
+        label=_("Reason"),
+        choices=Refund.REASON_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    notes = forms.CharField(
+        label=_("Internal Notes"),
+        required=False,
+        max_length=500,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        help_text=_("Optional. For internal records only — not shown to the payer."),
+    )
+
+    def __init__(self, *args, payment=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.payment = payment
+
+        if payment is not None:
+            already = (
+                Refund.objects.filter(payment=payment).aggregate(
+                    total=Sum("amount")
+                )["total"]
+                or Decimal("0.00")
+            )
+            max_refundable = payment.amount_paid - already
+            self.fields["amount"].max_value = max_refundable
+            self.fields["amount"].widget.attrs["max"] = str(max_refundable)
+            self.fields["amount"].help_text = _(
+                f"Maximum refundable: ${max_refundable}. "
+                f"Original amount paid: ${payment.amount_paid}."
+            )
+
+    def clean_amount(self):
+        amount = self.cleaned_data.get("amount")
+        if amount is not None and amount <= Decimal("0.00"):
+            raise forms.ValidationError(_("Refund amount must be greater than zero."))
+        return amount
