@@ -87,6 +87,32 @@ class FormSubmission(AbstractFormSubmission):
         verbose_name_plural = _("Form submissions")
         ordering = ["-submit_time"]
 
+    def redact_pii(self, redacted_by=None) -> None:
+        """
+        PIPEDA right-to-erasure: replace PII field values with a redaction marker.
+        Only fields flagged is_pii=True on the FormField are redacted.
+        The submission record itself is retained for audit purposes.
+        """
+        from django.utils import timezone
+
+        pii_field_names = set(
+            self.page.form_fields.filter(is_pii=True).values_list("clean_name", flat=True)
+        )
+        if not pii_field_names:
+            return
+
+        form_data = self.form_data or {}
+        for key in pii_field_names:
+            if key in form_data:
+                form_data[key] = "[REDACTED]"
+
+        self.form_data = form_data
+        # Store redaction timestamp in a neutral field
+        self.consent_text_shown = (
+            f"{self.consent_text_shown}\n[PII REDACTED {timezone.now().isoformat()}]".strip()
+        )
+        self.save(update_fields=["form_data", "consent_text_shown"])
+
 
 class FormPage(AbstractEmailForm):
     """
@@ -119,35 +145,107 @@ class FormPage(AbstractEmailForm):
         help_text=_("Submissions will be purged after this many days."),
     )
 
-    # Override to use our custom field and submission models
-    # Wagtail discovers these via class-level attributes (not method overrides)
-    form_field = FormField
-    submission_class = FormSubmission
+    def get_submission_class(self):
+        """
+        Override to return our extended FormSubmission.
+        Wagtail does not read a submission_class class attribute — this method
+        is the only way to substitute the submission model.
+        """
+        return FormSubmission
+
+    def serve(self, request, *args, **kwargs):
+        """
+        Override to inject the request onto the form instance.
+        Wagtail's default serve() does not pass request to the form,
+        so process_form_submission() cannot access it without this.
+        """
+        from django.template.response import TemplateResponse
+
+        if request.method == "POST":
+            form = self.get_form(
+                request.POST, request.FILES, page=self, user=request.user
+            )
+            form.request = request  # the critical injection
+            if form.is_valid():
+                form_submission = self.process_form_submission(form)
+                return self.render_landing_page(
+                    request, form_submission, *args, **kwargs
+                )
+        else:
+            form = self.get_form(page=self, user=request.user)
+            form.request = request
+
+        context = self.get_context(request)
+        context["form"] = form
+        return TemplateResponse(
+            request,
+            self.get_template(request),
+            context,
+        )
+
+    def get_form_class(self):
+        """
+        Extend the Wagtail-generated form class with a mandatory consent
+        checkbox if the page has consent_text configured.
+        """
+        from django import forms as django_forms
+
+        form_class = super().get_form_class()
+
+        if self.consent_text:
+            # Dynamically add a consent field to the generated form class
+            consent_field = django_forms.BooleanField(
+                required=True,
+                label=self.consent_text,
+                error_messages={
+                    "required": _(
+                        "You must accept the consent statement to submit this form. / "
+                        "Vous devez accepter la déclaration de consentement pour soumettre ce formulaire."
+                    )
+                },
+            )
+            # Create a subclass so we don't mutate the cached form class
+            form_class = type(
+                form_class.__name__,
+                (form_class,),
+                {"_consent": consent_field},
+            )
+
+        return form_class
 
     def process_form_submission(self, form):
         """
         Override to capture submitter IP and consent before persisting.
-        The request is passed to render_landing_page and then here via
-        Wagtail's serve() → process_form_submission() chain.
+        The request is injected onto the form instance via our serve() override.
         """
+        from django.conf import settings
+        from django.utils import timezone
+
         submission = super().process_form_submission(form)
-        # Wagtail 5+ passes request on form as form.request (set in serve())
+
+        # Wagtail passes request on form as form.request (set in serve())
         request = getattr(form, "request", None)
         if request is not None:
-            x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-            if x_forwarded_for:
-                submission.submitter_ip = x_forwarded_for.split(",")[0].strip()
+            # Respect SECURE_PROXY_SSL_HEADER — same pattern as auth signals
+            if getattr(settings, "SECURE_PROXY_SSL_HEADER", None):
+                x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+                ip = x_forwarded_for.split(",")[0].strip() if x_forwarded_for else None
             else:
-                submission.submitter_ip = request.META.get("REMOTE_ADDR")
+                ip = None
+            submission.submitter_ip = ip or request.META.get("REMOTE_ADDR")
 
         if self.consent_text:
             # Consent checkbox field value is stored in form.cleaned_data under
             # a slug derived from the label. Record whether it was checked.
-            consent_value = form.cleaned_data.get("consent", False)
+            consent_value = form.cleaned_data.get("_consent", False)
             submission.consent_given = bool(consent_value)
             submission.consent_text_shown = self.consent_text
 
-        submission.save(update_fields=["submitter_ip", "consent_given", "consent_text_shown"])
+        # Set expiry based on page retention policy
+        expires_at = timezone.now() + timezone.timedelta(days=self.retention_days)
+        submission.expires_at = expires_at
+
+        submission.save(update_fields=["submitter_ip", "consent_given", "consent_text_shown", "expires_at"])
 
         try:
             from apps.core.signals import form_submission_received
@@ -164,6 +262,11 @@ class FormPage(AbstractEmailForm):
             )
 
         return submission
+
+    def get_submissions_list_url(self):
+        """URL to the staff submission list for this form page."""
+        from django.urls import reverse
+        return reverse("forms:submission-list", kwargs={"page_id": self.pk})
 
     content_panels = AbstractEmailForm.content_panels + [
         FieldPanel("intro"),

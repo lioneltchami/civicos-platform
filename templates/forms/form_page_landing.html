@@ -2,37 +2,94 @@
 {% load i18n wagtailcore_tags %}
 
 {% block title %}{% trans "Submission received" %} — {{ page.title }}{% endblock %}
+{% block meta_description %}{% trans "Your form submission has been received." %}{% endblock %}
 
 {% block breadcrumb %}
   {% include "includes/breadcrumb.html" %}
 {% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container container--narrow">
   <article class="form-landing" aria-labelledby="landing-heading">
 
-    {# Success icon and confirmation heading #}
-    <div class="form-landing__icon" aria-hidden="true">✓</div>
+    {# ================================================================
+       Success banner
+       role="status" + aria-live="polite" announces to screen readers
+       without being as aggressive as role="alert".
+       ================================================================ #}
+    <div class="success-banner" role="status" aria-live="polite">
+      <span class="success-banner__icon" aria-hidden="true">✓</span>
+      <h1 class="success-banner__heading" id="landing-heading">
+        {% trans "Thank you / Merci" %}
+      </h1>
+      <p class="success-banner__subtitle">
+        {% trans "Your submission has been received. / Votre soumission a été reçue." %}
+      </p>
+    </div>
 
-    <h1 id="landing-heading" class="form-landing__heading">
-      {% trans "Your submission has been received" %}
-    </h1>
-
+    {# ================================================================
+       Thank you text — configured by editors in Wagtail admin
+       ================================================================ #}
     {% if page.thank_you_text %}
-      <div class="form-landing__body richtext">
+      <div class="rich-text form-landing__body">
         {{ page.thank_you_text|richtext }}
       </div>
     {% else %}
       <p class="form-landing__body">
-        {% trans "Thank you. We have received your submission and will be in touch." %}
+        {% trans "Thank you. We have received your submission and will be in touch. / Merci. Nous avons reçu votre soumission et communiquerons avec vous." %}
       </p>
     {% endif %}
 
-    <div class="form-landing__actions">
-      <a href="{{ page.get_parent.url }}" class="btn btn--secondary">
-        {% trans "Return to previous page" %}
-      </a>
+    {# ================================================================
+       Submission reference number
+       Displayed so citizens can quote it in follow-up communications.
+       ================================================================ #}
+    {% if form_submission %}
+      <div class="reference-box">
+        <p class="reference-box__label">
+          {% trans "Your submission reference / Numéro de référence de votre soumission" %}
+        </p>
+        <p class="reference-box__number"
+           aria-label="{% trans 'Submission reference number' %}: {{ form_submission.pk }}">
+          {{ form_submission.pk }}
+        </p>
+        <p class="reference-box__hint">
+          {% trans "Please save this number in case you need to follow up. / Veuillez conserver ce numéro au cas où vous devriez effectuer un suivi." %}
+        </p>
+      </div>
+    {% endif %}
+
+    {# ================================================================
+       What happens next — reassurance for the citizen
+       ================================================================ #}
+    <div class="next-steps">
+      <h2>{% trans "What happens next / Prochaines étapes" %}</h2>
+      <ol>
+        <li>
+          {% trans "Your submission has been recorded and will be reviewed by our team. / Votre soumission a été enregistrée et sera examinée par notre équipe." %}
+        </li>
+        <li>
+          {% trans "You may receive an email confirmation if you provided your email address. / Vous pourriez recevoir une confirmation par courriel si vous avez fourni votre adresse courriel." %}
+        </li>
+        <li>
+          {% trans "If additional information is needed, a staff member will contact you. / Si des informations supplémentaires sont nécessaires, un membre du personnel communiquera avec vous." %}
+        </li>
+      </ol>
     </div>
+
+    {# ================================================================
+       Navigation actions
+       ================================================================ #}
+    <nav class="form-landing__actions" aria-label="{% trans 'Continue' %}">
+      {% if request.user.is_authenticated %}
+        <a href="{% url 'portal:dashboard' %}" class="btn btn--primary">
+          {% trans "Return to my dashboard / Retourner à mon tableau de bord" %}
+        </a>
+      {% endif %}
+      <a href="{{ page.get_parent.url }}" class="btn btn--secondary">
+        {% trans "Return to services / Retourner aux services" %}
+      </a>
+    </nav>
 
   </article>
 </div>

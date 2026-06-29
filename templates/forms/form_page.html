@@ -1,101 +1,234 @@
 {% extends "base.html" %}
-{% load i18n wagtailcore_tags %}
+{% load i18n wagtailcore_tags form_filters %}
 
-{% block title %}{{ page.title }}{% endblock %}
-{% block meta_description %}{% endblock %}
+{% block title %}{{ page.title }} — GovStack{% endblock %}
+{% block meta_description %}{% if page.intro %}{{ page.intro|striptags|truncatechars:160 }}{% endif %}{% endblock %}
 
 {% block breadcrumb %}
   {% include "includes/breadcrumb.html" %}
 {% endblock %}
 
 {% block content %}
-<div class="container">
-  <article class="form-page" aria-labelledby="form-heading">
+<div class="container container--narrow">
+  <article class="form-page" aria-labelledby="form-page-heading">
 
     <header class="page-header">
-      <h1 id="form-heading" class="page-header__title">{{ page.title }}</h1>
+      <h1 id="form-page-heading" class="page-header__title">{{ page.title }}</h1>
       {% if page.intro %}
-        <div class="page-header__intro richtext">
+        <div class="rich-text intro-text">
           {{ page.intro|richtext }}
         </div>
       {% endif %}
     </header>
 
-    {# Consent notice (PIPEDA requirement) #}
-    {% if page.consent_text %}
-      <div class="form-page__consent-notice" role="note" aria-label="{% trans 'Privacy notice' %}">
-        <h2 class="form-page__consent-heading">{% trans "How we use your information" %}</h2>
-        <p>{{ page.consent_text }}</p>
-      </div>
+    {# ================================================================
+       Error summary — WCAG 3.3.1 Error Identification, 3.3.3 Suggestion
+       Must appear before the form so screen readers announce it first.
+       ================================================================ #}
+    {% if form.errors %}
+    <div class="error-summary"
+         role="alert"
+         aria-live="assertive"
+         aria-labelledby="error-summary-heading"
+         tabindex="-1">
+      <h2 class="error-summary__heading" id="error-summary-heading">
+        {% trans "There is a problem / Il y a un problème" %}
+      </h2>
+      <ul class="error-summary__list" role="list">
+        {% for field in form %}
+          {% if field.errors %}
+            {% for error in field.errors %}
+              <li>
+                <a href="#{{ field.id_for_label }}">
+                  <strong>{{ field.label }}:</strong> {{ error }}
+                </a>
+              </li>
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
     {% endif %}
 
+    {# ================================================================
+       Main form
+       action="" POSTs back to the same Wagtail page URL.
+       novalidate defers all validation to the server (more reliable).
+       ================================================================ #}
     <form action="{% pageurl page %}" method="post" class="form-page__form" novalidate>
       {% csrf_token %}
 
-      {% if form.errors %}
-        <div class="form-errors" role="alert" aria-live="assertive">
-          <h2>{% trans "Please correct the errors below" %}</h2>
-          <ul>
-            {% for field in form %}
-              {% for error in field.errors %}
-                <li>
-                  <a href="#id_{{ field.html_name }}">
-                    <strong>{{ field.label }}:</strong> {{ error }}
-                  </a>
-                </li>
-              {% endfor %}
-            {% endfor %}
-            {% for error in form.non_field_errors %}
-              <li>{{ error }}</li>
-            {% endfor %}
-          </ul>
-        </div>
-      {% endif %}
+      <p class="form-required-note">
+        <span aria-hidden="true">*</span>
+        {% trans "Required fields / Champs obligatoires" %}
+      </p>
 
+      {# ================================================================
+         Field rendering loop.
+
+         Decision tree:
+           1. html_name == "_consent"          → skip here, rendered in consent section
+           2. CheckboxSelectMultiple widget     → fieldset + legend pattern (WCAG 1.3.1)
+           3. single checkbox widget (non-consent) → inline checkbox (label after input)
+           4. select / radio widget             → fieldset + legend pattern (WCAG 1.3.1)
+           5. everything else                   → label above, input below
+         ================================================================ #}
       {% for field in form %}
-        <div class="form-group {% if field.errors %}form-group--error{% endif %}">
-          <label class="form-label {% if field.field.required %}form-label--required{% endif %}"
-                 for="{{ field.id_for_label }}">
-            {{ field.label }}
-            {% if field.field.required %}
-              <span class="required-indicator" aria-hidden="true">*</span>
+
+        {% if field.html_name == "_consent" %}
+          {# Consent field is always rendered in the dedicated section below. #}
+
+        {% elif field.field.widget.input_type == "checkbox" and field.field.widget.allow_multiple_selected %}
+          {# ---- CheckboxSelectMultiple — multiple checkboxes need fieldset/legend (WCAG 1.3.1) ---- #}
+          <fieldset class="form-group {% if field.errors %}form-group--error{% endif %}">
+            <legend class="form-label">
+              {{ field.label }}
+              {% if field.field.required %}
+                <span class="form-required" aria-hidden="true">*</span>
+                <span class="sr-only">{% trans "(required)" %}</span>
+              {% endif %}
+            </legend>
+            {% if field.help_text %}
+              <span id="{{ field.id_for_label }}-hint" class="form-hint">{{ field.help_text }}</span>
             {% endif %}
-          </label>
+            {% if field.errors %}
+              <span id="{{ field.id_for_label }}-error" class="form-error" role="alert">
+                {{ field.errors.0 }}
+              </span>
+            {% endif %}
+            <div {% if field.errors or field.help_text %}aria-describedby="{% if field.errors %}{{ field.id_for_label }}-error {% endif %}{% if field.help_text %}{{ field.id_for_label }}-hint{% endif %}"{% endif %}>
+              {{ field }}
+            </div>
+          </fieldset>
 
-          {% if field.help_text %}
-            <p class="form-hint" id="{{ field.id_for_label }}-hint">
-              {{ field.help_text }}
-            </p>
-          {% endif %}
+        {% elif field.field.widget.input_type == "checkbox" and field.html_name != "_consent" %}
+          {# ---- Single checkbox (non-consent) ---- #}
+          <div class="form-group {% if field.errors %}form-group--error{% endif %}" {% if field.field.required %}aria-required="true"{% endif %}>
+            <div class="checkbox-item">
+              {{ field }}
+              <label for="{{ field.id_for_label }}" class="form-label form-label--inline"
+                     {% if field.errors or field.help_text %}aria-describedby="{% if field.errors %}{{ field.id_for_label }}-error {% endif %}{% if field.help_text %}{{ field.id_for_label }}-hint{% endif %}"{% endif %}>
+                {{ field.label }}
+                {% if field.field.required %}
+                  <span class="form-required" aria-hidden="true">*</span>
+                  <span class="sr-only">{% trans "(required)" %}</span>
+                {% endif %}
+              </label>
+            </div>
+            {% if field.help_text %}
+              <span id="{{ field.id_for_label }}-hint" class="form-hint">{{ field.help_text }}</span>
+            {% endif %}
+            {% if field.errors %}
+              <span id="{{ field.id_for_label }}-error" class="form-error" role="alert">
+                {{ field.errors.0 }}
+              </span>
+            {% endif %}
+          </div>
 
-          {% if field.errors %}
-            <p class="form-error-message" id="{{ field.id_for_label }}-error" role="alert">
-              {{ field.errors|join:", " }}
-            </p>
-          {% endif %}
+        {% elif field.field.widget.input_type == "select" or field.field.widget.input_type == "radio" %}
+          {# ---- Radio buttons or <select> — fieldset/legend pattern ---- #}
+          <fieldset class="form-group {% if field.errors %}form-group--error{% endif %}">
+            <legend class="form-label">
+              {{ field.label }}
+              {% if field.field.required %}
+                <span class="form-required" aria-hidden="true">*</span>
+                <span class="sr-only">{% trans "(required)" %}</span>
+              {% endif %}
+            </legend>
+            {% if field.help_text %}
+              <span id="{{ field.id_for_label }}-hint" class="form-hint">{{ field.help_text }}</span>
+            {% endif %}
+            {% if field.errors %}
+              <span id="{{ field.id_for_label }}-error" class="form-error" role="alert">
+                {{ field.errors.0 }}
+              </span>
+            {% endif %}
+            <div {% if field.errors or field.help_text %}aria-describedby="{% if field.errors %}{{ field.id_for_label }}-error {% endif %}{% if field.help_text %}{{ field.id_for_label }}-hint{% endif %}"{% endif %}>
+              {{ field }}
+            </div>
+          </fieldset>
 
-          {{ field }}
-        </div>
+        {% else %}
+          {# ---- Standard text / email / number / date / textarea fields ---- #}
+          <div class="form-group {% if field.errors %}form-group--error{% endif %}" {% if field.field.required %}aria-required="true"{% endif %}>
+            <label class="form-label" for="{{ field.id_for_label }}">
+              {{ field.label }}
+              {% if field.field.required %}
+                <span class="form-required" aria-hidden="true">*</span>
+                <span class="sr-only">{% trans "(required)" %}</span>
+              {% endif %}
+            </label>
+            {% if field.help_text %}
+              <span id="{{ field.id_for_label }}-hint" class="form-hint">{{ field.help_text }}</span>
+            {% endif %}
+            {% if field.errors %}
+              <span id="{{ field.id_for_label }}-error" class="form-error" role="alert">
+                {{ field.errors.0 }}
+              </span>
+            {% endif %}
+            {# Render with aria-describedby wired to hint / error spans #}
+            {% if field.errors %}
+              {{ field.as_widget }}
+            {% elif field.help_text %}
+              {{ field.as_widget }}
+            {% else %}
+              {{ field }}
+            {% endif %}
+          </div>
+        {% endif %}
+
       {% endfor %}
 
+      {# ================================================================
+         Consent section — rendered last, visually distinct.
+         The consent field is injected into `form` by get_form_class()
+         when page.consent_text is set. We render it here rather than
+         in the loop above so it always appears at the bottom with the
+         full consent notice box around it.
+         ================================================================ #}
       {% if page.consent_text %}
-        <div class="form-group">
-          <label class="form-label form-label--required" for="consent_checkbox">
-            <input type="checkbox"
-                   id="consent_checkbox"
-                   name="consent_given"
-                   required
-                   aria-required="true">
-            {% trans "I have read and understand how my information will be used." %}
-            <span class="required-indicator" aria-hidden="true">*</span>
-          </label>
+        {% with consent_field=form|get_form_field:"_consent" %}
+        <div class="consent-section {% if consent_field.errors %}consent-section--error{% endif %}"
+             role="group"
+             aria-labelledby="consent-section-heading">
+          <h2 class="consent-section__heading" id="consent-section-heading">
+            {% trans "Consent / Consentement" %}
+          </h2>
+          <div class="consent-text">
+            <p>{{ page.consent_text }}</p>
+          </div>
+          {% if consent_field.errors %}
+            <span id="id__consent-error" class="form-error" role="alert">
+              {{ consent_field.errors.0 }}
+            </span>
+          {% endif %}
+          <div class="checkbox-item">
+            {{ consent_field }}
+            <label for="{{ consent_field.id_for_label }}"
+                   class="form-label form-label--inline"
+                   {% if consent_field.errors %}aria-describedby="id__consent-error"{% endif %}>
+              {% trans "I have read and accept the above statement. / J'ai lu et j'accepte la déclaration ci-dessus." %}
+              <span class="form-required" aria-hidden="true">*</span>
+              <span class="sr-only">{% trans "(required)" %}</span>
+            </label>
+          </div>
         </div>
+        {% endwith %}
       {% endif %}
 
-      <div class="form-page__actions">
-        <button type="submit" class="btn btn--primary">
-          {% trans "Submit" %}
+      {# ================================================================
+         Form actions
+         ================================================================ #}
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary btn--large">
+          {% trans "Submit / Soumettre" %}
         </button>
+        <a href="{{ page.get_parent.url }}" class="btn btn--secondary">
+          {% trans "Cancel / Annuler" %}
+        </a>
       </div>
 
     </form>

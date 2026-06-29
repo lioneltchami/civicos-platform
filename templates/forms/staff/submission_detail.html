@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% load i18n form_filters %}
+
+{% block title %}{% trans "Submission" %} #{{ submission.pk }} — {{ form_page.title }}{% endblock %}
+{% block meta_description %}{% blocktrans with id=submission.pk title=form_page.title %}Submission {{ id }} for {{ title }}{% endblocktrans %}{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+
+  {# ================================================================
+     Back link
+     ================================================================ #}
+  <nav aria-label="{% trans 'Breadcrumb' %}">
+    <a href="{% url 'forms:submission-list' form_page.pk %}" class="back-link">
+      &larr;
+      {% blocktrans with title=form_page.title %}Back to {{ title }} submissions{% endblocktrans %}
+    </a>
+  </nav>
+
+  <h1 class="page-header__title">
+    {% trans "Submission" %} #{{ submission.pk }}
+  </h1>
+
+  {# ================================================================
+     Submission metadata
+     ================================================================ #}
+  <dl class="metadata-list">
+    <div class="metadata-list__item">
+      <dt class="metadata-list__term">{% trans "Form / Formulaire" %}</dt>
+      <dd class="metadata-list__desc">{{ form_page.title }}</dd>
+    </div>
+    <div class="metadata-list__item">
+      <dt class="metadata-list__term">{% trans "Submitted / Soumis le" %}</dt>
+      <dd class="metadata-list__desc">
+        <time datetime="{{ submission.submit_time|date:'c' }}">
+          {{ submission.submit_time|date:"N j, Y, g:i a" }}
+        </time>
+      </dd>
+    </div>
+    <div class="metadata-list__item">
+      <dt class="metadata-list__term">{% trans "Consent given / Consentement accordé" %}</dt>
+      <dd class="metadata-list__desc">
+        {% if submission.consent_given %}
+          <span class="badge badge--green">{% trans "Yes" %}</span>
+        {% else %}
+          <span class="badge badge--red">{% trans "No" %}</span>
+        {% endif %}
+      </dd>
+    </div>
+    {% if submission.consent_text_shown %}
+      <div class="metadata-list__item">
+        <dt class="metadata-list__term">{% trans "Consent text shown / Texte de consentement affiché" %}</dt>
+        <dd class="metadata-list__desc">
+          <blockquote class="consent-quote">{{ submission.consent_text_shown }}</blockquote>
+        </dd>
+      </div>
+    {% endif %}
+    <div class="metadata-list__item">
+      <dt class="metadata-list__term">{% trans "Expires / Expire le" %}</dt>
+      <dd class="metadata-list__desc">
+        {% if submission.expires_at %}
+          <time datetime="{{ submission.expires_at|date:'c' }}">
+            {{ submission.expires_at|date:"N j, Y" }}
+          </time>
+        {% else %}
+          —
+        {% endif %}
+      </dd>
+    </div>
+    {% if submission.submitter_ip %}
+      <div class="metadata-list__item">
+        <dt class="metadata-list__term">{% trans "Submitter IP (masked) / IP de l'expéditeur (masquée)" %}</dt>
+        <dd class="metadata-list__desc pii-cell">
+          <span class="pii-value">{{ submitter_ip_masked }}</span>
+          <span class="pii-badge" aria-label="{% trans 'Personal information' %}">PII</span>
+        </dd>
+      </div>
+    {% endif %}
+  </dl>
+
+  {# ================================================================
+     Field values
+     ================================================================ #}
+  <section aria-labelledby="field-values-heading">
+    <h2 id="field-values-heading">{% trans "Field values / Valeurs des champs" %}</h2>
+
+    {% if fields %}
+      <dl class="submission-data">
+        {% for field in fields %}
+          <div class="submission-data__item {% if field.is_pii %}submission-data__item--pii{% endif %}">
+            <dt class="submission-data__term"
+                {% if field.is_pii %}
+                title="{% trans 'This field contains personal information / Ce champ contient des renseignements personnels' %}"
+                {% endif %}>
+              {{ field.label }}
+              {% if field.is_pii %}
+                <span class="pii-badge" aria-label="{% trans 'Contains personal information' %}">PII</span>
+              {% endif %}
+            </dt>
+            <dd class="submission-data__desc {% if field.is_pii %}pii-cell{% endif %}">
+              {% with val=form_data|get_item:field.clean_name %}
+                {# Display the specific field value from form_data dict #}
+                {% if val %}
+                  {{ val }}
+                {% else %}
+                  <em class="empty-value">{% trans "(no value)" %}</em>
+                {% endif %}
+              {% endwith %}
+            </dd>
+          </div>
+        {% endfor %}
+      </dl>
+    {% else %}
+      <p>{% trans "No field data recorded. / Aucune donnée de champ enregistrée." %}</p>
+    {% endif %}
+  </section>
+
+  {# ================================================================
+     PIPEDA redaction — danger zone
+     Only shown if the form has PII fields and the submission has data
+     that has not already been fully redacted.
+     ================================================================ #}
+  {% if pii_fields %}
+    <section class="danger-zone" aria-labelledby="danger-zone-heading">
+      <h2 id="danger-zone-heading">
+        {% trans "PIPEDA: Right to Erasure / Droit à l'effacement" %}
+      </h2>
+      <p>
+        {% trans "Redacting replaces personal information field values with [REDACTED]. The submission record is retained for audit purposes. This action cannot be undone. / La suppression remplace les valeurs des champs de renseignements personnels par [REDACTED]. L'enregistrement de la soumission est conservé à des fins d'audit. Cette action est irréversible." %}
+      </p>
+      <form method="post"
+            action="{% url 'forms:submission-redact' form_page.pk submission.pk %}"
+            aria-label="{% trans 'Redact personal information' %}">
+        {% csrf_token %}
+        <button type="submit"
+                class="btn btn--danger"
+                onclick="return confirm('{% trans "Permanently redact personal information from this submission? This cannot be undone. / Supprimer définitivement les renseignements personnels de cette soumission ? Cette action est irréversible." %}')">
+          {% trans "Redact personal information / Supprimer les renseignements personnels" %}
+        </button>
+      </form>
+    </section>
+  {% endif %}
+
+  {# ================================================================
+     Back to list
+     ================================================================ #}
+  <nav class="staff-nav" style="margin-top: 2rem" aria-label="{% trans 'Staff navigation' %}">
+    <a href="{% url 'forms:submission-list' form_page.pk %}" class="back-link">
+      &larr; {% blocktrans with title=form_page.title %}Back to {{ title }} submissions{% endblocktrans %}
+    </a>
+    <a href="{% url 'wagtailadmin_home' %}" style="margin-left: 1rem">
+      {% trans "Wagtail admin / Admin Wagtail" %}
+    </a>
+  </nav>
+
+</div>
+{% endblock %}

@@ -18,6 +18,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
+from two_factor.urls import urlpatterns as two_factor_urlpatterns
 from wagtail import urls as wagtail_urls
 from wagtail.admin import urls as wagtailadmin_urls
 from wagtail.documents import urls as wagtaildocs_urls
@@ -30,9 +31,9 @@ urlpatterns = [
     # Document downloads (protected)
     path("documents/", include(wagtaildocs_urls)),
     # MFA / two-factor auth (must come before allauth).
-    # django-two-factor-auth 1.15+ ships urlpatterns as a plain list with app_name
-    # set on the module. Use the (patterns, app_name) 2-tuple form for clarity.
-    path("account/two-factor/", include("two_factor.urls", namespace="two_factor")),
+    # two_factor.urls.urlpatterns is already a (list, 'two_factor') 2-tuple;
+    # pass it directly to include() so Django registers the namespace correctly.
+    path("account/two-factor/", include(two_factor_urlpatterns)),
     # Authentication (allauth)
     path("account/", include("allauth.urls")),
     # Health check endpoint for load balancers and Kubernetes probes
@@ -57,6 +58,8 @@ urlpatterns += i18n_patterns(
     path("portal/", include("apps.portal.urls", namespace="portal")),
     # Citizen notification inbox
     path("notifications/", include("apps.notifications.urls", namespace="notifications")),
+    # Forms building block — staff submission management
+    path("forms/", include("apps.forms.urls", namespace="forms")),
     # Citizen account (auth_extension building block)
     path("account/", include("apps.auth_extension.urls", namespace="auth_extension")),
     # Public-facing pages (Wagtail CMS) — must be last
