@@ -8,9 +8,13 @@ Extends Wagtail's built-in form builder (wagtail.contrib.forms) with:
 - Accessible field rendering metadata
 """
 
+import logging
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from modelcluster.fields import ParentalKey
+
+logger = logging.getLogger(__name__)
 from wagtail.admin.panels import FieldPanel, FieldRowPanel, InlinePanel, MultiFieldPanel, ObjectList, TabbedInterface
 from wagtail.contrib.forms.models import AbstractEmailForm, AbstractFormField, AbstractFormSubmission
 from wagtail.fields import RichTextField
@@ -249,15 +253,21 @@ class FormPage(AbstractEmailForm):
 
         try:
             from apps.core.signals import form_submission_received
-            form_submission_received.send(
+            results = form_submission_received.send_robust(
                 sender=self.__class__,
                 form_page=self,
                 submission=submission,
                 request=request,
             )
+            for _receiver, result in results:
+                if isinstance(result, Exception):
+                    logger.exception(
+                        "Signal handler %s raised for form_submission_received: %s",
+                        _receiver,
+                        result,
+                    )
         except Exception:
-            import logging
-            logging.getLogger(__name__).exception(
+            logger.exception(
                 "Failed to emit form_submission_received signal for page_id=%s", self.pk
             )
 

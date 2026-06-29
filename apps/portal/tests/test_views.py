@@ -127,7 +127,7 @@ class ServiceRequestListViewTest(TestCase):
 
     def test_context_includes_active_status(self):
         response = self.client.get("/portal/requests/?status=submitted")
-        self.assertEqual(response.context["active_status"], "submitted")
+        self.assertEqual(response.context["current_status"], "submitted")
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)

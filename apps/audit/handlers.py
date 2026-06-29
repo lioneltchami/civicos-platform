@@ -26,9 +26,12 @@ from .services import record_event_from_request
 
 @receiver(user_login_succeeded)
 def audit_login_success(sender, request, user, **kwargs):
+    # actor_email suppressed — storing real email in audit log is PII.
+    # Match the pattern used in audit_login_failure.
     record_event_from_request(
         request,
         event_type=AuditEventType.LOGIN_SUCCESS,
+        actor_email="",
         resource_type="auth_extension.User",
         resource_id=user.pk,
     )

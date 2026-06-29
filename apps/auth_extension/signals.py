@@ -104,16 +104,14 @@ def on_login_success(sender, request, user, **kwargs) -> None:
     if ip:
         type(user).objects.filter(pk=user.pk).update(last_login_ip=ip)
     # Fire Govstack core signal for audit/notifications listeners
+    # (audit/handlers.py:audit_login_success writes the entry via the signal)
     gs_login_succeeded.send(sender=sender, request=request, user=user)
-    # Write directly to audit log
-    _write_audit("auth.login.success", "success", user, request)
 
 
 @receiver(user_logged_out)
 def on_logout(sender, request, user, **kwargs) -> None:
+    # Fire Govstack core signal; audit/handlers.py:audit_logout writes the entry
     gs_logged_out.send(sender=sender, request=request, user=user)
-    if user:
-        _write_audit("auth.logout", "success", user, request)
 
 
 @receiver(user_login_failed)

@@ -11,8 +11,9 @@ except ImportError:
 User = get_user_model()
 VALID_PASSWORD = "SecureTestPass123!"
 
-# two_factor login is mounted at /account/two-factor/
-LOGIN_URL = "/account/two-factor/login/"
+# two_factor patterns include their own "account/" prefix, so mount at root:
+# reverse('two_factor:login') → /account/login/
+LOGIN_URL = "/account/login/"
 
 # auth_extension views under i18n_patterns — prefix_default_language=False
 # means English has no /en/ prefix

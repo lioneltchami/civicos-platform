@@ -223,7 +223,7 @@ class ProcessFormSubmissionTest(TestCase):
         real_sub = _make_real_submission(page)
 
         with patch(
-            "apps.core.signals.form_submission_received.send",
+            "apps.core.signals.form_submission_received.send_robust",
             side_effect=Exception("handler exploded"),
         ):
             with patch(self._PARENT, return_value=real_sub):

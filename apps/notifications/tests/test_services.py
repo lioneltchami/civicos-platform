@@ -3,6 +3,7 @@ import uuid
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.template import TemplateDoesNotExist
 from django.test import TestCase
 
 from apps.notifications.models import Notification, NotificationStatus
@@ -163,7 +164,7 @@ class SendEmailNotificationFailureTest(TestCase):
             )
         self.assertEqual(Notification.objects.filter(recipient=user).count(), 1)
 
-    @patch(RENDER, side_effect=Exception("TemplateDoesNotExist"))
+    @patch(RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt"))
     def test_returns_false_when_template_missing(self, mock_render):
         from apps.notifications.services import send_email_notification
         user = make_user()
@@ -174,7 +175,7 @@ class SendEmailNotificationFailureTest(TestCase):
         )
         self.assertFalse(result)
 
-    @patch(RENDER, side_effect=Exception("TemplateDoesNotExist"))
+    @patch(RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt"))
     def test_no_notification_record_when_template_missing(self, mock_render):
         """If render fails, we should NOT create a notification record."""
         from apps.notifications.services import send_email_notification
@@ -186,7 +187,7 @@ class SendEmailNotificationFailureTest(TestCase):
         )
         self.assertEqual(Notification.objects.filter(recipient=user).count(), 0)
 
-    @patch(RENDER, side_effect=Exception("TemplateDoesNotExist"))
+    @patch(RENDER, side_effect=TemplateDoesNotExist("notifications/email/nonexistent_key_subject.txt"))
     def test_send_mail_not_called_when_template_missing(self, mock_render):
         from apps.notifications.services import send_email_notification
         with patch(SEND_MAIL) as mock_send:

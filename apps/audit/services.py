@@ -81,11 +81,15 @@ def record_event(
         return None
 
 
+_UNSET = object()  # sentinel — distinguishes "caller passed ''" from "use default"
+
+
 def record_event_from_request(
     request,
     *,
     event_type: str,
     outcome: str = "success",
+    actor_email: Any = _UNSET,
     resource_type: str = "",
     resource_id: Any = "",
     before_state: dict | None = None,
@@ -96,15 +100,24 @@ def record_event_from_request(
     Convenience wrapper that extracts actor context from a Django request.
 
     Use this in views and signal handlers when a request object is available.
+
+    Pass ``actor_email=""`` explicitly to suppress email storage (e.g. to avoid
+    writing PII into the audit log for login-success events).
     """
     audit_ctx = getattr(request, "audit_context", {})
     user = getattr(request, "user", None)
+
+    resolved_email = (
+        actor_email
+        if actor_email is not _UNSET
+        else (user.email if user and user.is_authenticated else "")
+    )
 
     return record_event(
         event_type=event_type,
         outcome=outcome,
         actor_id=audit_ctx.get("actor_id") or (str(user.pk) if user and user.is_authenticated else None),
-        actor_email=user.email if user and user.is_authenticated else "",
+        actor_email=resolved_email,
         actor_ip=audit_ctx.get("actor_ip", ""),
         actor_user_agent=audit_ctx.get("actor_user_agent", ""),
         resource_type=resource_type,

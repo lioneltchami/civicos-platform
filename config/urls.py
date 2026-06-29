@@ -31,9 +31,14 @@ urlpatterns = [
     # Document downloads (protected)
     path("documents/", include(wagtaildocs_urls)),
     # MFA / two-factor auth (must come before allauth).
-    # two_factor.urls.urlpatterns is already a (list, 'two_factor') 2-tuple;
-    # pass it directly to include() so Django registers the namespace correctly.
-    path("account/two-factor/", include(two_factor_urlpatterns)),
+    # two_factor.urls.urlpatterns is a (list, 'two_factor') 2-tuple where every
+    # internal pattern already begins with "account/" (e.g. "account/login/",
+    # "account/two_factor/setup/"). Mount at "" so reverse('two_factor:login')
+    # resolves to /account/login/ — matching allauth's path — rather than
+    # doubling the prefix to /account/two-factor/account/login/. Because this
+    # entry appears before the allauth include, two_factor's login view wins
+    # for /account/login/, enforcing MFA for all logins.
+    path("", include(two_factor_urlpatterns)),
     # Authentication (allauth)
     path("account/", include("allauth.urls")),
     # Health check endpoint for load balancers and Kubernetes probes

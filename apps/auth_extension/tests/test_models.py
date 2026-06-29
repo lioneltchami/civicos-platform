@@ -54,7 +54,8 @@ class UserModelTest(TestCase):
     @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.Argon2PasswordHasher"])
     def test_password_is_hashed_with_argon2(self):
         user = User.objects.create_user(email="g@example.com", password=VALID_PASSWORD)
-        self.assertTrue(user.password.startswith("$argon2"))
+        # Django's Argon2PasswordHasher stores as "argon2$argon2id$..."
+        self.assertTrue(user.password.startswith("argon2$"))
 
     def test_password_is_hashed_not_plaintext(self):
         user = User.objects.create_user(email="h@example.com", password=VALID_PASSWORD)
@@ -67,9 +68,10 @@ class UserModelTest(TestCase):
         )
         self.assertEqual(user.get_full_name(), "Alice Smith")
 
-    def test_get_full_name_falls_back_to_email(self):
+    def test_get_full_name_returns_empty_string_when_no_names(self):
+        """get_full_name() returns '' when no names set; display_name handles the fallback."""
         user = User.objects.create_user(email="j@example.com", password=VALID_PASSWORD)
-        self.assertEqual(user.get_full_name(), "j@example.com")
+        self.assertEqual(user.get_full_name(), "")
 
     def test_is_citizen_true_for_non_staff(self):
         user = User.objects.create_user(email="k@example.com", password=VALID_PASSWORD)

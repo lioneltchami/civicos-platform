@@ -1,0 +1,12 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}
+
+{% blocktrans with ref=reference %}Your service request {{ ref }} has been closed.{% endblocktrans %}
+
+{% trans "If you believe this was done in error, or if you require further assistance, please submit a new request through the portal or contact our service centre." %}
+
+{{ portal_link }}
+
+---
+{% trans "This is an automated message. Please do not reply directly to this email." %}
+{% endautoescape %}

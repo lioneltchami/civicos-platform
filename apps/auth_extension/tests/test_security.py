@@ -11,7 +11,7 @@ except ImportError:
 User = get_user_model()
 VALID_PASSWORD = "SecureTestPass123!"
 
-LOGIN_URL = "/account/two-factor/login/"
+LOGIN_URL = "/account/login/"  # two_factor URLs have built-in "account/" prefix; mount at root
 SIGNUP_URL = "/account/signup/"
 DASHBOARD_URL = "/account/dashboard/"
 PROFILE_URL = "/account/profile/"
@@ -40,7 +40,8 @@ class AuthSecurityTest(TestCase):
         user = User.objects.create_user(
             email="argon2test@example.com", password=VALID_PASSWORD
         )
-        self.assertTrue(user.password.startswith("$argon2"))
+        # Django's Argon2PasswordHasher stores as "argon2$argon2id$..."
+        self.assertTrue(user.password.startswith("argon2$"))
 
     def test_csrf_token_present_on_login_page(self):
         response = self.client.get(LOGIN_URL)

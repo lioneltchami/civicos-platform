@@ -49,11 +49,23 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class StaffRequiredMixin(UserPassesTestMixin):
-    """Restricts view access to staff users only. Returns 403 for authenticated non-staff."""
+    """Restricts view access to staff users only.
+    - Anonymous users → 302 redirect to login
+    - Authenticated non-staff → 403 Forbidden
+    """
     raise_exception = True
 
     def test_func(self) -> bool:
         return self.request.user.is_authenticated and self.request.user.is_staff
+
+    def handle_no_permission(self):
+        if not self.request.user.is_authenticated:
+            from django.conf import settings as django_settings
+            from django.shortcuts import redirect as django_redirect
+            login_url = getattr(django_settings, "LOGIN_URL", "/account/login/")
+            return django_redirect(f"{login_url}?next={self.request.get_full_path()}")
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
 
 
 class OwnRequestMixin:
@@ -125,7 +137,7 @@ class ServiceRequestListView(LoginRequiredMixin, ListView):
     def get_context_data(self, **kwargs: Any) -> dict:
         ctx = super().get_context_data(**kwargs)
         ctx["status_choices"] = ServiceRequestStatus.choices
-        ctx["active_status"] = self.request.GET.get("status", "")
+        ctx["current_status"] = self.request.GET.get("status", "")
         return ctx
 
 
@@ -172,6 +184,13 @@ class SubmitRequestView(LoginRequiredMixin, FormView):
             initial["service_name"] = self.request.GET.get("service", "")
             kwargs["initial"] = initial
         return kwargs
+
+    def get_context_data(self, **kwargs) -> dict:
+        ctx = super().get_context_data(**kwargs)
+        # Used by template to display page heading and pre-fill read-only field
+        ctx["service_name"] = self.request.GET.get("service", "")
+        ctx["service_readonly"] = bool(ctx["service_name"])
+        return ctx
 
     def form_valid(self, form: ServiceRequestSubmitForm) -> HttpResponse:
         try:
@@ -258,7 +277,8 @@ class StaffQueueView(StaffRequiredMixin, ListView):
     def get_context_data(self, **kwargs: Any) -> dict:
         ctx = super().get_context_data(**kwargs)
         ctx["status_choices"] = ServiceRequestStatus.choices
-        ctx["active_status"] = self.request.GET.get("status", ServiceRequestStatus.SUBMITTED)
+        ctx["current_status"] = self.request.GET.get("status", ServiceRequestStatus.SUBMITTED)
+        ctx["current_status_display"] = dict(ServiceRequestStatus.choices).get(ctx["current_status"], "")
         ctx["counts"] = {
             s: ServiceRequest.objects.filter(status=s).count()
             for s, _ in ServiceRequestStatus.choices

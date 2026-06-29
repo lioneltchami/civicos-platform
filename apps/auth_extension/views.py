@@ -204,14 +204,14 @@ class GenerateBackupCodesView(LoginRequiredMixin, View):
         try:
             from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
             from django.db import transaction
-            device, _ = StaticDevice.objects.get_or_create(
+            device, _created = StaticDevice.objects.get_or_create(
                 user=request.user,
                 defaults={"name": "Backup codes"},
             )
             # Generate 8 codes in XXXX-XXXX format before the atomic block
             codes = [
                 f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
-                for _ in range(8)
+                for _i in range(8)
             ]
             # Atomic delete-and-replace: prevents duplicate token sets from concurrent POSTs
             with transaction.atomic():

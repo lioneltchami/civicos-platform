@@ -1,0 +1,12 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}
+
+{% blocktrans with ref=reference %}Thank you for submitting your service request. Your reference number is {{ ref }}.{% endblocktrans %}
+
+{% trans "Our team will review your request and you will receive an update when the status changes." %}
+
+{{ portal_link }}
+
+---
+{% trans "This is an automated message. Please do not reply directly to this email." %}
+{% endautoescape %}

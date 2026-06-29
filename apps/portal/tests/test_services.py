@@ -89,14 +89,16 @@ class CreateServiceRequestTest(TestCase):
     @patch("apps.portal.services._write_audit")
     def test_fires_notification(self, mock_audit, mock_notify):
         citizen = make_user()
-        create_service_request(citizen, "Test", {})
+        with self.captureOnCommitCallbacks(execute=True):
+            create_service_request(citizen, "Test", {})
         mock_notify.assert_called_once()
 
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_writes_audit_log(self, mock_audit, mock_notify):
         citizen = make_user()
-        create_service_request(citizen, "Test", {})
+        with self.captureOnCommitCallbacks(execute=True):
+            create_service_request(citizen, "Test", {})
         mock_audit.assert_called_once()
 
     def test_raises_for_anonymous_user(self):
@@ -179,13 +181,15 @@ class UpdateRequestStatusTest(TestCase):
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_fires_notification_on_status_change(self, mock_audit, mock_notify):
-        update_request_status(self.sr, ServiceRequestStatus.IN_REVIEW, self.staff)
+        with self.captureOnCommitCallbacks(execute=True):
+            update_request_status(self.sr, ServiceRequestStatus.IN_REVIEW, self.staff)
         mock_notify.assert_called_once()
 
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_writes_audit_on_status_change(self, mock_audit, mock_notify):
-        update_request_status(self.sr, ServiceRequestStatus.IN_REVIEW, self.staff)
+        with self.captureOnCommitCallbacks(execute=True):
+            update_request_status(self.sr, ServiceRequestStatus.IN_REVIEW, self.staff)
         mock_audit.assert_called_once()
 
 

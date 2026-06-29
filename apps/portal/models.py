@@ -207,7 +207,9 @@ class StatusUpdate(BaseModel):
         )
 
     def save(self, *args, **kwargs) -> None:
-        if self.pk:
+        # self._state.adding is False only when Django performs an UPDATE
+        # Cannot use self.pk here — UUIDField assigns it at instantiation, not save time
+        if not self._state.adding:
             raise ValueError(
                 "StatusUpdate records are immutable. Create a new record instead."
             )

@@ -99,7 +99,7 @@ class User(AbstractUser):
 
     def get_full_name(self) -> str:
         full_name = f"{self.first_name} {self.last_name}".strip()
-        return full_name or self.email
+        return full_name  # empty string when no names set; display_name handles fallback
 
     @property
     def is_citizen(self) -> bool:
