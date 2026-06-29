@@ -123,9 +123,9 @@ class ServiceRequestDetailView(generics.RetrieveAPIView):
         will naturally result in a 404 rather than a 403, preventing
         enumeration of valid reference numbers.
         """
-        return ServiceRequest.objects.filter(citizen=self.request.user).select_related(
-            "citizen"
-        )
+        # Filter by citizen gives IDOR protection; no select_related needed because
+        # no serializer field traverses the citizen FK from the detail response.
+        return ServiceRequest.objects.filter(citizen=self.request.user)
 
 
 class CancelServiceRequestView(APIView):
@@ -179,10 +179,10 @@ class CancelServiceRequestView(APIView):
             )
         except ValueError as exc:
             logger.info(
-                "Cancel rejected (business rule): reference=%s user_id=%s reason=%s",
+                "Cancel rejected (business rule): reference=%s user_id=%s exc=%s",
                 reference_number,
                 request.user.pk,
-                exc,
+                type(exc).__name__,
             )
             return Response(
                 {"error": {"code": "validation_error", "detail": str(exc), "status": 400}},

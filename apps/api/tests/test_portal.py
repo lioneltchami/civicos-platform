@@ -65,7 +65,11 @@ def _bearer(client, user):
         {"email": user.email, "password": VALID_PASSWORD},
         format="json",
     )
-    assert resp.status_code == 200, f"Token fetch failed: {resp.data}"
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Token fetch failed for {user.email}: "
+            f"status={resp.status_code} data={resp.data}"
+        )
     return {"HTTP_AUTHORIZATION": f"Bearer {resp.data['access']}"}
 
 
@@ -159,6 +163,45 @@ class ServiceRequestListTests(TestCase):
         for field in ("reference_number", "service_name", "status", "status_display", "created_at"):
             self.assertIn(field, item, f"Expected field '{field}' missing from list response")
 
+    def test_status_filter_returns_only_matching_requests(self):
+        # ?status=submitted must return only SUBMITTED requests; IN_REVIEW requests excluded.
+        ServiceRequest.objects.create(
+            citizen=self.citizen,
+            service_name="Submitted Service",
+            submission_data={},
+            status=ServiceRequestStatus.SUBMITTED,
+        )
+        ServiceRequest.objects.create(
+            citizen=self.citizen,
+            service_name="In Review Service",
+            submission_data={},
+            status=ServiceRequestStatus.IN_REVIEW,
+        )
+
+        resp = self.client.get(
+            LIST_URL + "?status=submitted", **_bearer(self.client, self.citizen)
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["count"], 1)
+        self.assertEqual(resp.data["results"][0]["status"], ServiceRequestStatus.SUBMITTED)
+
+    def test_invalid_status_filter_returns_unfiltered_list(self):
+        # An invalid ?status= value must be ignored (not a 400), returning all requests.
+        ServiceRequest.objects.create(
+            citizen=self.citizen,
+            service_name="My Service",
+            submission_data={},
+            status=ServiceRequestStatus.SUBMITTED,
+        )
+
+        resp = self.client.get(
+            LIST_URL + "?status=garbage", **_bearer(self.client, self.citizen)
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["count"], 1)
+
 
 class ServiceRequestCreateTests(TestCase):
     """Tests for POST /api/v1/portal/requests/ — submitting a new service request."""
@@ -173,14 +216,17 @@ class ServiceRequestCreateTests(TestCase):
     def test_valid_payload_creates_request_and_returns_201(self, mock_notif, mock_audit, mock_sig):
         # A complete, valid payload must create the record and return HTTP 201
         # with the full detail representation (including submission_data).
+        # captureOnCommitCallbacks is required so that on_commit() hooks execute
+        # within the Django TestCase transaction rollback context.
         payload = {
             "service_name": "Health Card Application",
             "submission_data": {"dob": "1990-01-01", "province": "ON"},
         }
 
-        resp = self.client.post(
-            LIST_URL, payload, format="json", **_bearer(self.client, self.citizen)
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                LIST_URL, payload, format="json", **_bearer(self.client, self.citizen)
+            )
 
         self.assertEqual(resp.status_code, 201)
         self.assertIn("reference_number", resp.data)
@@ -189,6 +235,10 @@ class ServiceRequestCreateTests(TestCase):
             ServiceRequest.objects.filter(citizen=self.citizen).exists(),
             "ServiceRequest must be persisted in the database.",
         )
+        # Verify the on_commit hooks actually fired (notification, audit, signal)
+        mock_notif.assert_called_once()
+        mock_audit.assert_called_once()
+        mock_sig.assert_called_once()
 
     def test_missing_service_name_returns_400(self):
         # Omitting required service_name must trigger a 400 validation error.
@@ -255,9 +305,10 @@ class ServiceRequestCreateTests(TestCase):
             "submission_data": {"class": "G"},
         }
 
-        self.client.post(
-            LIST_URL, payload, format="json", **_bearer(self.client, self.citizen)
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                LIST_URL, payload, format="json", **_bearer(self.client, self.citizen)
+            )
 
         sr = ServiceRequest.objects.get(citizen=self.citizen)
         self.assertEqual(sr.citizen_id, self.citizen.pk)
@@ -288,6 +339,8 @@ class ServiceRequestDetailTests(TestCase):
         self.assertEqual(resp.data["reference_number"], self.sr.reference_number)
         # Detail endpoint must include submission_data (not redacted like the list)
         self.assertIn("submission_data", resp.data)
+        # The submission_data value must match what was stored — key presence alone is insufficient
+        self.assertEqual(resp.data["submission_data"], {"passport_no": "AB123456"})
 
     def test_non_owner_gets_404_not_403(self):
         # IDOR guard: a non-owner must receive 404 to avoid reference-number enumeration.
@@ -333,16 +386,20 @@ class CancelServiceRequestTests(TestCase):
     @patch(_PATCH_NOTIFICATION)
     def test_owner_can_cancel_submitted_request(self, mock_notif, mock_audit):
         # A citizen must be able to cancel their own non-terminal request.
-        resp = self.client.post(
-            _cancel_url(self.sr.reference_number),
-            {},
-            format="json",
-            **_bearer(self.client, self.citizen),
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                _cancel_url(self.sr.reference_number),
+                {},
+                format="json",
+                **_bearer(self.client, self.citizen),
+            )
 
         self.assertEqual(resp.status_code, 200)
+        self.assertIn("detail", resp.data)
         self.sr.refresh_from_db()
         self.assertEqual(self.sr.status, ServiceRequestStatus.CLOSED)
+        mock_notif.assert_called_once()
+        mock_audit.assert_called_once()
 
     def test_non_owner_cancel_returns_404(self):
         # IDOR guard: cancelling another citizen's request must return 404, not 403.
@@ -434,12 +491,13 @@ class CancelServiceRequestTests(TestCase):
         self.sr.status = ServiceRequestStatus.IN_REVIEW
         self.sr.save(update_fields=["status"])
 
-        resp = self.client.post(
-            _cancel_url(self.sr.reference_number),
-            {},
-            format="json",
-            **_bearer(self.client, self.citizen),
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                _cancel_url(self.sr.reference_number),
+                {},
+                format="json",
+                **_bearer(self.client, self.citizen),
+            )
 
         self.assertEqual(resp.status_code, 200)
 
@@ -496,3 +554,16 @@ class ErrorEnvelopeTests(TestCase):
         self.assertIn("detail", error)
         self.assertIn("status", error)
         self.assertEqual(error["status"], 400)
+
+    def test_404_response_has_error_envelope(self):
+        # A missing reference number must return the govstack error envelope.
+        resp = self.client.get(
+            _detail_url("GS-0000-XXXXXX"),
+            **_bearer(self.client, self.citizen),
+        )
+
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("error", resp.data)
+        error = resp.data["error"]
+        self.assertEqual(error["code"], "not_found")
+        self.assertEqual(error["status"], 404)

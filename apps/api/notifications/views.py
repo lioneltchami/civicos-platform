@@ -15,6 +15,7 @@ Read-state model note:
 
 import logging
 
+from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
@@ -64,10 +65,13 @@ class NotificationListView(generics.ListAPIView):
         return qs
 
 
-class NotificationDetailView(generics.RetrieveUpdateAPIView):
+class NotificationDetailView(generics.RetrieveAPIView):
     """
     GET  /api/v1/notifications/<uuid:pk>/   — retrieve a single notification.
     PATCH /api/v1/notifications/<uuid:pk>/  — update is_read (mark read/unread).
+
+    RetrieveAPIView is used (not RetrieveUpdateAPIView) to avoid enabling a PUT
+    dead-code path.  The PATCH handler is added explicitly via partial_update().
 
     IDOR guard: queryset is always scoped to recipient=request.user.
     """
@@ -83,6 +87,10 @@ class NotificationDetailView(generics.RetrieveUpdateAPIView):
             recipient=self.request.user,
             channel=NotificationChannel.IN_APP,
         )
+
+    def patch(self, request, *args, **kwargs):
+        """Route PATCH requests to partial_update (RetrieveAPIView doesn't do this)."""
+        return self.partial_update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
         """PATCH with ``{"is_read": true|false}`` to mark read/unread."""
@@ -134,10 +142,9 @@ class MarkNotificationReadView(APIView):
                 channel=NotificationChannel.IN_APP,
             )
         except Notification.DoesNotExist:
-            return Response(
-                {"detail": "Not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            # Raise Http404 so govstack_exception_handler wraps it in the standard
+            # error envelope {"error": {"code": "not_found", ...}}.
+            raise Http404
 
         if notification.read_at is None:
             notification.read_at = timezone.now()

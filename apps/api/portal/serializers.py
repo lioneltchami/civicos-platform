@@ -13,9 +13,16 @@ Design decisions:
 - ``internal_notes`` is never exposed — staff-only field.
 """
 
+import json
+
 from rest_framework import serializers
 
 from apps.portal.models import ServiceRequest
+
+# Maximum byte-size for submission_data JSON.  64 KB is generous for any
+# government form while preventing trivial memory-pressure DoS attacks.
+_SUBMISSION_DATA_MAX_BYTES = 65_536
+_SUBMISSION_DATA_MAX_KEYS = 200
 
 
 class ServiceRequestSerializer(serializers.ModelSerializer):
@@ -102,6 +109,22 @@ class CreateServiceRequestSerializer(serializers.Serializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError(
                 "submission_data must be a JSON object (dict), not a list or scalar."
+            )
+        if len(value) > _SUBMISSION_DATA_MAX_KEYS:
+            raise serializers.ValidationError(
+                f"submission_data may not contain more than {_SUBMISSION_DATA_MAX_KEYS} "
+                "top-level keys."
+            )
+        try:
+            serialized = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise serializers.ValidationError(
+                f"submission_data contains a non-serialisable value: {type(exc).__name__}"
+            ) from exc
+        if len(serialized) > _SUBMISSION_DATA_MAX_BYTES:
+            raise serializers.ValidationError(
+                f"submission_data exceeds the maximum allowed size of "
+                f"{_SUBMISSION_DATA_MAX_BYTES // 1024} KB."
             )
         return value
 

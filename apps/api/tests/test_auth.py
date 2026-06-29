@@ -126,6 +126,30 @@ class TokenRefreshTests(TestCase):
 
         self.assertEqual(resp.status_code, 400)
 
+    def test_deactivated_user_cannot_refresh_token(self):
+        # A refresh token obtained while active must not work after the account is deactivated.
+        # This validates that deactivating a user effectively revokes their session.
+        user = User.objects.create_user(
+            email="todeactivate@example.gov",
+            password=VALID_PASSWORD,
+            is_active=True,
+        )
+        tokens = _get_tokens(self.client, user.email)
+        self.assertEqual(tokens.status_code, 200)
+        refresh = tokens.data["refresh"]
+
+        # Deactivate the user mid-session
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+
+        # The refresh token must now be rejected
+        resp = self.client.post(REFRESH_URL, {"refresh": refresh}, format="json")
+        self.assertEqual(
+            resp.status_code,
+            401,
+            "Deactivated user must not be able to refresh tokens — session must be revoked.",
+        )
+
 
 class TokenVerifyTests(TestCase):
     """Tests for POST /api/v1/auth/token/verify/ — token validation without rotation."""

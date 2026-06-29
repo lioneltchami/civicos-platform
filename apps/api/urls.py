@@ -14,6 +14,8 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView,
 )
 
+from apps.api.throttling import TokenObtainThrottle
+
 app_name = "api-v1"
 
 urlpatterns = [
@@ -22,7 +24,7 @@ urlpatterns = [
     # ------------------------------------------------------------------
     path(
         "auth/token/",
-        TokenObtainPairView.as_view(),
+        TokenObtainPairView.as_view(throttle_classes=[TokenObtainThrottle]),
         name="token-obtain",
     ),
     path(

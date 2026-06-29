@@ -436,14 +436,19 @@ REST_FRAMEWORK = {
         "anon": "60/hour",
         "citizen": "300/hour",
         "staff": "1000/hour",
+        # Dedicated scope for the credential exchange endpoint — see TokenObtainThrottle.
+        # 5/minute is generous for legitimate users and infeasible for brute-force.
+        "token_obtain": "5/minute",
     },
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "apps.api.exceptions.govstack_exception_handler",
-    # Return 401 instead of 403 for unauthenticated requests (RFC 7235)
-    "UNAUTHENTICATED_USER": None,
+    # NOTE: do NOT set UNAUTHENTICATED_USER: None — doing so causes DRF to raise
+    # PermissionDenied (403) for unauthenticated requests instead of NotAuthenticated
+    # (401), breaking RFC 7235 / government API contracts.  The default AnonymousUser
+    # is correct and makes IsAuthenticated return 401 when no token is supplied.
 }
 
 # ---------------------------------------------------------------------------

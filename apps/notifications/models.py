@@ -81,6 +81,9 @@ class Notification(BaseModel):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["recipient", "read_at"]),
+            # Optimised index for the in-app inbox query pattern:
+            # filter(recipient=X, channel=IN_APP).filter(read_at__isnull=True)
+            models.Index(fields=["recipient", "channel", "read_at"]),
             models.Index(fields=["status", "channel"]),
         ]
 

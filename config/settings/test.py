@@ -97,6 +97,7 @@ REST_FRAMEWORK = {
         "citizen": "10000/minute",
         "staff": "10000/minute",
         "anon": "10000/minute",
+        "token_obtain": "10000/minute",
     },
 }
 

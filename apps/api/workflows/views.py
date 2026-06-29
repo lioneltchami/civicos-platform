@@ -93,13 +93,16 @@ class WorkItemQueueView(generics.ListAPIView):
                 # service layer will simply not apply it.
                 priority_filter = None
 
-        return get_staff_queue(
+        qs = get_staff_queue(
             self.request.user,
             status_filter=status_filter,
             assigned_to_me=assigned_to_me,
             unassigned_only=unassigned_only,
             priority_filter=priority_filter,
         )
+        # Guard against N+1: WorkItemSerializer accesses assigned_to on every row.
+        # select_related here ensures the service layer can never accidentally omit it.
+        return qs.select_related("assigned_to")
 
 
 # ---------------------------------------------------------------------------
@@ -150,15 +153,18 @@ class _WorkItemActionView(APIView):
         return Response(serializer.data, status=status_code)
 
     def _service_error(self, exc: Exception) -> Response:
-        """Translate service-layer exceptions to HTTP responses."""
+        """
+        Translate service-layer exceptions to HTTP responses using the govstack
+        error envelope so all API error shapes are consistent.
+        """
         if isinstance(exc, PermissionError):
             return Response(
-                {"detail": str(exc)},
+                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
                 status=status.HTTP_403_FORBIDDEN,
             )
         # ValueError — invalid state transition, business rule violation, etc.
         return Response(
-            {"detail": str(exc)},
+            {"error": {"code": "validation_error", "detail": str(exc), "status": 400}},
             status=status.HTTP_400_BAD_REQUEST,
         )
 

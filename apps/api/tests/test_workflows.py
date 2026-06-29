@@ -72,7 +72,11 @@ def _bearer(client, user):
         {"email": user.email, "password": VALID_PASSWORD},
         format="json",
     )
-    assert resp.status_code == 200, f"Token fetch failed for {user.email}: {resp.data}"
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Token fetch failed for {user.email}: "
+            f"status={resp.status_code} data={resp.data}"
+        )
     return {"HTTP_AUTHORIZATION": f"Bearer {resp.data['access']}"}
 
 
@@ -277,6 +281,31 @@ class ClaimWorkItemTests(TestCase):
         )
 
         self.assertEqual(resp.status_code, 400)
+
+    def test_claim_error_response_uses_govstack_envelope(self):
+        # Service-layer errors from workflow action views must use the govstack envelope.
+        # Regression guard against flat {"detail": ...} responses.
+        other_staff = _make_staff()
+        work_item = _make_work_item(
+            status=WorkItemStatus.IN_PROGRESS,
+            assigned_to=other_staff,
+        )
+
+        resp = self.client.post(
+            _action_url(work_item.pk, "claim"),
+            {},
+            format="json",
+            **_bearer(self.client, self.staff),
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.data, "Workflow action errors must use govstack error envelope")
+        error = resp.data["error"]
+        self.assertIn("code", error)
+        self.assertIn("detail", error)
+        self.assertIn("status", error)
+        self.assertEqual(error["code"], "validation_error")
+        self.assertEqual(error["status"], 400)
 
     def test_citizen_claim_returns_403(self):
         # Citizens must never be able to claim work items — 403.
