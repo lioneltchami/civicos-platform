@@ -124,6 +124,32 @@ class FormPage(AbstractEmailForm):
     form_field = FormField
     submission_class = FormSubmission
 
+    def process_form_submission(self, form):
+        """
+        Override to capture submitter IP and consent before persisting.
+        The request is passed to render_landing_page and then here via
+        Wagtail's serve() → process_form_submission() chain.
+        """
+        submission = super().process_form_submission(form)
+        # Wagtail 5+ passes request on form as form.request (set in serve())
+        request = getattr(form, "request", None)
+        if request is not None:
+            x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+            if x_forwarded_for:
+                submission.submitter_ip = x_forwarded_for.split(",")[0].strip()
+            else:
+                submission.submitter_ip = request.META.get("REMOTE_ADDR")
+
+        if self.consent_text:
+            # Consent checkbox field value is stored in form.cleaned_data under
+            # a slug derived from the label. Record whether it was checked.
+            consent_value = form.cleaned_data.get("consent", False)
+            submission.consent_given = bool(consent_value)
+            submission.consent_text_shown = self.consent_text
+
+        submission.save(update_fields=["submitter_ip", "consent_given", "consent_text_shown"])
+        return submission
+
     content_panels = AbstractEmailForm.content_panels + [
         FieldPanel("intro"),
         InlinePanel("form_fields", label=_("Form fields")),

@@ -114,3 +114,38 @@ class AuthSecurityTest(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
+
+    def test_csrf_enforced_on_backup_codes_generation(self):
+        """POST without CSRF token must be rejected with 403."""
+        from django.test import Client
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        response = csrf_client.post(BACKUP_CODES_URL)
+        self.assertEqual(response.status_code, 403)
+
+    def test_csrf_enforced_on_language_change(self):
+        """POST without CSRF token must be rejected with 403."""
+        from django.test import Client
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        response = csrf_client.post(LANGUAGE_URL, {"language": "fr", "next": "/"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_backup_codes_shown_only_once(self):
+        """After codes are generated and viewed once, a second page load must show None."""
+        self.client.force_login(self.user)
+        self.client.post(BACKUP_CODES_URL)
+        response1 = self.client.get(MFA_URL)
+        self.assertIsNotNone(response1.context.get("new_backup_codes"))
+        response2 = self.client.get(MFA_URL)
+        self.assertIsNone(response2.context.get("new_backup_codes"))
+
+    def test_open_redirect_via_protocol_relative_url_blocked(self):
+        """next=//evil.com must be blocked even though it starts with /."""
+        self.client.force_login(self.user)
+        response = self.client.post(
+            LANGUAGE_URL,
+            {"language": "fr", "next": "//evil.com/steal"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(response["Location"].startswith("//"))

@@ -59,11 +59,25 @@ class AuditMiddleware:
 
     def _get_client_ip(self, request: HttpRequest) -> str:
         """
-        Extract the real client IP, respecting X-Forwarded-For from trusted proxies.
-        Only trust X-Forwarded-For when running behind a known reverse proxy.
+        Extract the real client IP.
+
+        SECURITY: X-Forwarded-For is only trusted when SECURE_PROXY_SSL_HEADER is
+        configured in settings (i.e., we are provably behind a reverse proxy that
+        strips/rewrites the header). Without that guard, any client can forge the
+        header and spoof their audit-log IP.
+
+        When behind a single trusted proxy, the header format is:
+          X-Forwarded-For: <client>, <proxy1>
+        We take the leftmost IP (the original client as seen by the outermost proxy).
+        If multiple untrusted hops are present, consider deploying django-ipware for
+        configurable trusted-proxy-count handling.
         """
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-        if x_forwarded_for:
-            # Take the first (leftmost) IP — the original client
-            return x_forwarded_for.split(",")[0].strip()
+        from django.conf import settings as django_settings
+
+        behind_proxy = bool(getattr(django_settings, "SECURE_PROXY_SSL_HEADER", None))
+        if behind_proxy:
+            x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+            if x_forwarded_for:
+                # Leftmost entry is the original client IP as appended by the outermost proxy
+                return x_forwarded_for.split(",")[0].strip()
         return request.META.get("REMOTE_ADDR", "")

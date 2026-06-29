@@ -200,11 +200,6 @@
         </a>
       </div>
 
-      <form method="post" action="">
-        {% csrf_token %}
-        {{ wizard.management_form }}
-      </form>
-
     {% else %}
       {# Fallback #}
       <h1 class="auth-card__heading">{% trans "Set up two-factor authentication / Configurer l'authentification à deux facteurs" %}</h1>

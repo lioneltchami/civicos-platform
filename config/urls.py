@@ -17,14 +17,9 @@ from django.conf.urls.i18n import i18n_patterns
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
-import two_factor.urls as two_factor_urls
 from wagtail import urls as wagtail_urls
 from wagtail.admin import urls as wagtailadmin_urls
 from wagtail.documents import urls as wagtaildocs_urls
-
-if isinstance(two_factor_urls.urlpatterns, tuple):
-    two_factor_urls.urlpatterns, two_factor_app_name = two_factor_urls.urlpatterns
-    two_factor_urls.app_name = two_factor_app_name
 
 urlpatterns = [
     # Wagtail admin
@@ -33,12 +28,18 @@ urlpatterns = [
     path("django-admin/", admin.site.urls),
     # Document downloads (protected)
     path("documents/", include(wagtaildocs_urls)),
-    # MFA / two-factor auth (must come before allauth)
-    path("account/two-factor/", include(two_factor_urls, namespace="two_factor")),
+    # MFA / two-factor auth (must come before allauth).
+    # django-two-factor-auth 1.15+ ships urlpatterns as a plain list with app_name
+    # set on the module. Use the (patterns, app_name) 2-tuple form for clarity.
+    path("account/two-factor/", include("two_factor.urls", namespace="two_factor")),
     # Authentication (allauth)
     path("account/", include("allauth.urls")),
     # Health check endpoint for load balancers and Kubernetes probes
     path("health/", include("apps.core.urls.health")),
+    # Django i18n — provides the {% url 'set_language' %} view used in base.html
+    # Must be a non-i18n (language-prefix-free) URL so the language switcher works
+    # regardless of which language is currently active.
+    path("i18n/", include("django.conf.urls.i18n")),
 ]
 
 # Internationalised URL patterns — wrapped in language prefix (/en/, /fr/)

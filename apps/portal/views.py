@@ -84,21 +84,28 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         all_requests = get_citizen_requests(self.request.user)
         ctx["recent_requests"] = all_requests[:5]
-        ctx["total_count"] = all_requests.count()
-        ctx["active_count"] = all_requests.exclude(
+        # Match template variable names: total_requests, active_requests, completed_requests
+        total = all_requests.count()
+        ctx["total_requests"] = total
+        ctx["active_requests"] = all_requests.exclude(
+            status__in=[ServiceRequestStatus.APPROVED,
+                        ServiceRequestStatus.REJECTED,
+                        ServiceRequestStatus.CLOSED]
+        ).count()
+        ctx["completed_requests"] = all_requests.filter(
             status__in=[ServiceRequestStatus.APPROVED,
                         ServiceRequestStatus.REJECTED,
                         ServiceRequestStatus.CLOSED]
         ).count()
         ctx["status_choices"] = ServiceRequestStatus.choices
-        # Unread notifications
+        # Unread notifications — context key matches template {% if unread_notification_count %}
         try:
             from apps.notifications.models import Notification
-            ctx["unread_notifications"] = Notification.objects.filter(
+            ctx["unread_notification_count"] = Notification.objects.filter(
                 recipient=self.request.user, read_at__isnull=True
             ).count()
         except Exception:
-            ctx["unread_notifications"] = 0
+            ctx["unread_notification_count"] = 0
         return ctx
 
 
@@ -181,10 +188,10 @@ class SubmitRequestView(LoginRequiredMixin, FormView):
             )
             messages.success(
                 self.request,
-                _(f"Your request has been submitted. Reference number: "
-                  f"{service_request.reference_number} / "
-                  f"Votre demande a été soumise. Numéro de référence: "
-                  f"{service_request.reference_number}"),
+                # Translators: %(ref)s is the request reference number, e.g. REQ-2026-001234
+                _("Your request has been submitted. Reference number: %(ref)s / "
+                  "Votre demande a été soumise. Numéro de référence : %(ref)s")
+                % {"ref": service_request.reference_number},
             )
             return redirect("portal:request-detail", pk=service_request.pk)
         except Exception:
@@ -218,8 +225,10 @@ class CancelRequestView(LoginRequiredMixin, OwnRequestMixin, View):
             )
             messages.success(
                 request,
-                _(f"Request {service_request.reference_number} has been cancelled. / "
-                  f"La demande {service_request.reference_number} a été annulée."),
+                # Translators: %(ref)s is the request reference number, e.g. REQ-2026-001234
+                _("Request %(ref)s has been cancelled. / "
+                  "La demande %(ref)s a été annulée.")
+                % {"ref": service_request.reference_number},
             )
         except (ValueError, PermissionError) as exc:
             messages.error(request, str(exc))
@@ -293,8 +302,9 @@ class StaffStatusUpdateView(StaffRequiredMixin, View):
             )
             messages.success(
                 request,
-                _(f"Status updated to {form.cleaned_data['new_status']}. / "
-                  f"Statut mis à jour à {form.cleaned_data['new_status']}."),
+                # Translators: %(status)s is the new status value, e.g. "in_review"
+                _("Status updated to %(status)s. / Statut mis à jour à %(status)s.")
+                % {"status": form.cleaned_data["new_status"]},
             )
         except ValueError as exc:
             messages.error(request, str(exc))

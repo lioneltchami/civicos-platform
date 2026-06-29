@@ -123,26 +123,29 @@ class SendEmailNotificationFailureTest(TestCase):
 
     @patch(RENDER, return_value="rendered content")
     @patch(SEND_MAIL, side_effect=Exception("SMTP timeout"))
-    def test_returns_false_on_smtp_error(self, mock_send, mock_render):
+    def test_raises_on_smtp_error(self, mock_send, mock_render):
+        """Service raises on SMTP failure so Celery autoretry_for=(Exception,) fires."""
         from apps.notifications.services import send_email_notification
         user = make_user()
-        result = send_email_notification(
-            recipient=user,
-            subject_key="status_update",
-            context={"reference": "GS-2026-001", "new_status": "in_review"},
-        )
-        self.assertFalse(result)
+        with self.assertRaises(Exception):
+            send_email_notification(
+                recipient=user,
+                subject_key="status_update",
+                context={"reference": "GS-2026-001", "new_status": "in_review"},
+            )
 
     @patch(RENDER, return_value="rendered content")
     @patch(SEND_MAIL, side_effect=Exception("SMTP timeout"))
     def test_notification_marked_failed_on_smtp_error(self, mock_send, mock_render):
+        """Notification record is persisted as FAILED before the exception propagates."""
         from apps.notifications.services import send_email_notification
         user = make_user()
-        send_email_notification(
-            recipient=user,
-            subject_key="status_update",
-            context={"reference": "GS-2026-001", "new_status": "in_review"},
-        )
+        with self.assertRaises(Exception):
+            send_email_notification(
+                recipient=user,
+                subject_key="status_update",
+                context={"reference": "GS-2026-001", "new_status": "in_review"},
+            )
         n = Notification.objects.get(recipient=user)
         self.assertEqual(n.status, NotificationStatus.FAILED)
 
@@ -152,11 +155,12 @@ class SendEmailNotificationFailureTest(TestCase):
         """Record is created before sending, so it survives a send failure."""
         from apps.notifications.services import send_email_notification
         user = make_user()
-        send_email_notification(
-            recipient=user,
-            subject_key="status_update",
-            context={"reference": "GS-2026-001", "new_status": "in_review"},
-        )
+        with self.assertRaises(Exception):
+            send_email_notification(
+                recipient=user,
+                subject_key="status_update",
+                context={"reference": "GS-2026-001", "new_status": "in_review"},
+            )
         self.assertEqual(Notification.objects.filter(recipient=user).count(), 1)
 
     @patch(RENDER, side_effect=Exception("TemplateDoesNotExist"))

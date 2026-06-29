@@ -43,7 +43,7 @@
           </div>
         </div>
         <p>
-          <a href="/account/two-factor/setup/" class="btn btn-secondary btn--small">
+          <a href="{% url 'two_factor:setup' %}" class="btn btn-secondary btn--small">
             {% trans "Update authenticator app / Mettre à jour l'application" %}
           </a>
         </p>
@@ -55,7 +55,7 @@
           </div>
         </div>
         <p>
-          <a href="/account/two-factor/setup/" class="btn btn-primary">
+          <a href="{% url 'two_factor:setup' %}" class="btn btn-primary">
             {% trans "Set up authenticator app / Configurer l'application d'authentification" %}
           </a>
         </p>

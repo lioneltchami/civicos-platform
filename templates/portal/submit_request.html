@@ -201,7 +201,7 @@
     </div>
 
     {# Consent checkbox (required) #}
-    <div class="form-group {% if form.consent.errors %}form-group--error{% endif %}">
+    <div class="form-group {% if form.consent_given.errors %}form-group--error{% endif %}">
       <fieldset class="form-fieldset">
         <legend class="form-fieldset__legend">
           {% trans "Consent" %}
@@ -209,25 +209,25 @@
         </legend>
         <div class="form-check">
           <input type="checkbox"
-                 id="id_consent"
-                 name="consent"
-                 class="form-check__input {% if form.consent.errors %}form-check__input--error{% endif %}"
-                 {% if form.consent.value %}checked{% endif %}
+                 id="id_consent_given"
+                 name="consent_given"
+                 class="form-check__input {% if form.consent_given.errors %}form-check__input--error{% endif %}"
+                 {% if form.consent_given.value %}checked{% endif %}
                  required
                  aria-required="true"
-                 aria-describedby="consent-hint{% if form.consent.errors %} consent-error{% endif %}">
-          <label for="id_consent" class="form-check__label">
+                 aria-describedby="consent-hint{% if form.consent_given.errors %} consent-error{% endif %}">
+          <label for="id_consent_given" class="form-check__label">
             {% trans "I consent to the collection, use, and disclosure of my personal information as described in the Privacy Notice above for the purpose of processing my service request." %}
           </label>
         </div>
         <span id="consent-hint" class="form-hint">
           {% trans "You must consent to submit this request." %}
         </span>
-        {% if form.consent.errors %}
+        {% if form.consent_given.errors %}
           <span id="consent-error"
                 class="form-error"
                 role="alert">
-            {{ form.consent.errors.0 }}
+            {{ form.consent_given.errors.0 }}
           </span>
         {% endif %}
       </fieldset>

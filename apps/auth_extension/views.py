@@ -127,18 +127,24 @@ class ChangeLanguageView(LoginRequiredMixin, View):
     """
     http_method_names = ["post"]
 
+    @staticmethod
+    def _safe_next(request: HttpRequest) -> str:
+        """Return a safe local redirect target from POST['next'], never off-site."""
+        next_url = request.POST.get("next") or "/"
+        # Reject absolute URLs and protocol-relative URLs (//evil.com)
+        if not next_url.startswith("/") or next_url.startswith("//"):
+            return "/"
+        return next_url
+
     def post(self, request: HttpRequest) -> HttpResponse:
         lang = request.POST.get("language", "")
         if lang not in ("en", "fr"):
-            return redirect(request.POST.get("next", "/"))
+            return redirect(self._safe_next(request))
         request.user.preferred_language = lang
         request.user.save(update_fields=["preferred_language"])
         from django.utils import translation
         translation.activate(lang)
-        next_url = request.POST.get("next") or "/"
-        # Basic open-redirect guard
-        if not next_url.startswith("/"):
-            next_url = "/"
+        next_url = self._safe_next(request)
         response = redirect(next_url)
         response.set_cookie(
             settings.LANGUAGE_COOKIE_NAME,
@@ -197,18 +203,22 @@ class GenerateBackupCodesView(LoginRequiredMixin, View):
     def post(self, request: HttpRequest) -> HttpResponse:
         try:
             from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
+            from django.db import transaction
             device, _ = StaticDevice.objects.get_or_create(
                 user=request.user,
                 defaults={"name": "Backup codes"},
             )
-            device.token_set.all().delete()
-            # Generate 8 codes in XXXX-XXXX format
+            # Generate 8 codes in XXXX-XXXX format before the atomic block
             codes = [
                 f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
                 for _ in range(8)
             ]
-            for code in codes:
-                StaticToken.objects.create(device=device, token=code.replace("-", ""))
+            # Atomic delete-and-replace: prevents duplicate token sets from concurrent POSTs
+            with transaction.atomic():
+                device_locked = StaticDevice.objects.select_for_update().get(pk=device.pk)
+                device_locked.token_set.all().delete()
+                for code in codes:
+                    StaticToken.objects.create(device=device_locked, token=code.replace("-", ""))
             # Store for one-time display — cleared on next page load
             request.session["new_backup_codes"] = codes
             request.session.modified = True

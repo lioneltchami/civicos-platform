@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Page not found" %}{% endblock %}
+
+{% block meta_description %}{% trans "The page you requested could not be found." %}{% endblock %}
+
+{% block content %}
+<div class="error-page error-page--404">
+  <h1>{% trans "Page not found" %}</h1>
+  <p>{% trans "The page you are looking for may have been moved, deleted, or never existed." %}</p>
+  <a href="/" class="button button--primary">{% trans "Return to home page" %}</a>
+</div>
+{% endblock %}

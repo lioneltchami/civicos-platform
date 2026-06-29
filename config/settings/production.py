@@ -31,6 +31,16 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 # Referrer policy
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
+# ALLOWED_HOSTS is read from DJANGO_ALLOWED_HOSTS env var (set in base.py).
+# Default is [] which causes Django to reject all requests — set the env var in deployment.
+# Example: DJANGO_ALLOWED_HOSTS=govstack.ca,www.govstack.ca
+
+# Wagtail email links (password reset, notification emails) must use HTTPS in production.
+# WAGTAILADMIN_BASE_URL must be set as an env var (e.g., https://cms.govstack.ca).
+# The base.py default of http://localhost:8000 is deliberately not overridden here
+# so a missing env var fails loudly rather than silently emitting http:// links.
+WAGTAILADMIN_BASE_URL = env("WAGTAILADMIN_BASE_URL")  # No default — required in production
+
 # ---------------------------------------------------------------------------
 # Media / file storage — AWS S3
 # ---------------------------------------------------------------------------
@@ -99,6 +109,9 @@ LOGGING = {
         "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "django.security": {"handlers": ["console"], "level": "WARNING", "propagate": False},
         "apps": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        # Audit logger intentionally silent — prevents PII from leaking into Sentry
+        # via LoggingIntegration. Audit data lives exclusively in AuditLogEntry records.
+        "apps.audit": {"handlers": [], "level": "CRITICAL", "propagate": False},
     },
 }
 

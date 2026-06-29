@@ -77,9 +77,12 @@ class MarkNotificationReadView(LoginRequiredMixin, View):
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             return JsonResponse({"status": "ok", "read_at": notification.read_at.isoformat()})
 
-        # Otherwise redirect back to inbox or referrer
+        # Otherwise redirect back to inbox or referrer.
+        # Guard: only allow relative paths that start with exactly one "/".
+        # Reject absolute URLs ("https://evil.com"), protocol-relative URLs
+        # ("//evil.com") and empty strings.
         next_url = request.POST.get("next", "")
-        if next_url and next_url.startswith("/"):  # Open-redirect guard
+        if next_url and next_url.startswith("/") and not next_url.startswith("//"):
             return redirect(next_url)
         return redirect("notifications:inbox")
 
@@ -92,10 +95,12 @@ class MarkAllReadView(LoginRequiredMixin, View):
 
     def post(self, request: HttpRequest) -> HttpResponse:
         now = timezone.now()
+        # Include updated_at explicitly: auto_now fields are NOT touched by
+        # QuerySet.update() — only Model.save() honours auto_now.
         updated = Notification.objects.filter(
             recipient=request.user,
             read_at__isnull=True,
-        ).update(read_at=now)
+        ).update(read_at=now, updated_at=now)
 
         logger.info(
             "Marked %d notifications as read for user_id=%s",

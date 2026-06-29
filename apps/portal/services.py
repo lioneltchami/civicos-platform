@@ -218,7 +218,11 @@ def _write_audit(
             event_type=event_type,
             outcome="success",
             actor_id=str(actor.pk) if hasattr(actor, "pk") else "",
-            actor_email=getattr(actor, "email", ""),
+            # Do not store actor_email for workflow events — PII stays in the User
+            # record referenced by actor_id. Authentication events (login/logout)
+            # may store it as a tamper-evident snapshot, but portal workflow events
+            # must not embed citizen email in every audit row.
+            actor_email="",
             actor_ip=None,
             actor_user_agent="",
             resource_type="portal.ServiceRequest",

@@ -148,6 +148,7 @@ DATABASES = {
 }
 DATABASES["default"]["ATOMIC_REQUESTS"] = True  # Wrap every request in a transaction
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  # Discard stale persistent connections
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -292,6 +293,7 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = False
+CELERY_TASK_TRACK_STARTED = True  # Expose STARTED state for monitoring / long-running tasks
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # ---------------------------------------------------------------------------
@@ -299,7 +301,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # ---------------------------------------------------------------------------
 
 WAGTAIL_SITE_NAME = env("WAGTAIL_SITE_NAME", default="Govstack")
-WAGTAILADMIN_BASE_URL = env("WAGTAILADMIN_BASE_URL", default="http://localhost:8000")
+WAGTAILADMIN_BASE_URL = env("WAGTAILADMIN_BASE_URL", default="http://localhost:8000")  # Override to https:// in production env
 
 WAGTAILIMAGES_IMAGE_MODEL = "cms.CustomImage"
 WAGTAILDOCS_DOCUMENT_MODEL = "cms.CustomDocument"

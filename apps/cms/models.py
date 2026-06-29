@@ -324,8 +324,11 @@ class ServiceIndexPage(Page):
             .order_by("category", "title")
         )
         # Optional category filter from query string (?category=permits)
+        # Validate against known choices to avoid silently returning empty results
+        # for arbitrary strings and to prevent unexpected ORM behaviour.
+        valid_categories = {slug for slug, _label in ServicePage.SERVICE_CATEGORIES}
         category = request.GET.get("category", "")
-        if category:
+        if category and category in valid_categories:
             services = services.filter(category=category)
             ctx["active_category"] = category
 

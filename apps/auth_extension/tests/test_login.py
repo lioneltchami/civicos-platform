@@ -43,7 +43,7 @@ class LoginFlowTest(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_login_with_valid_credentials_succeeds(self):
-        response = self.client.post(
+        self.client.post(
             LOGIN_URL,
             {
                 "auth-username": self.user.email,
@@ -52,8 +52,8 @@ class LoginFlowTest(TestCase):
             },
             follow=True,
         )
-        # Should reach portal or next step (MFA if configured)
-        self.assertIn(response.status_code, [200, 302])
+        # Verify the user was actually authenticated into the session
+        self.assertIn("_auth_user_id", self.client.session)
 
     def test_login_with_wrong_password_fails(self):
         self.client.post(

@@ -34,7 +34,9 @@ def send_email_notification(
 
     Selects the recipient's preferred language for the template.
     Records the notification in the Notification model.
-    Returns True on success, False on failure.
+    Returns True on success.
+    Raises on SMTP failure (so Celery can autoretry).
+    Returns False only if template rendering fails (non-retryable configuration error).
     """
     from .models import Notification, NotificationChannel, NotificationStatus
 
@@ -91,7 +93,11 @@ def send_email_notification(
         return True
 
     except Exception:
-        logger.exception("Failed to send email notification to %s", recipient.email)
+        # Log recipient.pk only — never log email addresses (PII).
+        logger.exception(
+            "Failed to send email notification to recipient_id=%s",
+            recipient.pk,
+        )
         notification.status = NotificationStatus.FAILED
         notification.save(update_fields=["status"])
-        return False
+        raise  # Re-raise so Celery autoretry_for=(Exception,) can retry the task.

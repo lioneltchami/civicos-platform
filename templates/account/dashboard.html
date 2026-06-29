@@ -13,9 +13,12 @@
       <h1 class="dashboard__heading">
         {% blocktrans with email=user.email %}Welcome, {{ email }}{% endblocktrans %}
       </h1>
-      <a href="{% url 'account_logout' %}" class="dashboard__signout-link">
-        {% trans "Sign out / Se déconnecter" %}
-      </a>
+      <form method="post" action="{% url 'account_logout' %}" class="dashboard__signout-form">
+        {% csrf_token %}
+        <button type="submit" class="dashboard__signout-link">
+          {% trans "Sign out / Se déconnecter" %}
+        </button>
+      </form>
     </div>
 
     {# Stats row #}

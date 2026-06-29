@@ -36,11 +36,13 @@ def audit_login_success(sender, request, user, **kwargs):
 
 @receiver(user_login_failed)
 def audit_login_failure(sender, request, credentials, **kwargs):
+    # Do NOT store the attempted email in event_detail — it is PII.
+    # The actor_email field is intentionally left empty for failed logins
+    # because the credential may belong to a non-existent account.
     record_event_from_request(
         request,
         event_type=AuditEventType.LOGIN_FAILED,
         outcome="failure",
-        event_detail={"email": credentials.get("email", "")},
     )
 
 

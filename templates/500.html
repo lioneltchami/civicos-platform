@@ -1,0 +1,24 @@
+{% load i18n static %}<!DOCTYPE html>
+{# 500.html must NOT extend base.html — if base.html itself causes the error,
+   extending it here will produce a recursive failure and a blank page.
+   Keep this template self-contained with minimal dependencies. #}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% trans "Server error" %} — Govstack</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 4rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 2rem; margin-bottom: 1rem; }
+    p { line-height: 1.6; }
+    a { color: #005a9c; }
+  </style>
+</head>
+<body>
+  <main id="main-content">
+    <h1>{% trans "Something went wrong" %}</h1>
+    <p>{% trans "We are sorry — an unexpected error has occurred. Our team has been notified." %}</p>
+    <p><a href="/">{% trans "Return to home page" %}</a></p>
+  </main>
+</body>
+</html>

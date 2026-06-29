@@ -63,12 +63,19 @@ class DashboardViewTest(TestCase):
         make_request_for(self.citizen)
         make_request_for(self.citizen)
         response = self.client.get("/portal/")
-        self.assertEqual(response.context["total_count"], 2)
+        # Context key is total_requests (matches template variable name)
+        self.assertEqual(response.context["total_requests"], 2)
 
     def test_dashboard_includes_active_count(self):
         make_request_for(self.citizen)
         response = self.client.get("/portal/")
-        self.assertIn("active_count", response.context)
+        # Context key is active_requests (matches template variable name)
+        self.assertIn("active_requests", response.context)
+
+    def test_dashboard_includes_completed_count(self):
+        make_request_for(self.citizen)
+        response = self.client.get("/portal/")
+        self.assertIn("completed_requests", response.context)
 
     def test_dashboard_caps_recent_requests_at_five(self):
         for _ in range(7):
