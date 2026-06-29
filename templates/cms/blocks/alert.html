@@ -1,0 +1,32 @@
+{% load i18n wagtailcore_tags %}
+{#
+  Alert / notice block.
+  role="alert" for errors (assertive live region).
+  role="note"  for info/warning/success (non-intrusive).
+  Includes a visible icon glyph AND a screen-reader label so
+  the type is communicated in two ways (not colour alone — WCAG 1.4.1).
+#}
+{% if value.alert_type == "error" %}
+  {% with role="alert" icon="⚠" sr_label="Error" %}
+    <div class="alert alert--{{ value.alert_type }}" role="{{ role }}">
+      <span class="alert__icon" aria-hidden="true">{{ icon }}</span>
+      <span class="visually-hidden">{{ sr_label }}: </span>
+      <div class="alert__content">
+        {% if value.title %}<strong class="alert__title">{{ value.title }}</strong>{% endif %}
+        <div class="rich-text">{{ value.body|richtext }}</div>
+      </div>
+    </div>
+  {% endwith %}
+{% else %}
+  {% with role="note" icon=value.alert_type|yesno:"ℹ,⚠,✓,ℹ" %}
+    <div class="alert alert--{{ value.alert_type }}" role="{{ role }}">
+      <span class="alert__icon" aria-hidden="true">
+        {% if value.alert_type == "info" %}ℹ{% elif value.alert_type == "warning" %}⚠{% elif value.alert_type == "success" %}✓{% else %}ℹ{% endif %}
+      </span>
+      <div class="alert__content">
+        {% if value.title %}<strong class="alert__title">{{ value.title }}</strong>{% endif %}
+        <div class="rich-text">{{ value.body|richtext }}</div>
+      </div>
+    </div>
+  {% endwith %}
+{% endif %}

@@ -1,0 +1,13 @@
+# Generated from test.in — target: Python 3.12
+# Includes all of base.txt
+
+-r base.txt
+
+pytest==8.3.3
+pytest-django==4.9.0
+pytest-cov==6.0.0
+pytest-xdist==3.6.1
+factory-boy==3.3.1
+faker==33.0.0
+responses==0.25.3
+time-machine==2.16.0

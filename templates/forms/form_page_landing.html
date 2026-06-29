@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% load i18n wagtailcore_tags %}
+
+{% block title %}{% trans "Submission received" %} — {{ page.title }}{% endblock %}
+
+{% block breadcrumb %}
+  {% include "includes/breadcrumb.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <article class="form-landing" aria-labelledby="landing-heading">
+
+    {# Success icon and confirmation heading #}
+    <div class="form-landing__icon" aria-hidden="true">✓</div>
+
+    <h1 id="landing-heading" class="form-landing__heading">
+      {% trans "Your submission has been received" %}
+    </h1>
+
+    {% if page.thank_you_text %}
+      <div class="form-landing__body richtext">
+        {{ page.thank_you_text|richtext }}
+      </div>
+    {% else %}
+      <p class="form-landing__body">
+        {% trans "Thank you. We have received your submission and will be in touch." %}
+      </p>
+    {% endif %}
+
+    <div class="form-landing__actions">
+      <a href="{{ page.get_parent.url }}" class="btn btn--secondary">
+        {% trans "Return to previous page" %}
+      </a>
+    </div>
+
+  </article>
+</div>
+{% endblock %}

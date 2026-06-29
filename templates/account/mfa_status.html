@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Security Settings / Paramètres de sécurité" %}{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+  <div class="auth-card">
+    <h1 class="auth-card__heading">{% trans "Security Settings / Paramètres de sécurité" %}</h1>
+
+    {# Security status banner #}
+    {% if has_mfa %}
+      <div class="notice notice--success" role="status">
+        <p>
+          <strong>{% trans "Your account is protected with two-factor authentication. / Votre compte est protégé par l'authentification à deux facteurs." %}</strong>
+        </p>
+      </div>
+    {% else %}
+      <div class="notice notice--warning" role="note">
+        <p>
+          <strong>{% trans "Your account does not have two-factor authentication enabled. / L'authentification à deux facteurs n'est pas activée sur votre compte." %}</strong>
+        </p>
+        <p>{% trans "We strongly recommend setting up an authenticator app to improve your account security. / Nous vous recommandons fortement de configurer une application d'authentification pour renforcer la sécurité de votre compte." %}</p>
+      </div>
+    {% endif %}
+
+    {# TOTP Section #}
+    <section class="security-section" aria-labelledby="totp-section-heading">
+      <h2 class="security-section__heading" id="totp-section-heading">
+        {% trans "Authenticator App / Application d'authentification" %}
+      </h2>
+
+      {% if has_mfa %}
+        <div class="security-item security-item--active">
+          <span class="security-item__status" aria-label="{% trans 'Enabled' %}">&#10003;</span>
+          <div class="security-item__content">
+            <p class="security-item__label">{% trans "Authenticator app enabled / Application d'authentification activée" %}</p>
+            {% if device_name %}
+              <p class="security-item__detail">
+                {% blocktrans with name=device_name %}Device: {{ name }}{% endblocktrans %}
+              </p>
+            {% endif %}
+          </div>
+        </div>
+        <p>
+          <a href="/account/two-factor/setup/" class="btn btn-secondary btn--small">
+            {% trans "Update authenticator app / Mettre à jour l'application" %}
+          </a>
+        </p>
+      {% else %}
+        <div class="security-item security-item--inactive">
+          <span class="security-item__status security-item__status--warning" aria-label="{% trans 'Not set up' %}">&#9888;</span>
+          <div class="security-item__content">
+            <p class="security-item__label">{% trans "Authenticator app not set up / Application d'authentification non configurée" %}</p>
+          </div>
+        </div>
+        <p>
+          <a href="/account/two-factor/setup/" class="btn btn-primary">
+            {% trans "Set up authenticator app / Configurer l'application d'authentification" %}
+          </a>
+        </p>
+      {% endif %}
+    </section>
+
+    <hr class="auth-card__divider">
+
+    {# Backup Codes Section #}
+    <section class="security-section" aria-labelledby="backup-codes-section-heading">
+      <h2 class="security-section__heading" id="backup-codes-section-heading">
+        {% trans "Backup Codes / Codes de secours" %}
+      </h2>
+
+      <p>
+        {% blocktrans with count=backup_codes_remaining %}
+          You have {{ count }} backup codes remaining. / Il vous reste {{ count }} codes de secours.
+        {% endblocktrans %}
+      </p>
+
+      <p class="form-hint">
+        {% trans "Backup codes can be used to access your account if you lose access to your authenticator app. Keep them in a safe place. / Les codes de secours peuvent être utilisés pour accéder à votre compte si vous perdez accès à votre application d'authentification. Conservez-les en lieu sûr." %}
+      </p>
+
+      {% if new_backup_codes %}
+        <div class="notice notice--warning" role="alert">
+          <p>
+            <strong>{% trans "Save these codes now — they will not be shown again. / Sauvegardez ces codes maintenant — ils ne seront plus affichés." %}</strong>
+          </p>
+          <ul class="backup-codes-list" aria-label="{% trans 'Your backup codes / Vos codes de secours' %}">
+            {% for code in new_backup_codes %}
+              <li class="backup-codes-list__item"><code>{{ code }}</code></li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      <div class="notice notice--warning" role="note">
+        <p>
+          <strong>{% trans "Warning / Avertissement:" %}</strong>
+          {% trans "Generating new backup codes will invalidate all existing codes. / La génération de nouveaux codes de secours invalidera tous les codes existants." %}
+        </p>
+      </div>
+
+      <form method="post" action="{% url 'auth_extension:generate_backup_codes' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-secondary">
+          {% trans "Generate new backup codes / Générer de nouveaux codes de secours" %}
+        </button>
+      </form>
+    </section>
+
+    <hr class="auth-card__divider">
+    <p class="auth-card__alt-action">
+      <a href="{% url 'portal:dashboard' %}">
+        &larr; {% trans "Back to My Account / Retour à Mon compte" %}
+      </a>
+    </p>
+  </div>
+</div>
+{% endblock %}

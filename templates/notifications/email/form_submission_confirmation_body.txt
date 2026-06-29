@@ -1,0 +1,12 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}
+
+{% blocktrans with title=form_title %}We have received your submission for: {{ title }}.{% endblocktrans %}
+
+{% trans "We will review your submission and contact you if further information is required." %}
+
+{% trans "Please keep this email for your records." %}
+
+---
+{% trans "This is an automated message. Please do not reply directly to this email." %}
+{% endautoescape %}

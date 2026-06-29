@@ -1,0 +1,1 @@
+{% load i18n %}{% blocktrans with title=form_title %}Your submission has been received: {{ title }}{% endblocktrans %}

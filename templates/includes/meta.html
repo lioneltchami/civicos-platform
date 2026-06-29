@@ -1,0 +1,20 @@
+{% comment %}
+  Reusable Open Graph / Twitter Card meta tags.
+  Include in {% block extra_head %} on page templates.
+  Requires: page (Wagtail page object), request
+{% endcomment %}
+{% load wagtailimages_tags %}
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="{{ SITE_NAME }}">
+<meta property="og:title" content="{{ page.seo_title|default:page.title }}">
+<meta property="og:description" content="{{ page.search_description }}">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+{% if page.feed_image %}
+  {% image page.feed_image width-1200 as og_img %}
+  <meta property="og:image" content="{{ og_img.url }}">
+{% endif %}
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{ page.seo_title|default:page.title }}">
+<meta name="twitter:description" content="{{ page.search_description }}">

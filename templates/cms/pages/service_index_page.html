@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% load i18n wagtailcore_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+{% block meta_description %}{{ page.search_description }}{% endblock %}
+
+{% block breadcrumb %}
+  {% include "includes/breadcrumb.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <header class="page-header">
+    <h1 class="page-header__title">{{ page.title }}</h1>
+    {% if page.intro %}
+      <div class="page-header__intro rich-text">{{ page.intro|richtext }}</div>
+    {% endif %}
+  </header>
+
+  {% if services %}
+
+    {# Category filter — uses URL query param ?category=permits #}
+    {% regroup services by get_category_display as services_by_category %}
+
+    <nav aria-label="{% trans 'Filter by category' %}" class="category-filter">
+      <ul role="list" class="category-filter__list">
+        <li>
+          <a href="{{ page.url }}"
+             class="category-filter__link {% if not request.GET.category %}category-filter__link--active{% endif %}"
+             {% if not request.GET.category %}aria-current="true"{% endif %}>
+            {% trans "All services" %}
+          </a>
+        </li>
+        {% for group in services_by_category %}
+          <li>
+            <a href="{{ page.url }}?category={{ group.list.0.category }}"
+               class="category-filter__link {% if request.GET.category == group.list.0.category %}category-filter__link--active{% endif %}"
+               {% if request.GET.category == group.list.0.category %}aria-current="true"{% endif %}>
+              {{ group.grouper }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </nav>
+
+    {# Service listing #}
+    <ul class="service-list" role="list">
+      {% for service in services %}
+        {% if not request.GET.category or service.category == request.GET.category %}
+          <li class="service-list__item">
+            <a href="{{ service.url }}" class="service-card">
+              <h2 class="service-card__title">{{ service.title }}</h2>
+              <p class="service-card__summary">{{ service.summary }}</p>
+              <div class="service-card__meta">
+                {% if service.online_available %}
+                  <span class="badge badge--online">{% trans "Available online" %}</span>
+                {% endif %}
+                {% if service.fee %}
+                  <span class="service-card__fee">{{ service.fee }}</span>
+                {% endif %}
+              </div>
+            </a>
+          </li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+
+  {% else %}
+    <p>{% trans "No services are currently listed. Please check back later." %}</p>
+  {% endif %}
+
+</div>
+{% endblock %}

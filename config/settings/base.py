@@ -1,0 +1,400 @@
+"""
+Base settings for Govstack.
+
+All settings shared across development, production, and test environments.
+Environment-specific overrides live in development.py, production.py, test.py.
+
+Configuration is driven by environment variables following the 12-factor app
+pattern. Use django-environ to read from a .env file in development.
+"""
+
+from pathlib import Path
+
+import environ
+
+# ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+# Repo root: govstack/
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Django project root: govstack/ (same as repo root in this layout)
+APPS_DIR = ROOT_DIR / "apps"
+
+env = environ.Env()
+
+# Read .env file if present (development). In production, vars come from the
+# process environment — no .env file on the server.
+environ.Env.read_env(ROOT_DIR / ".env")
+
+# ---------------------------------------------------------------------------
+# Django core
+# ---------------------------------------------------------------------------
+
+SECRET_KEY = env("DJANGO_SECRET_KEY")
+
+DEBUG = env.bool("DJANGO_DEBUG", default=False)
+
+ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
+
+DJANGO_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django.contrib.sitemaps",
+    "django.contrib.humanize",
+]
+
+WAGTAIL_APPS = [
+    "wagtail.contrib.forms",
+    "wagtail.contrib.redirects",
+    "wagtail.contrib.settings",
+    "wagtail.contrib.search_promotions",
+    "wagtail.contrib.typed_table_block",
+    "wagtail.embeds",
+    "wagtail.sites",
+    "wagtail.users",
+    "wagtail.snippets",
+    "wagtail.documents",
+    "wagtail.images",
+    "wagtail.search",
+    "wagtail.admin",
+    "wagtail",
+    "modelcluster",
+    "taggit",
+]
+
+THIRD_PARTY_APPS = [
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
+    "two_factor",
+    "django_celery_beat",
+    "django_celery_results",
+    "storages",
+    "anymail",
+]
+
+LOCAL_APPS = [
+    "apps.core",
+    "apps.cms",
+    "apps.forms",
+    "apps.portal",
+    "apps.workflows",
+    "apps.auth_extension",  # Extends Django auth; named to avoid collision
+    "apps.notifications",
+    "apps.audit",
+]
+
+INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
+
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",           # i18n language detection
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",                 # MFA
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "wagtail.contrib.redirects.middleware.RedirectMiddleware",
+    "apps.core.middleware.RequestIDMiddleware",            # Injects X-Request-ID
+    "apps.core.middleware.AuditMiddleware",               # Attaches actor to request
+    "allauth.account.middleware.AccountMiddleware",
+]
+
+ROOT_URLCONF = "config.urls"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [ROOT_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+                "django.template.context_processors.i18n",
+                "wagtail.contrib.settings.context_processors.settings",
+                "apps.core.context_processors.site_settings",
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+DATABASES = {
+    "default": env.db(
+        "DATABASE_URL",
+        default="postgres://govstack:govstack@localhost:5432/govstack",
+    )
+}
+DATABASES["default"]["ATOMIC_REQUESTS"] = True  # Wrap every request in a transaction
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": env("REDIS_URL", default="redis://localhost:6379/0"),
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Authentication
+# ---------------------------------------------------------------------------
+
+AUTH_USER_MODEL = "auth_extension.User"
+
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
+
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
+    },
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",  # Primary
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",  # Legacy fallback
+]
+
+# Session security
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_AGE = 1800  # 30 minutes inactivity timeout
+SESSION_SAVE_EVERY_REQUEST = True  # Reset timeout on every request
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+
+CSRF_COOKIE_SECURE = True
+CSRF_COOKIE_HTTPONLY = True
+
+# ---------------------------------------------------------------------------
+# django-allauth
+# ---------------------------------------------------------------------------
+
+ACCOUNT_AUTHENTICATION_METHOD = "email"
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_EMAIL_VERIFICATION = "mandatory"
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+ACCOUNT_SESSION_REMEMBER = False  # Session expires on browser close by default
+ACCOUNT_RATE_LIMITS = {
+    "login_failed": "5/5m",  # 5 attempts per 5 minutes
+}
+
+ACCOUNT_ADAPTER = "apps.auth_extension.adapters.GovstackAccountAdapter"
+ACCOUNT_SIGNUP_FORM_CLASS = "apps.auth_extension.forms.CitizenSignupForm"
+ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 3
+ACCOUNT_MAX_EMAIL_ADDRESSES = 1
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_LOGOUT_ON_PASSWORD_CHANGE = True
+ACCOUNT_DEFAULT_HTTP_PROTOCOL = "https"
+SOCIALACCOUNT_ADAPTER = "apps.auth_extension.adapters.GovstackSocialAccountAdapter"
+
+LOGIN_URL = "two_factor:login"
+LOGIN_REDIRECT_URL = "/"
+
+# ---------------------------------------------------------------------------
+# Internationalisation
+# ---------------------------------------------------------------------------
+
+LANGUAGE_CODE = "en"
+
+LANGUAGES = [
+    ("en", "English"),
+    ("fr", "Français"),
+]
+
+LOCALE_PATHS = [ROOT_DIR / "locale"]
+
+TIME_ZONE = "America/Toronto"
+
+USE_I18N = True
+USE_L10N = True
+USE_TZ = True
+
+WAGTAIL_I18N_ENABLED = True
+
+WAGTAIL_CONTENT_LANGUAGES = LANGUAGES
+
+# ---------------------------------------------------------------------------
+# Static & media files
+# ---------------------------------------------------------------------------
+
+STATIC_URL = "/static/"
+STATIC_ROOT = ROOT_DIR / "staticfiles"
+STATICFILES_DIRS = [ROOT_DIR / "static"]
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = ROOT_DIR / "media"
+
+# Django 4.2+ uses STORAGES dict instead of STATICFILES_STORAGE / DEFAULT_FILE_STORAGE
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+# Production overrides STORAGES["default"] to S3 — see production.py
+
+# ---------------------------------------------------------------------------
+# Email
+# ---------------------------------------------------------------------------
+
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@govstack.ca")
+SERVER_EMAIL = env("SERVER_EMAIL", default="errors@govstack.ca")
+EMAIL_SUBJECT_PREFIX = "[Govstack] "
+
+# ---------------------------------------------------------------------------
+# Celery
+# ---------------------------------------------------------------------------
+
+CELERY_BROKER_URL = env("REDIS_URL", default="redis://localhost:6379/1")
+CELERY_RESULT_BACKEND = "django-db"
+CELERY_CACHE_BACKEND = "django-cache"
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
+# ---------------------------------------------------------------------------
+# Wagtail
+# ---------------------------------------------------------------------------
+
+WAGTAIL_SITE_NAME = env("WAGTAIL_SITE_NAME", default="Govstack")
+WAGTAILADMIN_BASE_URL = env("WAGTAILADMIN_BASE_URL", default="http://localhost:8000")
+
+WAGTAILIMAGES_IMAGE_MODEL = "cms.CustomImage"
+WAGTAILDOCS_DOCUMENT_MODEL = "cms.CustomDocument"
+
+WAGTAIL_ENABLE_WHATS_NEW_BANNER = False
+WAGTAIL_SLIM_SIDEBAR = True
+
+# Restrict document / image file types
+WAGTAILIMAGES_EXTENSIONS = ["gif", "jpg", "jpeg", "png", "webp", "svg"]
+WAGTAILDOCS_EXTENSIONS = ["pdf", "docx", "xlsx", "csv", "txt"]
+
+# Search
+WAGTAILSEARCH_BACKENDS = {
+    "default": {
+        "BACKEND": "wagtail.search.backends.database",
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Security headers (baseline — production.py tightens further)
+# ---------------------------------------------------------------------------
+
+X_FRAME_OPTIONS = "DENY"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# CSP configured via django-csp — see apps/core/middleware.py or settings overrides
+CSP_DEFAULT_SRC = ("'self'",)
+CSP_SCRIPT_SRC = ("'self'",)
+CSP_STYLE_SRC = ("'self'",)
+CSP_IMG_SRC = ("'self'", "data:")
+CSP_FONT_SRC = ("'self'",)
+CSP_CONNECT_SRC = ("'self'",)
+CSP_FRAME_ANCESTORS = ("'none'",)
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {process:d} {thread:d} {message}",
+            "style": "{",
+        },
+        "json": {
+            "()": "apps.core.logging.JSONFormatter",
+        },
+    },
+    "filters": {
+        "require_debug_false": {"()": "django.utils.log.RequireDebugFalse"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+        "mail_admins": {
+            "level": "ERROR",
+            "filters": ["require_debug_false"],
+            "class": "django.utils.log.AdminEmailHandler",
+        },
+    },
+    "root": {"level": "INFO", "handlers": ["console"]},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "django.security": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "apps": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
+        # Never log PII — these loggers are intentionally silent
+        "apps.audit": {"handlers": [], "level": "CRITICAL", "propagate": False},
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Govstack-specific settings
+# ---------------------------------------------------------------------------
+
+GOVSTACK = {
+    # Minimum retention period in days for audit logs
+    "AUDIT_LOG_RETENTION_DAYS": env.int("AUDIT_LOG_RETENTION_DAYS", default=2555),  # 7 years
+    # Maximum file upload size in bytes (default 10 MB)
+    "MAX_UPLOAD_SIZE": env.int("MAX_UPLOAD_SIZE", default=10 * 1024 * 1024),
+    # Allowed MIME types for file uploads
+    "ALLOWED_UPLOAD_MIME_TYPES": [
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
+    ],
+    # Number of failed login attempts before account lockout
+    "MAX_LOGIN_ATTEMPTS": env.int("MAX_LOGIN_ATTEMPTS", default=5),
+    # GC Notify API key (used by notifications app)
+    "GC_NOTIFY_API_KEY": env("GC_NOTIFY_API_KEY", default=""),
+}

@@ -1,0 +1,44 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ recipient.preferred_language|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% blocktrans with ref=reference %}Update on request {{ ref }}{% endblocktrans %}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; color: #1a1a1a; margin: 0; padding: 0; background: #f4f6f7; }
+    .wrapper { max-width: 600px; margin: 2rem auto; background: #ffffff; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .header { background: #1a5276; padding: 1.5rem 2rem; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 1.25rem; }
+    .body { padding: 2rem; }
+    .body p { line-height: 1.6; margin: 0 0 1rem; }
+    .status-box { background: #d6eaf8; border-left: 4px solid #1a5276; padding: 1rem 1.25rem; border-radius: 0 4px 4px 0; margin: 1.5rem 0; }
+    .status-box .label { font-size: 0.875rem; color: #595959; margin: 0 0 0.25rem; }
+    .status-box .value { font-size: 1.125rem; font-weight: 700; color: #1a5276; margin: 0; }
+    .cta { margin: 1.5rem 0; }
+    .btn { display: inline-block; background: #1a5276; color: #ffffff; text-decoration: none; padding: 0.75rem 1.5rem; border-radius: 4px; font-weight: 600; }
+    .footer { padding: 1rem 2rem; background: #f4f6f7; color: #595959; font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>{% trans "Request status update" %}</h1>
+    </div>
+    <div class="body">
+      <p>{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}</p>
+      <p>{% blocktrans with ref=reference %}The status of your service request <strong>{{ ref }}</strong> has been updated.{% endblocktrans %}</p>
+      <div class="status-box">
+        <p class="label">{% trans "New status" %}</p>
+        <p class="value">{{ new_status }}</p>
+      </div>
+      <div class="cta">
+        <a href="#" class="btn">{% trans "View your request" %}</a>
+      </div>
+    </div>
+    <div class="footer">
+      <p>{% trans "This is an automated message. Please do not reply directly to this email." %}</p>
+    </div>
+  </div>
+</body>
+</html>

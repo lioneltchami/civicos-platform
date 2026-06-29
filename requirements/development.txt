@@ -1,0 +1,32 @@
+# Generated from development.in — target: Python 3.12
+# Includes all of base.txt
+
+-r base.txt
+
+# Debug toolbar
+django-debug-toolbar==4.4.6
+
+# Shell enhancements
+django-extensions==3.2.3
+ipython==8.29.0
+
+# Testing
+pytest==8.3.3
+pytest-django==4.9.0
+pytest-cov==6.0.0
+factory-boy==3.3.1
+faker==33.0.0
+
+# Linting & formatting
+ruff==0.8.4
+
+# Type checking
+mypy==1.13.0
+django-stubs[compatible-mypy]==5.1.1
+celery-types==0.22.0
+
+# Security scanning
+pip-audit==2.7.3
+
+# Pre-commit
+pre-commit==4.0.1

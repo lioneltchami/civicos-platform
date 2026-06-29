@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% load i18n wagtailimages_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+{% block meta_description %}{{ page.intro|default:page.search_description }}{% endblock %}
+
+{% block breadcrumb %}
+  {% include "includes/breadcrumb.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <header class="page-header">
+    <h1 class="page-header__title">{{ page.title }}</h1>
+    {% if page.intro %}
+      <p class="page-header__intro">{{ page.intro }}</p>
+    {% endif %}
+  </header>
+
+  {% if news_items %}
+    <ul class="news-list" role="list">
+      {% for article in news_items %}
+        <li class="news-card">
+          {% if article.featured_image %}
+            <a href="{{ article.url }}" class="news-card__image-link" tabindex="-1" aria-hidden="true">
+              {% image article.featured_image fill-480x270 loading="lazy" class="news-card__image" alt="" %}
+            </a>
+          {% endif %}
+          <div class="news-card__body">
+            <time class="news-card__date" datetime="{{ article.publication_date|date:'Y-m-d' }}">
+              {{ article.publication_date|date:"N j, Y" }}
+            </time>
+            <h2 class="news-card__title">
+              <a href="{{ article.url }}" class="news-card__link">{{ article.title }}</a>
+            </h2>
+            <p class="news-card__summary">{{ article.summary }}</p>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+
+    {# Pagination #}
+    {% if news_items.has_other_pages %}
+      <nav aria-label="{% trans 'Pagination' %}" class="pagination">
+        <ul class="pagination__list" role="list">
+          {% if news_items.has_previous %}
+            <li>
+              <a href="?page={{ news_items.previous_page_number }}"
+                 class="pagination__link" rel="prev">
+                &larr; {% trans "Newer" %}
+              </a>
+            </li>
+          {% endif %}
+          <li aria-current="page">
+            <span class="pagination__current">
+              {% blocktrans with current=news_items.number total=news_items.paginator.num_pages %}
+                Page {{ current }} of {{ total }}
+              {% endblocktrans %}
+            </span>
+          </li>
+          {% if news_items.has_next %}
+            <li>
+              <a href="?page={{ news_items.next_page_number }}"
+                 class="pagination__link" rel="next">
+                {% trans "Older" %} &rarr;
+              </a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+
+  {% else %}
+    <p>{% trans "No news articles have been published yet." %}</p>
+  {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Edit Profile / Modifier mon profil" %}{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+  <div class="auth-card">
+    <h1 class="auth-card__heading">{% trans "Edit Profile / Modifier mon profil" %}</h1>
+
+    {% if form.errors %}
+    <div class="error-summary" role="alert" aria-live="assertive" aria-labelledby="error-summary-title">
+      <h2 class="error-summary__title" id="error-summary-title">{% trans "There is a problem / Il y a un problème" %}</h2>
+      <ul class="error-summary__list">
+        {% for field in form %}
+          {% if field.errors %}
+            {% for error in field.errors %}
+              <li><a href="#{{ field.id_for_label }}">{{ error }}</a></li>
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" action="" novalidate>
+      {% csrf_token %}
+
+      {% for field in form %}
+        <div class="form-group {% if field.errors %}form-group--error{% endif %}">
+          <label class="form-label" for="{{ field.id_for_label }}">
+            {{ field.label }}
+            {% if field.field.required %}
+              <span class="form-label__required" aria-hidden="true">*</span>
+            {% endif %}
+          </label>
+          {% if field.help_text %}
+            <span id="{{ field.id_for_label }}-hint" class="form-hint">{{ field.help_text }}</span>
+          {% endif %}
+          {% if field.errors %}
+            <span id="{{ field.id_for_label }}-error" class="form-error" role="alert">
+              {{ field.errors.0 }}
+            </span>
+          {% endif %}
+          {{ field }}
+        </div>
+      {% endfor %}
+
+      <div class="form-group form-group--actions form-group--actions-row">
+        <button type="submit" class="btn btn-primary">
+          {% trans "Save changes / Enregistrer les modifications" %}
+        </button>
+        <a href="{% url 'portal:dashboard' %}" class="btn btn-secondary">
+          {% trans "Cancel / Annuler" %}
+        </a>
+      </div>
+    </form>
+
+    <hr class="auth-card__divider">
+    <p class="auth-card__alt-action">
+      <a href="{% url 'portal:dashboard' %}">
+        &larr; {% trans "Back to My Account / Retour à Mon compte" %}
+      </a>
+    </p>
+  </div>
+</div>
+{% endblock %}

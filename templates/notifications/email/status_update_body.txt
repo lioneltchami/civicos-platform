@@ -1,0 +1,10 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with name=recipient.display_name %}Hello {{ name }},{% endblocktrans %}
+
+{% blocktrans with ref=reference status=new_status %}The status of your service request {{ ref }} has been updated to: {{ status }}.{% endblocktrans %}
+
+{% trans "Sign in to your account to view the full details of your request." %}
+
+---
+{% trans "This is an automated message. Please do not reply directly to this email." %}
+{% endautoescape %}

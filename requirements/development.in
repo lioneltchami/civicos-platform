@@ -1,0 +1,32 @@
+-r base.in
+
+# Debug toolbar
+django-debug-toolbar==4.*
+
+# Shell enhancements
+django-extensions==3.*
+ipython==8.*
+
+# Testing
+pytest==8.*
+pytest-django==4.*
+pytest-cov==5.*
+factory-boy==3.*
+faker==28.*
+
+# Linting & formatting
+ruff==0.8.*
+
+# Type checking
+mypy==1.13.*
+django-stubs[compatible-mypy]==5.*
+celery-types==0.22.*
+
+# Accessibility testing (CLI)
+# pa11y installed separately via npm
+
+# Security scanning
+pip-audit==2.*
+
+# Pre-commit
+pre-commit==4.*

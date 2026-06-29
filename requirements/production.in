@@ -1,0 +1,11 @@
+-r base.in
+
+# WSGI/ASGI server
+gunicorn==23.*
+uvicorn[standard]==0.32.*
+
+# Sentry error tracking
+sentry-sdk[django]==2.*
+
+# Connection pooling (use PgBouncer at infra level; this is for Django-level pooling)
+django-db-geventpool==4.*

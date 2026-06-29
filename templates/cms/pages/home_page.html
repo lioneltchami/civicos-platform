@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load i18n wagtailcore_tags wagtailimages_tags static %}
+
+{% block title %}{{ page.title }}{% endblock %}
+{% block meta_description %}{{ page.hero_subheading|default:page.search_description }}{% endblock %}
+
+{% block content %}
+
+  {# ============================================================
+     Hero section
+     ============================================================ #}
+  <section class="hero" aria-labelledby="hero-heading">
+    {% if page.hero_image %}
+      <div class="hero__image-wrap" aria-hidden="true">
+        {% image page.hero_image fill-1440x600 loading="eager" class="hero__image" alt="" %}
+      </div>
+    {% endif %}
+    <div class="hero__content container">
+      <h1 id="hero-heading" class="hero__heading">{{ page.hero_heading }}</h1>
+      {% if page.hero_subheading %}
+        <p class="hero__subheading">{{ page.hero_subheading }}</p>
+      {% endif %}
+      {% if page.hero_cta_text and page.hero_cta_page %}
+        <a href="{{ page.hero_cta_page.url }}" class="btn btn--primary hero__cta">
+          {{ page.hero_cta_text }}
+        </a>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ============================================================
+     Body stream blocks
+     ============================================================ #}
+  {% if page.body %}
+    <div class="container page-body">
+      {% include_block page.body %}
+    </div>
+  {% endif %}
+
+{% endblock %}

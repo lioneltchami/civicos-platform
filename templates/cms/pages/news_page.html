@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% load i18n wagtailcore_tags wagtailimages_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+{% block meta_description %}{{ page.summary }}{% endblock %}
+
+{% block breadcrumb %}
+  {% include "includes/breadcrumb.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <article class="news-article" aria-labelledby="article-heading">
+
+    <header class="news-article__header">
+
+      {# Category / type tag — currently all news, extensible #}
+      <p class="news-article__tag" aria-label="{% trans 'Content type' %}">
+        {% trans "News" %}
+      </p>
+
+      <h1 id="article-heading" class="news-article__title">{{ page.title }}</h1>
+
+      <div class="news-article__meta">
+        <time class="news-article__date" datetime="{{ page.publication_date|date:'Y-m-d' }}">
+          {{ page.publication_date|date:"N j, Y" }}
+        </time>
+        {% if page.author %}
+          <span class="news-article__author">
+            {# Translators: "by Jane Smith" attribution line #}
+            {% blocktrans with author=page.author %}by {{ author }}{% endblocktrans %}
+          </span>
+        {% endif %}
+      </div>
+
+      {% if page.featured_image %}
+        <figure class="news-article__featured-image">
+          {% image page.featured_image max-960x540 loading="eager" class="news-article__img" alt=page.featured_image.get_alt_text %}
+          {% if page.featured_image.alt_text %}
+            {# No caption needed if alt text is purely descriptive #}
+          {% endif %}
+        </figure>
+      {% endif %}
+
+      <p class="news-article__summary">{{ page.summary }}</p>
+
+    </header>
+
+    <div class="news-article__body page-body">
+      {% include_block page.body %}
+    </div>
+
+    {# Back link — helpful for keyboard users who arrived deep in the site #}
+    <footer class="news-article__footer">
+      <a href="{{ page.get_parent.url }}" class="link-back">
+        &larr; {% trans "Back to news" %}
+      </a>
+    </footer>
+
+  </article>
+</div>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% load i18n wagtailcore_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+{% block meta_description %}{{ page.summary }}{% endblock %}
+
+{% block breadcrumb %}
+  {% include "includes/breadcrumb.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="service-page-layout">
+
+    {# ---- Main content ---- #}
+    <article class="service-page__main">
+      <header class="page-header">
+        <h1 class="page-header__title">{{ page.title }}</h1>
+        <p class="page-header__summary">{{ page.summary }}</p>
+        {% if page.online_available %}
+          <div class="service-page__online-badge">
+            <span class="badge badge--online">{% trans "Available online" %}</span>
+          </div>
+        {% endif %}
+      </header>
+
+      <div class="page-body">
+        {% include_block page.body %}
+      </div>
+    </article>
+
+    {# ---- Sidebar ---- #}
+    <aside class="service-page__sidebar" aria-label="{% trans 'Service information' %}">
+
+      {# Online action #}
+      {% if page.online_available and page.online_form %}
+        <div class="sidebar-card sidebar-card--primary">
+          <h2 class="sidebar-card__heading">{% trans "Apply online" %}</h2>
+          <a href="{{ page.online_form.url }}" class="btn btn--primary">
+            {% trans "Start your application" %}
+            <span class="visually-hidden"> — {{ page.title }}</span>
+          </a>
+        </div>
+      {% endif %}
+
+      {# Key facts #}
+      <div class="sidebar-card">
+        <h2 class="sidebar-card__heading">{% trans "Key information" %}</h2>
+        <dl class="definition-list">
+
+          {% if page.processing_time %}
+            <div class="definition-list__item">
+              <dt>{% trans "Processing time" %}</dt>
+              <dd>{{ page.processing_time }}</dd>
+            </div>
+          {% endif %}
+
+          {% if page.fee %}
+            <div class="definition-list__item">
+              <dt>{% trans "Fee" %}</dt>
+              <dd>{{ page.fee }}</dd>
+            </div>
+          {% endif %}
+
+          <div class="definition-list__item">
+            <dt>{% trans "Category" %}</dt>
+            <dd>{{ page.get_category_display }}</dd>
+          </div>
+
+        </dl>
+      </div>
+
+      {# Contact #}
+      {% if page.contact_email or page.contact_phone %}
+        <div class="sidebar-card">
+          <h2 class="sidebar-card__heading">{% trans "Contact us" %}</h2>
+          {% if page.contact_email %}
+            <p>
+              <a href="mailto:{{ page.contact_email }}">{{ page.contact_email }}</a>
+            </p>
+          {% endif %}
+          {% if page.contact_phone %}
+            <p>
+              <a href="tel:{{ page.contact_phone|cut:' ' }}">{{ page.contact_phone }}</a>
+            </p>
+          {% endif %}
+        </div>
+      {% endif %}
+
+    </aside>
+
+  </div>
+</div>
+{% endblock %}

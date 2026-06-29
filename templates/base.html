@@ -1,0 +1,169 @@
+{% load i18n static %}<!DOCTYPE html>
+<html lang="{{ CURRENT_LANGUAGE }}" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+
+  <title>{% block title %}{% endblock %} — {{ SITE_NAME }}</title>
+  <meta name="description" content="{% block meta_description %}{% endblock %}">
+
+  {# Canonical URL for SEO #}
+  {% block canonical_url %}{% endblock %}
+
+  {# Preconnect / resource hints #}
+  <link rel="preload" href="{% static 'css/main.css' %}" as="style">
+
+  {# Styles #}
+  <link rel="stylesheet" href="{% static 'css/main.css' %}">
+  {% block extra_css %}{% endblock %}
+
+  {# Favicon #}
+  <link rel="icon" href="{% static 'images/favicon.ico' %}" type="image/x-icon">
+
+  {# Replace no-js with js if JavaScript is available #}
+  <script>document.documentElement.className = document.documentElement.className.replace('no-js', 'js');</script>
+</head>
+
+<body class="{% block body_class %}{% endblock %}">
+
+  {# ===================================================================
+     Skip navigation link — WCAG 2.1 SC 2.4.1
+     Must be the very first focusable element on the page.
+     =================================================================== #}
+  <a class="skip-link" href="#main-content">
+    {% trans "Skip to main content" %}
+  </a>
+
+  {# ===================================================================
+     Site header
+     =================================================================== #}
+  <header class="site-header" role="banner">
+    <div class="site-header__inner">
+
+      {# Logo / home link #}
+      <a class="site-header__logo" href="{% url 'wagtail_serve' '' %}">
+        <span class="visually-hidden">{{ SITE_NAME }}</span>
+        {# Replace with actual logo image once available #}
+        <span class="site-header__logo-text" aria-hidden="true">{{ SITE_NAME }}</span>
+      </a>
+
+      {# Primary navigation #}
+      <nav class="site-nav" aria-label="{% trans 'Main navigation' %}">
+        {% block navigation %}{% endblock %}
+      </nav>
+
+      {# Language switcher — bilingual requirement #}
+      <div class="language-switcher">
+        {% get_current_language as LANGUAGE_CODE %}
+        {% get_available_languages as LANGUAGES %}
+        {% get_language_info_list for LANGUAGES as languages %}
+        <ul class="language-switcher__list" role="list">
+          {% for lang in languages %}
+            {% if lang.code != LANGUAGE_CODE %}
+              <li>
+                <a href="{% url 'set_language' %}"
+                   hreflang="{{ lang.code }}"
+                   lang="{{ lang.code }}"
+                   class="language-switcher__link"
+                   data-language="{{ lang.code }}"
+                   onclick="document.getElementById('language-form-{{ lang.code }}').submit(); return false;">
+                  {{ lang.name_local }}
+                </a>
+                {# Hidden form — language switch requires a POST for CSRF safety #}
+                <form id="language-form-{{ lang.code }}"
+                      action="{% url 'set_language' %}"
+                      method="post"
+                      style="display:none">
+                  {% csrf_token %}
+                  <input type="hidden" name="language" value="{{ lang.code }}">
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                </form>
+              </li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+
+      {# Authenticated user menu #}
+      {% if user.is_authenticated %}
+        <div class="user-menu">
+          <a href="{% url 'portal:dashboard' %}" class="user-menu__link">
+            {% trans "My account" %}
+            <span class="visually-hidden">({{ user.display_name }})</span>
+          </a>
+          <a href="{% url 'account_logout' %}" class="user-menu__link user-menu__link--logout">
+            {% trans "Sign out" %}
+          </a>
+        </div>
+      {% else %}
+        <div class="user-menu">
+          <a href="{% url 'two_factor:login' %}" class="user-menu__link">
+            {% trans "Sign in" %}
+          </a>
+        </div>
+      {% endif %}
+
+    </div>
+  </header>
+
+  {# ===================================================================
+     Site-wide alert banner (managed via Wagtail snippets)
+     =================================================================== #}
+  {% block site_alert %}{% endblock %}
+
+  {# ===================================================================
+     Django messages — success/error/info
+     =================================================================== #}
+  {% if messages %}
+    <div class="messages" role="status" aria-live="polite" aria-atomic="true">
+      {% for message in messages %}
+        <div class="message message--{{ message.tags }}" role="alert">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {# ===================================================================
+     Breadcrumb navigation (optional — pages set this block)
+     =================================================================== #}
+  {% block breadcrumb %}{% endblock %}
+
+  {# ===================================================================
+     Main content area
+     id="main-content" is the target of the skip link above.
+     =================================================================== #}
+  <main id="main-content" class="main-content" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+
+  {# ===================================================================
+     Site footer
+     =================================================================== #}
+  <footer class="site-footer" role="contentinfo">
+    <div class="site-footer__inner">
+      {% block footer %}
+        <nav aria-label="{% trans 'Footer navigation' %}">
+          {% block footer_navigation %}{% endblock %}
+        </nav>
+        <p class="site-footer__legal">
+          {% now "Y" as current_year %}
+          {% blocktrans with year=current_year %}
+            &copy; {{ year }} {{ SITE_NAME }}. All rights reserved.
+          {% endblocktrans %}
+        </p>
+      {% endblock %}
+    </div>
+  </footer>
+
+  {# ===================================================================
+     JavaScript
+     HTMX + Alpine.js loaded from static files (no CDN in production).
+     =================================================================== #}
+  <script src="{% static 'js/htmx.min.js' %}" defer></script>
+  <script src="{% static 'js/alpine.min.js' %}" defer></script>
+  {% block extra_js %}{% endblock %}
+
+</body>
+</html>

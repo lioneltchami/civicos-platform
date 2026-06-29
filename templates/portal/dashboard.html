@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "My account" %}{% endblock %}
+{% block meta_description %}{% trans "View your service requests and account information." %}{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <h1>{% blocktrans with name=user.display_name %}Welcome, {{ name }}{% endblocktrans %}</h1>
+
+  {# ============================================================
+     Service requests section
+     ============================================================ #}
+  <section aria-labelledby="requests-heading">
+    <h2 id="requests-heading">{% trans "Your service requests" %}</h2>
+
+    {% if recent_requests %}
+      <ul class="request-list" role="list">
+        {% for request in recent_requests %}
+          <li class="request-list__item">
+            <a href="{% url 'portal:request-detail' request.pk %}"
+               class="request-list__link">
+              <span class="request-list__reference">{{ request.reference_number }}</span>
+              <span class="request-list__service">{{ request.service_name }}</span>
+            </a>
+            <span class="request-list__status status-badge status-badge--{{ request.status }}">
+              {{ request.get_status_display }}
+            </span>
+            <time class="request-list__date" datetime="{{ request.created_at|date:'c' }}">
+              {{ request.created_at|date:"N j, Y" }}
+            </time>
+          </li>
+        {% endfor %}
+      </ul>
+
+      <a href="{% url 'portal:request-list' %}" class="link-more">
+        {% trans "View all requests" %}
+        <span class="visually-hidden">{% trans "for your account" %}</span>
+      </a>
+
+    {% else %}
+      <p>{% trans "You have not submitted any service requests yet." %}</p>
+    {% endif %}
+
+  </section>
+
+</div>
+{% endblock %}

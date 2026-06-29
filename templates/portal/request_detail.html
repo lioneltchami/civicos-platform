@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{{ service_request.reference_number }} — {% trans "Service request" %}{% endblock %}
+{% block meta_description %}{% blocktrans with ref=service_request.reference_number %}Details for service request {{ ref }}.{% endblocktrans %}{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  {# Breadcrumb #}
+  <nav aria-label="{% trans 'Breadcrumb' %}">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My account" %}</a></li>
+      <li><a href="{% url 'portal:request-list' %}">{% trans "My requests" %}</a></li>
+      <li aria-current="page">{{ service_request.reference_number }}</li>
+    </ol>
+  </nav>
+
+  <h1>{{ service_request.service_name }}</h1>
+
+  {# Summary card #}
+  <section aria-labelledby="summary-heading" class="detail-card">
+    <h2 id="summary-heading" class="detail-card__heading">{% trans "Request details" %}</h2>
+    <dl class="definition-list">
+      <div class="definition-list__item">
+        <dt>{% trans "Reference number" %}</dt>
+        <dd><code>{{ service_request.reference_number }}</code></dd>
+      </div>
+      <div class="definition-list__item">
+        <dt>{% trans "Status" %}</dt>
+        <dd>
+          <span class="status-badge status-badge--{{ service_request.status }}">
+            {{ service_request.get_status_display }}
+          </span>
+        </dd>
+      </div>
+      <div class="definition-list__item">
+        <dt>{% trans "Submitted" %}</dt>
+        <dd>
+          <time datetime="{{ service_request.created_at|date:'c' }}">
+            {{ service_request.created_at|date:"N j, Y" }}
+          </time>
+        </dd>
+      </div>
+      <div class="definition-list__item">
+        <dt>{% trans "Last updated" %}</dt>
+        <dd>
+          <time datetime="{{ service_request.updated_at|date:'c' }}">
+            {{ service_request.updated_at|date:"N j, Y" }}
+          </time>
+        </dd>
+      </div>
+    </dl>
+  </section>
+
+  {# Status history timeline #}
+  {% if service_request.status_updates.exists %}
+    <section aria-labelledby="history-heading">
+      <h2 id="history-heading">{% trans "Status history" %}</h2>
+      <ol class="status-timeline" role="list">
+        {% for update in service_request.status_updates.all %}
+          <li class="status-timeline__item">
+            <time class="status-timeline__date" datetime="{{ update.created_at|date:'c' }}">
+              {{ update.created_at|date:"N j, Y" }}
+            </time>
+            <span class="status-badge status-badge--{{ update.new_status }}">
+              {{ update.get_new_status_display }}
+            </span>
+            {% if update.public_note %}
+              <p class="status-timeline__note">{{ update.public_note }}</p>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+  {% endif %}
+
+  <p>
+    <a href="{% url 'portal:request-list' %}" class="link-back">
+      &larr; {% trans "Back to my requests" %}
+    </a>
+  </p>
+
+</div>
+{% endblock %}

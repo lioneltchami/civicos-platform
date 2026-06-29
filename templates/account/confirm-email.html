@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Confirm your email address / Confirmez votre adresse courriel" %}{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+  <div class="auth-card">
+
+    {% if confirmation %}
+      <h1 class="auth-card__heading">{% trans "Confirm your email address / Confirmez votre adresse courriel" %}</h1>
+
+      <p>
+        {% blocktrans with email=confirmation.email_address.email %}
+          Please confirm that <strong>{{ email }}</strong> is your email address by clicking the button below.
+        {% endblocktrans %}
+      </p>
+      <p>
+        {% trans "Veuillez confirmer que cette adresse courriel vous appartient en cliquant sur le bouton ci-dessous." %}
+      </p>
+
+      <form method="post" action="">
+        {% csrf_token %}
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">
+            {% trans "Confirm email address / Confirmer l'adresse courriel" %}
+          </button>
+        </div>
+      </form>
+
+    {% else %}
+      <h1 class="auth-card__heading">{% trans "Invalid confirmation link / Lien de confirmation invalide" %}</h1>
+
+      <div class="notice notice--error" role="alert">
+        <p>
+          {% trans "This email confirmation link is invalid or has expired. Please request a new one. / Ce lien de confirmation de courriel est invalide ou a expiré. Veuillez en demander un nouveau." %}
+        </p>
+      </div>
+
+      <p>
+        <a href="{% url 'account_email_verification_sent' %}" class="btn btn-secondary">
+          {% trans "Resend confirmation email / Renvoyer le courriel de confirmation" %}
+        </a>
+      </p>
+    {% endif %}
+
+    <hr class="auth-card__divider">
+    <p class="auth-card__alt-action">
+      <a href="{% url 'two_factor:login' %}">{% trans "Back to sign in / Retour à la connexion" %}</a>
+    </p>
+
+  </div>
+</div>
+{% endblock %}

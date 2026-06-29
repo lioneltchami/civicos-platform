@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Create an account / Créer un compte" %}{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+  <div class="auth-card">
+    <h1 class="auth-card__heading">{% trans "Create an account / Créer un compte" %}</h1>
+
+    <div class="notice notice--info" role="note">
+      <p>{% trans "Your information is protected under applicable privacy legislation. / Vos renseignements sont protégés en vertu de la législation applicable en matière de protection de la vie privée." %}</p>
+    </div>
+
+    {% if form.errors %}
+    <div class="error-summary" role="alert" aria-live="assertive" aria-labelledby="error-summary-title">
+      <h2 class="error-summary__title" id="error-summary-title">{% trans "There is a problem / Il y a un problème" %}</h2>
+      <ul class="error-summary__list">
+        {% for field in form %}
+          {% if field.errors %}
+            {% for error in field.errors %}
+              <li><a href="#{{ field.id_for_label }}">{{ error }}</a></li>
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" action="" novalidate>
+      {% csrf_token %}
+
+      {# Email #}
+      <div class="form-group {% if form.email.errors %}form-group--error{% endif %}">
+        <label class="form-label" for="{{ form.email.id_for_label }}">
+          {% trans "Email address / Adresse courriel" %}
+          <span class="form-label__required" aria-hidden="true">*</span>
+        </label>
+        {% if form.email.errors %}
+          <span id="{{ form.email.id_for_label }}-error" class="form-error" role="alert">
+            {{ form.email.errors.0 }}
+          </span>
+        {% endif %}
+        <input
+          type="email"
+          name="{{ form.email.html_name }}"
+          id="{{ form.email.id_for_label }}"
+          class="form-input {% if form.email.errors %}form-input--error{% endif %}"
+          autocomplete="email"
+          aria-required="true"
+          {% if form.email.errors %}aria-describedby="{{ form.email.id_for_label }}-error"{% endif %}
+          value="{{ form.email.value|default:'' }}"
+        >
+      </div>
+
+      {# Email confirmation #}
+      <div class="form-group {% if form.email2.errors %}form-group--error{% endif %}">
+        <label class="form-label" for="{{ form.email2.id_for_label }}">
+          {% trans "Confirm email address / Confirmer l'adresse courriel" %}
+          <span class="form-label__required" aria-hidden="true">*</span>
+        </label>
+        {% if form.email2.errors %}
+          <span id="{{ form.email2.id_for_label }}-error" class="form-error" role="alert">
+            {{ form.email2.errors.0 }}
+          </span>
+        {% endif %}
+        <input
+          type="email"
+          name="{{ form.email2.html_name }}"
+          id="{{ form.email2.id_for_label }}"
+          class="form-input {% if form.email2.errors %}form-input--error{% endif %}"
+          autocomplete="email"
+          aria-required="true"
+          {% if form.email2.errors %}aria-describedby="{{ form.email2.id_for_label }}-error"{% endif %}
+          value="{{ form.email2.value|default:'' }}"
+        >
+      </div>
+
+      {# Password #}
+      <div class="form-group {% if form.password1.errors %}form-group--error{% endif %}">
+        <label class="form-label" for="{{ form.password1.id_for_label }}">
+          {% trans "Password / Mot de passe" %}
+          <span class="form-label__required" aria-hidden="true">*</span>
+        </label>
+        <span id="{{ form.password1.id_for_label }}-hint" class="form-hint">
+          {% trans "Must be at least 12 characters. / Doit comporter au moins 12 caractères." %}
+        </span>
+        {% if form.password1.errors %}
+          <span id="{{ form.password1.id_for_label }}-error" class="form-error" role="alert">
+            {{ form.password1.errors.0 }}
+          </span>
+        {% endif %}
+        <input
+          type="password"
+          name="{{ form.password1.html_name }}"
+          id="{{ form.password1.id_for_label }}"
+          class="form-input {% if form.password1.errors %}form-input--error{% endif %}"
+          autocomplete="new-password"
+          aria-required="true"
+          aria-describedby="{{ form.password1.id_for_label }}-hint{% if form.password1.errors %} {{ form.password1.id_for_label }}-error{% endif %}"
+        >
+      </div>
+
+      {# Password confirmation #}
+      <div class="form-group {% if form.password2.errors %}form-group--error{% endif %}">
+        <label class="form-label" for="{{ form.password2.id_for_label }}">
+          {% trans "Confirm password / Confirmer le mot de passe" %}
+          <span class="form-label__required" aria-hidden="true">*</span>
+        </label>
+        {% if form.password2.errors %}
+          <span id="{{ form.password2.id_for_label }}-error" class="form-error" role="alert">
+            {{ form.password2.errors.0 }}
+          </span>
+        {% endif %}
+        <input
+          type="password"
+          name="{{ form.password2.html_name }}"
+          id="{{ form.password2.id_for_label }}"
+          class="form-input {% if form.password2.errors %}form-input--error{% endif %}"
+          autocomplete="new-password"
+          aria-required="true"
+          {% if form.password2.errors %}aria-describedby="{{ form.password2.id_for_label }}-error"{% endif %}
+        >
+      </div>
+
+      {# Preferred language #}
+      <fieldset class="form-fieldset">
+        <legend class="form-legend">{% trans "Preferred language / Langue préférée" %}</legend>
+        <div class="form-radio-group">
+          <div class="form-radio">
+            <input
+              type="radio"
+              name="preferred_language"
+              id="lang-en"
+              value="en"
+              class="form-radio__input"
+              checked
+            >
+            <label for="lang-en" class="form-radio__label">English</label>
+          </div>
+          <div class="form-radio">
+            <input
+              type="radio"
+              name="preferred_language"
+              id="lang-fr"
+              value="fr"
+              class="form-radio__input"
+            >
+            <label for="lang-fr" class="form-radio__label">Français</label>
+          </div>
+        </div>
+      </fieldset>
+
+      {# Terms checkbox #}
+      <div class="form-group form-group--checkbox {% if form.terms_accepted.errors %}form-group--error{% endif %}">
+        {% if form.terms_accepted.errors %}
+          <span id="id_terms_accepted-error" class="form-error" role="alert">
+            {{ form.terms_accepted.errors.0 }}
+          </span>
+        {% endif %}
+        <div class="form-checkbox">
+          <input
+            type="checkbox"
+            name="terms_accepted"
+            id="id_terms_accepted"
+            class="form-checkbox__input"
+            aria-required="true"
+            {% if form.terms_accepted.errors %}aria-describedby="id_terms_accepted-error"{% endif %}
+          >
+          <label for="id_terms_accepted" class="form-checkbox__label">
+            {% blocktrans %}I agree to the <a href="#">Terms of Use and Privacy Policy / Conditions d'utilisation et politique de confidentialité</a>.{% endblocktrans %}
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group form-group--actions">
+        <button type="submit" class="btn btn-primary">
+          {% trans "Create account / Créer un compte" %}
+        </button>
+      </div>
+    </form>
+
+    <hr class="auth-card__divider">
+
+    <p class="auth-card__alt-action">
+      {% trans "Already have an account?" %}
+      <a href="{% url 'two_factor:login' %}">{% trans "Sign in / Se connecter" %}</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

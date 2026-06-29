@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% load i18n %}
+{% get_current_language as CURRENT_LANGUAGE %}
+
+{% block title %}{% trans "My Account / Mon compte" %}{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="dashboard">
+
+    {# Greeting #}
+    <div class="dashboard__header">
+      <h1 class="dashboard__heading">
+        {% blocktrans with email=user.email %}Welcome, {{ email }}{% endblocktrans %}
+      </h1>
+      <a href="{% url 'account_logout' %}" class="dashboard__signout-link">
+        {% trans "Sign out / Se déconnecter" %}
+      </a>
+    </div>
+
+    {# Stats row #}
+    <div class="stats-row" aria-label="{% trans 'Account summary / Résumé du compte' %}">
+      <div class="stat-card">
+        <span class="stat-card__value">{{ request_count }}</span>
+        <span class="stat-card__label">{% trans "Service requests / Demandes de service" %}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-card__value">{{ unread_count }}</span>
+        <span class="stat-card__label">{% trans "Unread notifications / Notifications non lues" %}</span>
+      </div>
+    </div>
+
+    {# Navigation cards #}
+    <nav class="card-grid" aria-label="{% trans 'Account navigation / Navigation du compte' %}">
+      <a href="/portal/" class="nav-card">
+        <div class="nav-card__icon" aria-hidden="true">📋</div>
+        <h2 class="nav-card__title">{% trans "My Service Requests / Mes demandes de service" %}</h2>
+        <p class="nav-card__description">{% trans "View and manage your service requests. / Consultez et gérez vos demandes de service." %}</p>
+      </a>
+
+      <a href="{% url 'auth_extension:profile_edit' %}" class="nav-card">
+        <div class="nav-card__icon" aria-hidden="true">👤</div>
+        <h2 class="nav-card__title">{% trans "Edit Profile / Modifier mon profil" %}</h2>
+        <p class="nav-card__description">{% trans "Update your name and contact information. / Mettez à jour votre nom et vos coordonnées." %}</p>
+      </a>
+
+      <a href="{% url 'auth_extension:mfa_status' %}" class="nav-card">
+        <div class="nav-card__icon" aria-hidden="true">🔐</div>
+        <h2 class="nav-card__title">{% trans "Security Settings / Paramètres de sécurité" %}</h2>
+        <p class="nav-card__description">{% trans "Manage two-factor authentication and backup codes. / Gérez l'authentification à deux facteurs et les codes de secours." %}</p>
+      </a>
+    </nav>
+
+    {# Language toggle — no JS required, plain form POST #}
+    <section class="language-section" aria-labelledby="language-section-heading">
+      <h2 class="language-section__heading" id="language-section-heading">
+        {% trans "Language preference / Préférence de langue" %}
+      </h2>
+      <form method="post" action="{% url 'auth_extension:change_language' %}" class="language-toggle-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <fieldset class="form-fieldset form-fieldset--inline">
+          <legend class="visually-hidden">{% trans "Select your preferred language / Choisissez votre langue préférée" %}</legend>
+          <div class="form-radio form-radio--inline">
+            <input
+              type="radio"
+              name="language"
+              id="lang-toggle-en"
+              value="en"
+              class="form-radio__input"
+              {% if CURRENT_LANGUAGE == 'en' %}checked{% endif %}
+            >
+            <label for="lang-toggle-en" class="form-radio__label">English</label>
+          </div>
+          <div class="form-radio form-radio--inline">
+            <input
+              type="radio"
+              name="language"
+              id="lang-toggle-fr"
+              value="fr"
+              class="form-radio__input"
+              {% if CURRENT_LANGUAGE == 'fr' %}checked{% endif %}
+            >
+            <label for="lang-toggle-fr" class="form-radio__label">Français</label>
+          </div>
+        </fieldset>
+        <button type="submit" class="btn btn-secondary btn--small">
+          {% trans "Update language / Mettre à jour la langue" %}
+        </button>
+      </form>
+    </section>
+
+  </div>
+</div>
+{% endblock %}

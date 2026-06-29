@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Check your email / Vérifiez votre courriel" %}{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+  <div class="auth-card">
+    <h1 class="auth-card__heading">{% trans "Check your email / Vérifiez votre courriel" %}</h1>
+
+    <div class="notice notice--success" role="status">
+      <p>{% trans "We've sent you a verification email. / Nous vous avons envoyé un courriel de vérification." %}</p>
+    </div>
+
+    <p>
+      {% trans "Please check your inbox and click the confirmation link to activate your account." %}
+    </p>
+    <p>
+      {% trans "Veuillez vérifier votre boîte de réception et cliquer sur le lien de confirmation pour activer votre compte." %}
+    </p>
+    <p>
+      {% trans "The confirmation link expires in 3 days. / Le lien de confirmation expire dans 3 jours." %}
+    </p>
+
+    <hr class="auth-card__divider">
+
+    <p class="auth-card__alt-action">
+      {% trans "Wrong email address?" %}
+      <a href="{% url 'account_signup' %}">{% trans "Sign up again / S'inscrire à nouveau" %}</a>
+    </p>
+
+    <p class="auth-card__alt-action">
+      <a href="{% url 'two_factor:login' %}">{% trans "Back to sign in / Retour à la connexion" %}</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

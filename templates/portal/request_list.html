@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "My service requests" %}{% endblock %}
+{% block meta_description %}{% trans "View all your service requests and their current status." %}{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <h1>{% trans "My service requests" %}</h1>
+
+  {% if requests %}
+    <p>
+      {% blocktrans count count=paginator.count %}
+        {{ count }} request
+      {% plural %}
+        {{ count }} requests
+      {% endblocktrans %}
+    </p>
+
+    <ul class="request-list" role="list">
+      {% for request in requests %}
+        <li class="request-list__item">
+          <a href="{% url 'portal:request-detail' request.pk %}"
+             class="request-list__link">
+            <span class="request-list__reference">{{ request.reference_number }}</span>
+            <span class="request-list__service">{{ request.service_name }}</span>
+          </a>
+          <span class="request-list__status status-badge status-badge--{{ request.status }}">
+            {{ request.get_status_display }}
+          </span>
+          <time class="request-list__date" datetime="{{ request.created_at|date:'c' }}">
+            {{ request.created_at|date:"N j, Y" }}
+          </time>
+        </li>
+      {% endfor %}
+    </ul>
+
+    {# Pagination — WCAG 2.4.8 location awareness #}
+    {% if is_paginated %}
+      <nav aria-label="{% trans 'Pagination' %}">
+        <ul class="pagination" role="list">
+          {% if page_obj.has_previous %}
+            <li>
+              <a href="?page={{ page_obj.previous_page_number }}"
+                 class="pagination__link"
+                 rel="prev">
+                {% trans "Previous" %}
+              </a>
+            </li>
+          {% endif %}
+
+          <li aria-current="page">
+            <span class="pagination__current">
+              {% blocktrans with current=page_obj.number total=paginator.num_pages %}
+                Page {{ current }} of {{ total }}
+              {% endblocktrans %}
+            </span>
+          </li>
+
+          {% if page_obj.has_next %}
+            <li>
+              <a href="?page={{ page_obj.next_page_number }}"
+                 class="pagination__link"
+                 rel="next">
+                {% trans "Next" %}
+              </a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+
+  {% else %}
+    <p>{% trans "You have not submitted any service requests yet." %}</p>
+  {% endif %}
+
+  <p>
+    <a href="{% url 'portal:dashboard' %}" class="link-back">
+      &larr; {% trans "Back to dashboard" %}
+    </a>
+  </p>
+
+</div>
+{% endblock %}

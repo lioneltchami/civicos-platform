@@ -1,0 +1,16 @@
+# Generated from production.in — target: Python 3.12
+# Includes all of base.txt
+
+-r base.txt
+
+# WSGI/ASGI server
+gunicorn==23.0.0
+uvicorn[standard]==0.32.1
+httptools==0.6.4
+uvloop==0.21.0
+websockets==14.1
+
+# Error tracking
+sentry-sdk[django]==2.18.0
+certifi==2024.8.30
+urllib3==2.2.3

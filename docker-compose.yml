@@ -1,0 +1,133 @@
+---
+# =============================================================================
+# Govstack — Docker Compose (Development)
+# =============================================================================
+# Usage:
+#   docker compose up           → start all services
+#   docker compose up web       → start web server only
+#   docker compose run --rm web python manage.py migrate
+#   docker compose run --rm web python manage.py createsuperuser
+#   docker compose run --rm web python manage.py shell_plus
+#   docker compose logs -f worker
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL database
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: govstack
+      POSTGRES_USER: govstack
+      POSTGRES_PASSWORD: govstack
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U govstack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis — cache, session store, Celery broker
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Django / Wagtail web server
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      target: development
+    restart: unless-stopped
+    volumes:
+      # Mount source code for live reloading
+      - .:/app
+      # Persist media uploads between restarts
+      - media_data:/app/media
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_URL: postgres://govstack:govstack@db:5432/govstack
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,web"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "
+        python manage.py migrate --noinput &&
+        python manage.py runserver 0.0.0.0:8000
+      "
+
+  # ---------------------------------------------------------------------------
+  # Celery worker — processes async tasks
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      target: development
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      - media_data:/app/media
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_URL: postgres://govstack:govstack@db:5432/govstack
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A config.celery worker --loglevel=info --concurrency=2
+
+  # ---------------------------------------------------------------------------
+  # Celery Beat — periodic task scheduler
+  # ---------------------------------------------------------------------------
+  beat:
+    build:
+      context: .
+      target: development
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_URL: postgres://govstack:govstack@db:5432/govstack
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A config.celery beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_data:

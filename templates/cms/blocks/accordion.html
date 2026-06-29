@@ -1,0 +1,19 @@
+{% load i18n wagtailcore_tags %}
+{#
+  Accessible accordion using the disclosure pattern.
+  - Uses <details>/<summary> for native keyboard support and no-JS fallback.
+  - Alpine.js progressive enhancement for animation if desired.
+  - No aria-expanded needed — <details> manages this natively.
+#}
+<div class="accordion" role="list">
+  {% for item in value.items %}
+    <details class="accordion__item" role="listitem">
+      <summary class="accordion__summary">
+        {{ item.title }}
+      </summary>
+      <div class="accordion__content rich-text">
+        {{ item.content|richtext }}
+      </div>
+    </details>
+  {% endfor %}
+</div>

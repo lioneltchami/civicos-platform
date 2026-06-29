@@ -1,0 +1,37 @@
+{% comment %}
+  Breadcrumb navigation using structured data markup.
+  Pass `page` from the template context.
+  WCAG 2.4.8: location within the site is always identifiable.
+{% endcomment %}
+{% load i18n wagtailcore_tags %}
+
+{% with ancestors=page.get_ancestors|length %}
+{% if ancestors > 1 %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb">
+  <ol class="breadcrumb__list" role="list" itemscope itemtype="https://schema.org/BreadcrumbList">
+    {% for ancestor in page.get_ancestors %}
+      {% if not ancestor.is_root and ancestor.live %}
+      <li class="breadcrumb__item"
+          itemprop="itemListElement"
+          itemscope
+          itemtype="https://schema.org/ListItem">
+        <a href="{{ ancestor.url }}"
+           class="breadcrumb__link"
+           itemprop="item">
+          <span itemprop="name">{{ ancestor.title }}</span>
+        </a>
+        <meta itemprop="position" content="{{ forloop.counter }}">
+      </li>
+      {% endif %}
+    {% endfor %}
+    <li class="breadcrumb__item breadcrumb__item--current"
+        itemprop="itemListElement"
+        itemscope
+        itemtype="https://schema.org/ListItem">
+      <span itemprop="name" aria-current="page">{{ page.title }}</span>
+      <meta itemprop="position" content="{{ ancestors }}">
+    </li>
+  </ol>
+</nav>
+{% endif %}
+{% endwith %}

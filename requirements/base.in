@@ -1,0 +1,45 @@
+# Core framework
+Django==5.2.*
+wagtail==6.4.*
+
+# Database
+psycopg[binary]==3.2.*
+
+# Environment configuration
+django-environ==0.11.*
+
+# Authentication
+django-allauth==65.*
+django-otp==1.5.*
+django-two-factor-auth==1.16.*
+qrcode[pil]==8.*
+
+# Password hashing
+argon2-cffi==23.*
+
+# Security
+django-csp==3.8.*
+django-ratelimit==4.*
+
+# File storage
+django-storages[s3]==1.14.*
+Pillow==11.*
+
+# Email / notifications
+django-anymail==12.*
+notifications-python-client==9.*
+
+# Task queue
+celery[redis]==5.4.*
+redis==5.*
+django-celery-beat==2.7.*
+django-celery-results==2.5.*
+
+# Static files
+whitenoise[brotli]==6.*
+
+# Export
+openpyxl==3.1.*
+
+# Utilities
+python-slugify==8.*

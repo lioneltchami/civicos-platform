@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Set up two-factor authentication / Configurer l'authentification à deux facteurs" %}{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+  <div class="auth-card">
+
+    {# Step indicator #}
+    <nav class="step-indicator" aria-label="{% trans 'Setup progress / Progression de la configuration' %}">
+      <ol class="step-indicator__list">
+        <li class="step-indicator__item {% if wizard.steps.current == 'welcome' %}step-indicator__item--current{% endif %}">
+          <span>{% trans "Welcome / Bienvenue" %}</span>
+        </li>
+        <li class="step-indicator__item {% if wizard.steps.current == 'generator' %}step-indicator__item--current{% endif %}">
+          <span>{% trans "Scan QR / Scanner QR" %}</span>
+        </li>
+        <li class="step-indicator__item {% if wizard.steps.current == 'validation' %}step-indicator__item--current{% endif %}">
+          <span>{% trans "Verify / Vérifier" %}</span>
+        </li>
+        <li class="step-indicator__item {% if wizard.steps.current == 'done' %}step-indicator__item--current{% endif %}">
+          <span>{% trans "Done / Terminé" %}</span>
+        </li>
+      </ol>
+    </nav>
+
+    {# Step: welcome #}
+    {% if wizard.steps.current == 'welcome' %}
+      <h1 class="auth-card__heading">{% trans "Set up two-factor authentication / Configurer l'authentification à deux facteurs" %}</h1>
+
+      <p>
+        {% trans "Two-factor authentication adds an extra layer of security to your account. After entering your password, you'll also need to provide a code from an authenticator app." %}
+      </p>
+      <p>
+        {% trans "L'authentification à deux facteurs ajoute une couche de sécurité supplémentaire à votre compte. Après avoir saisi votre mot de passe, vous devrez également fournir un code depuis une application d'authentification." %}
+      </p>
+
+      <div class="notice notice--info" role="note">
+        <h2 class="notice__heading">{% trans "Recommended apps / Applications recommandées" %}</h2>
+        <ul>
+          <li>Google Authenticator ({% trans "iOS and Android / iOS et Android" %})</li>
+          <li>Authy ({% trans "iOS, Android, and Desktop / iOS, Android et ordinateur de bureau" %})</li>
+          <li>Microsoft Authenticator ({% trans "iOS and Android / iOS et Android" %})</li>
+        </ul>
+        <p>
+          {% trans "Install one of these apps on your mobile device before continuing. / Installez l'une de ces applications sur votre appareil mobile avant de continuer." %}
+        </p>
+      </div>
+
+      <form method="post" action="">
+        {% csrf_token %}
+        {{ wizard.management_form }}
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">
+            {% trans "Get started / Commencer" %}
+          </button>
+          <a href="{% url 'portal:dashboard' %}" class="btn btn-secondary">
+            {% trans "Cancel / Annuler" %}
+          </a>
+        </div>
+      </form>
+
+    {# Step: generator (QR code) #}
+    {% elif wizard.steps.current == 'generator' %}
+      <h1 class="auth-card__heading">{% trans "Scan the QR code / Scanner le code QR" %}</h1>
+
+      <p>
+        {% trans "Open your authenticator app and scan the QR code below. / Ouvrez votre application d'authentification et scannez le code QR ci-dessous." %}
+      </p>
+
+      <div class="qr-code-container">
+        {% if QR_URL %}
+          <img
+            src="{{ QR_URL }}"
+            alt="{% trans 'QR code for authenticator app setup / Code QR pour la configuration de l\'application d\'authentification' %}"
+            class="qr-code__image"
+            width="200"
+            height="200"
+          >
+        {% endif %}
+      </div>
+
+      <details class="disclosure">
+        <summary class="disclosure__summary">
+          {% trans "Can't scan the QR code? Enter the key manually. / Vous ne pouvez pas scanner le code QR? Entrez la clé manuellement." %}
+        </summary>
+        <div class="disclosure__content">
+          <p>{% trans "Enter the following key in your authenticator app: / Entrez la clé suivante dans votre application d'authentification:" %}</p>
+          {% if device.config_url %}
+            <p>
+              <code class="manual-key" aria-label="{% trans 'Manual setup key / Clé de configuration manuelle' %}">{{ key }}</code>
+            </p>
+          {% else %}
+            <p>
+              <code class="manual-key" aria-label="{% trans 'Manual setup key / Clé de configuration manuelle' %}">{{ key }}</code>
+            </p>
+          {% endif %}
+          <p class="form-hint">
+            {% trans "Select 'Time-based' when prompted for the key type. / Sélectionnez 'Basé sur le temps' lorsqu'on vous demande le type de clé." %}
+          </p>
+        </div>
+      </details>
+
+      <form method="post" action="">
+        {% csrf_token %}
+        {{ wizard.management_form }}
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">
+            {% trans "I've scanned the code / J'ai scanné le code" %}
+          </button>
+        </div>
+      </form>
+
+    {# Step: validation (enter 6-digit code) #}
+    {% elif wizard.steps.current == 'validation' %}
+      <h1 class="auth-card__heading">{% trans "Verify your authenticator app / Vérifiez votre application d'authentification" %}</h1>
+
+      <p>
+        {% trans "Enter the 6-digit code shown in your authenticator app to confirm it's working correctly. / Entrez le code à 6 chiffres affiché dans votre application d'authentification pour confirmer qu'elle fonctionne correctement." %}
+      </p>
+
+      {% if wizard.form.errors %}
+      <div class="error-summary" role="alert" aria-live="assertive" aria-labelledby="error-summary-title">
+        <h2 class="error-summary__title" id="error-summary-title">{% trans "There is a problem / Il y a un problème" %}</h2>
+        <ul class="error-summary__list">
+          {% for field in wizard.form %}
+            {% if field.errors %}
+              {% for error in field.errors %}
+                <li><a href="#{{ field.id_for_label }}">{{ error }}</a></li>
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <form method="post" action="" novalidate>
+        {% csrf_token %}
+        {{ wizard.management_form }}
+
+        {% for field in wizard.form %}
+          <div class="form-group {% if field.errors %}form-group--error{% endif %}">
+            <label class="form-label" for="{{ field.id_for_label }}">
+              {% trans "Verification code / Code de vérification" %}
+              <span class="form-label__required" aria-hidden="true">*</span>
+            </label>
+            {% if field.errors %}
+              <span id="{{ field.id_for_label }}-error" class="form-error" role="alert">
+                {{ field.errors.0 }}
+              </span>
+            {% endif %}
+            <input
+              type="text"
+              name="{{ field.html_name }}"
+              id="{{ field.id_for_label }}"
+              class="form-input form-input--narrow {% if field.errors %}form-input--error{% endif %}"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              pattern="[0-9]{6}"
+              aria-required="true"
+              {% if field.errors %}aria-describedby="{{ field.id_for_label }}-error"{% endif %}
+            >
+          </div>
+        {% endfor %}
+
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">
+            {% trans "Verify and activate / Vérifier et activer" %}
+          </button>
+        </div>
+      </form>
+
+    {# Step: done / completion #}
+    {% elif wizard.steps.current == 'done' %}
+      <h1 class="auth-card__heading">{% trans "Authenticator app connected! / Application d'authentification connectée!" %}</h1>
+
+      <div class="notice notice--success" role="status">
+        <p>
+          <strong>{% trans "Two-factor authentication is now active on your account. / L'authentification à deux facteurs est maintenant active sur votre compte." %}</strong>
+        </p>
+      </div>
+
+      <p>
+        {% trans "Each time you sign in, you'll be asked for a code from your authenticator app. / Chaque fois que vous vous connecterez, il vous sera demandé un code de votre application d'authentification." %}
+      </p>
+
+      <p>
+        {% trans "We strongly recommend generating backup codes in case you lose access to your authenticator app. / Nous vous recommandons vivement de générer des codes de secours au cas où vous perdriez accès à votre application d'authentification." %}
+      </p>
+
+      <div class="form-group form-group--actions">
+        <form method="post" action="{% url 'auth_extension:generate_backup_codes' %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-primary">{% trans "Generate backup codes / Générer des codes de secours" %}</button>
+        </form>
+        <a href="{% url 'portal:dashboard' %}" class="btn btn-secondary">
+          {% trans "Go to My Account / Aller à Mon compte" %}
+        </a>
+      </div>
+
+      <form method="post" action="">
+        {% csrf_token %}
+        {{ wizard.management_form }}
+      </form>
+
+    {% else %}
+      {# Fallback #}
+      <h1 class="auth-card__heading">{% trans "Set up two-factor authentication / Configurer l'authentification à deux facteurs" %}</h1>
+      <form method="post" action="">
+        {% csrf_token %}
+        {{ wizard.management_form }}
+        {{ wizard.form.as_p }}
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">{% trans "Continue / Continuer" %}</button>
+        </div>
+      </form>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

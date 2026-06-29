@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}
+  {% if wizard.steps.current == 'auth' %}
+    {% trans "Sign in / Se connecter" %}
+  {% elif wizard.steps.current == 'token' %}
+    {% trans "Enter verification code / Entrez le code de vérification" %}
+  {% elif wizard.steps.current == 'backup' %}
+    {% trans "Enter backup code / Entrez le code de secours" %}
+  {% else %}
+    {% trans "Sign in / Se connecter" %}
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+  <div class="auth-card">
+
+    {# Step: credentials (auth) #}
+    {% if wizard.steps.current == 'auth' %}
+      <h1 class="auth-card__heading">{% trans "Sign in / Se connecter" %}</h1>
+
+      {% if wizard.form.errors %}
+      <div class="error-summary" role="alert" aria-live="assertive" aria-labelledby="error-summary-title">
+        <h2 class="error-summary__title" id="error-summary-title">{% trans "There is a problem / Il y a un problème" %}</h2>
+        <ul class="error-summary__list">
+          {% for field in wizard.form %}
+            {% if field.errors %}
+              {% for error in field.errors %}
+                <li><a href="#{{ field.id_for_label }}">{{ error }}</a></li>
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+          {% for error in wizard.form.non_field_errors %}
+            <li>{{ error }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <form method="post" action="" novalidate>
+        {% csrf_token %}
+        {{ wizard.management_form }}
+
+        <div class="form-group {% if wizard.form.username.errors %}form-group--error{% endif %}">
+          <label class="form-label" for="{{ wizard.form.username.id_for_label }}">
+            {% trans "Email address / Adresse courriel" %}
+            <span class="form-label__required" aria-hidden="true">*</span>
+          </label>
+          {% if wizard.form.username.errors %}
+            <span id="{{ wizard.form.username.id_for_label }}-error" class="form-error" role="alert">
+              {{ wizard.form.username.errors.0 }}
+            </span>
+          {% endif %}
+          <input
+            type="email"
+            name="{{ wizard.form.username.html_name }}"
+            id="{{ wizard.form.username.id_for_label }}"
+            class="form-input {% if wizard.form.username.errors %}form-input--error{% endif %}"
+            autocomplete="email"
+            aria-required="true"
+            {% if wizard.form.username.errors %}aria-describedby="{{ wizard.form.username.id_for_label }}-error"{% endif %}
+            value="{{ wizard.form.username.value|default:'' }}"
+          >
+        </div>
+
+        <div class="form-group {% if wizard.form.password.errors %}form-group--error{% endif %}">
+          <label class="form-label" for="{{ wizard.form.password.id_for_label }}">
+            {% trans "Password / Mot de passe" %}
+            <span class="form-label__required" aria-hidden="true">*</span>
+          </label>
+          {% if wizard.form.password.errors %}
+            <span id="{{ wizard.form.password.id_for_label }}-error" class="form-error" role="alert">
+              {{ wizard.form.password.errors.0 }}
+            </span>
+          {% endif %}
+          <input
+            type="password"
+            name="{{ wizard.form.password.html_name }}"
+            id="{{ wizard.form.password.id_for_label }}"
+            class="form-input {% if wizard.form.password.errors %}form-input--error{% endif %}"
+            autocomplete="current-password"
+            aria-required="true"
+            {% if wizard.form.password.errors %}aria-describedby="{{ wizard.form.password.id_for_label }}-error"{% endif %}
+          >
+        </div>
+
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">
+            {% trans "Continue / Continuer" %}
+          </button>
+          <a href="{% url 'account_reset_password' %}" class="form-link">
+            {% trans "Forgot your password? / Mot de passe oublié?" %}
+          </a>
+        </div>
+      </form>
+
+      <hr class="auth-card__divider">
+      <p class="auth-card__alt-action">
+        {% trans "Don't have an account?" %}
+        <a href="{% url 'account_signup' %}">{% trans "Create one / Créer un compte" %}</a>
+      </p>
+
+    {# Step: TOTP token #}
+    {% elif wizard.steps.current == 'token' %}
+      <h1 class="auth-card__heading">{% trans "Enter your verification code / Entrez votre code de vérification" %}</h1>
+
+      <p>
+        {% trans "Open your authenticator app and enter the 6-digit code shown. / Ouvrez votre application d'authentification et entrez le code à 6 chiffres affiché." %}
+      </p>
+
+      {% if wizard.form.errors %}
+      <div class="error-summary" role="alert" aria-live="assertive" aria-labelledby="error-summary-title">
+        <h2 class="error-summary__title" id="error-summary-title">{% trans "There is a problem / Il y a un problème" %}</h2>
+        <ul class="error-summary__list">
+          {% for field in wizard.form %}
+            {% if field.errors %}
+              {% for error in field.errors %}
+                <li><a href="#{{ field.id_for_label }}">{{ error }}</a></li>
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+          {% for error in wizard.form.non_field_errors %}
+            <li>{{ error }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <form method="post" action="" novalidate>
+        {% csrf_token %}
+        {{ wizard.management_form }}
+
+        {% for field in wizard.form %}
+          <div class="form-group {% if field.errors %}form-group--error{% endif %}">
+            <label class="form-label" for="{{ field.id_for_label }}">
+              {% trans "Verification code / Code de vérification" %}
+              <span class="form-label__required" aria-hidden="true">*</span>
+            </label>
+            {% if field.errors %}
+              <span id="{{ field.id_for_label }}-error" class="form-error" role="alert">
+                {{ field.errors.0 }}
+              </span>
+            {% endif %}
+            <input
+              type="text"
+              name="{{ field.html_name }}"
+              id="{{ field.id_for_label }}"
+              class="form-input form-input--narrow {% if field.errors %}form-input--error{% endif %}"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              pattern="[0-9]{6}"
+              aria-required="true"
+              {% if field.errors %}aria-describedby="{{ field.id_for_label }}-error"{% endif %}
+              value="{{ field.value|default:'' }}"
+            >
+          </div>
+        {% endfor %}
+
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">
+            {% trans "Verify / Vérifier" %}
+          </button>
+        </div>
+      </form>
+
+      <p class="auth-card__alt-action">
+        <a href="?backup">{% trans "Use a backup code / Utiliser un code de secours" %}</a>
+      </p>
+
+    {# Step: backup code #}
+    {% elif wizard.steps.current == 'backup' %}
+      <h1 class="auth-card__heading">{% trans "Enter a backup code / Entrez un code de secours" %}</h1>
+
+      <p>
+        {% trans "Enter one of your saved backup codes to sign in. Each code can only be used once. / Entrez l'un de vos codes de secours sauvegardés pour vous connecter. Chaque code ne peut être utilisé qu'une seule fois." %}
+      </p>
+
+      {% if wizard.form.errors %}
+      <div class="error-summary" role="alert" aria-live="assertive" aria-labelledby="error-summary-title">
+        <h2 class="error-summary__title" id="error-summary-title">{% trans "There is a problem / Il y a un problème" %}</h2>
+        <ul class="error-summary__list">
+          {% for field in wizard.form %}
+            {% if field.errors %}
+              {% for error in field.errors %}
+                <li><a href="#{{ field.id_for_label }}">{{ error }}</a></li>
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <form method="post" action="" novalidate>
+        {% csrf_token %}
+        {{ wizard.management_form }}
+
+        {% for field in wizard.form %}
+          <div class="form-group {% if field.errors %}form-group--error{% endif %}">
+            <label class="form-label" for="{{ field.id_for_label }}">
+              {% trans "Backup code / Code de secours" %}
+              <span class="form-label__required" aria-hidden="true">*</span>
+            </label>
+            {% if field.errors %}
+              <span id="{{ field.id_for_label }}-error" class="form-error" role="alert">
+                {{ field.errors.0 }}
+              </span>
+            {% endif %}
+            <input
+              type="text"
+              name="{{ field.html_name }}"
+              id="{{ field.id_for_label }}"
+              class="form-input {% if field.errors %}form-input--error{% endif %}"
+              autocomplete="off"
+              aria-required="true"
+              {% if field.errors %}aria-describedby="{{ field.id_for_label }}-error"{% endif %}
+            >
+          </div>
+        {% endfor %}
+
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">
+            {% trans "Sign in with backup code / Se connecter avec un code de secours" %}
+          </button>
+        </div>
+      </form>
+
+    {% else %}
+      {# Fallback: render the form generically #}
+      <h1 class="auth-card__heading">{% trans "Sign in / Se connecter" %}</h1>
+
+      <form method="post" action="" novalidate>
+        {% csrf_token %}
+        {{ wizard.management_form }}
+        {{ wizard.form.as_p }}
+        <div class="form-group form-group--actions">
+          <button type="submit" class="btn btn-primary">{% trans "Continue / Continuer" %}</button>
+        </div>
+      </form>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

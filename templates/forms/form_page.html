@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% load i18n wagtailcore_tags %}
+
+{% block title %}{{ page.title }}{% endblock %}
+{% block meta_description %}{% endblock %}
+
+{% block breadcrumb %}
+  {% include "includes/breadcrumb.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <article class="form-page" aria-labelledby="form-heading">
+
+    <header class="page-header">
+      <h1 id="form-heading" class="page-header__title">{{ page.title }}</h1>
+      {% if page.intro %}
+        <div class="page-header__intro richtext">
+          {{ page.intro|richtext }}
+        </div>
+      {% endif %}
+    </header>
+
+    {# Consent notice (PIPEDA requirement) #}
+    {% if page.consent_text %}
+      <div class="form-page__consent-notice" role="note" aria-label="{% trans 'Privacy notice' %}">
+        <h2 class="form-page__consent-heading">{% trans "How we use your information" %}</h2>
+        <p>{{ page.consent_text }}</p>
+      </div>
+    {% endif %}
+
+    <form action="{% pageurl page %}" method="post" class="form-page__form" novalidate>
+      {% csrf_token %}
+
+      {% if form.errors %}
+        <div class="form-errors" role="alert" aria-live="assertive">
+          <h2>{% trans "Please correct the errors below" %}</h2>
+          <ul>
+            {% for field in form %}
+              {% for error in field.errors %}
+                <li>
+                  <a href="#id_{{ field.html_name }}">
+                    <strong>{{ field.label }}:</strong> {{ error }}
+                  </a>
+                </li>
+              {% endfor %}
+            {% endfor %}
+            {% for error in form.non_field_errors %}
+              <li>{{ error }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% for field in form %}
+        <div class="form-group {% if field.errors %}form-group--error{% endif %}">
+          <label class="form-label {% if field.field.required %}form-label--required{% endif %}"
+                 for="{{ field.id_for_label }}">
+            {{ field.label }}
+            {% if field.field.required %}
+              <span class="required-indicator" aria-hidden="true">*</span>
+            {% endif %}
+          </label>
+
+          {% if field.help_text %}
+            <p class="form-hint" id="{{ field.id_for_label }}-hint">
+              {{ field.help_text }}
+            </p>
+          {% endif %}
+
+          {% if field.errors %}
+            <p class="form-error-message" id="{{ field.id_for_label }}-error" role="alert">
+              {{ field.errors|join:", " }}
+            </p>
+          {% endif %}
+
+          {{ field }}
+        </div>
+      {% endfor %}
+
+      {% if page.consent_text %}
+        <div class="form-group">
+          <label class="form-label form-label--required" for="consent_checkbox">
+            <input type="checkbox"
+                   id="consent_checkbox"
+                   name="consent_given"
+                   required
+                   aria-required="true">
+            {% trans "I have read and understand how my information will be used." %}
+            <span class="required-indicator" aria-hidden="true">*</span>
+          </label>
+        </div>
+      {% endif %}
+
+      <div class="form-page__actions">
+        <button type="submit" class="btn btn--primary">
+          {% trans "Submit" %}
+        </button>
+      </div>
+
+    </form>
+
+  </article>
+</div>
+{% endblock %}
