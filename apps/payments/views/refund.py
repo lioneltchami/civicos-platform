@@ -240,8 +240,8 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
             if refund_amount > max_refundable:
                 messages.error(
                     request,
-                    f"Refund amount ${refund_amount} now exceeds maximum refundable "
-                    f"${max_refundable} (another refund may have been issued). "
+                    f"Refund amount ${refund_amount.quantize(Decimal('0.01'))} now exceeds maximum refundable "
+                    f"${max_refundable.quantize(Decimal('0.01'))} (another refund may have been issued). "
                     "Please start over.",
                 )
                 request.session.pop(REFUND_SESSION_KEY, None)

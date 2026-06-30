@@ -31,10 +31,9 @@ class PaymentsConfig(AppConfig):
         except OSError as exc:
             import logging
             logging.getLogger(__name__).warning(
-                "payments.startup.weasyprint_unavailable: %s — "
+                "payments.startup.weasyprint_unavailable exc_type=%s — "
                 "PDF receipt generation will fail. Install system deps: "
-                "libpango, libcairo, libgdk-pixbuf. exc_type=%s",
-                type(exc).__name__,
+                "libpango, libcairo, libgdk-pixbuf.",
                 type(exc).__name__,
             )
         except ImportError:

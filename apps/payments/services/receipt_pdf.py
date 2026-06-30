@@ -30,6 +30,7 @@ import logging
 from decimal import Decimal
 
 from django.template.loader import render_to_string
+from django.utils import timezone
 
 logger = logging.getLogger("apps.payments.receipt_pdf")
 
@@ -192,7 +193,8 @@ def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
     # Update the DB record outside the storage write — safe to retry independently.
     # Use _base_manager to bypass append-only guard on pdf_path (mutable field).
     receipt.__class__._base_manager.filter(pk=receipt.pk).update(
-        pdf_path=saved_path
+        pdf_path=saved_path,
+        updated_at=timezone.now(),
     )
     receipt.pdf_path = saved_path
     return saved_path

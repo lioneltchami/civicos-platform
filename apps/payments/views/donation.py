@@ -376,9 +376,8 @@ def create_donation_intent_api(request):
 
     # Store intent PK in session for idempotency guard and success page lookup.
     session_data["donation_payment_intent_pk"] = str(intent.pk)
-    self_session = request.session
-    self_session[DONATION_SESSION_KEY] = session_data
-    self_session.modified = True
+    request.session[DONATION_SESSION_KEY] = session_data
+    request.session.modified = True
 
     logger.info(
         "payments.donation.create_intent.created intent_pk=%s campaign_pk=%s",

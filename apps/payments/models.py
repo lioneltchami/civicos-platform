@@ -1653,6 +1653,12 @@ class OfficialDonationReceipt(TimestampedModel):
         unique=True,
         verbose_name=_("Serial Number"),
         help_text="YYYY-NNNNNN format, generated from DB sequence payments_receipt_serial_seq.",
+        validators=[
+            RegexValidator(
+                regex=r"^\d{4}-\d{6}$",
+                message="Serial number must be in YYYY-NNNNNN format (e.g. 2024-000001).",
+            )
+        ],
     )
     status = models.CharField(
         max_length=20,

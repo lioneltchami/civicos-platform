@@ -37,7 +37,6 @@ to CSP_CONNECT_SRC in config/settings/base.py (or production.py).
 """
 import hashlib
 import logging
-import uuid as _uuid
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -305,7 +304,7 @@ class FeePaymentSuccessView(LoginRequiredMixin, TemplateView):
         # Validate UUID format before DB round-trip to prevent injection via
         # crafted query strings.
         try:
-            intent_pk = _uuid.UUID(str(intent_pk_raw))
+            intent_pk = uuid.UUID(str(intent_pk_raw))
         except ValueError:
             return redirect("payments:fee_payment_select")
         # Verify the intent belongs to the current user (IDOR protection).
