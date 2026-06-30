@@ -12,8 +12,9 @@ import logging
 from decimal import Decimal
 
 from celery import shared_task
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.timezone import localtime
 
 logger = logging.getLogger("apps.payments.tasks_receipts")
 
@@ -230,42 +231,55 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
             )
             advantage_description = unique_advantage_descriptions[:255] if unique_advantage_descriptions else ""
 
-            with transaction.atomic():
-                # Idempotency under lock: skip if donor already has an issued receipt for this year
-                already_issued = OfficialDonationReceipt.objects.select_for_update().filter(
-                    donation__donor_id=donor_id,
-                    donation__created_at__year=tax_year,
-                    status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
-                ).exists()
+            # Check if an issued receipt already exists for this donor/year (fast pre-check).
+            # A UniqueConstraint on (donation, status=issued) prevents true duplicates at
+            # the DB level — we catch IntegrityError below for the TOCTOU window.
+            if OfficialDonationReceipt.objects.filter(
+                donation__donor_id=donor_id,
+                donation__created_at__year=tax_year,  # Django ORM __year respects USE_TZ + TIME_ZONE
+                status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
+            ).exists():
+                skipped += 1
+                continue
 
-                if already_issued:
-                    skipped += 1
-                    continue
-
-                receipt = OfficialDonationReceipt(
-                    donation=anchor,
-                    status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
-                    donor_legal_name=anchor.donor_name_snapshot,
-                    donor_address_line1=donor_address_parts.get("line1", donor_address_snapshot[:255]),
-                    donor_city=donor_address_parts.get("city", ""),
-                    donor_province=donor_address_parts.get("province", ""),
-                    donor_postal_code=donor_address_parts.get("postal_code", ""),
-                    donation_date=anchor.created_at.date(),
-                    receipt_date=timezone.now().date(),
-                    eligible_amount=total_eligible,
-                    advantage_amount=total_advantage,
-                    advantage_description=advantage_description,
-                    charity_legal_name=charity.charity_legal_name,
-                    charity_registration_number=charity.charity_registration_number,
-                    charity_address=charity_address,
-                    place_of_issue=charity.place_of_issue,
-                    authorized_signatory_name=charity.authorized_signatory_name,
-                    authorized_signatory_title=charity.authorized_signatory_title,
-                    is_annual_consolidated=is_consolidated,
+            try:
+                with transaction.atomic():
+                    receipt = OfficialDonationReceipt(
+                        donation=anchor,
+                        status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
+                        donor_legal_name=anchor.donor_name_snapshot,
+                        donor_address_line1=donor_address_parts.get("line1", donor_address_snapshot[:255]),
+                        donor_city=donor_address_parts.get("city", ""),
+                        donor_province=donor_address_parts.get("province", ""),
+                        donor_postal_code=donor_address_parts.get("postal_code", ""),
+                        # CRA date fields — use local time so a donation at 23:30 ET on Dec 31
+                        # does not appear as Jan 1 on the CRA receipt due to UTC offset.
+                        donation_date=localtime(anchor.created_at).date(),
+                        receipt_date=localtime(timezone.now()).date(),
+                        eligible_amount=total_eligible,
+                        advantage_amount=total_advantage,
+                        advantage_description=advantage_description,
+                        charity_legal_name=charity.charity_legal_name,
+                        charity_registration_number=charity.charity_registration_number,
+                        charity_address=charity_address,
+                        place_of_issue=charity.place_of_issue,
+                        authorized_signatory_name=charity.authorized_signatory_name,
+                        authorized_signatory_title=charity.authorized_signatory_title,
+                        is_annual_consolidated=is_consolidated,
+                    )
+                    receipt.save()
+                    # Queue PDF generation + email AFTER commit to avoid orphaned tasks
+                    transaction.on_commit(lambda r=receipt: generate_and_send_receipt.delay(str(r.pk)))
+            except IntegrityError:
+                # Concurrent worker already created a receipt for this donor/year.
+                # The DB UniqueConstraint on (donation_id) for issued receipts is the true guard.
+                logger.info(
+                    "payments.generate_annual_receipts.duplicate_skipped donor_id=%s tax_year=%s",
+                    str(donor_id),
+                    tax_year,
                 )
-                receipt.save()
-                # Queue PDF generation + email AFTER commit to avoid orphaned tasks
-                transaction.on_commit(lambda r=receipt: generate_and_send_receipt.delay(str(r.pk)))
+                skipped += 1
+                continue
 
             processed += 1
 
@@ -336,28 +350,32 @@ def _parse_donor_address(address_snapshot: str) -> dict:
 
 
 @shared_task(
-    bind=False,
+    bind=True,
     name="apps.payments.tasks_receipts.kickoff_annual_receipts",
     max_retries=0,
     acks_late=False,
 )
-def kickoff_annual_receipts() -> dict:
+def kickoff_annual_receipts(self) -> dict:
     """
     Celery Beat entry-point for the annual receipt run.
 
     Resolves tax_year = (current year - 1) at runtime and delegates to
-    generate_annual_receipts.  This wrapper exists so the Beat schedule
-    does not need to be updated each year with a new tax_year argument.
+    generate_annual_receipts via fire-and-forget (no .get()). Blocking on
+    .get() would deadlock if all workers are busy — the child task can never
+    start while the parent holds a worker slot waiting for it.
+
+    Monitor generate_annual_receipts directly in Flower or Celery events.
 
     Called by the 'payments.generate_annual_receipts' PeriodicTask registered
     via `python manage.py setup_periodic_tasks`.
     """
-    from django.utils import timezone as _tz
+    from django.utils.timezone import now
 
-    tax_year = _tz.now().year - 1
+    tax_year = now().year - 1
+    result = generate_annual_receipts.delay(tax_year)
     logger.info(
-        "payments.task.kickoff_annual_receipts dispatching tax_year=%s", tax_year
+        "payments.task.kickoff_annual_receipts.dispatched tax_year=%s task_id=%s",
+        tax_year,
+        result.id,
     )
-    return generate_annual_receipts.apply_async(args=[tax_year]).get(
-        timeout=3600, propagate=True
-    )
+    return {"tax_year": tax_year, "task_id": result.id, "status": "dispatched"}

@@ -208,6 +208,11 @@ def create_donation_intent_api(request):
             status=429,
         )
 
+    # Auth check BEFORE any gateway call — avoids creating an orphaned Stripe
+    # PaymentIntent for anonymous users (PaymentIntent.payer is NOT NULL).
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "authentication_required"}, status=401)
+
     session_data = request.session.get(DONATION_SESSION_KEY)
     if not session_data:
         logger.warning(
@@ -251,11 +256,19 @@ def create_donation_intent_api(request):
 
     idempotency_key = str(uuid.uuid4())
 
-    # Metadata: no PII — campaign_pk and source only.
+    # Metadata stored on the PaymentIntent so the webhook handler (_handle_one_time_donation)
+    # can produce a correct CRA receipt without re-reading the (long-expired) session.
+    # donor_legal_name is the name submitted on the donation form (CRA requirement).
+    # No email or other PII beyond the legal name — PIPEDA compliant.
+    # intent.metadata is a JSONField, not logged by the application.
     metadata = {
         "campaign_pk": session_data.get("campaign_pk", ""),
         "source": "donation",
         "is_recurring": session_data.get("is_recurring", "0"),
+        "advantage_amount": str(session_data.get("advantage_amount", "0.00")),
+        "eligible_amount": str(session_data.get("eligible_amount", "0.00")),
+        "is_anonymous": session_data.get("is_anonymous", "0"),  # already "1"/"0" string from session
+        "donor_legal_name": session_data.get("donor_name", ""),  # legal name for CRA receipt
     }
 
     try:
@@ -283,31 +296,8 @@ def create_donation_intent_api(request):
             status=502,
         )
 
-    # Determine the payer for PaymentIntent.
-    # PaymentIntent.payer is required (FK, no null). For anonymous donors we
-    # need a sentinel user. We use request.user if authenticated; otherwise
-    # we use the AnonymousUser sentinel approach: we require authentication.
-    # For this flow, if the donor is not authenticated, we still create the
-    # PaymentIntent — but PaymentIntent.payer requires a real User FK.
-    # Decision: require authentication for PaymentIntent creation.
-    # Anonymous donors see a "Sign in to donate" prompt on the confirm page.
-    # (Note: DonationSelectView is public, but create_donation_intent_api
-    #  requires auth because PaymentIntent.payer is NOT NULL.)
-    if not request.user.is_authenticated:
-        # Cancel the Stripe intent we just created
-        try:
-            gateway.cancel_payment_intent(gateway_result["gateway_intent_id"])
-        except GatewayError:
-            logger.error(
-                "payments.donation.create_intent.orphan_stripe_pi pi_id=%s",
-                gateway_result["gateway_intent_id"],
-            )
-        return JsonResponse(
-            {"error": "Please sign in to complete your donation."},
-            status=401,
-        )
-
     # Create the PaymentIntent model row.
+    # Auth is guaranteed above — request.user is a real User (PaymentIntent.payer is NOT NULL).
     # Wrapped in try/except: if the DB write fails after the Stripe intent is
     # created, cancel the Stripe intent to avoid an orphaned charge.
     try:

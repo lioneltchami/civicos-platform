@@ -490,3 +490,213 @@ class GenerateAnnualReceiptsTests(TestCase):
 
         log_output = "\n".join(log_ctx.output)
         self.assertNotIn(donor_email, log_output)
+
+
+# ---------------------------------------------------------------------------
+# Fix 5 — UTC → local time for receipt dates
+# ---------------------------------------------------------------------------
+
+class ReceiptDateLocalTimeTests(TestCase):
+    """
+    Fix 5: donation_date on the receipt must reflect the donor's local calendar
+    date (America/Toronto), not the UTC calendar date.
+
+    Scenario: A donation at 23:30 ET on December 31 is stored as
+    2026-01-01T04:30:00Z in UTC. Without localtime(), .date() returns 2026-01-01
+    (the UTC date), placing the receipt in the wrong tax year.
+    """
+
+    def test_receipt_date_uses_local_time_not_utc(self):
+        """donation_date must be the local date, not the UTC date."""
+        import datetime as dt
+        from unittest.mock import patch
+
+        from apps.payments.models import OfficialDonationReceipt
+
+        make_charity_settings()
+        user = make_user()
+        intent = make_payment_intent(user)
+
+        # A UTC datetime that rolls over to the next calendar day in Toronto.
+        # 2025-12-31 at 23:30 ET = 2026-01-01 04:30 UTC.
+        utc_midnight_rollover = dt.datetime(2026, 1, 1, 4, 30, 0, tzinfo=dt.timezone.utc)
+        expected_local_date = dt.date(2025, 12, 31)  # what the donor sees in Toronto
+
+        donation = make_donation(user, intent)
+        # Backdate created_at via _base_manager so it crosses the calendar date boundary.
+        Donation._base_manager.filter(pk=donation.pk).update(created_at=utc_midnight_rollover)
+        donation.refresh_from_db()
+
+        # OfficialDonationReceipt.save() calls nextval() which is PostgreSQL-only.
+        # Patch save to assign a serial_number and delegate to the base Django save.
+        _counter = [0]
+
+        def _fake_receipt_save(receipt_instance, *args, **kwargs):
+            if not receipt_instance.serial_number:
+                _counter[0] += 1
+                receipt_instance.serial_number = f"2025-{str(_counter[0]).zfill(6)}"
+            # Skip OfficialDonationReceipt.save() validation and go straight to Model.save()
+            from django.db.models import Model
+            Model.save(receipt_instance, *args, **kwargs)
+
+        with patch.object(OfficialDonationReceipt, "save", _fake_receipt_save):
+            with patch("apps.payments.tasks_receipts.generate_and_send_receipt.delay"):
+                with self.captureOnCommitCallbacks(execute=True):
+                    with self.settings(TIME_ZONE="America/Toronto", USE_TZ=True):
+                        from apps.payments.receivers import on_donation_completed
+                        on_donation_completed(
+                            sender=Donation,
+                            donation=donation,
+                            payment=None,
+                        )
+
+        receipt = OfficialDonationReceipt.objects.filter(donation=donation).first()
+        self.assertIsNotNone(receipt, "Receipt should have been created")
+        self.assertEqual(
+            receipt.donation_date,
+            expected_local_date,
+            f"Expected local date {expected_local_date} but got {receipt.donation_date}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fix 6 — receipt_issued signal emitted after on_donation_completed
+# ---------------------------------------------------------------------------
+
+class ReceiptIssuedSignalTests(TestCase):
+    """
+    Fix 6: receipt_issued signal must be sent after on_donation_completed
+    creates and saves the receipt.
+    """
+
+    def test_receipt_issued_signal_emitted(self):
+        """After on_donation_completed fires, receipt_issued signal carries the receipt."""
+        from apps.payments.signals import receipt_issued
+        from apps.payments.models import OfficialDonationReceipt
+        from unittest.mock import patch
+
+        make_charity_settings()
+        user = make_user()
+        intent = make_payment_intent(user)
+        donation = make_donation(user, intent)
+
+        received_kwargs = {}
+
+        def _capture(sender, receipt, donation, **kwargs):
+            received_kwargs["receipt"] = receipt
+            received_kwargs["donation"] = donation
+
+        receipt_issued.connect(_capture, dispatch_uid="test_receipt_issued_signal")
+
+        # OfficialDonationReceipt.save() calls nextval() which is PostgreSQL-only.
+        _counter = [0]
+
+        def _fake_receipt_save(receipt_instance, *args, **kwargs):
+            if not receipt_instance.serial_number:
+                _counter[0] += 1
+                receipt_instance.serial_number = f"2026-{str(_counter[0]).zfill(6)}"
+            from django.db.models import Model
+            Model.save(receipt_instance, *args, **kwargs)
+
+        try:
+            with patch.object(OfficialDonationReceipt, "save", _fake_receipt_save):
+                with patch("apps.payments.tasks_receipts.generate_and_send_receipt.delay"):
+                    with self.captureOnCommitCallbacks(execute=True):
+                        from apps.payments.receivers import on_donation_completed
+                        on_donation_completed(
+                            sender=Donation,
+                            donation=donation,
+                            payment=None,
+                        )
+        finally:
+            receipt_issued.disconnect(_capture, dispatch_uid="test_receipt_issued_signal")
+
+        self.assertIn("receipt", received_kwargs, "receipt_issued signal was not emitted")
+        self.assertIsInstance(received_kwargs["receipt"], OfficialDonationReceipt)
+        self.assertEqual(received_kwargs["donation"], donation)
+
+
+# ---------------------------------------------------------------------------
+# Fix 7 — TOCTOU duplicate safety in generate_annual_receipts
+# ---------------------------------------------------------------------------
+
+class AnnualReceiptDuplicateSafetyTests(TestCase):
+    """
+    Fix 7: Running generate_annual_receipts twice for the same tax year must
+    not create duplicate receipts. The second run must skip already-processed
+    donors rather than creating a second OfficialDonationReceipt row.
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        self.campaign = make_campaign()
+        self.charity = make_charity_settings()
+
+    def _run(self, year=2026):
+        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        from apps.payments.models import OfficialDonationReceipt
+
+        _counter = [0]
+
+        def _fake_save(receipt_instance, *args, **kwargs):
+            if not receipt_instance.serial_number:
+                _counter[0] += 1
+                receipt_instance.serial_number = f"{year}-{str(_counter[0]).zfill(6)}"
+            from django.db.models import Model
+            Model.save(receipt_instance, *args, **kwargs)
+
+        with patch.object(OfficialDonationReceipt, "save", _fake_save):
+            with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                with self.captureOnCommitCallbacks(execute=True):
+                    result = generate_annual_receipts.apply(args=[year]).get()
+        return result
+
+    def test_annual_receipts_duplicate_safe(self):
+        """Second run for same year skips already-issued donors; no duplicate rows."""
+        intent = make_payment_intent(self.user)
+        make_donation(self.user, intent)
+
+        result1 = self._run(year=2026)
+        self.assertEqual(result1["processed"], 1)
+        self.assertEqual(OfficialDonationReceipt.objects.count(), 1)
+
+        result2 = self._run(year=2026)
+        self.assertEqual(result2["skipped"], 1, "Second run should skip the already-issued donor")
+        self.assertEqual(result2["processed"], 0)
+        # Still only one receipt row — no duplicate
+        self.assertEqual(OfficialDonationReceipt.objects.count(), 1)
+
+
+# ---------------------------------------------------------------------------
+# Fix 8 — kickoff_annual_receipts fire-and-forget (no .get())
+# ---------------------------------------------------------------------------
+
+class KickoffAnnualReceiptsTests(TestCase):
+    """
+    Fix 8: kickoff_annual_receipts must dispatch generate_annual_receipts.delay()
+    and return immediately — it must NOT call .get() on the AsyncResult, which
+    would block the worker and risk deadlock.
+    """
+
+    def test_kickoff_dispatches_and_returns(self):
+        """kickoff fires .delay with tax_year=current_year-1 and returns a dict."""
+        from unittest.mock import patch, MagicMock
+        from apps.payments.tasks_receipts import kickoff_annual_receipts
+        from django.utils.timezone import now
+
+        fake_result = MagicMock()
+        fake_result.id = "fake-task-id-1234"
+
+        with patch(
+            "apps.payments.tasks_receipts.generate_annual_receipts.delay",
+            return_value=fake_result,
+        ) as mock_delay:
+            result = kickoff_annual_receipts.apply().get()
+
+        expected_year = now().year - 1
+        mock_delay.assert_called_once_with(expected_year)
+        # .get() must NOT have been called on the AsyncResult
+        fake_result.get.assert_not_called()
+        self.assertEqual(result["tax_year"], expected_year)
+        self.assertEqual(result["task_id"], "fake-task-id-1234")
+        self.assertEqual(result["status"], "dispatched")

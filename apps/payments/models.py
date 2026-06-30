@@ -1664,6 +1664,15 @@ class OfficialDonationReceipt(TimestampedModel):
                 check=models.Q(advantage_amount__gte=0),
                 name="payments_receipt_advantage_nonneg",
             ),
+            # Prevents two issued receipts for the same donation (anchor FK).
+            # For annual consolidated receipts the anchor is the first donation in the
+            # tax year for that donor — so each donor gets at most one issued receipt
+            # per annual run even under concurrent worker execution.
+            models.UniqueConstraint(
+                fields=["donation"],
+                condition=models.Q(status="issued"),
+                name="payments_receipt_unique_issued_per_donation",
+            ),
         ]
 
     def __str__(self) -> str:

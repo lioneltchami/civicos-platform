@@ -295,15 +295,19 @@ class DonationConfirmViewTests(DonationViewTestBase):
 
 class CreateDonationIntentApiTests(DonationViewTestBase):
 
-    # 11. Unauthenticated POST → 401 (after gateway call, which is mocked)
-    def test_unauthenticated_post_returns_401(self):
+    # 11. Unauthenticated POST → 401 WITHOUT calling the gateway (Fix 1)
+    def test_unauthenticated_post_returns_401_before_gateway(self):
         self._set_donation_session()
-        # Do not login — gateway is called first, then auth check returns 401
-        with self._mock_gateway():
+        mock_gw = MagicMock()
+        mock_gw.create_payment_intent.return_value = GATEWAY_RESULT
+        # Auth check must happen before gateway call — gateway must NOT be called
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
             resp = self._post_intent()
         self.assertEqual(resp.status_code, 401)
         data = resp.json()
         self.assertIn("error", data)
+        # Fix 1 verification: gateway.create_payment_intent was NOT called
+        mock_gw.create_payment_intent.assert_not_called()
 
     # 12. Authenticated POST with no session → 403
     def test_authenticated_no_session_returns_403(self):
@@ -422,8 +426,10 @@ class CreateDonationIntentApiTests(DonationViewTestBase):
         self.assertEqual(resp.status_code, 500)
         mock_gw.cancel_payment_intent.assert_called_once()
 
-    # 21. Unauthenticated POST cancels the Stripe intent (no orphan)
-    def test_unauthenticated_cancels_stripe_intent(self):
+    # 21. Unauthenticated POST: auth check before gateway — no Stripe call at all (Fix 1)
+    def test_unauthenticated_no_gateway_call_no_orphan(self):
+        """Fix 1: auth check is now before gateway.create_payment_intent, so no
+        orphaned Stripe PaymentIntent is ever created for anonymous users."""
         self._set_donation_session()
         mock_gw = MagicMock()
         mock_gw.create_payment_intent.return_value = GATEWAY_RESULT
@@ -433,7 +439,9 @@ class CreateDonationIntentApiTests(DonationViewTestBase):
             resp = self._post_intent()
 
         self.assertEqual(resp.status_code, 401)
-        mock_gw.cancel_payment_intent.assert_called_once_with(GATEWAY_RESULT["gateway_intent_id"])
+        # Neither gateway create nor cancel should have been called
+        mock_gw.create_payment_intent.assert_not_called()
+        mock_gw.cancel_payment_intent.assert_not_called()
 
     # 22. GET method returns 405
     def test_get_returns_405(self):
@@ -620,3 +628,77 @@ class RecurringGiftCancelViewTests(DonationViewTestBase):
             self.client.post(self._cancel_url(plan.pk))
         audit = PaymentAuditEntry.objects.filter(action="recurring_plan_cancelled").first()
         self.assertIsNotNone(audit)
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: PaymentIntent metadata must include CRA fields
+# ---------------------------------------------------------------------------
+
+class CreateDonationIntentMetadataTests(DonationViewTestBase):
+    """Fix 2: advantage_amount, eligible_amount, is_anonymous, donor_legal_name
+    must be stored in PaymentIntent.metadata so the webhook handler can produce
+    correct CRA receipts."""
+
+    # 39. Metadata contains advantage_amount from session
+    def test_metadata_contains_advantage_amount(self):
+        self.client.force_login(self.user)
+        sd = self._default_session_data(advantage_amount="10.00", eligible_amount="40.00", amount="50.00")
+        self._set_donation_session(sd)
+        with self._mock_gateway():
+            resp = self._post_intent()
+        self.assertEqual(resp.status_code, 200)
+        intent = PaymentIntent.objects.get()
+        self.assertEqual(intent.metadata.get("advantage_amount"), "10.00")
+
+    # 40. Metadata contains eligible_amount from session
+    def test_metadata_contains_eligible_amount(self):
+        self.client.force_login(self.user)
+        sd = self._default_session_data(advantage_amount="10.00", eligible_amount="40.00", amount="50.00")
+        self._set_donation_session(sd)
+        with self._mock_gateway():
+            resp = self._post_intent()
+        self.assertEqual(resp.status_code, 200)
+        intent = PaymentIntent.objects.get()
+        self.assertEqual(intent.metadata.get("eligible_amount"), "40.00")
+
+    # 41. Metadata contains is_anonymous from session (anonymous donor)
+    def test_metadata_contains_is_anonymous_true(self):
+        self.client.force_login(self.user)
+        sd = self._default_session_data(is_anonymous="1")
+        self._set_donation_session(sd)
+        with self._mock_gateway():
+            resp = self._post_intent()
+        self.assertEqual(resp.status_code, 200)
+        intent = PaymentIntent.objects.get()
+        self.assertEqual(intent.metadata.get("is_anonymous"), "1")
+
+    # 42. Metadata contains is_anonymous "0" for non-anonymous donor
+    def test_metadata_contains_is_anonymous_false(self):
+        self.client.force_login(self.user)
+        sd = self._default_session_data(is_anonymous="0")
+        self._set_donation_session(sd)
+        with self._mock_gateway():
+            resp = self._post_intent()
+        self.assertEqual(resp.status_code, 200)
+        intent = PaymentIntent.objects.get()
+        self.assertEqual(intent.metadata.get("is_anonymous"), "0")
+
+    # 43. Metadata contains donor_legal_name from session donor_name field
+    def test_metadata_contains_donor_legal_name(self):
+        self.client.force_login(self.user)
+        sd = self._default_session_data(donor_name="Jean Tremblay")
+        self._set_donation_session(sd)
+        with self._mock_gateway():
+            resp = self._post_intent()
+        self.assertEqual(resp.status_code, 200)
+        intent = PaymentIntent.objects.get()
+        self.assertEqual(intent.metadata.get("donor_legal_name"), "Jean Tremblay")
+
+    # 44. Metadata does NOT contain donor_email (PIPEDA compliance)
+    def test_metadata_does_not_contain_donor_email(self):
+        self.client.force_login(self.user)
+        self._set_donation_session()
+        with self._mock_gateway():
+            self._post_intent()
+        intent = PaymentIntent.objects.get()
+        self.assertNotIn("donor_email", intent.metadata)

@@ -259,8 +259,15 @@ class ReceiptPdfTests(TestCase):
 
     # 11. _build_receipt_context total_donation_amount = eligible + advantage
     def test_build_receipt_context_total_amount(self):
+        # Use a separate donation so the unique-issued-per-donation constraint is not violated
+        donation2 = make_donation(
+            self.user, make_payment_intent(self.user),
+            amount=Decimal("100.00"),
+            eligible_amount=Decimal("80.00"),
+            advantage_amount=Decimal("20.00"),
+        )
         receipt = make_receipt(
-            self.donation,
+            donation2,
             eligible_amount=Decimal("80.00"),
             advantage_amount=Decimal("20.00"),
         )
@@ -274,8 +281,15 @@ class ReceiptPdfTests(TestCase):
 
     # 13. has_advantage=True when advantage_amount > 0
     def test_build_context_has_advantage_true_when_nonzero(self):
+        # Use a separate donation so the unique-issued-per-donation constraint is not violated
+        donation2 = make_donation(
+            self.user, make_payment_intent(self.user),
+            amount=Decimal("100.00"),
+            eligible_amount=Decimal("80.00"),
+            advantage_amount=Decimal("20.00"),
+        )
         receipt = make_receipt(
-            self.donation,
+            donation2,
             eligible_amount=Decimal("80.00"),
             advantage_amount=Decimal("20.00"),
             advantage_description="Gala ticket",

@@ -30,7 +30,7 @@ WebhookEvent field reference (actual model):
 import datetime
 import logging
 import types
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from celery import shared_task
 from django.db import transaction
@@ -366,44 +366,89 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
 
     donor = intent.payer
 
-    # donor_name_snapshot — CRA requirement
-    donor_name_snapshot = getattr(donor, "get_full_name", lambda: "")() or str(donor)
-    if not donor_name_snapshot.strip():
-        donor_name_snapshot = "Donor"
+    # ── Read CRA-critical fields from metadata (stored by create_donation_intent_api) ──
+    # Metadata keys: advantage_amount, eligible_amount, is_anonymous, donor_legal_name.
+    # All set in create_donation_intent_api; legacy intents (pre-fix) may lack them.
+    meta = intent.metadata or {}
+
+    # advantage_amount: use donor-submitted value; fall back to campaign default
+    meta_advantage = meta.get("advantage_amount", "")
+    if meta_advantage:
+        try:
+            advantage_amount = Decimal(meta_advantage).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, TypeError):
+            advantage_amount = Decimal("0.00")
+            logger.warning(
+                "payments.handler.one_time_donation.invalid_advantage_amount "
+                "intent_pk=%s",
+                str(intent.pk),
+            )
+    else:
+        # Fallback: use campaign default (legacy intents created before this fix)
+        advantage_amount = Decimal("0.00")
+        if campaign:
+            advantage_amount = getattr(campaign, "advantage_amount", Decimal("0.00")) or Decimal("0.00")
+
+    # eligible_amount: prefer metadata, otherwise compute from payment minus advantage
+    payment_amount = payment.amount_paid
+    meta_eligible = meta.get("eligible_amount", "")
+    if meta_eligible:
+        try:
+            eligible_amount = Decimal(meta_eligible).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, TypeError):
+            eligible_amount = max(Decimal("0.00"), payment_amount - advantage_amount)
+    else:
+        eligible_amount = max(Decimal("0.00"), payment_amount - advantage_amount)
+
+    # is_anonymous: from metadata (stored as "1"/"0" string)
+    is_anonymous = meta.get("is_anonymous", "0") == "1"
+
+    # donor_legal_name for CRA receipt: prefer form-submitted name from metadata,
+    # fall back to account full_name for legacy intents created before this fix.
+    donor_legal_name = meta.get("donor_legal_name", "").strip()
+    if not donor_legal_name:
+        # Legacy fallback for intents created before this fix
+        donor_legal_name = getattr(donor, "get_full_name", lambda: "")() or str(donor)
+    if not donor_legal_name.strip():
+        donor_legal_name = "[Name required — update donor profile]"
         logger.warning(
             "payments.handler.one_time_donation.missing_donor_name "
-            "intent_pk=%s — CRA receipt will use placeholder name",
-            str(intent.pk),
-        )
-
-    # donor_address_snapshot — CRA requirement
-    # User model has no address field; log a WARNING so ops can follow up.
-    # The placeholder is CRA-visible — run management command
-    # `check_missing_donor_addresses` to identify and correct affected receipts.
-    address_parts = []
-    for attr in ("address", "billing_address", "profile_address"):
-        addr = getattr(donor, attr, None)
-        if addr:
-            address_parts = [addr]
-            break
-    if not address_parts:
-        donor_address_snapshot = "[Address required — update donor profile]"
-        logger.warning(
-            "payments.handler.one_time_donation.missing_donor_address "
-            "intent_pk=%s donor_pk=%s — CRA receipt will have placeholder address",
+            "intent_pk=%s donor_pk=%s — CRA receipt will have placeholder name",
             str(intent.pk),
             str(donor.pk),
         )
-    else:
-        donor_address_snapshot = "\n".join(address_parts)
 
-    # advantage_amount: not tracked at PaymentIntent level for one-time gifts;
-    # use campaign default if available, otherwise zero.
-    advantage_amount = Decimal("0.00")
+    donor_name_snapshot = donor_legal_name
+
+    # advantage_description from campaign (descriptive text, not a CRA-critical amount)
     advantage_description = ""
     if campaign:
-        advantage_amount = campaign.advantage_amount
         advantage_description = campaign.get_advantage_description()
+
+    # donor_address_snapshot — CRA requirement (CRA IT-110R3)
+    # Read from the postal_address field added to the User model.
+    # Falls back to a placeholder that flags the receipt for follow-up.
+    # Run management command `check_missing_donor_addresses` to find affected rows.
+    donor_address_snapshot = ""
+    try:
+        if hasattr(donor, "postal_address"):
+            donor_address_snapshot = donor.postal_address.strip()
+        elif hasattr(donor, "donor_profile"):
+            donor_address_snapshot = donor.donor_profile.postal_address.strip()
+        elif hasattr(donor, "profile"):
+            donor_address_snapshot = getattr(donor.profile, "postal_address", "").strip()
+    except Exception:
+        pass
+
+    if not donor_address_snapshot:
+        donor_address_snapshot = "[Address required — update donor profile]"
+        logger.warning(
+            "payments.handler.one_time_donation.missing_donor_address "
+            "intent_pk=%s donor_pk=%s — CRA receipt will have placeholder address; "
+            "donor must update their profile at /accounts/profile/",
+            str(intent.pk),
+            str(donor.pk),
+        )
 
     donation = Donation.objects.create(
         payment_intent=intent,
@@ -412,11 +457,10 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
         amount=payment.amount_paid,
         advantage_amount=advantage_amount,
         advantage_description=advantage_description,
-        # eligible_amount computed in Donation.save()
-        eligible_amount=payment.amount_paid,  # Will be recomputed
+        eligible_amount=eligible_amount,
         is_recurring=False,
         recurring_plan=None,
-        is_anonymous=False,
+        is_anonymous=is_anonymous,
         status=DONATION_STATUS_COMPLETED,
         donor_name_snapshot=donor_name_snapshot,
         donor_address_snapshot=donor_address_snapshot,
@@ -788,25 +832,29 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
 
     donor = plan.donor
 
-    # donor_address_snapshot — CRA requirement.
-    # User model has no address field. Log a WARNING at ops-visible level so
-    # receipts with placeholder addresses can be identified and corrected.
+    # donor_address_snapshot — CRA requirement (CRA IT-110R3).
+    # Read from the postal_address field added to the User model.
+    # Falls back to a placeholder that flags the receipt for follow-up.
     # Run management command `check_missing_donor_addresses` to find affected rows.
     donor_user = getattr(plan, "donor", None)
-    address_parts = []
-    if donor_user:
-        for attr in ("address", "billing_address", "profile_address"):
-            addr = getattr(donor_user, attr, None)
-            if addr:
-                address_parts = [addr]
-                break
-    if address_parts:
-        donor_address_snapshot = "\n".join(address_parts)
-    else:
+    donor_address_snapshot = ""
+    try:
+        if donor_user:
+            if hasattr(donor_user, "postal_address"):
+                donor_address_snapshot = donor_user.postal_address.strip()
+            elif hasattr(donor_user, "donor_profile"):
+                donor_address_snapshot = donor_user.donor_profile.postal_address.strip()
+            elif hasattr(donor_user, "profile"):
+                donor_address_snapshot = getattr(donor_user.profile, "postal_address", "").strip()
+    except Exception:
+        pass
+
+    if not donor_address_snapshot:
         donor_address_snapshot = "[Address required — update donor profile]"
         logger.warning(
             "payments.handler.invoice_succeeded.missing_donor_address "
-            "plan_pk=%s donor_pk=%s — CRA receipt will have placeholder address",
+            "plan_pk=%s donor_pk=%s — CRA receipt will have placeholder address; "
+            "donor must update their profile at /accounts/profile/",
             str(plan.pk),
             str(donor_user.pk) if donor_user else "unknown",
         )

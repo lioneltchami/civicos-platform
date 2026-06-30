@@ -745,3 +745,108 @@ class StripeGatewayApiKeyTests(SimpleTestCase):
         with override_settings(STRIPE_SECRET_KEY="sk_test_validkey"):
             key = gateway._get_api_key()
         self.assertEqual(key, "sk_test_validkey")
+
+
+# ---------------------------------------------------------------------------
+# _parse_charge_refunded — refund ordering regression tests
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class StripeGatewayParseChargeRefundedTests(SimpleTestCase):
+    """
+    Tests for correct refund selection from charge.refunded events.
+
+    Stripe returns refunds.data in reverse chronological order (newest first).
+    The gateway must select refunds[0] (newest), NOT refunds[-1] (oldest).
+    Selecting the wrong index silently drops second partial refunds because
+    _handle_charge_refunded finds the old refund ID already in the DB and
+    logs "already_recorded" instead of recording the new refund.
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gateway = StripeGateway()
+
+    def _build_charge_payload(self, refunds_list):
+        """Build a minimal charge.refunded webhook payload."""
+        return {
+            "id": "ch_test_123",
+            "amount": 10000,
+            "refunds": {
+                "object": "list",
+                "data": refunds_list,
+                "has_more": False,
+            },
+            "payment_method_details": {
+                "type": "card",
+                "card": {"brand": "visa", "last4": "4242"},
+            },
+        }
+
+    def test_single_refund_returns_correct_id(self):
+        """With one refund, gateway_refund_id is that refund's ID."""
+        refunds = [
+            {"id": "re_only", "amount": 5000, "status": "succeeded"},
+        ]
+        charge = self._build_charge_payload(refunds)
+        result = self.gateway._parse_charge_refunded(charge)
+        self.assertEqual(result["gateway_refund_id"], "re_only")
+
+    def test_multiple_refunds_returns_newest_not_oldest(self):
+        """
+        Critical regression test: with two refunds, gateway_refund_id must be
+        re_newest (index 0), NOT re_oldest (index -1).
+
+        Stripe returns refunds.data newest-first. Using refunds[-1] silently
+        drops the second partial refund because the old refund ID already exists
+        in the DB and _handle_charge_refunded logs 'already_recorded'.
+        """
+        refunds = [
+            {"id": "re_newest", "amount": 2500, "status": "succeeded"},
+            {"id": "re_oldest", "amount": 1000, "status": "succeeded"},
+        ]
+        charge = self._build_charge_payload(refunds)
+        result = self.gateway._parse_charge_refunded(charge)
+        self.assertEqual(result["gateway_refund_id"], "re_newest")
+        self.assertNotEqual(result["gateway_refund_id"], "re_oldest")
+
+    def test_multiple_refunds_returns_newest_amount(self):
+        """The refund_amount must match the newest refund (index 0), not the oldest."""
+        from decimal import Decimal
+        refunds = [
+            {"id": "re_newest", "amount": 2500, "status": "succeeded"},
+            {"id": "re_oldest", "amount": 1000, "status": "succeeded"},
+        ]
+        charge = self._build_charge_payload(refunds)
+        result = self.gateway._parse_charge_refunded(charge)
+        # re_newest is 2500 cents = $25.00; re_oldest is 1000 cents = $10.00
+        self.assertEqual(result["refund_amount"], Decimal("25.00"))
+
+    def test_empty_refunds_returns_empty_id_no_crash(self):
+        """With no refunds, gateway_refund_id is empty string and no exception is raised."""
+        charge = self._build_charge_payload([])
+        result = self.gateway._parse_charge_refunded(charge)
+        self.assertEqual(result["gateway_refund_id"], "")
+
+    def test_empty_refunds_returns_zero_amount(self):
+        """With no refunds, refund_amount is $0.00."""
+        from decimal import Decimal
+        charge = self._build_charge_payload([])
+        result = self.gateway._parse_charge_refunded(charge)
+        self.assertEqual(result["refund_amount"], Decimal("0.00"))
+
+    def test_result_contains_gateway_charge_id(self):
+        """The parsed result always includes the charge ID."""
+        charge = self._build_charge_payload([
+            {"id": "re_001", "amount": 1000, "status": "succeeded"},
+        ])
+        result = self.gateway._parse_charge_refunded(charge)
+        self.assertEqual(result["gateway_charge_id"], "ch_test_123")
+
+    def test_result_contains_refund_status(self):
+        """The parsed result includes refund_status from the newest refund."""
+        charge = self._build_charge_payload([
+            {"id": "re_001", "amount": 1000, "status": "succeeded"},
+        ])
+        result = self.gateway._parse_charge_refunded(charge)
+        self.assertEqual(result["refund_status"], "succeeded")

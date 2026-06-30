@@ -491,7 +491,10 @@ class StripeGateway(PaymentGateway):
     def _parse_charge_refunded(self, obj: dict) -> dict:
         """Parse charge.refunded event."""
         refunds = obj.get("refunds", {}).get("data", [])
-        latest_refund = refunds[-1] if refunds else {}
+        # Stripe returns refunds.data in reverse chronological order (newest first).
+        # refunds[0] is the most recent refund — the one that triggered this event.
+        # The oldest refund (index -1) would be WRONG for partial-refund scenarios.
+        latest_refund = refunds[0] if refunds else {}
         return {
             "gateway_charge_id": obj.get("id", ""),
             "gateway_refund_id": latest_refund.get("id", ""),

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 
 from django.db import transaction
+from django.utils.timezone import localtime, now as timezone_now
 
 logger = logging.getLogger("apps.payments.receivers")
 
@@ -35,8 +36,6 @@ def on_donation_completed(sender, donation, payment, **kwargs):
     Signal receivers must never crash callers.
     """
     from decimal import Decimal
-
-    from django.utils import timezone
 
     from apps.payments.models import CharitySettings, OfficialDonationReceipt
     from apps.payments.tasks_receipts import generate_and_send_receipt
@@ -94,9 +93,10 @@ def on_donation_completed(sender, donation, payment, **kwargs):
                 donor_city=donor_address_parts.get("city", ""),
                 donor_province=donor_address_parts.get("province", ""),
                 donor_postal_code=donor_address_parts.get("postal_code", ""),
-                # CRA date fields
-                donation_date=donation.created_at.date(),
-                receipt_date=timezone.now().date(),
+                # CRA date fields — use local time so a donation at 23:30 ET on Dec 31
+                # does not appear as Jan 1 on the CRA receipt due to UTC offset.
+                donation_date=localtime(donation.created_at).date(),
+                receipt_date=localtime(timezone_now()).date(),
                 # CRA amount fields
                 eligible_amount=donation.eligible_amount,
                 advantage_amount=donation.advantage_amount,
@@ -115,6 +115,16 @@ def on_donation_completed(sender, donation, payment, **kwargs):
             transaction.on_commit(
                 lambda: generate_and_send_receipt.delay(receipt_pk_str)
             )
+
+            def _send_receipt_issued():
+                from apps.payments.signals import receipt_issued
+                receipt_issued.send(
+                    sender=OfficialDonationReceipt,
+                    receipt=receipt,
+                    donation=donation,
+                )
+
+            transaction.on_commit(_send_receipt_issued)
 
         logger.info(
             "payments.receiver.receipt_created serial=%s donation_pk=%s",

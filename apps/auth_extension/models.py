@@ -84,6 +84,18 @@ class User(AbstractUser):
         help_text=_("Include country code, e.g. +1 613 555 0100"),
     )
 
+    # Postal address for CRA charitable donation receipts (CRA IT-110R3)
+    postal_address = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name=_("Postal address"),
+        help_text=_(
+            "Full mailing address for CRA charitable donation receipts. "
+            "Format: street, city, province, postal code. "
+            "Required for official tax receipts under CRA IT-110R3."
+        ),
+    )
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []  # email + password only for createsuperuser
 

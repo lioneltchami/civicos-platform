@@ -273,13 +273,17 @@ class DashboardViewTests(BasePortalTestCase):
 
     # Test 5
     def test_pending_receipt_count_for_donor_only(self):
-        # Create a receipt without a pdf_path (pending) for donor
-        pending = make_receipt(self.donation, status="issued", pdf_path="")
+        # Use fresh donations so the unique-issued-per-donation constraint is not violated
+        # (setUp already creates one issued receipt per donor)
+        pending_donation = make_donation(self.donor, amount=Decimal("25.00"))
+        other_pending_donation = make_donation(self.other_donor, amount=Decimal("25.00"))
+        pending = make_receipt(pending_donation, status="issued", pdf_path="")
         # Also create pending for other_donor — should not count
-        make_receipt(self.other_donation, status="issued", pdf_path="")
+        make_receipt(other_pending_donation, status="issued", pdf_path="")
         self._login_donor()
         response = self.client.get(DASHBOARD_URL)
-        # donor has 1 pending receipt (the one we just made without pdf_path)
+        # donor has 1 pending receipt (the new one without pdf_path;
+        # self.receipt from setUp has pdf_path so it's not pending)
         self.assertEqual(response.context["pending_receipt_count"], 1)
 
     # Test 6
@@ -520,8 +524,9 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
 
     # Test 33
     def test_receipt_without_pdf_path_returns_202(self):
-        # Create a receipt without pdf_path
-        pending_receipt = make_receipt(self.donation, status="issued", pdf_path="")
+        # Use a fresh donation so the unique-issued-per-donation constraint is not violated
+        fresh_donation = make_donation(self.donor, amount=Decimal("25.00"))
+        pending_receipt = make_receipt(fresh_donation, status="issued", pdf_path="")
         self._login_donor()
         url = self._receipt_download_url(pending_receipt)
         response = self.client.get(url)
@@ -744,9 +749,11 @@ class ReceiptListViewTests(BasePortalTestCase):
 
     # Test 53 — Pagination: 30 receipts → first page has 25
     def test_paginated_30_receipts_first_page_has_25(self):
-        # Create 29 more issued receipts for donor (total 30 including self.receipt)
+        # Create 29 more issued receipts for donor on separate donations
+        # (unique-issued-per-donation constraint prevents two issued receipts per donation)
         for _ in range(29):
-            make_receipt(self.donation, status="issued", pdf_path="receipts/x.pdf")
+            fresh = make_donation(self.donor, amount=Decimal("10.00"))
+            make_receipt(fresh, status="issued", pdf_path="receipts/x.pdf")
         self._login_donor()
         response = self.client.get(RECEIPT_LIST_URL)
         self.assertEqual(len(response.context["receipts"]), 25)
@@ -785,9 +792,10 @@ class ReceiptListViewTests(BasePortalTestCase):
 
     # Test 58 — Download links use donor_portal:receipt_download URL
     def test_download_links_use_receipt_download_url(self):
-        # Create a fresh receipt with pdf_path set (via make_receipt which sets it at creation time)
+        # Use a fresh donation to avoid violating the unique-issued-per-donation constraint
+        fresh_donation = make_donation(self.donor, amount=Decimal("25.00"))
         receipt_with_pdf = make_receipt(
-            self.donation,
+            fresh_donation,
             status="issued",
             pdf_path="receipts/donor_w_pdf.pdf",
         )
