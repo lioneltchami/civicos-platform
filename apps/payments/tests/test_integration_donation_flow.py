@@ -165,14 +165,14 @@ class DonationFlowIntegrationTests(TestCase):
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
         with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()), \
              patch.object(OfficialDonationReceipt, "save", _fake_save), \
              patch.object(generate_and_send_receipt, "delay", return_value=None) as mock_delay:
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = self.mock_parse_return
             mock_get_gw.return_value = mock_gw
-            process_stripe_webhook(str(self.event.pk))
-            return mock_delay
+            with self.captureOnCommitCallbacks(execute=True):
+                process_stripe_webhook(str(self.event.pk))
+        return mock_delay
 
     # ------------------------------------------------------------------
     # Payment row assertions
@@ -333,13 +333,13 @@ class DonationFlowIntegrationTests(TestCase):
         mock_parse_return = _succeeded_event_data(fee_pi.gateway_intent_id)
 
         with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()), \
              patch.object(OfficialDonationReceipt, "save", _fake_save), \
              patch.object(generate_and_send_receipt, "delay", return_value=None):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
-            process_stripe_webhook(str(fee_event.pk))
+            with self.captureOnCommitCallbacks(execute=True):
+                process_stripe_webhook(str(fee_event.pk))
 
         self.assertEqual(Donation.objects.count(), 0)
         self.assertEqual(OfficialDonationReceipt.objects.count(), 0)
@@ -352,16 +352,58 @@ class DonationFlowIntegrationTests(TestCase):
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
         with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()), \
              patch.object(OfficialDonationReceipt, "save", _fake_save), \
              patch.object(generate_and_send_receipt, "delay", return_value=None):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = self.mock_parse_return
             mock_get_gw.return_value = mock_gw
-            # First run
-            process_stripe_webhook(str(self.event.pk))
-            # Second run — event is now marked processed, should exit early
-            process_stripe_webhook(str(self.event.pk))
+            with self.captureOnCommitCallbacks(execute=True):
+                # First run
+                process_stripe_webhook(str(self.event.pk))
+            with self.captureOnCommitCallbacks(execute=True):
+                # Second run — event is now marked processed, should exit early
+                process_stripe_webhook(str(self.event.pk))
 
         self.assertEqual(Donation.objects.count(), 1)
         self.assertEqual(OfficialDonationReceipt.objects.count(), 1)
+
+    def test_no_receipt_when_eligible_amount_is_zero(self):
+        """
+        End-to-end: when advantage_amount == amount (eligible_amount = 0),
+        no OfficialDonationReceipt should be created even after the webhook fires.
+
+        CRA: receipts are only issued when eligible_amount > 0.
+        """
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        # Override metadata so eligible_amount is 0 (full advantage = full donation)
+        self.pi.metadata = {
+            "is_recurring": "0",
+            "source": "donation",
+            "campaign_pk": "",
+            "advantage_amount": "100.00",
+            "eligible_amount": "0.00",
+            "is_anonymous": "0",
+            "donor_legal_name": "Jean Tremblay",
+        }
+        self.pi.save(update_fields=["metadata"])
+
+        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
+             patch.object(OfficialDonationReceipt, "save", _fake_save), \
+             patch.object(generate_and_send_receipt, "delay", return_value=None) as mock_delay:
+            mock_gw = MagicMock()
+            mock_gw.parse_webhook_event.return_value = self.mock_parse_return
+            mock_get_gw.return_value = mock_gw
+            with self.captureOnCommitCallbacks(execute=True):
+                process_stripe_webhook(str(self.event.pk))
+
+        # Donation IS created even when eligible_amount = 0
+        self.assertEqual(Donation.objects.count(), 1)
+        # But no receipt — CRA rule: eligible_amount must be > 0
+        self.assertEqual(
+            OfficialDonationReceipt.objects.count(),
+            0,
+            "No receipt should be issued when eligible_amount is 0 (full advantage)",
+        )
+        # Celery task must NOT have been dispatched
+        mock_delay.assert_not_called()

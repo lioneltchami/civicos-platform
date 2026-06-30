@@ -569,3 +569,90 @@ class RefundDetailViewTests(RefundViewTestBase):
         resp = self.client.get(self.DETAIL_URL)
         self.assertEqual(resp.status_code, 302)
         self.assertIn("/login", resp["Location"])
+
+
+# ---------------------------------------------------------------------------
+# Fix 28 — RefundDetailView staff scoping (IDOR prevention)
+# ---------------------------------------------------------------------------
+
+class RefundDetailViewStaffScopingTests(TestCase):
+    """
+    Staff user A cannot access a refund authorized by staff user B.
+
+    FIX 28: RefundDetailView scopes its queryset to authorized_by=request.user
+    (or all refunds for superusers). This prevents UUID-guessing IDOR attacks
+    where any staff member could access any refund by knowing its UUID.
+
+    Note: This codebase is currently single-tenant (no Organisation FK on the
+    Refund → Payment → PaymentIntent chain). The scoping guard implemented here
+    uses authorized_by to restrict per-user visibility. When multi-tenancy is
+    added, the filter should additionally scope by organisation.
+    """
+
+    def setUp(self):
+        # Two distinct staff users in the same deployment
+        self.staff_a = make_user(
+            email="staff_a@example.com",
+            password="passA",
+            is_staff=True,
+            is_active=True,
+        )
+        self.staff_b = make_user(
+            email="staff_b@example.com",
+            password="passB",
+            is_staff=True,
+            is_active=True,
+        )
+        self.payer = make_user(
+            email="payer_scoping@example.com",
+            password="payerpass",
+            is_staff=False,
+        )
+        # Refund authorized by staff_b
+        self.payment_b = make_completed_payment(self.payer)
+        self.refund_b = make_refund(
+            self.payment_b,
+            Decimal("20.00"),
+            authorized_by=self.staff_b,
+        )
+        self.detail_url_b = reverse(
+            "payments:refund_detail",
+            kwargs={"refund_pk": self.refund_b.pk},
+        )
+
+    def test_cross_user_refund_returns_404(self):
+        """
+        Staff A cannot access a refund authorized by Staff B — must get 404.
+        This is the IDOR guard: UUID knowledge alone is insufficient.
+        """
+        self.client.force_login(self.staff_a)
+        resp = self.client.get(self.detail_url_b)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_own_refund_accessible(self):
+        """Staff B can access the refund they authorized — must get 200."""
+        self.client.force_login(self.staff_b)
+        resp = self.client.get(self.detail_url_b)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_own_refund_in_context(self):
+        """Staff B's refund is present in the template context."""
+        self.client.force_login(self.staff_b)
+        resp = self.client.get(self.detail_url_b)
+        self.assertEqual(resp.context["refund"], self.refund_b)
+
+    def test_superuser_can_access_any_refund(self):
+        """
+        Superusers bypass the authorized_by filter and can access all refunds
+        (needed for admin oversight and incident response).
+        """
+        superuser = make_user(
+            email="super@example.com",
+            password="superpass",
+            is_staff=True,
+            is_active=True,
+            is_superuser=True,
+        )
+        self.client.force_login(superuser)
+        resp = self.client.get(self.detail_url_b)
+        self.assertEqual(resp.status_code, 200)

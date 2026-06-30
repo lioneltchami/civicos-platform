@@ -179,10 +179,20 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
         .order_by("donor_id", "created_at")
     )
 
+    total = completed_donations.count()
+    logger.info(
+        "payments.generate_annual_receipts.starting tax_year=%s total_donations=%s",
+        tax_year,
+        total,
+    )
+
     # Group by donor_id
     from collections import defaultdict
     donations_by_donor: dict = defaultdict(list)
-    for donation in completed_donations:
+    # chunk_size=500: server-side cursor fetches 500 rows at a time.
+    # Prevents loading hundreds of thousands of donation rows into memory at once.
+    # Celery workers have limited RAM and the annual run processes all donors.
+    for donation in completed_donations.iterator(chunk_size=500):
         donations_by_donor[donation.donor_id].append(donation)
 
     for donor_id, donor_donations in donations_by_donor.items():

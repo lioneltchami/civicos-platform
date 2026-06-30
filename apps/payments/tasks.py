@@ -284,19 +284,19 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
 
     # FIX 4: Emit domain signal AFTER commit via on_commit() to avoid
     # signal receivers seeing uncommitted DB state or firing on rollback.
-    intent_pk = str(intent.pk)
-    payment_pk = str(payment.pk)
+    # Fix 23: Close over the already-loaded objects instead of re-fetching from DB.
+    # payment_completed has zero receivers — re-fetching was pure waste (2 DB queries
+    # per payment). The on_commit guarantee means these objects are already committed.
+    _intent_ref = intent
+    _payment_ref = payment
 
-    def _send_payment_completed_signal(intent_pk=intent_pk, payment_pk=payment_pk):
-        from apps.payments.models import PaymentIntent as _PaymentIntent, Payment as _Payment
+    def _send_payment_completed_signal():
         from apps.payments.signals import payment_completed
         try:
-            _intent = _PaymentIntent.objects.get(pk=intent_pk)
-            _payment = _Payment.objects.get(pk=payment_pk)
             payment_completed.send(
-                sender=_Payment,
-                payment_intent=_intent,
-                payment=_payment,
+                sender=type(_payment_ref),
+                payment_intent=_intent_ref,
+                payment=_payment_ref,
             )
         except Exception:
             pass  # Never let signal errors crash post-commit hooks
@@ -540,17 +540,19 @@ def _handle_payment_intent_failed(event_data: dict, webhook_event) -> None:
     )
 
     # FIX 4: Defer signal to post-commit to avoid firing on rollback.
-    intent_pk = str(intent.pk)
+    # Fix 23: Close over the already-loaded intent instead of re-fetching from DB.
+    # payment_failed has zero receivers — re-fetching was pure waste (1 DB query
+    # per failed payment). The on_commit guarantee means the object is already committed.
+    _intent_ref = intent
+    _failure_reason_ref = failure_reason
 
-    def _send_payment_failed_signal(intent_pk=intent_pk, failure_reason=failure_reason):
-        from apps.payments.models import PaymentIntent as _PaymentIntent
+    def _send_payment_failed_signal():
         from apps.payments.signals import payment_failed
         try:
-            _intent = _PaymentIntent.objects.get(pk=intent_pk)
             payment_failed.send(
-                sender=_PaymentIntent,
-                payment_intent=_intent,
-                failure_reason=failure_reason,
+                sender=type(_intent_ref),
+                payment_intent=_intent_ref,
+                failure_reason=_failure_reason_ref,
             )
         except Exception:
             pass  # Never let signal errors crash post-commit hooks
@@ -969,7 +971,7 @@ def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:
     no STATUS_PAST_DUE exists. We use PLAN_STATUS_PAUSED as the closest match
     and record the reason in cancellation_reason for audit purposes.
     """
-    from apps.payments.models import RecurringGiftPlan, PLAN_STATUS_PAUSED
+    from apps.payments.models import RecurringGiftPlan, PLAN_STATUS_ACTIVE, PLAN_STATUS_PAUSED
 
     gateway_subscription_id = event_data.get("gateway_subscription_id", "")
 
@@ -987,12 +989,12 @@ def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:
     )
 
     updated = RecurringGiftPlan.objects.filter(
-        gateway_subscription_id=gateway_subscription_id
-    ).exclude(
-        status=PLAN_STATUS_PAUSED,
+        gateway_subscription_id=gateway_subscription_id,
+        status=PLAN_STATUS_ACTIVE,
     ).update(
         status=PLAN_STATUS_PAUSED,
         cancellation_reason="invoice_payment_failed",
+        updated_at=timezone.now(),
     )
 
     if updated:

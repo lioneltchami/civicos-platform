@@ -115,41 +115,63 @@ def _build_receipt_context(receipt) -> dict:
     }
 
 
-def save_receipt_pdf(receipt, pdf_bytes: bytes) -> None:
+def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
     """
-    Save PDF bytes to the receipt's pdf_path CharField via Django file storage.
+    Save PDF bytes to storage and record the path on the receipt.
 
-    Uses ContentFile to avoid writing to arbitrary filesystem paths.
-    Only saves if pdf_path is currently empty (idempotency guard).
-    Logs only serial_number — never pdf_path or donor name.
+    Idempotent: if the file already exists in storage (from a failed previous
+    attempt where the DB update failed but the file was written), reuses it
+    instead of creating a duplicate with an auto-deduplicated filename.
+    Returns the saved path.
+
+    PIPEDA: only logs serial_number, never the storage path or donor PII.
     """
     from django.core.files.base import ContentFile
     from django.core.files.storage import default_storage
 
+    # Derive a deterministic filename from the serial number (stable across retries).
+    # Using serial_number (not default_storage.save auto-deduplication) ensures the
+    # same receipt always maps to the same storage path.
+    serial = receipt.serial_number
+    filename = f"receipts/{serial}.pdf"
+
     if receipt.pdf_path:
+        # In-memory guard: the receipt object already has a pdf_path set.
+        # This covers the normal idempotency case (task reruns after success).
         logger.info(
             "payments.receipt_pdf.already_saved serial=%s",
-            receipt.serial_number,
+            serial,
         )
-        return
+        return receipt.pdf_path
 
-    filename = f"receipts/{receipt.serial_number}.pdf"
-
-    try:
-        saved_path = default_storage.save(filename, ContentFile(pdf_bytes))
-        # Use _base_manager to bypass append-only guard on pdf_path (mutable field)
-        receipt.__class__._base_manager.filter(pk=receipt.pk).update(
-            pdf_path=saved_path
-        )
-        receipt.pdf_path = saved_path
+    if default_storage.exists(filename):
+        # Storage-level guard: file was written in a previous attempt but the
+        # DB update (below) failed, leaving pdf_path empty in the DB.
+        # Reuse the existing file rather than creating a second orphaned copy.
         logger.info(
-            "payments.receipt_pdf.saved serial=%s",
-            receipt.serial_number,
+            "payments.save_receipt_pdf.reusing_existing_file serial=%s",
+            serial,
         )
-    except Exception as exc:
-        logger.error(
-            "payments.receipt_pdf.save_error serial=%s error_type=%s",
-            receipt.serial_number,
-            type(exc).__name__,
+        saved_path = filename
+    else:
+        try:
+            saved_path = default_storage.save(filename, ContentFile(pdf_bytes))
+        except Exception as exc:
+            logger.error(
+                "payments.receipt_pdf.save_error serial=%s error_type=%s",
+                serial,
+                type(exc).__name__,
+            )
+            raise
+        logger.info(
+            "payments.save_receipt_pdf.saved serial=%s",
+            serial,
         )
-        raise
+
+    # Update the DB record outside the storage write — safe to retry independently.
+    # Use _base_manager to bypass append-only guard on pdf_path (mutable field).
+    receipt.__class__._base_manager.filter(pk=receipt.pk).update(
+        pdf_path=saved_path
+    )
+    receipt.pdf_path = saved_path
+    return saved_path

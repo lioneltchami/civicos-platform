@@ -491,6 +491,67 @@ class GenerateAnnualReceiptsTests(TestCase):
         log_output = "\n".join(log_ctx.output)
         self.assertNotIn(donor_email, log_output)
 
+    # Fix 21. generate_annual_receipts uses .iterator() to avoid loading all rows at once
+    def test_uses_iterator_for_memory_efficiency(self):
+        """
+        Regression: the queryset over completed_donations must use .iterator()
+        so that Django fetches rows in chunks (server-side cursor) rather than
+        loading the entire result set into memory. We verify this by patching
+        QuerySet.iterator and asserting it was called with chunk_size=500.
+        """
+        from apps.payments.tasks_receipts import (
+            generate_annual_receipts,
+            generate_and_send_receipt,
+        )
+        from django.db.models.query import QuerySet
+
+        self._make_completed_donation()
+
+        original_iterator = QuerySet.iterator
+        iterator_calls = []
+
+        def capturing_iterator(qs_self, chunk_size=None):
+            iterator_calls.append(chunk_size)
+            # Delegate to the real iterator so processing continues normally
+            return original_iterator(qs_self, chunk_size=chunk_size)
+
+        with patch.object(QuerySet, "iterator", capturing_iterator):
+            with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                with self.captureOnCommitCallbacks(execute=True):
+                    generate_annual_receipts.apply(args=[2026]).get()
+
+        self.assertTrue(
+            iterator_calls,
+            "QuerySet.iterator() was never called — Fix 21 regression: "
+            "all donation rows are loaded into memory at once.",
+        )
+        self.assertIn(
+            500,
+            iterator_calls,
+            f"iterator() was called but not with chunk_size=500. Got: {iterator_calls}",
+        )
+
+    # Fix 21b. generate_annual_receipts logs total_donations at start
+    def test_logs_total_donations_at_start(self):
+        """
+        After Fix 21, the task must log total_donations=<n> before iterating,
+        giving ops visibility into how large the batch is.
+        """
+        from apps.payments.tasks_receipts import (
+            generate_annual_receipts,
+            generate_and_send_receipt,
+        )
+        self._make_completed_donation()
+        self._make_completed_donation()  # Two donations for same user
+
+        with patch.object(generate_and_send_receipt, "delay", return_value=None):
+            with self.assertLogs("apps.payments.tasks_receipts", level="INFO") as log_ctx:
+                generate_annual_receipts.apply(args=[2026]).get()
+
+        log_output = "\n".join(log_ctx.output)
+        self.assertIn("total_donations=", log_output)
+        self.assertIn("tax_year=2026", log_output)
+
 
 # ---------------------------------------------------------------------------
 # Fix 5 — UTC → local time for receipt dates

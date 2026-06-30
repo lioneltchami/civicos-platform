@@ -164,8 +164,10 @@ class ReceiptPdfTests(TestCase):
     def test_save_receipt_pdf_sets_pdf_path(self):
         pdf_bytes = b"%PDF-1.4 test"
         saved_path = f"receipts/{self.receipt.serial_number}.pdf"
-        # default_storage is imported inside save_receipt_pdf, patch at source
+        # default_storage is imported inside save_receipt_pdf, patch at source.
+        # exists() must return False so the function proceeds to save.
         with patch("django.core.files.storage.default_storage") as mock_storage:
+            mock_storage.exists.return_value = False
             mock_storage.save.return_value = saved_path
             save_receipt_pdf(self.receipt, pdf_bytes)
 
@@ -177,12 +179,101 @@ class ReceiptPdfTests(TestCase):
         pdf_bytes = b"%PDF-1.4 test"
         saved_path = f"receipts/{self.receipt.serial_number}.pdf"
         with patch("django.core.files.storage.default_storage") as mock_storage:
+            mock_storage.exists.return_value = False
             mock_storage.save.return_value = saved_path
             save_receipt_pdf(self.receipt, pdf_bytes)
-            # Second call — receipt.pdf_path is now set, should skip
+            # Second call — receipt.pdf_path is now set in memory; skip via in-memory guard
             save_receipt_pdf(self.receipt, pdf_bytes)
-        # Only one save call should have been made
+        # Only one save call should have been made (second call hits in-memory guard)
         self.assertEqual(mock_storage.save.call_count, 1)
+
+    # Fix 22a. save_receipt_pdf reuses existing file when storage already has it
+    def test_save_receipt_pdf_reuses_existing_file(self):
+        """
+        If the file exists in storage (from a failed prior attempt where the
+        DB update crashed), save() must NOT be called — we reuse the existing file
+        and still update the DB record.
+        """
+        pdf_bytes = b"%PDF-1.4 test"
+        expected_path = f"receipts/{self.receipt.serial_number}.pdf"
+        with patch("django.core.files.storage.default_storage") as mock_storage:
+            mock_storage.exists.return_value = True  # File already in storage
+            with patch.object(
+                self.receipt.__class__._base_manager,
+                "filter",
+                wraps=self.receipt.__class__._base_manager.filter,
+            ):
+                result = save_receipt_pdf(self.receipt, pdf_bytes)
+
+        # save() must NOT be called — we're reusing the existing file
+        mock_storage.save.assert_not_called()
+        # The returned path must be the deterministic filename
+        self.assertEqual(result, expected_path)
+        # The in-memory receipt.pdf_path must also be updated
+        self.assertEqual(self.receipt.pdf_path, expected_path)
+
+    # Fix 22b. save_receipt_pdf writes new file when storage has no prior file
+    def test_save_receipt_pdf_writes_new_file(self):
+        """
+        When no prior file exists in storage, save() is called with the
+        deterministic filename based on serial_number.
+        """
+        pdf_bytes = b"%PDF-1.4 test"
+        expected_path = f"receipts/{self.receipt.serial_number}.pdf"
+        with patch("django.core.files.storage.default_storage") as mock_storage:
+            mock_storage.exists.return_value = False
+            mock_storage.save.return_value = expected_path
+            result = save_receipt_pdf(self.receipt, pdf_bytes)
+
+        # save() must be called once
+        mock_storage.save.assert_called_once()
+        # The filename passed to save() must be the deterministic one
+        call_args = mock_storage.save.call_args
+        self.assertEqual(call_args[0][0], expected_path)
+        # The returned path is deterministic
+        self.assertEqual(result, expected_path)
+
+    # Fix 22c. save_receipt_pdf is idempotent on DB failure (save() called only once)
+    def test_save_receipt_pdf_idempotent_on_db_failure(self):
+        """
+        Simulate a partial failure: first call writes the file but the DB update
+        fails. On the second call, exists() returns True (file is in storage) so
+        save() must NOT be called again — we reuse the existing file.
+        """
+        from unittest.mock import call as mock_call
+
+        pdf_bytes = b"%PDF-1.4 test"
+        expected_path = f"receipts/{self.receipt.serial_number}.pdf"
+
+        # exists() returns False on first call, True on second (file now in storage)
+        exists_side_effects = [False, True]
+
+        with patch("django.core.files.storage.default_storage") as mock_storage:
+            mock_storage.exists.side_effect = exists_side_effects
+            mock_storage.save.return_value = expected_path
+
+            # First call: simulate DB update failure after file is written
+            with patch.object(
+                self.receipt.__class__._base_manager,
+                "filter",
+                side_effect=Exception("DB connection lost"),
+            ):
+                with self.assertRaises(Exception):
+                    # This will raise because the DB update fails;
+                    # but the file has already been written to storage.
+                    # Reset pdf_path to simulate DB not having been updated.
+                    save_receipt_pdf(self.receipt, pdf_bytes)
+
+            # Reset in-memory pdf_path to simulate fresh retry (DB still empty)
+            self.receipt.pdf_path = ""
+
+            # Second call: file is already in storage (exists()=True), DB update succeeds
+            result = save_receipt_pdf(self.receipt, pdf_bytes)
+
+        # save() must have been called exactly once (first call only)
+        self.assertEqual(mock_storage.save.call_count, 1)
+        # Result path is deterministic
+        self.assertEqual(result, expected_path)
 
     # 5. _build_receipt_context includes all 14 CRA mandatory field keys
     def test_build_receipt_context_has_cra_fields(self):

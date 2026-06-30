@@ -94,19 +94,26 @@ class StripeGateway(PaymentGateway):
             pass
         return None
 
+    def _api_key(self) -> str:
+        """
+        Return the Stripe API key for this gateway instance.
+        Never mutated globally — callers pass it as a per-call keyword argument
+        to avoid thread-safety hazards under multi-worker gunicorn deployments.
+        """
+        return self._get_api_key()
+
     def _stripe(self):
         """
-        Return the stripe module configured with the current API key and version.
+        Return the stripe module without mutating any global state.
 
-        FIX 6: Use the class constant _STRIPE_API_VERSION rather than an inline
-        string literal so the version is defined in exactly one place.
-        Setting stripe.api_key on the module is the supported pattern for
-        single-key setups per the Stripe Python SDK docs.
+        FIX 27: Previously this method set stripe.api_key globally, which is
+        not thread-safe under multi-worker gunicorn: two concurrent requests
+        for different organisations would race on that single global value.
+        The fix passes api_key= as a per-call keyword argument on every
+        Stripe API call instead (supported by stripe-python SDK v2+).
         """
         try:
             import stripe as _stripe_module
-            _stripe_module.api_key = self._get_api_key()
-            _stripe_module.api_version = self._STRIPE_API_VERSION
             return _stripe_module
         except ImportError:
             raise ImportError(
@@ -176,6 +183,7 @@ class StripeGateway(PaymentGateway):
             intent = stripe.PaymentIntent.create(
                 **kwargs,
                 idempotency_key=str(idempotency_key),
+                api_key=self._api_key(),
             )
         except Exception as exc:
             self._handle_stripe_error(exc)
@@ -189,7 +197,10 @@ class StripeGateway(PaymentGateway):
     def retrieve_payment_intent(self, gateway_intent_id: str) -> dict:
         stripe = self._stripe()
         try:
-            intent = stripe.PaymentIntent.retrieve(gateway_intent_id)
+            intent = stripe.PaymentIntent.retrieve(
+                gateway_intent_id,
+                api_key=self._api_key(),
+            )
         except Exception as exc:
             self._handle_stripe_error(exc)
 
@@ -251,6 +262,7 @@ class StripeGateway(PaymentGateway):
                 amount=_to_cents(amount),
                 reason=stripe_reasons.get(reason, "requested_by_customer"),
                 idempotency_key=str(idempotency_key),
+                api_key=self._api_key(),
             )
         except Exception as exc:
             self._handle_stripe_error(exc)
@@ -264,7 +276,10 @@ class StripeGateway(PaymentGateway):
     def cancel_payment_intent(self, gateway_intent_id: str) -> bool:
         stripe = self._stripe()
         try:
-            intent = stripe.PaymentIntent.cancel(gateway_intent_id)
+            intent = stripe.PaymentIntent.cancel(
+                gateway_intent_id,
+                api_key=self._api_key(),
+            )
             return intent.status == "canceled"
         except Exception as exc:
             # If already cancelled, return False gracefully
@@ -299,6 +314,7 @@ class StripeGateway(PaymentGateway):
             sub = stripe.Subscription.create(
                 **kwargs,
                 idempotency_key=str(idempotency_key),
+                api_key=self._api_key(),
             )
         except Exception as exc:
             self._handle_stripe_error(exc)
@@ -312,7 +328,10 @@ class StripeGateway(PaymentGateway):
     def cancel_subscription(self, gateway_subscription_id: str) -> bool:
         stripe = self._stripe()
         try:
-            sub = stripe.Subscription.cancel(gateway_subscription_id)
+            sub = stripe.Subscription.cancel(
+                gateway_subscription_id,
+                api_key=self._api_key(),
+            )
             return sub.status == "canceled"
         except Exception as exc:
             import stripe as _stripe

@@ -121,12 +121,29 @@ REST_FRAMEWORK = {
 }
 
 # ---------------------------------------------------------------------------
-# Logging — silence in tests (let pytest capture output instead)
+# Logging — suppress noise in tests but keep app loggers alive so
+# assertLogs() works reliably without depending on re-enabling disabled loggers.
+# Fix 26: disable_existing_loggers=False keeps all loggers active at import time.
 # ---------------------------------------------------------------------------
 
 LOGGING = {
     "version": 1,
-    "disable_existing_loggers": True,
-    "handlers": {"null": {"class": "logging.NullHandler"}},
-    "root": {"handlers": ["null"]},
+    "disable_existing_loggers": False,   # Fix 26: keep app loggers active
+    "handlers": {
+        "null": {"class": "logging.NullHandler"},
+    },
+    "root": {
+        "handlers": ["null"],
+        "level": "WARNING",  # Suppress INFO/DEBUG noise in test output
+    },
+    "loggers": {
+        # Explicitly configure apps.payments at DEBUG so assertLogs() reliably
+        # captures output regardless of logger name drift. PIPEDA log assertions
+        # depend on this (test_donation_receivers, test_receipt_tasks).
+        "apps.payments": {
+            "handlers": ["null"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
 }

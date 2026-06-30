@@ -850,3 +850,97 @@ class StripeGatewayParseChargeRefundedTests(SimpleTestCase):
         ])
         result = self.gateway._parse_charge_refunded(charge)
         self.assertEqual(result["refund_status"], "succeeded")
+
+
+# ---------------------------------------------------------------------------
+# Fix 27 — thread-safety: no global api_key mutation
+# ---------------------------------------------------------------------------
+
+class StripeGatewayNoGlobalApiKeyMutationTests(SimpleTestCase):
+    """
+    StripeGateway must not mutate stripe.api_key globally.
+
+    Thread-safety requires per-call api_key= parameter, not global mutation.
+    Under multi-worker gunicorn two concurrent requests for different
+    organisations would race on the global stripe.api_key value.
+    """
+
+    def test_no_global_api_key_mutation(self):
+        """
+        StripeGateway source must not contain a bare 'api_key =' assignment.
+        The only legal form is 'api_key=' (keyword argument in a function call).
+        """
+        import inspect
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+
+        src = inspect.getsource(StripeGateway)
+        # Strip comment lines so commented-out legacy code doesn't trigger false positives
+        code_lines = [
+            line for line in src.split("\n")
+            if not line.strip().startswith("#")
+        ]
+        code = "\n".join(code_lines)
+
+        # 'api_key =' (with a space before =) is the global-mutation pattern.
+        # 'api_key=' (no space) is the per-call keyword-argument pattern — allowed.
+        self.assertNotIn(
+            "api_key =",
+            code,
+            "StripeGateway must not assign to stripe.api_key globally. "
+            "Use api_key= as a per-call keyword argument instead.",
+        )
+
+    def test_stripe_module_returned_without_key_set(self):
+        """
+        _stripe() must return the module without setting api_key on it.
+        After calling _stripe(), stripe.api_key must not have been mutated
+        to the gateway's key.
+        """
+        import stripe
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+
+        original_key = stripe.api_key
+
+        with override_settings(STRIPE_SECRET_KEY="sk_test_thread_safety_check"):
+            gw = StripeGateway()
+            gw._stripe()  # must NOT set stripe.api_key
+
+        # If the global was mutated, stripe.api_key would be "sk_test_thread_safety_check"
+        self.assertNotEqual(
+            stripe.api_key,
+            "sk_test_thread_safety_check",
+            "_stripe() must not mutate stripe.api_key globally.",
+        )
+
+        # Restore original key (defensive cleanup)
+        stripe.api_key = original_key
+
+    def test_api_key_passed_per_call_to_payment_intent_create(self):
+        """
+        create_payment_intent must pass api_key= as a keyword argument to
+        stripe.PaymentIntent.create, not rely on the global stripe.api_key.
+        """
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+
+        gw = StripeGateway()
+        fake_intent = MagicMock()
+        fake_intent.id = "pi_thread_safe"
+        fake_intent.client_secret = "secret_xxx"
+        fake_intent.status = "requires_payment_method"
+
+        with override_settings(STRIPE_SECRET_KEY="sk_test_per_call"):
+            with patch("stripe.PaymentIntent.create", return_value=fake_intent) as mock_create:
+                gw.create_payment_intent(
+                    amount=Decimal("10.00"),
+                    currency="cad",
+                    idempotency_key="idem-thread-001",
+                    metadata={},
+                )
+
+        call_kwargs = mock_create.call_args[1]
+        self.assertIn(
+            "api_key",
+            call_kwargs,
+            "create_payment_intent must pass api_key= per call to stripe.PaymentIntent.create",
+        )
+        self.assertEqual(call_kwargs["api_key"], "sk_test_per_call")

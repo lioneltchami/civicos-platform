@@ -212,11 +212,11 @@ class HandleInvoicePaymentSucceededTests(TestCase):
                 pass
 
         self.assertEqual(Donation.objects.count(), 0)
-        # Payment is created BEFORE Donation in the handler
-        # The handler uses a single atomic block via process_stripe_webhook
-        # Within _handle_invoice_payment_succeeded, Payment is created before Donation
-        # If Donation fails, Payment may still exist unless wrapped in atomic
-        # The test verifies the handler uses atomic somewhere in the calling task
+        self.assertEqual(
+            Payment.objects.count(),
+            0,
+            "If Donation creation fails atomically, no Payment row should exist either",
+        )
 
     # 11. Donation amount matches event amount_paid
     def test_donation_amount_matches_event_amount(self):
@@ -316,10 +316,11 @@ class HandleInvoicePaymentFailedTests(TestCase):
         event_data = self._event_data()
         _handle_invoice_payment_failed(event_data, self.webhook)
         self.plan.refresh_from_db()
-        # Cancelled plan should stay cancelled (handler excludes already-paused)
-        # The handler does exclude already-paused but not already-cancelled
-        # After the update it becomes paused — this documents actual behavior
-        # (The handler uses .exclude(status=PLAN_STATUS_PAUSED) so cancelled plans ARE updated)
+        self.assertEqual(
+            self.plan.status,
+            PLAN_STATUS_CANCELLED,
+            "Cancelled plan must not be re-paused by invoice.payment_failed webhook",
+        )
 
     # 16. Cancellation reason set
     def test_cancellation_reason_set(self):

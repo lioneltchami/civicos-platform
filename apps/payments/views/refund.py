@@ -306,15 +306,48 @@ class RefundDetailView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
 
     template_name = "payments/refund_detail.html"
 
+    def _scoped_queryset(self, request):
+        """
+        Return a Refund queryset scoped to the requesting staff user.
+
+        FIX 28: Prevents cross-user IDOR where any staff member could access
+        any other staff member's refunds by guessing or brute-forcing the UUID.
+
+        Scoping strategy: filter by authorized_by=request.user so each staff
+        member can only retrieve refunds they personally authorized. Superusers
+        bypass the filter and see all refunds.
+
+        Note: This codebase is currently single-tenant (no Organisation FK on
+        the Refund → Payment → PaymentIntent chain). When multi-tenancy is
+        introduced the filter here should be updated to also scope by
+        organisation (e.g. payment__intent__organisation=user.organisation).
+        """
+        qs = Refund.objects.select_related("payment", "payment__intent")
+        user = request.user
+        if user.is_superuser:
+            return qs
+        return qs.filter(authorized_by=user)
+
     def setup(self, request, *args, **kwargs):
         # FIX 6: Load refund in setup() so it is available to any method,
         # not just get() — prevents AttributeError if middleware or mixins
         # call get_context_data() before get().
+        # FIX 28: Only perform the scoped DB lookup for authenticated staff
+        # users. Non-staff and unauthenticated users are rejected by
+        # LoginRequiredMixin / StaffRequiredMixin in dispatch(); calling
+        # get_object_or_404 before that check would raise Http404 instead of
+        # the correct 302/403 response.
         super().setup(request, *args, **kwargs)
-        self.refund = get_object_or_404(
-            Refund.objects.select_related("payment", "payment__intent"),
-            pk=kwargs["refund_pk"],
-        )
+        user = request.user
+        if getattr(user, "is_authenticated", False) and getattr(user, "is_staff", False):
+            self.refund = get_object_or_404(
+                self._scoped_queryset(request),
+                pk=kwargs["refund_pk"],
+            )
+        else:
+            # Placeholder; the mixin will reject the request before the
+            # template or get_context_data() is reached.
+            self.refund = None
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
