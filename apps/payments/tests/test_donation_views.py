@@ -496,20 +496,91 @@ class DonationCancelViewTests(DonationViewTestBase):
 
     # 28. GET clears session → 200
     def test_get_clears_session_returns_200(self):
+        self.client.force_login(self.user)
         self._set_donation_session()
         resp = self.client.get(CANCEL_URL)
         self.assertEqual(resp.status_code, 200)
 
     # 29. Session empty after cancel
     def test_session_empty_after_cancel(self):
+        self.client.force_login(self.user)
         self._set_donation_session()
         self.client.get(CANCEL_URL)
         session = self.client.session
         self.assertNotIn(DONATION_SESSION_KEY, session)
 
     def test_cancel_without_session_does_not_crash(self):
+        self.client.force_login(self.user)
         resp = self.client.get(CANCEL_URL)
         self.assertEqual(resp.status_code, 200)
+
+    # M-C: unauthenticated request must redirect to login, not show cancel page
+    def test_cancel_unauthenticated_redirects_to_login(self):
+        """M-C: DonationCancelView requires login — anonymous users get 302."""
+        resp = self.client.get(CANCEL_URL)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("login", resp["Location"].lower())
+
+
+# ---------------------------------------------------------------------------
+# M-C — DonationCancelView IDOR defence
+# ---------------------------------------------------------------------------
+
+class MCDonationCancelIDORTests(DonationViewTestBase):
+    """M-C: DonationCancelView must filter by payer=request.user."""
+
+    def test_cancel_does_not_trigger_stripe_for_other_users_pi(self):
+        """M-C: A logged-in user cannot cancel a Stripe PI belonging to another donor.
+
+        Scenario: attacker obtains victim's intent_pk (e.g. from a shared URL or
+        side-channel) and injects it into their own session.  The payer= filter
+        on the ORM lookup causes DoesNotExist, so the Stripe cancel never fires.
+        """
+        victim = make_user(email="victim@example.com")
+        attacker = make_user(email="attacker@example.com")
+
+        # A real pending PI owned by the victim
+        victim_intent = make_payment_intent(
+            victim,
+            status=PaymentIntent.STATUS_PENDING,
+            gateway_intent_id="pi_victim_001",
+        )
+
+        # Log in as attacker, inject victim's intent_pk into attacker's own session
+        self.client.force_login(attacker)
+        sd = self._default_session_data()
+        sd["donation_payment_intent_pk"] = str(victim_intent.pk)
+        self._set_donation_session(sd)
+
+        mock_gw = MagicMock()
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(CANCEL_URL)
+
+        # View must still return 200 (graceful) but must NOT have cancelled Stripe PI
+        self.assertEqual(resp.status_code, 200)
+        mock_gw.cancel_payment_intent.assert_not_called()
+
+    def test_cancel_triggers_stripe_for_own_pi(self):
+        """M-C regression: the PI owner can still cancel their own PI via cancel view."""
+        self.client.force_login(self.user)
+        intent = make_payment_intent(
+            self.user,
+            status=PaymentIntent.STATUS_PENDING,
+            gateway_intent_id="pi_own_001",
+        )
+        sd = self._default_session_data()
+        sd["donation_payment_intent_pk"] = str(intent.pk)
+        self._set_donation_session(sd)
+
+        mock_gw = MagicMock()
+        mock_gw.cancel_payment_intent.return_value = True
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(CANCEL_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        mock_gw.cancel_payment_intent.assert_called_once_with("pi_own_001")
 
 
 # ---------------------------------------------------------------------------
@@ -1034,6 +1105,7 @@ class MMDonationCancelStripeTests(DonationViewTestBase):
 
     def test_cancel_view_no_stripe_call_when_no_session_pi(self):
         """No Stripe PI cancel when session has no intent PK."""
+        self.client.force_login(self.user)
         mock_gw = MagicMock()
         with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
             with self.captureOnCommitCallbacks(execute=True):

@@ -90,6 +90,10 @@ class RefundInline(admin.TabularInline):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
+    # Note: "refund_link" is added dynamically in get_list_display() so it only
+    # appears for users who hold the payments.add_refund permission.  Users who
+    # can view payments but cannot issue refunds must not see the link — it would
+    # render a clickable URL that returns 403 (confusing UX, minor info-disclosure).
     list_display = [
         "gateway_charge_id",
         "intent_reference",
@@ -99,7 +103,6 @@ class PaymentAdmin(admin.ModelAdmin):
         "processor_fee",
         "net_amount",
         "paid_at",
-        "refund_link",
     ]
     list_filter = ["payment_method_type", "card_brand"]
     list_select_related = ["intent"]
@@ -120,6 +123,13 @@ class PaymentAdmin(admin.ModelAdmin):
     ]
     ordering = ["-paid_at"]
     inlines = [RefundInline]
+
+    def get_list_display(self, request):
+        """Append refund_link only for users who may issue refunds (payments.add_refund)."""
+        columns = list(super().get_list_display(request))
+        if request.user.has_perm("payments.add_refund"):
+            columns.append("refund_link")
+        return columns
 
     @admin.display(description="Intent Reference", ordering="intent__reference")
     def intent_reference(self, obj):

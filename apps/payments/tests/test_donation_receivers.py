@@ -448,7 +448,7 @@ class IdempotencyRaceConditionTests(TestCase):
         """
         Simulates the race where a receipt already exists at the point of the
         get_or_create call (as if a concurrent worker just committed it).
-        The receiver must log receipt_already_exists and return without error.
+        The receiver must log receipt_already_issued and return without error.
         """
         from datetime import date
         from apps.payments.receivers import on_donation_completed
@@ -489,5 +489,5 @@ class IdempotencyRaceConditionTests(TestCase):
                 )
 
         log_output = "\n".join(log_ctx.output)
-        self.assertIn("receipt_already_exists", log_output)
+        self.assertIn("receipt_already_issued", log_output)
         self.assertEqual(OfficialDonationReceipt.objects.count(), 1)

@@ -33,8 +33,26 @@ PII_FIELDS = frozenset({
     "amount", "eligible_amount", "advantage_amount",
 })
 
-# Match bare IPv4 addresses (e.g. 192.168.1.1) in breadcrumb messages.
+# Match bare IPv4 addresses (e.g. 192.168.1.1) in strings.
 _IP_PATTERN = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
+
+# Match IPv6 addresses (full, compressed, link-local, loopback, IPv4-mapped).
+# Covers: full (2001:db8:...), compressed (::1, fe80::1), IPv4-mapped (::ffff:x.x.x.x).
+# Pattern: a sequence of hex groups and colons with at least two colons OR 7 colons.
+_IPV6_PATTERN = re.compile(
+    r"(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}"       # full 8-group
+    r"|(?:[0-9a-fA-F]{1,4}:){1,7}:"                        # trailing ::
+    r"|:(?::[0-9a-fA-F]{1,4}){1,7}"                        # leading ::
+    r"|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}"       # one :: in middle
+    r"|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}"
+    r"|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}"
+    r"|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}"
+    r"|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}"
+    r"|[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}"
+    r"|::(?:ffff(?::0{1,4})?:)?(?:25[0-5]|(?:2[0-4]|1?\d)?\d)"
+      r"(?:\.(?:25[0-5]|(?:2[0-4]|1?\d)?\d)){3}"           # IPv4-mapped ::ffff:x.x.x.x
+    r"|::)"                                                  # bare ::
+)
 
 # Log categories from third-party libraries that may contain secrets or request
 # bodies — drop these breadcrumbs entirely rather than attempt to scrub them.
@@ -52,6 +70,26 @@ _SENSITIVE_HEADERS = frozenset({"Authorization", "Cookie", "X-Stripe-Signature"}
 # ---------------------------------------------------------------------------
 # Hooks
 # ---------------------------------------------------------------------------
+
+def _mask_ip(text: str) -> str:
+    """
+    Mask all IPv4 and IPv6 addresses in *text*, replacing each with '[masked]'.
+
+    M-G fix: the original code only masked IPv4 addresses. IPv6 addresses
+    (including loopback ::1, link-local fe80::1, full 2001:db8:... addresses,
+    and IPv4-mapped ::ffff:x.x.x.x addresses) were silently forwarded to Sentry
+    in breadcrumb messages, REMOTE_ADDR, and X-Forwarded-For — a PIPEDA violation.
+
+    IPv6 is matched first so that IPv4-mapped addresses (::ffff:192.0.2.1) are
+    caught by the IPv6 pattern; the leftover literal IPv4 part (if any) is then
+    caught by the IPv4 pattern in the same pass.
+    """
+    # IPv6 first (catches IPv4-mapped forms like ::ffff:192.0.2.1)
+    text = _IPV6_PATTERN.sub("[masked]", text)
+    # IPv4 second (catches bare IPv4 and any literal IPv4 remaining after IPv6 sub)
+    text = _IP_PATTERN.sub("[masked]", text)
+    return text
+
 
 def before_breadcrumb(crumb, hint):
     """Strip PII from Sentry breadcrumbs before they leave the process.
@@ -73,30 +111,42 @@ def before_breadcrumb(crumb, hint):
         if key.lower() in PII_FIELDS:
             data[key] = "[Filtered]"
 
-    # 3. Scrub IPv4 addresses from the breadcrumb message
+    # 3. Scrub IPv4 addresses from the breadcrumb message.
+    # Uses [ip] sentinel (not [masked]) to preserve backward compatibility with
+    # existing log-monitoring rules that key off the [ip] token.
     message = crumb.get("message") or ""
+    message = _IPV6_PATTERN.sub("[ip]", message)
     crumb["message"] = _IP_PATTERN.sub("[ip]", message)
 
     return crumb
 
 
-def _scrub_dict(d: dict) -> dict:
-    """Recursively scrub PII keys from a dict, replacing their values with '[Filtered]'.
+def _scrub_dict(d, keys=None):
+    """Recursively scrub PII keys from a dict or list, replacing values with '[Filtered]'.
 
     Used by before_send to sanitise event["extra"] — Django's Sentry SDK places
     request.POST data there when send_default_pii=False, bypassing the header-scrub
     path and exposing donor names, amounts, and email addresses (PIPEDA violation).
 
-    Non-dict values and non-PII keys are returned unchanged.
+    M-H fix: now recurses into list values so that list[dict] structures (e.g.
+    event["extra"]["donors"] = [{"name": "...", "amount": "..."}]) are fully scrubbed
+    rather than silently passed through.
+
+    Args:
+        d: The data structure to scrub (dict or list; other types returned unchanged).
+        keys: Optional frozenset of lowercase PII field names. Defaults to PII_FIELDS.
+              Pass an explicit set in tests to avoid coupling tests to the global constant.
     """
-    if not isinstance(d, dict):
-        return d
-    return {
-        k: "[Filtered]" if k.lower() in PII_FIELDS else (
-            _scrub_dict(v) if isinstance(v, dict) else v
-        )
-        for k, v in d.items()
-    }
+    if keys is None:
+        keys = PII_FIELDS
+    if isinstance(d, dict):
+        return {
+            k: "[Filtered]" if k.lower() in keys else _scrub_dict(v, keys)
+            for k, v in d.items()
+        }
+    if isinstance(d, list):
+        return [_scrub_dict(item, keys) for item in d]
+    return d
 
 
 def before_send(event, hint):
@@ -107,18 +157,29 @@ def before_send(event, hint):
     Actions:
     1. Remove Authorization, Cookie, and X-Stripe-Signature headers so that
        session tokens and webhook secrets are never sent to Sentry's servers.
-    2. M-J fix: scrub event["extra"] — Django's Sentry SDK (with send_default_pii=False
+    2. M-G fix: mask IPv4 and IPv6 addresses in REMOTE_ADDR and HTTP_X_FORWARDED_FOR
+       within event["request"]["env"] so that real client IPs are never forwarded to
+       Sentry's US servers (PIPEDA compliance).
+    3. M-J fix: scrub event["extra"] — Django's Sentry SDK (with send_default_pii=False
        and DEBUG=False) includes request.POST in event["extra"] rather than
        event["request"]["data"], so PII in POST bodies (donor names, amounts, email
        addresses) would otherwise bypass the header-scrub and reach Sentry's US servers
        in violation of PIPEDA and the municipal data-processing agreement.
     """
     request = event.get("request", {})
+
+    # 1. Strip sensitive HTTP headers
     headers = request.get("headers", {})
     for header in _SENSITIVE_HEADERS:
         headers.pop(header, None)
 
-    # M-J fix: scrub PII from event["extra"] (contains request.POST under Django SDK)
+    # 2. M-G: mask IP addresses in request.env fields
+    env = request.get("env", {})
+    for ip_field in ("REMOTE_ADDR", "HTTP_X_FORWARDED_FOR"):
+        if ip_field in env and env[ip_field]:
+            env[ip_field] = _mask_ip(env[ip_field])
+
+    # 3. M-J: scrub PII from event["extra"] (contains request.POST under Django SDK)
     if "extra" in event:
         event["extra"] = _scrub_dict(event["extra"])
 

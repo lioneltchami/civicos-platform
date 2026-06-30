@@ -981,6 +981,61 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
     db_transaction.on_commit(_send_donation_completed)
 
 
+def _handle_charge_dispute_created(event_data: dict, webhook_event) -> None:
+    """
+    Stripe has opened a dispute/chargeback. Staff must submit evidence within 7 days.
+
+    We log at WARNING so monitoring alerts fire. A full implementation would create
+    a DisputeAlert model row or notify backoffice staff via email.
+
+    Called inside an atomic transaction by process_stripe_webhook.
+    """
+    data = event_data.get("data", {}).get("object", {}) if "data" in event_data else event_data
+    charge_id = data.get("charge", "")
+    amount = data.get("amount", 0)
+    currency = data.get("currency", "")
+    reason = data.get("reason", "")
+    due_by = data.get("evidence_details", {}).get("due_by")
+
+    logger.warning(
+        "payments.task.dispute_created "
+        "charge_id=%s amount=%s currency=%s reason=%s due_by=%s — "
+        "MANUAL REVIEW REQUIRED within 7 days",
+        charge_id, amount, currency, reason, due_by,
+    )
+    # Future: create DisputeAlert, notify backoffice staff, pause refund eligibility
+
+
+def _handle_charge_dispute_updated(event_data: dict, webhook_event) -> None:
+    """
+    Stripe has updated a dispute. Log status change for ops visibility.
+
+    Called inside an atomic transaction by process_stripe_webhook.
+    """
+    data = event_data.get("data", {}).get("object", {}) if "data" in event_data else event_data
+    charge_id = data.get("charge", "")
+    status = data.get("status", "")
+    logger.warning(
+        "payments.task.dispute_updated charge_id=%s status=%s",
+        charge_id, status,
+    )
+
+
+def _handle_charge_dispute_closed(event_data: dict, webhook_event) -> None:
+    """
+    Stripe has closed a dispute. Log outcome for ops visibility.
+
+    Called inside an atomic transaction by process_stripe_webhook.
+    """
+    data = event_data.get("data", {}).get("object", {}) if "data" in event_data else event_data
+    charge_id = data.get("charge", "")
+    status = data.get("status", "")
+    logger.warning(
+        "payments.task.dispute_closed charge_id=%s outcome_status=%s",
+        charge_id, status,
+    )
+
+
 def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:
     """
     Mark RecurringGiftPlan as past_due when a subscription renewal fails.
@@ -1032,6 +1087,9 @@ _HANDLERS = types.MappingProxyType({
     "payment_intent.succeeded": _handle_payment_intent_succeeded,
     "payment_intent.payment_failed": _handle_payment_intent_failed,
     "charge.refunded": _handle_charge_refunded,
+    "charge.dispute.created": _handle_charge_dispute_created,
+    "charge.dispute.updated": _handle_charge_dispute_updated,
+    "charge.dispute.closed": _handle_charge_dispute_closed,
     "customer.subscription.deleted": _handle_subscription_deleted,
     "customer.subscription.updated": _handle_subscription_updated,
     "invoice.payment_succeeded": _handle_invoice_payment_succeeded,

@@ -125,7 +125,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django_otp.middleware.OTPMiddleware",                 # MFA
+    "django_otp.middleware.OTPMiddleware",                 # MFA — sets request.user.otp_device
+    "apps.core.middleware.WagtailMFAMiddleware",          # H-E: enforces OTP for /cms/ admin
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "wagtail.contrib.redirects.middleware.RedirectMiddleware",
@@ -317,7 +318,7 @@ ADMINS = [
 # Celery
 # ---------------------------------------------------------------------------
 
-CELERY_BROKER_URL = env("REDIS_URL", default="redis://localhost:6379/1")
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/1")
 CELERY_RESULT_BACKEND = "django-db"
 CELERY_CACHE_BACKEND = "django-cache"
 CELERY_TASK_SERIALIZER = "json"

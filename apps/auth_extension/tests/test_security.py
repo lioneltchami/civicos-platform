@@ -11,6 +11,25 @@ except ImportError:
 User = get_user_model()
 VALID_PASSWORD = "SecureTestPass123!"
 
+
+def force_otp_login(client, user):
+    """
+    Authenticate the test client as *user* AND mark them as OTP-verified.
+
+    L7 added OTPRequiredMixin to dashboard/profile/mfa/backup-code views.
+    Plain force_login() leaves is_verified()=False, causing 403.
+    """
+    from django_otp import DEVICE_ID_SESSION_KEY
+    from django_otp.plugins.otp_static.models import StaticDevice
+
+    client.force_login(user)
+    device, _ = StaticDevice.objects.get_or_create(
+        user=user, defaults={"name": "test-device"}
+    )
+    session = client.session
+    session[DEVICE_ID_SESSION_KEY] = device.persistent_id
+    session.save()
+
 LOGIN_URL = "/account/login/"  # two_factor URLs have built-in "account/" prefix; mount at root
 SIGNUP_URL = "/account/signup/"
 DASHBOARD_URL = "/account/dashboard/"
@@ -66,7 +85,7 @@ class AuthSecurityTest(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_backup_codes_requires_post(self):
-        self.client.force_login(self.user)
+        force_otp_login(self.client, self.user)
         response = self.client.get(BACKUP_CODES_URL)
         self.assertEqual(response.status_code, 405)
 
@@ -112,7 +131,7 @@ class AuthSecurityTest(TestCase):
         In test settings SESSION_COOKIE_SECURE is False so the client
         can work over plain HTTP. Verify session is still created normally.
         """
-        self.client.force_login(self.user)
+        force_otp_login(self.client, self.user)
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
 
@@ -134,7 +153,7 @@ class AuthSecurityTest(TestCase):
 
     def test_backup_codes_shown_only_once(self):
         """After codes are generated and viewed once, a second page load must show None."""
-        self.client.force_login(self.user)
+        force_otp_login(self.client, self.user)
         self.client.post(BACKUP_CODES_URL)
         response1 = self.client.get(MFA_URL)
         self.assertIsNotNone(response1.context.get("new_backup_codes"))

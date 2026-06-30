@@ -18,6 +18,18 @@ from django.template.loader import render_to_string
 logger = logging.getLogger("apps.payments.receipt_email")
 
 
+def _clean_header(value: str) -> str:
+    """Remove newline characters to prevent MIME header injection.
+
+    Admin-supplied strings such as charity_legal_name must not contain CR or LF
+    before being embedded in email headers (Subject, From, Reply-To).  Django's
+    EmailMessage raises BadHeaderError on newlines, but proactive sanitisation
+    is the correct defence: we replace rather than reject so that a stray
+    newline in a charity name does not silently drop the receipt email.
+    """
+    return value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
+
+
 def send_receipt_email(receipt, pdf_bytes: bytes) -> bool:
     """
     Send the official donation receipt PDF to the donor.
@@ -39,9 +51,11 @@ def send_receipt_email(receipt, pdf_bytes: bytes) -> bool:
         return False
 
     from_email = getattr(settings, "RECEIPT_FROM_EMAIL", settings.DEFAULT_FROM_EMAIL)
+    # M-F fix: sanitise charity_legal_name before embedding in the Subject header
+    # to prevent MIME header injection via CR/LF sequences.
     subject = (
         f"Official Donation Receipt — {receipt.serial_number} — "
-        f"{receipt.charity_legal_name}"
+        f"{_clean_header(receipt.charity_legal_name)}"
     )
     attachment_filename = f"receipt-{receipt.serial_number}.pdf"
 

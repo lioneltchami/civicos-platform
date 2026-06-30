@@ -471,12 +471,16 @@ def _cancel_stripe_pi_safe(gateway, pi_id: str) -> None:
         )
 
 
-class DonationCancelView(TemplateView):
+class DonationCancelView(LoginRequiredMixin, TemplateView):
     """
     Step 5: donor cancelled — clear session, show no-charge message.
 
     M-M fix: if a live Stripe PaymentIntent was created for this session, cancel
     it via on_commit() (fire-and-forget) to avoid accumulating stale PIs on Stripe.
+
+    M-C fix: requires login (LoginRequiredMixin) and filters the DB lookup by
+    payer=request.user so an attacker who obtains another donor's session-stored
+    intent_pk cannot trigger a Stripe cancel on a PI they do not own (IDOR defence).
     """
 
     template_name = "payments/donation_cancel.html"
@@ -485,6 +489,7 @@ class DonationCancelView(TemplateView):
         session_data = request.session.pop(DONATION_SESSION_KEY, {})
 
         # M-M fix: cancel the live Stripe PI if one was created for this session.
+        # M-C fix: payer=request.user ensures only the owner's PI is cancelled.
         intent_pk = session_data.get("donation_payment_intent_pk")
         if intent_pk:
             try:
@@ -492,6 +497,7 @@ class DonationCancelView(TemplateView):
                 _uuid_mod.UUID(str(intent_pk))  # validate before DB lookup
                 intent = PaymentIntent.objects.get(
                     pk=intent_pk,
+                    payer=request.user,  # M-C: IDOR defence — can only cancel own PI
                     status=PaymentIntent.STATUS_PENDING,
                 )
                 if intent.gateway_intent_id:

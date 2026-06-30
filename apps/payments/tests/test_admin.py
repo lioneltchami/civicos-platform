@@ -220,6 +220,38 @@ class PaymentAdminTest(TestCase):
         request = self.factory.get("/")
         self.assertFalse(self.admin.has_delete_permission(request, self.payment))
 
+    # ── L4: get_list_display permission gate ──────────────────────────────────
+
+    def test_get_list_display_excludes_refund_link_without_permission(self):
+        """Users without payments.add_refund must not see the refund_link column."""
+        # Regular user has no add_refund permission by default
+        request = self.factory.get("/")
+        request.user = self.user
+        columns = self.admin.get_list_display(request)
+        self.assertNotIn("refund_link", columns)
+
+    def test_get_list_display_includes_refund_link_with_permission(self):
+        """Users with payments.add_refund see the refund_link column."""
+        from django.contrib.contenttypes.models import ContentType
+        from django.contrib.auth.models import Permission
+        ct = ContentType.objects.get_for_model(Refund)
+        perm = Permission.objects.get(content_type=ct, codename="add_refund")
+        self.user.user_permissions.add(perm)
+        # Refresh to clear permission cache
+        self.user = User.objects.get(pk=self.user.pk)
+        request = self.factory.get("/")
+        request.user = self.user
+        columns = self.admin.get_list_display(request)
+        self.assertIn("refund_link", columns)
+
+    def test_get_list_display_includes_refund_link_for_superuser(self):
+        """Superusers implicitly hold all permissions, including add_refund."""
+        superuser = _make_superuser()
+        request = self.factory.get("/")
+        request.user = superuser
+        columns = self.admin.get_list_display(request)
+        self.assertIn("refund_link", columns)
+
 
 # ---------------------------------------------------------------------------
 # RefundInline

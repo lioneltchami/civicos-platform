@@ -31,6 +31,30 @@ def create_verified_user(email="user@example.com", password=VALID_PASSWORD, **kw
     return user
 
 
+def force_otp_login(client, user):
+    """
+    Authenticate the test client as *user* AND mark them as OTP-verified.
+
+    L7 added OTPRequiredMixin to dashboard/profile/mfa views. plain force_login()
+    authenticates the session but leaves is_verified()=False, causing 403.
+
+    This helper creates a dummy StaticDevice (no real TOTP needed in tests),
+    then stores its persistent_id in the session key that OTPMiddleware reads.
+    OTPMiddleware._verify_user() will find the device and set otp_device, making
+    user.is_verified() return True.
+    """
+    from django_otp import DEVICE_ID_SESSION_KEY
+    from django_otp.plugins.otp_static.models import StaticDevice
+
+    client.force_login(user)
+    device, _ = StaticDevice.objects.get_or_create(
+        user=user, defaults={"name": "test-device"}
+    )
+    session = client.session
+    session[DEVICE_ID_SESSION_KEY] = device.persistent_id
+    session.save()
+
+
 @override_settings(
     ACCOUNT_EMAIL_VERIFICATION="none",
     CELERY_TASK_ALWAYS_EAGER=True,
@@ -92,6 +116,6 @@ class LoginFlowTest(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_authenticated_user_can_access_dashboard(self):
-        self.client.force_login(self.user)
+        force_otp_login(self.client, self.user)
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)

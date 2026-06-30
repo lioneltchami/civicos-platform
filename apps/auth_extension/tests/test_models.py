@@ -20,9 +20,14 @@ class UserModelTest(TestCase):
         with self.assertRaises(IntegrityError):
             User.objects.create_user(email="dup@example.com", password=VALID_PASSWORD)
 
-    def test_str_returns_email(self):
+    def test_str_does_not_return_email(self):
+        """L4 PIPEDA fix: __str__ must never expose email (prevents PII in logs).
+        Returns full name if set, otherwise a PK-based placeholder."""
         user = User.objects.create_user(email="bob@example.com", password=VALID_PASSWORD)
-        self.assertEqual(str(user), "bob@example.com")
+        result = str(user)
+        self.assertNotIn("bob@example.com", result, "__str__ must not expose email (PIPEDA)")
+        # With no names set, expect 'User #<pk>'
+        self.assertRegex(result, r"^User #\d+$")
 
     def test_preferred_language_defaults_to_en(self):
         user = User.objects.create_user(email="c@example.com", password=VALID_PASSWORD)

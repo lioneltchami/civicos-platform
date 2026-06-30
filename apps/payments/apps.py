@@ -1,4 +1,5 @@
 from django.apps import AppConfig
+from django.core.exceptions import ImproperlyConfigured
 
 
 class PaymentsConfig(AppConfig):
@@ -10,6 +11,20 @@ class PaymentsConfig(AppConfig):
     def ready(self):
         import apps.payments.signals   # noqa: F401 — ensure signals module is loaded
         import apps.payments.receivers  # noqa: F401
+
+        # Guard: FERNET_KEYS is required for encrypting/decrypting sensitive fields.
+        # Without it the app falls back to SECRET_KEY (see models._get_fernet), which
+        # ties encryption-key rotation to the Django signing key — a security risk.
+        # Raise at app-load time so the misconfiguration is caught at startup, not
+        # when the first encrypted field is accessed in a live request.
+        from django.conf import settings
+        if not getattr(settings, "FERNET_KEYS", None) and not getattr(settings, "DEBUG", False) and not getattr(settings, "TESTING", False):
+            raise ImproperlyConfigured(
+                "FERNET_KEYS is required for the Payments app in non-debug environments. "
+                "Set it as a comma-separated list of Fernet keys. "
+                "Generate a key with: python -c \"from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())\""
+            )
 
         from apps.payments.signals import donation_completed, receipt_issued
         from apps.payments.receivers import on_donation_completed, on_receipt_issued

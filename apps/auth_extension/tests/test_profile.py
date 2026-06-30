@@ -26,11 +26,30 @@ def create_verified_user(email="user@example.com", password=VALID_PASSWORD):
     return user
 
 
+def force_otp_login(client, user):
+    """
+    Authenticate the test client as *user* AND mark them as OTP-verified.
+
+    L7 added OTPRequiredMixin to profile/dashboard views. Plain force_login()
+    authenticates the session but leaves is_verified()=False, causing 403.
+    """
+    from django_otp import DEVICE_ID_SESSION_KEY
+    from django_otp.plugins.otp_static.models import StaticDevice
+
+    client.force_login(user)
+    device, _ = StaticDevice.objects.get_or_create(
+        user=user, defaults={"name": "test-device"}
+    )
+    session = client.session
+    session[DEVICE_ID_SESSION_KEY] = device.persistent_id
+    session.save()
+
+
 @override_settings(ACCOUNT_EMAIL_VERIFICATION="none")
 class ProfileUpdateTest(TestCase):
     def setUp(self):
         self.user = create_verified_user()
-        self.client.force_login(self.user)
+        force_otp_login(self.client, self.user)
 
     def test_profile_page_loads(self):
         response = self.client.get(PROFILE_URL)

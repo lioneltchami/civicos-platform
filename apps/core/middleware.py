@@ -4,12 +4,14 @@ Core middleware for Govstack.
 Middleware order in settings:
   RequestIDMiddleware  → assigns a unique ID to every request
   AuditMiddleware      → attaches current user info for audit logging
+  WagtailMFAMiddleware → enforces OTP verification for /cms/ admin paths
 """
 
 import uuid
 from collections.abc import Callable
 
 from django.http import HttpRequest, HttpResponse
+from django_otp.middleware import is_verified as user_is_verified  # noqa: F401 — imported for patching in tests
 
 
 class RequestIDMiddleware:
@@ -38,6 +40,37 @@ class RequestIDMiddleware:
         response = self.get_response(request)
         response[self.RESPONSE_HEADER] = request_id
         return response
+
+
+class WagtailMFAMiddleware:
+    """
+    Enforces OTP/MFA verification for all Wagtail CMS paths (/cms/).
+
+    Must be placed AFTER django_otp.middleware.OTPMiddleware in MIDDLEWARE so
+    that request.user.otp_device is already set when this check runs.
+
+    Exemptions:
+    - /cms/login/ — the login page itself (prevents infinite redirect loop)
+    - /cms/password_reset/ — password reset pages
+
+    Security rationale (H-E):
+    Wagtail does not natively require a second factor. An authenticated staff
+    member whose account was compromised could access /cms/ without MFA.
+    This middleware ensures every CMS request has completed the OTP challenge.
+    """
+
+    _EXEMPT_PATHS = ("/cms/login/", "/cms/password_reset/")
+
+    def __init__(self, get_response: Callable) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        path = request.path_info
+        if path.startswith("/cms/") and path not in self._EXEMPT_PATHS:
+            if request.user.is_authenticated and not user_is_verified(request.user):
+                from django.shortcuts import redirect
+                return redirect(f"/account/login/?next={path}")
+        return self.get_response(request)
 
 
 class AuditMiddleware:

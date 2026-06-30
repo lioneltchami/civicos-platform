@@ -30,6 +30,10 @@ SECRET_KEY = "test-secret-key-not-for-production"
 
 DEBUG = False
 
+# TESTING flag: suppresses FERNET_KEYS startup guard and other production-only
+# checks (mirrors the convention used in apps/payments/models._get_fernet).
+TESTING = True
+
 ALLOWED_HOSTS = ["*"]
 
 # ---------------------------------------------------------------------------

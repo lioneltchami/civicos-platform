@@ -105,8 +105,8 @@ def generate_and_send_receipt(self, receipt_pk: str) -> dict:
                 pdf_bytes = generate_receipt_pdf(receipt_locked)
                 save_receipt_pdf(receipt_locked, pdf_bytes)
                 was_generated = True
-                # Save pdf_path (and updated_at) only — email_sent stays False here.
-                receipt_locked.save(update_fields=["pdf_path", "updated_at"])
+                # pdf_path is persisted by save_receipt_pdf() via _base_manager.update()
+                # and set on the in-memory object. No additional save() call is needed here.
 
     except Exception as exc:
         logger.error(
