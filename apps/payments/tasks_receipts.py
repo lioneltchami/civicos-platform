@@ -25,6 +25,7 @@ logger = logging.getLogger("apps.payments.tasks_receipts")
     default_retry_delay=60,
     acks_late=True,
     reject_on_worker_lost=True,
+    queue="receipts",  # H9: isolated from webhook tasks — slow PDF/email work
 )
 def generate_and_send_receipt(self, receipt_pk: str) -> dict:
     """
@@ -160,6 +161,8 @@ def generate_and_send_receipt(self, receipt_pk: str) -> dict:
     bind=True,
     max_retries=1,
     acks_late=True,
+    reject_on_worker_lost=True,  # requeue if worker is killed mid-run (CRA compliance)
+    queue="receipts",  # H9: isolated queue — annual run must not starve webhook processing
 )
 def generate_annual_receipts(self, tax_year: int) -> dict:
     """
@@ -223,8 +226,15 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
     # chunk_size=500: server-side cursor fetches 500 rows at a time.
     # Prevents loading hundreds of thousands of donation rows into memory at once.
     # Celery workers have limited RAM and the annual run processes all donors.
-    for donation in completed_donations.iterator(chunk_size=500):
-        donations_by_donor[donation.donor_id].append(donation)
+    #
+    # H4 fix: transaction.atomic() is required for PostgreSQL server-side cursors.
+    # Without an open transaction, Django silently falls back to loading the entire
+    # queryset into memory in one shot — defeating the purpose of .iterator() for
+    # large datasets. Inner transaction.atomic() blocks inside the per-donor loop
+    # nest as savepoints, which is safe in Django with PostgreSQL.
+    with transaction.atomic():
+        for donation in completed_donations.iterator(chunk_size=500):
+            donations_by_donor[donation.donor_id].append(donation)
 
     for donor_id, donor_donations in donations_by_donor.items():
         try:

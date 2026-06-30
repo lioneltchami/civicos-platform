@@ -10,7 +10,13 @@ Security:
 - No PII in log statements
 - StaffRequiredMixin on ALL views: citizens must never reach these views
 - Two-step confirmation flow prevents accidental refunds
-- TOCTOU race serialized under select_for_update() lock on Payment row
+- TOCTOU race serialized under select_for_update() on both Payment row AND all existing
+  Refund rows for that payment (H8 fix): locking only the Payment row allows two
+  concurrent workers to both pass the total-refunded check before either inserts a new
+  Refund row, causing a double refund.  Locking the Refund rows creates a range lock so
+  only one worker can re-sum and insert at a time.
+- Stripe API call deferred to transaction.on_commit() so the DB lock is released before
+  the network call, preventing lock contention during a 1-3 second HTTP round-trip.
 """
 import logging
 import uuid
@@ -196,8 +202,13 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
         notes = session_data.get("notes", "")
         idempotency_key = str(uuid.uuid4())
 
+        # Capture values for on_commit closure — cannot reference mutable outer
+        # variables from inside a closure after the atomic block exits.
+        _gateway_result_holder: list = []
+        _refund_holder: list = []
+
         with db_transaction.atomic():
-            # FIX 1: Lock the Payment row — serializes concurrent refund attempts
+            # H8 FIX step 1: Lock the Payment row — serializes concurrent refund attempts.
             payment = (
                 Payment.objects.select_for_update()
                 .select_related("intent")
@@ -210,8 +221,21 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                 request.session.pop(REFUND_SESSION_KEY, None)
                 return redirect("payments:refund_create", payment_pk=payment.pk)
 
-            # FIX 1: Re-compute under lock — prevents TOCTOU race condition
-            already_refunded = _compute_already_refunded(payment)
+            # H8 FIX step 2: Also lock all existing Refund rows for this payment.
+            # This creates a range lock that blocks concurrent workers from inserting
+            # new Refund rows until this transaction commits.  Without this, two
+            # workers can both pass the total-refunded check (each sees 0 existing
+            # refunds) and both issue a Stripe refund — a double-refund.
+            existing_refunds = Refund.objects.select_for_update().filter(payment=payment)
+
+            # H8 FIX step 3: Re-sum INSIDE the lock using the locked queryset.
+            # _compute_already_refunded() is NOT used here because it runs a fresh
+            # query outside this queryset chain and would not be covered by the lock.
+            from django.db.models import Sum as _Sum
+            already_refunded = (
+                existing_refunds.aggregate(total=_Sum("amount"))["total"]
+                or Decimal("0.00")
+            )
             max_refundable = payment.amount_paid - already_refunded
             if refund_amount > max_refundable:
                 messages.error(
@@ -223,48 +247,26 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                 request.session.pop(REFUND_SESSION_KEY, None)
                 return redirect("payments:refund_create", payment_pk=payment.pk)
 
-            # Gateway call inside the atomic block.
-            # If the DB write below fails, log the gateway_refund_id for manual reconciliation.
-            try:
-                gateway = get_gateway()
-                gateway_result = gateway.create_refund(
-                    gateway_charge_id=payment.gateway_charge_id,
-                    amount=refund_amount,
-                    reason=reason,
-                    idempotency_key=idempotency_key,
-                )
-            except GatewayError as exc:
-                logger.error(
-                    "payments.refund.gateway_error type=%s gateway_code=%s payment_pk=%s",
-                    type(exc).__name__,
-                    exc.gateway_code,
-                    str(payment.pk),
-                )
-                messages.error(request, "Refund could not be processed. Please try again.")
-                return redirect("payments:refund_confirm", payment_pk=payment.pk)
-
-            # DB write — if this fails, log the gateway_refund_id for reconciliation
-            try:
-                refund = Refund.objects.create(
-                    payment=payment,
-                    amount=refund_amount,
-                    reason=reason,
-                    notes=notes,
-                    gateway_refund_id=gateway_result["gateway_refund_id"],
-                    authorized_by=request.user,
-                    refunded_at=timezone.now(),
-                )
-            except Exception as db_exc:
-                # CRITICAL: Stripe refund issued but DB write failed.
-                # Log the gateway_refund_id for manual reconciliation.
-                logger.critical(
-                    "payments.refund.db_write_failed RECONCILIATION_REQUIRED "
-                    "gateway_refund_id=%s payment_pk=%s type=%s",
-                    gateway_result["gateway_refund_id"],
-                    str(payment.pk),
-                    type(db_exc).__name__,
-                )
-                raise  # Re-raise so the transaction rolls back and the 500 page shows
+            # H8 FIX step 4: Create the Refund row now — concurrent workers are blocked
+            # by the range lock on existing_refunds until this transaction commits.
+            # The Stripe API call is deferred to on_commit() so the DB lock is NOT held
+            # during the network round-trip (which can take 1-3 seconds and would cause
+            # lock contention for every other concurrent refund operation).
+            #
+            # gateway_refund_id is set to the idempotency_key as a unique placeholder;
+            # it is updated to the real Stripe refund ID in the on_commit callback.
+            # This satisfies the UNIQUE constraint on gateway_refund_id while allowing
+            # the real ID to be filled in once Stripe responds.
+            refund = Refund.objects.create(
+                payment=payment,
+                amount=refund_amount,
+                reason=reason,
+                notes=notes,
+                gateway_refund_id=f"pending_{idempotency_key}",
+                authorized_by=request.user,
+                refunded_at=timezone.now(),
+            )
+            _refund_holder.append(refund)
 
             PaymentAuditEntry.objects.create(
                 payment_intent=payment.intent,
@@ -277,13 +279,58 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                     "refund_pk": str(refund.pk),
                     "amount": str(refund_amount),
                     "reason": reason,
-                    "gateway_refund_id": gateway_result["gateway_refund_id"],
                     "payment_pk": str(payment.pk),
                     "staff_pk": str(request.user.pk),
                 },
             )
 
-        # Clear session after successful refund
+            # H8 FIX step 5: Dispatch Stripe API call AFTER commit.
+            # on_commit() fires once the transaction is committed and the lock is
+            # released.  The lambda captures all values by closure.
+            _payment_ref = payment
+            _refund_ref = refund
+
+            def _do_stripe_refund(
+                _payment=_payment_ref,
+                _refund=_refund_ref,
+                _amount=refund_amount,
+                _reason=reason,
+                _key=idempotency_key,
+            ):
+                try:
+                    gateway = get_gateway()
+                    gateway_result = gateway.create_refund(
+                        gateway_charge_id=_payment.gateway_charge_id,
+                        amount=_amount,
+                        reason=_reason,
+                        idempotency_key=_key,
+                    )
+                    # Persist gateway_refund_id returned by Stripe onto the Refund row.
+                    Refund.objects.filter(pk=_refund.pk).update(
+                        gateway_refund_id=gateway_result["gateway_refund_id"]
+                    )
+                    _gateway_result_holder.append(gateway_result)
+                    logger.info(
+                        "payments.refund.stripe_confirmed refund_pk=%s payment_pk=%s",
+                        str(_refund.pk),
+                        str(_payment.pk),
+                    )
+                except GatewayError as exc:
+                    # Refund row exists in DB but Stripe call failed.
+                    # Log for manual reconciliation; ops must check Stripe dashboard.
+                    logger.critical(
+                        "payments.refund.stripe_call_failed RECONCILIATION_REQUIRED "
+                        "refund_pk=%s payment_pk=%s type=%s gateway_code=%s",
+                        str(_refund.pk),
+                        str(_payment.pk),
+                        type(exc).__name__,
+                        exc.gateway_code,
+                    )
+
+            db_transaction.on_commit(_do_stripe_refund)
+
+        # Clear session after successful refund (transaction committed)
+        refund = _refund_holder[0]
         request.session.pop(REFUND_SESSION_KEY, None)
 
         logger.info(

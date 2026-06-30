@@ -14,7 +14,9 @@ from __future__ import annotations
 import base64
 import secrets
 import uuid
+import warnings
 from decimal import Decimal
+from functools import lru_cache
 
 from cryptography.fernet import Fernet, MultiFernet
 from django.conf import settings
@@ -35,13 +37,36 @@ def _generate_payment_reference() -> str:
 # EncryptedCharField — Fernet/AES-128-CBC symmetric encryption at rest
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=None)
 def _get_fernet() -> MultiFernet:
     """
     Build a MultiFernet instance from FERNET_KEYS setting.
     The first key encrypts; all keys are tried for decryption (supports rotation).
     Keys can be any string; non-Fernet strings are SHA-256-derived to a valid key.
+
+    Cached at module level — keys are immutable at runtime (only change on redeploy).
+    The cache is safe because Django settings are frozen after startup.
+
+    IMPORTANT for tests: any test that swaps FERNET_KEYS via override_settings MUST
+    call ``_get_fernet.cache_clear()`` in setUp() and tearDown() so the new setting
+    is picked up and the original is restored after the test.
+
+    Production requirement: set FERNET_KEYS to a list of dedicated Fernet keys.
+    Do NOT rely on the SECRET_KEY fallback in production — rotating SECRET_KEY
+    (e.g. after a breach) would simultaneously invalidate all encrypted field values.
     """
-    raw_keys = getattr(settings, "FERNET_KEYS", [settings.SECRET_KEY])
+    keys_setting = getattr(settings, "FERNET_KEYS", None)
+    if not keys_setting:
+        if not getattr(settings, "DEBUG", False) and not getattr(settings, "TESTING", False):
+            warnings.warn(
+                "FERNET_KEYS is not set. Falling back to SECRET_KEY for EncryptedCharField. "
+                "This ties encryption key rotation to Django's signing key — set FERNET_KEYS "
+                "to a dedicated Fernet key in production.",
+                stacklevel=2,
+            )
+        raw_keys = [settings.SECRET_KEY]
+    else:
+        raw_keys = keys_setting
     fernets = []
     for key in raw_keys:
         raw = key.encode() if isinstance(key, str) else key

@@ -702,3 +702,86 @@ class CreateDonationIntentMetadataTests(DonationViewTestBase):
             self._post_intent()
         intent = PaymentIntent.objects.get()
         self.assertNotIn("donor_email", intent.metadata)
+
+    # 45. donor_legal_name IS in Django PaymentIntent.metadata (webhook handler needs it)
+    def test_django_metadata_contains_donor_legal_name(self):
+        """The Django DB record must still have donor_legal_name for CRA receipt generation."""
+        self.client.force_login(self.user)
+        sd = self._default_session_data(donor_name="Jean Tremblay")
+        self._set_donation_session(sd)
+        with self._mock_gateway():
+            self._post_intent()
+        intent = PaymentIntent.objects.get()
+        self.assertEqual(intent.metadata.get("donor_legal_name"), "Jean Tremblay")
+
+
+# ---------------------------------------------------------------------------
+# H7 — Stripe metadata must not contain PII (PIPEDA compliance)
+# ---------------------------------------------------------------------------
+
+class StripePIIMetadataTests(DonationViewTestBase):
+    """
+    H7: donor_legal_name (and any other PII) must NOT be sent to Stripe in
+    PaymentIntent metadata. Under PIPEDA, personal information must not be
+    sent to third-party processors beyond what is strictly necessary.
+    The donor_legal_name is stored in our own DB (PaymentIntent.metadata)
+    for the webhook handler — Stripe does not need it.
+    """
+
+    def _post_intent_capturing_gateway_call(self, donor_name="Jane Citizen"):
+        """POST to create intent with a named donor, capturing what's sent to the gateway."""
+        self.client.force_login(self.user)
+        sd = self._default_session_data(donor_name=donor_name)
+        self._set_donation_session(sd)
+
+        captured_calls = []
+        mock_gw = MagicMock()
+
+        def capture_create_payment_intent(**kwargs):
+            captured_calls.append(kwargs)
+            return GATEWAY_RESULT
+
+        mock_gw.create_payment_intent.side_effect = capture_create_payment_intent
+
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            resp = self._post_intent()
+
+        return resp, captured_calls
+
+    # 46. donor_legal_name must NOT be in the metadata sent to the Stripe gateway
+    def test_stripe_metadata_does_not_contain_donor_legal_name(self):
+        resp, calls = self._post_intent_capturing_gateway_call(donor_name="Jean Tremblay")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(calls), 1, "Gateway create_payment_intent should be called exactly once")
+        stripe_metadata = calls[0].get("metadata", {})
+        self.assertNotIn(
+            "donor_legal_name",
+            stripe_metadata,
+            f"donor_legal_name must NOT be sent to Stripe metadata (PIPEDA). Got: {stripe_metadata}",
+        )
+
+    # 47. PII fields (name, email) must NOT be in Stripe metadata
+    def test_stripe_metadata_contains_no_name_or_email_fields(self):
+        resp, calls = self._post_intent_capturing_gateway_call(donor_name="Marie Curie")
+        self.assertEqual(resp.status_code, 200)
+        stripe_metadata = calls[0].get("metadata", {})
+        pii_fields = ["donor_legal_name", "name", "full_name", "email", "donor_email",
+                      "address", "donor_address", "postal_code"]
+        for field in pii_fields:
+            self.assertNotIn(
+                field,
+                stripe_metadata,
+                f"PII field '{field}' must NOT appear in Stripe metadata. Got: {stripe_metadata}",
+            )
+
+    # 48. Non-PII fields (campaign_pk, source, amounts) ARE in Stripe metadata
+    def test_stripe_metadata_contains_non_pii_fields(self):
+        resp, calls = self._post_intent_capturing_gateway_call()
+        self.assertEqual(resp.status_code, 200)
+        stripe_metadata = calls[0].get("metadata", {})
+        for field in ("campaign_pk", "source", "advantage_amount", "eligible_amount", "is_anonymous"):
+            self.assertIn(
+                field,
+                stripe_metadata,
+                f"Non-PII field '{field}' must be present in Stripe metadata for reconciliation.",
+            )

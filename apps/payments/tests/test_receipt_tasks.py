@@ -965,3 +965,132 @@ class AnnualReceiptIntegrityErrorTest(TestCase):
             "A duplicate-receipt IntegrityError must be swallowed and counted as skipped",
         )
         self.assertEqual(result["failed"], 0)
+
+
+# ---------------------------------------------------------------------------
+# H4 — .iterator(chunk_size=500) must run inside transaction.atomic()
+# ---------------------------------------------------------------------------
+
+class AnnualReceiptsIteratorTransactionTests(TestCase):
+    """
+    H4: generate_annual_receipts must wrap .iterator(chunk_size=500) inside
+    transaction.atomic() so that PostgreSQL server-side cursors actually stream
+    rows in chunks rather than falling back to a full in-memory load.
+    Without an open transaction, Django silently fetches the entire queryset
+    into memory — a potential OOM for 10,000+ donors.
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        self.charity = make_charity_settings()
+
+    def test_iterator_runs_inside_transaction(self):
+        """
+        Verify that QuerySet.iterator is called while a transaction is active.
+        We capture the Django connection.in_atomic_block state at the moment
+        .iterator() is invoked, confirming the outer transaction.atomic() wrapper
+        is in place.
+        """
+        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        from django.db import connection
+        from django.db.models.query import QuerySet
+        from apps.payments.models import OfficialDonationReceipt
+
+        intent = make_payment_intent(self.user)
+        make_donation(self.user, intent)
+
+        in_atomic_when_iterator_called = []
+        original_iterator = QuerySet.iterator
+
+        def capturing_iterator(qs_self, chunk_size=None):
+            in_atomic_when_iterator_called.append(connection.in_atomic_block)
+            return original_iterator(qs_self, chunk_size=chunk_size)
+
+        _counter = [0]
+        with patch.object(QuerySet, "iterator", capturing_iterator):
+            with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=2026)):
+                with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                    with self.captureOnCommitCallbacks(execute=True):
+                        generate_annual_receipts.apply(args=[2026]).get()
+
+        self.assertTrue(
+            in_atomic_when_iterator_called,
+            "QuerySet.iterator() was never called — H4 regression.",
+        )
+        self.assertTrue(
+            all(in_atomic_when_iterator_called),
+            "iterator() was called outside a transaction — server-side cursor will not work. "
+            f"in_atomic states: {in_atomic_when_iterator_called}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# H5 — generate_annual_receipts must have reject_on_worker_lost=True
+# ---------------------------------------------------------------------------
+
+class AnnualReceiptsRejectOnWorkerLostTests(TestCase):
+    """
+    H5: generate_annual_receipts must declare reject_on_worker_lost=True.
+    Without it, a SIGKILL mid-run with acks_late=True causes Celery to
+    acknowledge the task without requeuing — donors processed after the crash
+    point silently miss their annual receipt (CRA compliance failure).
+    """
+
+    def test_generate_annual_receipts_reject_on_worker_lost(self):
+        from apps.payments.tasks_receipts import generate_annual_receipts
+        self.assertTrue(
+            generate_annual_receipts.reject_on_worker_lost,
+            "generate_annual_receipts must set reject_on_worker_lost=True so that a "
+            "SIGKILL mid-run causes Celery to requeue the task rather than silently "
+            "dropping it — CRA compliance requires all donors receive their receipt.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# H9 — Queue routing: receipt and webhook tasks on dedicated queues
+# ---------------------------------------------------------------------------
+
+class TaskQueueRoutingTests(TestCase):
+    """
+    H9: Verify that receipt tasks declare queue="receipts" and the webhook
+    task declares queue="webhooks" on their decorators.
+
+    These decorator-level queue names are belt-and-suspenders alongside the
+    task_routes in config/celery.py — they ensure the correct queue is used
+    even when tasks are dispatched without an explicit queue= argument.
+
+    Preventing annual receipt runs from starving Stripe webhook processing is
+    critical: Stripe retries webhooks at 30s, 1min, 3min and then stops.
+    If webhook tasks pile up behind a 10,000-donor annual run, payments will
+    not be recorded and donation receipts will be permanently lost.
+    """
+
+    def test_generate_annual_receipts_routes_to_receipts_queue(self):
+        """generate_annual_receipts must declare queue='receipts'."""
+        from apps.payments.tasks_receipts import generate_annual_receipts
+        self.assertEqual(
+            generate_annual_receipts.queue,
+            "receipts",
+            "generate_annual_receipts.queue must be 'receipts' so the annual run "
+            "is isolated from latency-sensitive webhook tasks.",
+        )
+
+    def test_generate_and_send_receipt_routes_to_receipts_queue(self):
+        """generate_and_send_receipt must declare queue='receipts'."""
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+        self.assertEqual(
+            generate_and_send_receipt.queue,
+            "receipts",
+            "generate_and_send_receipt.queue must be 'receipts' so PDF/email work "
+            "does not compete with webhook tasks.",
+        )
+
+    def test_process_stripe_webhook_routes_to_webhooks_queue(self):
+        """process_stripe_webhook must declare queue='webhooks'."""
+        from apps.payments.tasks import process_stripe_webhook
+        self.assertEqual(
+            process_stripe_webhook.queue,
+            "webhooks",
+            "process_stripe_webhook.queue must be 'webhooks' so Stripe webhooks "
+            "reach dedicated workers and are not delayed by receipt batch tasks.",
+        )

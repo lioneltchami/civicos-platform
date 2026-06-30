@@ -286,10 +286,14 @@ class StripeGateway(PaymentGateway):
             )
             return intent.status == "canceled"
         except Exception as exc:
-            # If already cancelled, return False gracefully
+            # If already cancelled, return False gracefully.
+            # Use exc.code (stable, versioned) — NOT string matching on exc.args[0]
+            # which Stripe can change between API versions.
+            # "payment_intent_unexpected_state" is the documented code Stripe raises
+            # when a PaymentIntent is already in a terminal state (canceled/succeeded).
             import stripe as _stripe
             if isinstance(exc, _stripe.error.InvalidRequestError):
-                if "already" in str(exc).lower() or "canceled" in str(exc).lower():
+                if exc.code == "payment_intent_unexpected_state":
                     return False
             self._handle_stripe_error(exc)
 
@@ -323,11 +327,31 @@ class StripeGateway(PaymentGateway):
         except Exception as exc:
             self._handle_stripe_error(exc)
 
-        return {
+        result = {
             "gateway_subscription_id": sub.id,
             "status": sub.status,
             "current_period_end": str(sub.current_period_end),
         }
+
+        if sub.status == "incomplete":
+            # 3DS/SCA authentication required — the first invoice's payment intent
+            # needs a client_secret so the frontend can show the challenge modal.
+            # Without this, the donor silently never gets charged and Stripe marks
+            # the subscription as incomplete_expired after 23 hours.
+            try:
+                pi = sub.latest_invoice.payment_intent
+                if pi and pi.client_secret:
+                    result["client_secret"] = pi.client_secret
+                    result["payment_intent_id"] = pi.id
+            except AttributeError:
+                # latest_invoice or payment_intent not expanded — log and continue.
+                # The caller will need to fetch via Subscription.retrieve(expand=...).
+                logger.warning(
+                    "payments.stripe.subscription_incomplete_no_pi subscription_id=%s",
+                    sub.id,
+                )
+
+        return result
 
     def cancel_subscription(self, gateway_subscription_id: str) -> bool:
         stripe = self._stripe()
@@ -338,10 +362,13 @@ class StripeGateway(PaymentGateway):
             )
             return sub.status == "canceled"
         except Exception as exc:
+            # Use exc.code (stable, versioned) — NOT string matching on str(exc)
+            # which Stripe can change between API versions.
+            # "resource_missing" is the documented code for "No such subscription".
             import stripe as _stripe
             if isinstance(exc, _stripe.error.InvalidRequestError):
-                if "no such subscription" in str(exc).lower():
-                    return False
+                if exc.code == "resource_missing":
+                    return False  # subscription already cancelled or never existed
             self._handle_stripe_error(exc)
 
     def verify_webhook_signature(

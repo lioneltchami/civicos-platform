@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
     default_retry_delay=60,
     acks_late=True,
     reject_on_worker_lost=True,
+    queue="webhooks",  # H9: dedicated queue — must not be starved by receipt batch tasks
 )
 def process_stripe_webhook(self, webhook_event_pk: str) -> None:
     """

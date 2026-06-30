@@ -447,15 +447,32 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
         # Session cleared on TOCTOU block
         self.assertNotIn(REFUND_SESSION_KEY, self.client.session)
 
-    def test_confirm_post_gateway_error_no_refund_row(self):
-        """Gateway error → no Refund row, message added, session kept."""
+    def test_confirm_post_gateway_error_refund_row_created_stripe_call_deferred(self):
+        """
+        H8 fix: Stripe call is deferred to on_commit() so a gateway error fires
+        AFTER the DB transaction has committed.  The Refund row IS created and
+        persisted; only the gateway_refund_id update fails.
+
+        Before the H8 fix: gateway error inside the atomic block rolled back the
+        transaction → no Refund row.  After the fix: the Refund row is committed
+        first; on_commit() fires the Stripe call and only logs on failure.
+
+        In Django's TestCase, on_commit() callbacks do NOT fire during the test
+        because the test itself is wrapped in a transaction that never commits.
+        So the mock gateway is never called here — we just verify that the Refund
+        row was created and the view redirected to the detail page (success path).
+        """
         with self._mock_gateway(
             raises=GatewayError("stripe down", gateway_code="stripe_error")
         ):
             resp = self.client.post(self.CONFIRM_URL)
-        self.assertEqual(Refund.objects.count(), 0)
-        # Session preserved so user can retry
-        # (view redirects to confirm, not create, on gateway error)
+        # Refund row IS created — Stripe call is deferred to on_commit, not inside atomic
+        self.assertEqual(Refund.objects.count(), 1)
+        # View redirects to detail page (the commit succeeded even though Stripe may fail)
+        self.assertEqual(resp.status_code, 302)
+        # Redirect URL contains the refund UUID — we're on the detail page path
+        refund = Refund.objects.get()
+        self.assertIn(str(refund.pk), resp["Location"])
 
     def test_confirm_post_non_completed_payment_blocked(self):
         """Payment intent status changed to FAILED between form and confirm."""
@@ -656,3 +673,108 @@ class RefundDetailViewStaffScopingTests(TestCase):
         self.client.force_login(superuser)
         resp = self.client.get(self.detail_url_b)
         self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# H8 — Concurrent refund race: Refund rows locked inside atomic block
+# ---------------------------------------------------------------------------
+
+class RefundConfirmViewRangeLockTests(RefundViewTestBase):
+    """
+    H8: Verify that RefundConfirmView.post() acquires a select_for_update()
+    lock on existing Refund rows INSIDE the atomic block, and that the sum
+    is recomputed from that locked queryset (not from _compute_already_refunded
+    which runs a fresh, unlocked query).
+
+    A full threading concurrency test requires a real PostgreSQL instance with
+    advisory-lock semantics, which is out of scope for a unit test suite.
+    Instead we verify the structural guarantee: select_for_update() is called
+    on the Refund queryset, and the Stripe API call is dispatched via
+    transaction.on_commit() rather than inside the atomic block.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.staff)
+        self._set_session(self._valid_session_data())
+
+    def test_refund_view_source_contains_range_lock(self):
+        """
+        Structural check: verify that RefundConfirmView.post() source code
+        contains 'Refund.objects.select_for_update()' (the range lock that
+        prevents concurrent double-refund inserts).
+
+        A full concurrency test requires PostgreSQL with real row-level locking;
+        this unit test guards against the pattern being accidentally removed.
+        """
+        import inspect
+        from apps.payments.views.refund import RefundConfirmView
+
+        source = inspect.getsource(RefundConfirmView.post)
+        self.assertIn(
+            "Refund.objects.select_for_update()",
+            source,
+            "RefundConfirmView.post() must call Refund.objects.select_for_update() "
+            "inside the atomic block to create a range lock on existing refund rows. "
+            "Without this, two concurrent workers can both pass the total-refunded "
+            "check before either inserts a row — causing a double refund.",
+        )
+
+    def test_stripe_call_deferred_to_on_commit_not_inside_atomic(self):
+        """
+        The gateway.create_refund() call must NOT be inside the atomic block.
+        We verify this by checking that a Refund row is created even when we
+        patch get_gateway() to raise inside on_commit (i.e. after commit).
+
+        Structural check: if Stripe were called inside the atomic block and it
+        raised GatewayError, no Refund row would be created (transaction rolled
+        back).  With the H8 fix, the Refund row is committed first; the Stripe
+        call happens after commit via on_commit().
+        """
+        from apps.payments.gateways.exceptions import GatewayError as _GatewayError
+
+        initial_count = Refund.objects.count()
+
+        # Patch get_gateway so the Stripe call always raises — simulates a
+        # network failure that fires after the DB transaction has committed.
+        with patch("apps.payments.views.refund.get_gateway") as mock_gw:
+            mock_gw.return_value.create_refund.side_effect = _GatewayError(
+                message="network timeout", gateway_code="network_error"
+            )
+            resp = self.client.post(self.CONFIRM_URL)
+
+        # The Refund row must have been created (transaction committed before Stripe call).
+        # If the Stripe call were inside the atomic block, the transaction would have
+        # rolled back and no Refund row would exist.
+        self.assertEqual(
+            Refund.objects.count(),
+            initial_count + 1,
+            "No Refund row was created.  The Stripe call appears to still be inside "
+            "the atomic block — it must be moved to transaction.on_commit().",
+        )
+        # Response redirected to detail page (success path)
+        self.assertEqual(resp.status_code, 302)
+
+    def test_refund_amount_validated_inside_lock(self):
+        """
+        When a prior refund has consumed the full payment amount, a second
+        refund attempt must be rejected even if it arrived while the first
+        was still in flight.  The re-sum inside the lock catches this.
+        """
+        # Pre-create a refund that exhausts the full amount (100.00)
+        make_refund(
+            self.payment,
+            amount=Decimal("100.00"),
+            authorized_by=self.staff,
+        )
+        # Session requests a further 10.00 refund
+        self._set_session(self._valid_session_data(amount="10.00"))
+
+        with patch("apps.payments.views.refund.get_gateway"):
+            resp = self.client.post(self.CONFIRM_URL, follow=True)
+
+        self.assertIn(
+            "exceeds maximum refundable",
+            resp.content.decode(),
+            "Expected an over-refund error message but did not find one.",
+        )

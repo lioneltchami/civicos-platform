@@ -379,3 +379,115 @@ class OnReceiptIssuedTests(TestCase):
         self.assertNotIn(donor_name, log_output)
         # donation_pk should be in error log
         self.assertIn(str(self.donation.pk), log_output)
+
+
+# ---------------------------------------------------------------------------
+# H6 — Idempotency race-condition fix (get_or_create replaces TOCTOU pattern)
+# ---------------------------------------------------------------------------
+
+class IdempotencyRaceConditionTests(TestCase):
+    """
+    Duplicate signal delivery must not raise an unhandled exception.
+
+    Before the fix, a second concurrent delivery could pass the .exists() check,
+    then collide on INSERT and raise IntegrityError outside the atomic block.
+    The fix uses get_or_create() so the second delivery gets created=False and
+    returns cleanly, never reaching the INSERT path.
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        self.campaign = make_campaign()
+        self.charity = make_charity_settings()
+        self.intent = make_payment_intent(self.user)
+        self.donation = make_donation(self.user, self.intent)
+        self.payment = make_payment(self.intent)
+
+    def _fire(self, donation=None):
+        """Fire on_donation_completed with receipt-serial patching."""
+        from apps.payments.receivers import on_donation_completed
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        _counter = [0]
+
+        def _fake_save(receipt_instance, *args, **kwargs):
+            if not receipt_instance.serial_number:
+                _counter[0] += 1
+                receipt_instance.serial_number = f"2026-{str(_counter[0]).zfill(6)}"
+            from django.db.models import Model
+            Model.save(receipt_instance, *args, **kwargs)
+
+        d = donation or self.donation
+        with patch.object(OfficialDonationReceipt, "save", _fake_save):
+            with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                on_donation_completed(sender=Donation, donation=d, payment=self.payment)
+
+    def test_duplicate_signal_does_not_raise(self):
+        """
+        Simulates duplicate signal delivery: first call creates the receipt,
+        second call must return silently without raising any exception.
+        """
+        self._fire()
+        self.assertEqual(OfficialDonationReceipt.objects.count(), 1)
+
+        # Second delivery — must not raise, must not create a duplicate
+        try:
+            self._fire()
+        except Exception as exc:
+            self.fail(
+                f"Second signal delivery raised {type(exc).__name__}: {exc}. "
+                "get_or_create must handle the duplicate case silently."
+            )
+        self.assertEqual(
+            OfficialDonationReceipt.objects.count(),
+            1,
+            "A second signal delivery must not create a duplicate receipt.",
+        )
+
+    def test_simulated_concurrent_delivery_via_pre_existing_receipt(self):
+        """
+        Simulates the race where a receipt already exists at the point of the
+        get_or_create call (as if a concurrent worker just committed it).
+        The receiver must log receipt_already_exists and return without error.
+        """
+        from datetime import date
+        from apps.payments.receivers import on_donation_completed
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        # Pre-create a receipt as if the concurrent worker already committed
+        existing = OfficialDonationReceipt(
+            donation=self.donation,
+            status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
+            donor_legal_name="Jane Citizen",
+            donor_address_line1="123 Main St",
+            donor_city="Ottawa",
+            donor_province="ON",
+            donor_postal_code="K1A 0A6",
+            donation_date=date(2026, 1, 1),
+            receipt_date=date(2026, 1, 1),
+            eligible_amount=self.donation.eligible_amount,
+            advantage_amount=self.donation.advantage_amount,
+            advantage_description="",
+            charity_legal_name=self.charity.charity_legal_name,
+            charity_registration_number=self.charity.charity_registration_number,
+            charity_address="100 Charity Ave, Ottawa, ON K2A 1B2",
+            place_of_issue=self.charity.place_of_issue,
+            authorized_signatory_name=self.charity.authorized_signatory_name,
+            authorized_signatory_title=self.charity.authorized_signatory_title,
+            is_annual_consolidated=False,
+        )
+        existing.serial_number = "2026-000001"
+        existing.save()
+
+        # Now fire the receiver — it must detect the existing receipt and return silently
+        with patch.object(generate_and_send_receipt, "delay", return_value=None):
+            with self.assertLogs("apps.payments.receivers", level="INFO") as log_ctx:
+                on_donation_completed(
+                    sender=Donation,
+                    donation=self.donation,
+                    payment=self.payment,
+                )
+
+        log_output = "\n".join(log_ctx.output)
+        self.assertIn("receipt_already_exists", log_output)
+        self.assertEqual(OfficialDonationReceipt.objects.count(), 1)

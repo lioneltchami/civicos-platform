@@ -83,9 +83,11 @@ services:
       "
 
   # ---------------------------------------------------------------------------
-  # Celery worker — processes async tasks
+  # Celery worker — webhooks queue (latency-sensitive Stripe webhook tasks)
+  # H9 fix: dedicated worker so annual receipt runs cannot delay webhook processing.
+  # Also consumes the default queue so orphaned tasks are not abandoned.
   # ---------------------------------------------------------------------------
-  worker:
+  worker-webhooks:
     build:
       context: .
       target: development
@@ -103,7 +105,32 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A config.celery worker --loglevel=info --concurrency=2
+    command: celery -A config.celery worker -Q webhooks,default --loglevel=info --concurrency=4
+
+  # ---------------------------------------------------------------------------
+  # Celery worker — receipts queue (slow batch tasks: annual run, PDF/email)
+  # H9 fix: isolated worker so a 10,000-donor annual run cannot starve webhooks.
+  # Lower concurrency — receipt tasks are I/O-bound (PDF generation + SMTP).
+  # ---------------------------------------------------------------------------
+  worker-receipts:
+    build:
+      context: .
+      target: development
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      - media_data:/app/media
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_URL: postgres://govstack:govstack@db:5432/govstack
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A config.celery worker -Q receipts --loglevel=info --concurrency=2
 
   # ---------------------------------------------------------------------------
   # Celery Beat — periodic task scheduler

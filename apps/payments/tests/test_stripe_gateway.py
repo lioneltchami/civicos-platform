@@ -713,6 +713,9 @@ class StripeGatewayCancelPaymentIntentTests(SimpleTestCase):
         import stripe
 
         err = stripe.error.InvalidRequestError("PaymentIntent is already canceled", None)
+        # Set the stable Stripe error code — the gateway now checks exc.code, not
+        # str(exc), so the code attribute must be set for the branch to trigger.
+        err.code = "payment_intent_unexpected_state"
         with patch("stripe.PaymentIntent.cancel", side_effect=err):
             result = self.gateway.cancel_payment_intent("pi_already_canceled")
         self.assertFalse(result)
@@ -1445,6 +1448,9 @@ class CancelSubscriptionTests(SimpleTestCase):
     def test_returns_false_on_no_such_subscription_error(self):
         import stripe
         exc = stripe.error.InvalidRequestError("No such subscription: sub_xxx", None)
+        # Set the stable Stripe error code — the gateway now checks exc.code, not
+        # str(exc), so the code attribute must be set for the branch to trigger.
+        exc.code = "resource_missing"
         with patch("stripe.Subscription.cancel", side_effect=exc):
             result = self.gw.cancel_subscription("sub_xxx")
         self.assertFalse(result)
@@ -1767,3 +1773,153 @@ class ParseSubscriptionEventTests(SimpleTestCase):
         }
         result = self.gw._parse_subscription_event(obj)
         self.assertTrue(result["cancel_at_period_end"])
+
+
+# ---------------------------------------------------------------------------
+# H1 — cancel_subscription: exc.code check replaces string matching (H1 fix)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class CancelSubscriptionErrorCodeTest(SimpleTestCase):
+    """
+    Verify that cancel_subscription uses exc.code (stable Stripe API contract)
+    rather than fragile string matching on exc.args[0] / str(exc).
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_resource_missing_returns_false_not_raises(self):
+        """exc.code == 'resource_missing' → treat as already-cancelled, return False."""
+        import stripe
+        err = stripe.error.InvalidRequestError(
+            message="No such subscription: sub_xxx",
+            param="subscription",
+        )
+        err.code = "resource_missing"
+        with patch("stripe.Subscription.cancel", side_effect=err):
+            result = self.gw.cancel_subscription("sub_xxx")
+        self.assertFalse(result)
+
+    def test_other_invalid_request_error_code_raises(self):
+        """Any other exc.code must propagate — not be silently swallowed."""
+        import stripe
+        from apps.payments.gateways.exceptions import GatewayError
+        err = stripe.error.InvalidRequestError(
+            message="Something else went wrong",
+            param="x",
+        )
+        err.code = "parameter_invalid_string"
+        with patch("stripe.Subscription.cancel", side_effect=err):
+            with self.assertRaises(GatewayError):
+                self.gw.cancel_subscription("sub_xxx")
+
+    def test_none_code_invalid_request_error_raises(self):
+        """exc.code is None (unrecognised) must also propagate."""
+        import stripe
+        from apps.payments.gateways.exceptions import GatewayError
+        err = stripe.error.InvalidRequestError(
+            message="Some unrecognised error",
+            param=None,
+        )
+        err.code = None
+        with patch("stripe.Subscription.cancel", side_effect=err):
+            with self.assertRaises(GatewayError):
+                self.gw.cancel_subscription("sub_xxx")
+
+
+# ---------------------------------------------------------------------------
+# H2 — create_subscription: client_secret returned for 3DS/SCA (incomplete)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class CreateSubscriptionSCATest(SimpleTestCase):
+    """
+    When Stripe returns status='incomplete' the gateway must extract
+    client_secret from latest_invoice.payment_intent so the frontend can
+    drive the 3DS challenge.  Without this the subscription goes
+    incomplete_expired after 23 hours — the donor is never charged.
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def _call(self, mock_sub):
+        with patch("stripe.Subscription.create", return_value=mock_sub):
+            return self.gw.create_subscription(
+                customer_id="cus_sca_001",
+                price_id="price_sca_001",
+                payment_method_id="pm_sca_001",
+                idempotency_key="idem-sca-001",
+                metadata={},
+            )
+
+    def test_incomplete_subscription_returns_client_secret(self):
+        """status=incomplete must include client_secret in the result dict."""
+        mock_sub = MagicMock()
+        mock_sub.id = "sub_sca_abc"
+        mock_sub.status = "incomplete"
+        mock_sub.current_period_end = 9999999999
+        mock_sub.latest_invoice.payment_intent.client_secret = "pi_secret_xyz"
+        mock_sub.latest_invoice.payment_intent.id = "pi_sca_xxx"
+
+        result = self._call(mock_sub)
+
+        self.assertEqual(result["client_secret"], "pi_secret_xyz")
+        self.assertEqual(result["payment_intent_id"], "pi_sca_xxx")
+
+    def test_incomplete_subscription_returns_status_incomplete(self):
+        """status field must be 'incomplete' so the caller knows SCA is needed."""
+        mock_sub = MagicMock()
+        mock_sub.id = "sub_sca_abc"
+        mock_sub.status = "incomplete"
+        mock_sub.current_period_end = 9999999999
+        mock_sub.latest_invoice.payment_intent.client_secret = "pi_secret_xyz"
+        mock_sub.latest_invoice.payment_intent.id = "pi_sca_xxx"
+
+        result = self._call(mock_sub)
+
+        self.assertEqual(result["status"], "incomplete")
+
+    def test_active_subscription_does_not_include_client_secret(self):
+        """status=active (no SCA needed) must NOT include client_secret."""
+        mock_sub = MagicMock()
+        mock_sub.id = "sub_active_001"
+        mock_sub.status = "active"
+        mock_sub.current_period_end = 9999999999
+
+        result = self._call(mock_sub)
+
+        self.assertNotIn("client_secret", result)
+        self.assertNotIn("payment_intent_id", result)
+
+    def test_incomplete_without_payment_intent_logs_warning_and_continues(self):
+        """
+        If latest_invoice.payment_intent raises AttributeError (not expanded),
+        the gateway must log a warning and return without crashing.
+        """
+        import unittest.mock as umock
+
+        mock_sub = MagicMock()
+        mock_sub.id = "sub_no_pi"
+        mock_sub.status = "incomplete"
+        mock_sub.current_period_end = 9999999999
+
+        # Use a real object whose .payment_intent attribute raises AttributeError
+        # so the gateway's except AttributeError block is exercised.
+        class _FakeInvoice:
+            @property
+            def payment_intent(self):
+                raise AttributeError("payment_intent not expanded")
+
+        mock_sub.latest_invoice = _FakeInvoice()
+
+        with self.assertLogs("apps.payments.gateways.stripe_gateway", level="WARNING") as log_ctx:
+            result = self._call(mock_sub)
+
+        self.assertIn("subscription_incomplete_no_pi", log_ctx.output[0])
+        # Must still return the base result dict
+        self.assertEqual(result["status"], "incomplete")
+        self.assertNotIn("client_secret", result)

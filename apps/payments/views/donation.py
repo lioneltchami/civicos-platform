@@ -254,11 +254,11 @@ def create_donation_intent_api(request):
 
     idempotency_key = str(uuid.uuid4())
 
-    # Metadata stored on the PaymentIntent so the webhook handler (_handle_one_time_donation)
-    # can produce a correct CRA receipt without re-reading the (long-expired) session.
-    # donor_legal_name is the name submitted on the donation form (CRA requirement).
-    # No email or other PII beyond the legal name — PIPEDA compliant.
-    # intent.metadata is a JSONField, not logged by the application.
+    # Full metadata stored on the Django PaymentIntent model so the webhook handler
+    # (_handle_one_time_donation) can produce a correct CRA receipt without re-reading
+    # the (long-expired) session. donor_legal_name is the name submitted on the donation
+    # form and is required for CRA receipt generation. intent.metadata is a JSONField
+    # stored in our own DB — not sent to Stripe.
     metadata = {
         "campaign_pk": session_data.get("campaign_pk", ""),
         "source": "donation",
@@ -266,7 +266,20 @@ def create_donation_intent_api(request):
         "advantage_amount": str(session_data.get("advantage_amount", "0.00")),
         "eligible_amount": str(session_data.get("eligible_amount", "0.00")),
         "is_anonymous": session_data.get("is_anonymous", "0"),  # already "1"/"0" string from session
-        "donor_legal_name": session_data.get("donor_name", ""),  # legal name for CRA receipt
+        "donor_legal_name": session_data.get("donor_name", ""),  # legal name for CRA receipt — DB only
+    }
+
+    # H7 fix (PIPEDA): only non-PII internal identifiers are sent to Stripe metadata.
+    # donor_legal_name must NOT be sent to Stripe — it is PII that Stripe stores on their
+    # servers, exposes in the Dashboard, and includes in data exports. The webhook handler
+    # reads donor_legal_name from the Django PaymentIntent.metadata (above), not from Stripe.
+    stripe_metadata = {
+        "campaign_pk": session_data.get("campaign_pk", ""),
+        "source": "donation",
+        "is_recurring": session_data.get("is_recurring", "0"),
+        "advantage_amount": str(session_data.get("advantage_amount", "0.00")),
+        "eligible_amount": str(session_data.get("eligible_amount", "0.00")),
+        "is_anonymous": session_data.get("is_anonymous", "0"),
     }
 
     try:
@@ -279,7 +292,7 @@ def create_donation_intent_api(request):
             amount=amount,
             currency="cad",
             idempotency_key=idempotency_key,
-            metadata=metadata,
+            metadata=stripe_metadata,
             description="Charitable donation",
             connect_account_id=connect_account_id,
         )

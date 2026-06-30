@@ -59,16 +59,6 @@ def on_donation_completed(sender, donation, payment, **kwargs):
             )
             return
 
-        # Idempotency: never issue a second receipt for the same donation
-        if OfficialDonationReceipt.objects.filter(
-            donation=donation,
-        ).exists():
-            logger.info(
-                "payments.receiver.receipt_already_exists donation_pk=%s",
-                str(donation.pk),
-            )
-            return
-
         # Build charity address snapshot
         charity_address = (
             f"{charity.charity_address_line1}, "
@@ -82,35 +72,47 @@ def on_donation_completed(sender, donation, payment, **kwargs):
         donor_address_parts = _parse_donor_address(donation.donor_address_snapshot)
 
         with transaction.atomic():
-            receipt = OfficialDonationReceipt(
+            # Idempotency: never issue a second receipt for the same donation.
+            # get_or_create eliminates the TOCTOU race between a separate .exists()
+            # check and .create() that would occur across two concurrent signal
+            # deliveries — both cannot win the INSERT; the loser gets created=False
+            # and returns cleanly rather than raising an unhandled IntegrityError.
+            receipt, created = OfficialDonationReceipt.objects.get_or_create(
                 donation=donation,
-                status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
-                # CRA donor snapshot fields
-                donor_legal_name=donation.donor_name_snapshot,
-                donor_address_line1=donor_address_parts.get(
-                    "line1", donation.donor_address_snapshot[:255]
+                defaults=dict(
+                    status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
+                    # CRA donor snapshot fields
+                    donor_legal_name=donation.donor_name_snapshot,
+                    donor_address_line1=donor_address_parts.get(
+                        "line1", donation.donor_address_snapshot[:255]
+                    ),
+                    donor_city=donor_address_parts.get("city", ""),
+                    donor_province=donor_address_parts.get("province", ""),
+                    donor_postal_code=donor_address_parts.get("postal_code", ""),
+                    # CRA date fields — use local time so a donation at 23:30 ET on Dec 31
+                    # does not appear as Jan 1 on the CRA receipt due to UTC offset.
+                    donation_date=localtime(donation.created_at).date(),
+                    receipt_date=localtime(timezone_now()).date(),
+                    # CRA amount fields
+                    eligible_amount=donation.eligible_amount,
+                    advantage_amount=donation.advantage_amount,
+                    advantage_description=donation.advantage_description,
+                    # CRA charity snapshot fields
+                    charity_legal_name=charity.charity_legal_name,
+                    charity_registration_number=charity.charity_registration_number,
+                    charity_address=charity_address,
+                    place_of_issue=charity.place_of_issue,
+                    authorized_signatory_name=charity.authorized_signatory_name,
+                    authorized_signatory_title=charity.authorized_signatory_title,
+                    is_annual_consolidated=False,
                 ),
-                donor_city=donor_address_parts.get("city", ""),
-                donor_province=donor_address_parts.get("province", ""),
-                donor_postal_code=donor_address_parts.get("postal_code", ""),
-                # CRA date fields — use local time so a donation at 23:30 ET on Dec 31
-                # does not appear as Jan 1 on the CRA receipt due to UTC offset.
-                donation_date=localtime(donation.created_at).date(),
-                receipt_date=localtime(timezone_now()).date(),
-                # CRA amount fields
-                eligible_amount=donation.eligible_amount,
-                advantage_amount=donation.advantage_amount,
-                advantage_description=donation.advantage_description,
-                # CRA charity snapshot fields
-                charity_legal_name=charity.charity_legal_name,
-                charity_registration_number=charity.charity_registration_number,
-                charity_address=charity_address,
-                place_of_issue=charity.place_of_issue,
-                authorized_signatory_name=charity.authorized_signatory_name,
-                authorized_signatory_title=charity.authorized_signatory_title,
-                is_annual_consolidated=False,
             )
-            receipt.save()
+            if not created:
+                logger.info(
+                    "payments.receiver.receipt_already_exists donation_pk=%s",
+                    str(donation.pk),
+                )
+                return
             receipt_pk_str = str(receipt.pk)
             transaction.on_commit(
                 lambda: generate_and_send_receipt.delay(receipt_pk_str)
