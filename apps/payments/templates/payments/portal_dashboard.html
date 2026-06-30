@@ -148,7 +148,7 @@
           <td style="padding: .5rem; border-bottom: 1px solid #eee;">
             {% with receipt=donation.receipts.all|first %}
               {% if receipt %}
-                {% if receipt.pdf_path %}
+                {% if receipt.has_pdf %}
                   <a href="{% url 'donor_portal:receipt_download' receipt_pk=receipt.pk %}"
                      aria-label="{% blocktrans with sn=receipt.serial_number %}Download receipt {{ sn }}{% endblocktrans %}">
                     {% trans "Download" %}

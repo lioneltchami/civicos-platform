@@ -333,3 +333,31 @@ def _parse_donor_address(address_snapshot: str) -> dict:
         result["line1"] = lines[0][:255]
 
     return result
+
+
+@shared_task(
+    bind=False,
+    name="apps.payments.tasks_receipts.kickoff_annual_receipts",
+    max_retries=0,
+    acks_late=False,
+)
+def kickoff_annual_receipts() -> dict:
+    """
+    Celery Beat entry-point for the annual receipt run.
+
+    Resolves tax_year = (current year - 1) at runtime and delegates to
+    generate_annual_receipts.  This wrapper exists so the Beat schedule
+    does not need to be updated each year with a new tax_year argument.
+
+    Called by the 'payments.generate_annual_receipts' PeriodicTask registered
+    via `python manage.py setup_periodic_tasks`.
+    """
+    from django.utils import timezone as _tz
+
+    tax_year = _tz.now().year - 1
+    logger.info(
+        "payments.task.kickoff_annual_receipts dispatching tax_year=%s", tax_year
+    )
+    return generate_annual_receipts.apply_async(args=[tax_year]).get(
+        timeout=3600, propagate=True
+    )

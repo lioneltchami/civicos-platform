@@ -398,23 +398,69 @@ class StripeGateway(PaymentGateway):
             return {"gateway_intent_id": obj.get("id", "")}
 
     def _parse_payment_intent_succeeded(self, obj: dict) -> dict:
-        """Parse payment_intent.succeeded event. Strips billing PII."""
-        charges = obj.get("charges", {}).get("data", [])
-        charge = charges[0] if charges else {}
+        """
+        Parse payment_intent.succeeded event. Strips billing PII.
 
-        # Payment method details — card brand/last4 only, no PAN
-        pm_details = charge.get("payment_method_details", {})
-        card_info = pm_details.get("card", {})
+        Stripe API 2024-06-20: the ``charges`` embed on PaymentIntent objects is
+        deprecated and ``charges.data`` may be empty. The canonical approach is to
+        read ``latest_charge`` which is a string charge ID on the PaymentIntent.
 
-        # Security: card_last_four must be at most 4 chars (never a full PAN).
-        # M1: Use an explicit raise rather than assert — asserts are stripped
-        # when Python runs with -O (optimized) flag, defeating the security check.
-        card_last_four = card_info.get("last4") if card_info else None
-        if card_last_four is not None and len(card_last_four) > 4:
-            raise GatewayWebhookError(
-                f"card_last_four exceeds 4 chars: len={len(card_last_four)}",
-                gateway_code="pci_violation",
-            )
+        Strategy:
+        1. Prefer ``latest_charge`` (string ID) — current API (2022-11-15+).
+           Card details are sourced from ``latest_charge_expanded`` if the event
+           payload includes an expanded charge object; otherwise card fields are
+           left empty (the Celery task can fetch them via Charge.retrieve()).
+        2. Fall back to legacy ``charges.data[0]`` embed (API < 2022-11-15) so
+           older test fixtures and manual replay events still parse correctly.
+        """
+        # ── Preferred path: latest_charge string ID (API 2022-11-15 / 2024-06-20) ─
+        latest_charge_id = obj.get("latest_charge")
+
+        if isinstance(latest_charge_id, str) and latest_charge_id:
+            gateway_charge_id = latest_charge_id
+            # Card details: only available if the charge is expanded in the event.
+            # In webhook events, latest_charge is a bare string ID — not expanded.
+            # We accept empty card fields here; the reconciliation task fills them in.
+            latest_charge_obj = obj.get("latest_charge_expanded") or {}
+            if isinstance(latest_charge_obj, dict) and latest_charge_obj:
+                pm_details = (latest_charge_obj.get("payment_method_details") or {})
+                card_info = pm_details.get("card") or {}
+            else:
+                card_info = {}
+
+            card_last_four = card_info.get("last4") if card_info else None
+            # Security: card_last_four must be at most 4 chars (never a full PAN).
+            # Use explicit raise — assert is stripped under python -O.
+            if card_last_four is not None and len(card_last_four) > 4:
+                raise GatewayWebhookError(
+                    f"card_last_four exceeds 4 chars: len={len(card_last_four)}",
+                    gateway_code="pci_violation",
+                )
+            card_brand = _BRAND_MAP.get(card_info.get("brand", ""), "other") if card_info else None
+            paid_at = str(latest_charge_obj.get("created", "")) if latest_charge_obj else ""
+
+        else:
+            # ── Fallback: legacy charges.data embed (API < 2022-11-15) ────────────
+            charges_embed = obj.get("charges", {})
+            if isinstance(charges_embed, dict):
+                charges_data = charges_embed.get("data", [])
+            else:
+                charges_data = []
+
+            charge = charges_data[0] if charges_data else {}
+            gateway_charge_id = charge.get("id", "")
+
+            pm_details = charge.get("payment_method_details") or {}
+            card_info = pm_details.get("card") or {}
+
+            card_last_four = card_info.get("last4") if card_info else None
+            if card_last_four is not None and len(card_last_four) > 4:
+                raise GatewayWebhookError(
+                    f"card_last_four exceeds 4 chars: len={len(card_last_four)}",
+                    gateway_code="pci_violation",
+                )
+            card_brand = _BRAND_MAP.get(card_info.get("brand", ""), "other") if card_info else None
+            paid_at = str(charge.get("created", ""))
 
         # Processor fee is in balance_transaction — not available synchronously.
         # The Celery task will fetch it via BalanceTransaction.retrieve() if needed.
@@ -423,14 +469,14 @@ class StripeGateway(PaymentGateway):
 
         return {
             "gateway_intent_id": obj.get("id", ""),
-            "gateway_charge_id": charge.get("id", ""),
+            "gateway_charge_id": gateway_charge_id,
             "amount_paid": _from_cents(amount_cents),
             "processor_fee": Decimal("0.00"),  # Fetched async via BalanceTransaction
             "net_amount": _from_cents(amount_cents),  # Updated after fee fetch
             "payment_method_type": "card" if card_info else "bank_transfer",
             "card_last_four": card_last_four,
-            "card_brand": _BRAND_MAP.get(card_info.get("brand", ""), "other") if card_info else None,
-            "paid_at": str(charge.get("created", "")),
+            "card_brand": card_brand,
+            "paid_at": paid_at,
         }
 
     def _parse_payment_intent_failed(self, obj: dict) -> dict:

@@ -143,6 +143,7 @@ class PaymentIntent(TimestampedModel):
     gateway_intent_id = models.CharField(
         max_length=255,
         blank=True,
+        db_index=True,
         verbose_name=_("Gateway Intent ID"),
         help_text="ID returned by the payment gateway (e.g. Stripe PaymentIntent ID).",
     )
@@ -279,8 +280,9 @@ class Payment(TimestampedModel):
     net_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
+        editable=False,  # computed from amount_paid - processor_fee in save()
         verbose_name=_("Net Amount"),
-        help_text="Amount after processor fee: amount_paid - processor_fee.",
+        help_text=_("Net amount after processor fees. Computed automatically."),
     )
     payment_method_type = models.CharField(
         max_length=20,
@@ -466,6 +468,7 @@ class WebhookEvent(TimestampedModel):
         verbose_name_plural = _("Webhook Events")
         indexes = [
             models.Index(fields=["processed", "gateway"], name="payments_webhook_proc_gw"),
+            models.Index(fields=["event_type"], name="payments_wh_event_type_idx"),
         ]
 
     def __str__(self) -> str:
@@ -1665,6 +1668,11 @@ class OfficialDonationReceipt(TimestampedModel):
 
     def __str__(self) -> str:
         return f"Receipt {self.serial_number} ({self.status})"
+
+    @property
+    def has_pdf(self) -> bool:
+        """True if a PDF file has been stored for this receipt."""
+        return bool(self.pdf_path)
 
     def save(self, *args, **kwargs):
         if not self.serial_number:

@@ -187,8 +187,45 @@ class StripeGatewayParseWebhookTests(SimpleTestCase):
         self.gateway = StripeGateway()
 
     def _succeeded_payload(self, pi_id="pi_test_001", charge_id="ch_test_001"):
+        """
+        Fixture using the current Stripe API 2024-06-20 format.
+
+        ``latest_charge`` is a string charge ID; card details live in
+        ``latest_charge_expanded`` (the expanded charge object).
+        The legacy ``charges`` embed is intentionally omitted to verify that the
+        gateway correctly handles the current API response shape.
+        """
         return {
             "id": "evt_test_001",
+            "type": "payment_intent.succeeded",
+            "data": {
+                "object": {
+                    "id": pi_id,
+                    "amount_received": 4999,
+                    # API 2024-06-20: latest_charge is a string ID
+                    "latest_charge": charge_id,
+                    # Expanded charge object (available when expand=["latest_charge"] is set)
+                    "latest_charge_expanded": {
+                        "id": charge_id,
+                        "created": 1700000000,
+                        "payment_method_details": {
+                            "card": {
+                                "last4": "4242",
+                                "brand": "visa",
+                            }
+                        },
+                    },
+                }
+            },
+        }
+
+    def _succeeded_payload_legacy(self, pi_id="pi_test_001", charge_id="ch_test_001"):
+        """
+        Fixture using the deprecated ``charges.data`` embed (API < 2022-11-15).
+        Retained to verify the fallback path remains functional.
+        """
+        return {
+            "id": "evt_test_legacy_001",
             "type": "payment_intent.succeeded",
             "data": {
                 "object": {
@@ -335,17 +372,42 @@ class StripeGatewayParseWebhookTests(SimpleTestCase):
         self.assertIn("gateway_intent_id", data)
 
     def test_pci_violation_raises_when_last4_too_long(self):
-        """GatewayWebhookError raised if Stripe returns last4 > 4 chars."""
+        """GatewayWebhookError raised if Stripe returns last4 > 4 chars (current API path)."""
         payload = {
             "type": "payment_intent.succeeded",
             "data": {
                 "object": {
                     "id": "pi_pci_001",
                     "amount_received": 1000,
+                    "latest_charge": "ch_pci_001",
+                    "latest_charge_expanded": {
+                        "id": "ch_pci_001",
+                        "created": 1700000000,
+                        "payment_method_details": {
+                            "card": {
+                                "last4": "12345",  # 5 chars — PCI violation
+                                "brand": "visa",
+                            }
+                        },
+                    },
+                }
+            },
+        }
+        with self.assertRaises(GatewayWebhookError):
+            self.gateway.parse_webhook_event(payload)
+
+    def test_pci_violation_raises_when_last4_too_long_legacy_path(self):
+        """GatewayWebhookError raised if Stripe returns last4 > 4 chars (legacy charges.data path)."""
+        payload = {
+            "type": "payment_intent.succeeded",
+            "data": {
+                "object": {
+                    "id": "pi_pci_002",
+                    "amount_received": 1000,
                     "charges": {
                         "data": [
                             {
-                                "id": "ch_pci_001",
+                                "id": "ch_pci_002",
                                 "created": 1700000000,
                                 "payment_method_details": {
                                     "card": {
@@ -361,6 +423,15 @@ class StripeGatewayParseWebhookTests(SimpleTestCase):
         }
         with self.assertRaises(GatewayWebhookError):
             self.gateway.parse_webhook_event(payload)
+
+    def test_legacy_charges_embed_still_parses(self):
+        """Fallback path: legacy charges.data embed still yields correct charge ID."""
+        _, data = self.gateway.parse_webhook_event(
+            self._succeeded_payload_legacy(pi_id="pi_leg_001", charge_id="ch_leg_001")
+        )
+        self.assertEqual(data["gateway_charge_id"], "ch_leg_001")
+        self.assertEqual(data["gateway_intent_id"], "pi_leg_001")
+        self.assertEqual(data["card_last_four"], "4242")
 
 
 # ---------------------------------------------------------------------------

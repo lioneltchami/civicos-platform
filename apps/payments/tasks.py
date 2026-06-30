@@ -88,7 +88,7 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
             webhook_event.gateway_event_id,
         )
         webhook_event.error = "SignatureNotVerified: refusing to process unverified event"
-        webhook_event.save(update_fields=["error"])
+        webhook_event.save(update_fields=["error", "updated_at"])
         return
 
     logger.info(
@@ -109,7 +109,7 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
             webhook_event.gateway_event_id,
         )
         webhook_event.error = f"{type(exc).__name__}: {exc.gateway_code}"
-        webhook_event.save(update_fields=["error"])
+        webhook_event.save(update_fields=["error", "updated_at"])
         return
 
     # ── Dispatch to handler ───────────────────────────────────────────────────
@@ -124,7 +124,7 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
         webhook_event.processed = True
         webhook_event.processed_at = timezone.now()
         webhook_event.error = ""
-        webhook_event.save(update_fields=["processed", "processed_at", "error"])
+        webhook_event.save(update_fields=["processed", "processed_at", "error", "updated_at"])
         return
 
     try:
@@ -133,7 +133,7 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
             webhook_event.processed = True
             webhook_event.processed_at = timezone.now()
             webhook_event.error = ""
-            webhook_event.save(update_fields=["processed", "processed_at", "error"])
+            webhook_event.save(update_fields=["processed", "processed_at", "error", "updated_at"])
     except Exception as exc:
         logger.error(
             "payments.task.handler_error "
@@ -144,7 +144,8 @@ def process_stripe_webhook(self, webhook_event_pk: str) -> None:
         )
         # Store error type for ops visibility; don't include exc.args (may have PII)
         webhook_event.error = type(exc).__name__
-        webhook_event.save(update_fields=["error"])
+        webhook_event.retry_count = self.request.retries + 1
+        webhook_event.save(update_fields=["error", "retry_count", "updated_at"])
 
         # Retry on transient errors
         from apps.payments.gateways.exceptions import GatewayNetworkError, GatewayRateLimitError
@@ -169,6 +170,18 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
 
     State machine: PENDING → PROCESSING → COMPLETED (two-step transition required).
     Signal emission deferred to on_commit() so it fires only after DB commits.
+
+    One-time donation signal chain:
+    - create_donation_intent_api sets purpose=PURPOSE_DONATION on the PaymentIntent.
+    - Here, after creating Payment, we check for a pre-existing Donation linked to the
+      intent (created in the view layer) OR create one from session data stored in
+      intent.metadata when purpose==PURPOSE_DONATION.
+    - Once the Donation row exists and is COMPLETED, donation_completed is emitted
+      via on_commit(), triggering on_donation_completed → OfficialDonationReceipt.
+    - Recurring donations are handled in _handle_invoice_payment_succeeded instead.
+
+    Gap closed: without this, payment_completed had zero receivers and one-time
+    donations never produced a Donation row or CRA receipt.
     """
     from apps.payments.models import Payment, PaymentIntent, PaymentAuditEntry
 
@@ -290,6 +303,148 @@ def _handle_payment_intent_succeeded(event_data: dict, webhook_event) -> None:
 
     db_transaction.on_commit(_send_payment_completed_signal)
 
+    # ── One-time donation: create Donation row and emit donation_completed ────
+    # This bridges the gap for the one-time gift flow:
+    #   create_donation_intent_api → PaymentIntent(purpose=PURPOSE_DONATION)
+    #                             → Stripe webhook → here → Donation → receipt
+    #
+    # Recurring donations are handled exclusively by _handle_invoice_payment_succeeded.
+    # We check is_recurring from metadata to avoid double-counting a recurring setup.
+    if intent.purpose == PaymentIntent.PURPOSE_DONATION:
+        _handle_one_time_donation(intent, payment, webhook_event)
+
+
+def _handle_one_time_donation(intent, payment, webhook_event) -> None:
+    """
+    Create a Donation row for a one-time (non-recurring) donation and emit
+    donation_completed so that the receipt receiver fires.
+
+    Called synchronously inside the same atomic transaction as
+    _handle_payment_intent_succeeded.  Signal is deferred to on_commit().
+
+    Idempotent: skips if a Donation linked to this intent already exists.
+
+    Metadata keys expected on intent.metadata (set by create_donation_intent_api):
+    - campaign_pk  : str UUID or ""
+    - is_recurring : "1" or "0"  — skip if "1" (subscription flow)
+    - source       : "donation"
+    """
+    from apps.payments.models import (
+        Donation,
+        DonationCampaign,
+        DONATION_STATUS_COMPLETED,
+    )
+    from apps.payments.signals import donation_completed
+
+    # Skip subscription-initiated intents (handled by invoice handler)
+    if intent.metadata.get("is_recurring") == "1":
+        return
+
+    # Idempotency: if a Donation already exists for this intent, skip
+    if Donation.objects.filter(payment_intent=intent).exists():
+        logger.info(
+            "payments.handler.one_time_donation.already_exists "
+            "intent_pk=%s",
+            str(intent.pk),
+        )
+        return
+
+    # Resolve campaign (optional)
+    campaign_pk = intent.metadata.get("campaign_pk", "")
+    campaign = None
+    if campaign_pk:
+        try:
+            import uuid as _uuid_mod
+            campaign = DonationCampaign.objects.get(pk=_uuid_mod.UUID(campaign_pk))
+        except (DonationCampaign.DoesNotExist, ValueError):
+            logger.warning(
+                "payments.handler.one_time_donation.campaign_not_found "
+                "campaign_pk=%s intent_pk=%s",
+                campaign_pk,
+                str(intent.pk),
+            )
+
+    donor = intent.payer
+
+    # donor_name_snapshot — CRA requirement
+    donor_name_snapshot = getattr(donor, "get_full_name", lambda: "")() or str(donor)
+    if not donor_name_snapshot.strip():
+        donor_name_snapshot = "Donor"
+        logger.warning(
+            "payments.handler.one_time_donation.missing_donor_name "
+            "intent_pk=%s — CRA receipt will use placeholder name",
+            str(intent.pk),
+        )
+
+    # donor_address_snapshot — CRA requirement
+    # User model has no address field; log a WARNING so ops can follow up.
+    # The placeholder is CRA-visible — run management command
+    # `check_missing_donor_addresses` to identify and correct affected receipts.
+    address_parts = []
+    for attr in ("address", "billing_address", "profile_address"):
+        addr = getattr(donor, attr, None)
+        if addr:
+            address_parts = [addr]
+            break
+    if not address_parts:
+        donor_address_snapshot = "[Address required — update donor profile]"
+        logger.warning(
+            "payments.handler.one_time_donation.missing_donor_address "
+            "intent_pk=%s donor_pk=%s — CRA receipt will have placeholder address",
+            str(intent.pk),
+            str(donor.pk),
+        )
+    else:
+        donor_address_snapshot = "\n".join(address_parts)
+
+    # advantage_amount: not tracked at PaymentIntent level for one-time gifts;
+    # use campaign default if available, otherwise zero.
+    advantage_amount = Decimal("0.00")
+    advantage_description = ""
+    if campaign:
+        advantage_amount = campaign.advantage_amount
+        advantage_description = campaign.get_advantage_description()
+
+    donation = Donation.objects.create(
+        payment_intent=intent,
+        donor=donor,
+        campaign=campaign,
+        amount=payment.amount_paid,
+        advantage_amount=advantage_amount,
+        advantage_description=advantage_description,
+        # eligible_amount computed in Donation.save()
+        eligible_amount=payment.amount_paid,  # Will be recomputed
+        is_recurring=False,
+        recurring_plan=None,
+        is_anonymous=False,
+        status=DONATION_STATUS_COMPLETED,
+        donor_name_snapshot=donor_name_snapshot,
+        donor_address_snapshot=donor_address_snapshot,
+    )
+
+    logger.info(
+        "payments.handler.one_time_donation.done "
+        "intent_pk=%s donation_pk=%s",
+        str(intent.pk),
+        str(donation.pk),
+    )
+
+    # Defer donation_completed to post-commit so it fires only after DB commits
+    donation_pk = str(donation.pk)
+    payment_pk = str(payment.pk)
+
+    def _send_donation_completed(donation_pk=donation_pk, payment_pk=payment_pk):
+        from apps.payments.models import Donation as _Donation, Payment as _Payment
+        from apps.payments.signals import donation_completed as _signal
+        try:
+            _donation = _Donation.objects.get(pk=donation_pk)
+            _payment = _Payment.objects.get(pk=payment_pk)
+            _signal.send(sender=_Donation, donation=_donation, payment=_payment)
+        except Exception:
+            pass  # Never let signal errors crash post-commit hooks
+
+    db_transaction.on_commit(_send_donation_completed)
+
 
 def _handle_payment_intent_failed(event_data: dict, webhook_event) -> None:
     """
@@ -361,14 +516,25 @@ def _handle_payment_intent_failed(event_data: dict, webhook_event) -> None:
 
 def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
     """
-    Log that a charge has been refunded.
+    Handle charge.refunded — covers both GovStack-initiated refunds (already have
+    a Refund row) and Stripe-dashboard-initiated refunds (no Refund row yet).
 
-    Note: The Refund model has no status field — it records a completed refund
-    event. We cannot update Refund status. Instead we log the event for audit.
-    Future: if Refund gains a status field, update it here.
+    For GovStack-initiated refunds: the Refund row was created by the staff
+    refund view before the gateway call, so we just confirm and audit.
+
+    For Stripe-dashboard-initiated refunds: Refund.authorized_by is a required
+    non-nullable FK (audit requirement — no anonymous refunds). We cannot create
+    a Refund row without a known staff user. Instead we create a PaymentAuditEntry
+    with action="refund_requested" to keep the audit trail intact and log a WARNING
+    so ops can create the Refund row manually and attach the correct authoriser.
+
+    Called inside an atomic transaction by process_stripe_webhook.
     """
+    from apps.payments.models import Payment, Refund, PaymentAuditEntry
+
     gateway_refund_id = event_data.get("gateway_refund_id", "")
     gateway_charge_id = event_data.get("gateway_charge_id", "")
+    refund_amount = event_data.get("refund_amount", Decimal("0.00"))
 
     if not gateway_refund_id:
         logger.info(
@@ -378,9 +544,79 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
         )
         return
 
-    logger.info(
-        "payments.handler.charge_refunded gateway_event_id=%s",
+    if not gateway_charge_id:
+        logger.warning(
+            "payments.handler.charge_refunded.no_charge_id "
+            "gateway_event_id=%s",
+            webhook_event.gateway_event_id,
+        )
+        return
+
+    # Find the Payment by charge ID
+    try:
+        payment = Payment.objects.select_for_update().get(
+            gateway_charge_id=gateway_charge_id
+        )
+    except Payment.DoesNotExist:
+        logger.warning(
+            "payments.handler.charge_refunded.payment_not_found "
+            "gateway_event_id=%s",
+            webhook_event.gateway_event_id,
+        )
+        return
+
+    # Check if we already have a Refund row for this gateway_refund_id.
+    # GovStack-initiated refunds: Refund row exists → already recorded, just audit.
+    if Refund.objects.filter(gateway_refund_id=gateway_refund_id).exists():
+        logger.info(
+            "payments.handler.charge_refunded.already_recorded "
+            "gateway_event_id=%s",
+            webhook_event.gateway_event_id,
+        )
+        # Still create an audit entry so the webhook processing is traceable
+        PaymentAuditEntry.objects.create(
+            payment_intent=payment.intent,
+            payment=payment,
+            action="refund_completed",
+            actor=None,
+            actor_ip="",
+            details={
+                "source": "stripe_webhook_confirmation",
+                "gateway_event_id": webhook_event.gateway_event_id,
+                "gateway_refund_id": gateway_refund_id,
+                "refund_amount": str(refund_amount),
+            },
+        )
+        return
+
+    # Stripe-dashboard-initiated refund — no Refund row exists.
+    # Refund.authorized_by is a required (non-nullable) FK so we cannot create
+    # the row without a known staff user. Create a PaymentAuditEntry instead so
+    # the event is visible in audit logs, and warn ops to create the Refund row
+    # manually with the correct authoriser.
+    PaymentAuditEntry.objects.create(
+        payment_intent=payment.intent,
+        payment=payment,
+        action="refund_requested",
+        actor=None,   # system event — no known staff user
+        actor_ip="",
+        details={
+            "source": "stripe_dashboard",
+            "gateway_event_id": webhook_event.gateway_event_id,
+            "gateway_refund_id": gateway_refund_id,
+            "refund_amount": str(refund_amount),
+            "action_required": (
+                "Create Refund row manually in Django admin and set authorized_by "
+                "to the staff member who approved this dashboard refund."
+            ),
+        },
+    )
+    logger.warning(
+        "payments.handler.charge_refunded.stripe_dashboard_refund "
+        "gateway_event_id=%s refund_id=%s — refund initiated outside GovStack; "
+        "ops must create Refund row manually with authorized_by staff member",
         webhook_event.gateway_event_id,
+        gateway_refund_id,
     )
 
 
@@ -398,8 +634,10 @@ def _handle_subscription_deleted(event_data: dict, webhook_event) -> None:
         )
         return
 
+    # select_for_update() prevents a concurrent webhook from double-cancelling.
+    # Must be inside an atomic block (provided by process_stripe_webhook caller).
     try:
-        plan = RecurringGiftPlan.objects.get(
+        plan = RecurringGiftPlan.objects.select_for_update().get(
             gateway_subscription_id=gateway_subscription_id
         )
     except RecurringGiftPlan.DoesNotExist:
@@ -550,8 +788,10 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
 
     donor = plan.donor
 
-    # Get address snapshot from the linked donor user — address may not be on profile
-    # Use getattr with nested fallback to avoid AttributeError
+    # donor_address_snapshot — CRA requirement.
+    # User model has no address field. Log a WARNING at ops-visible level so
+    # receipts with placeholder addresses can be identified and corrected.
+    # Run management command `check_missing_donor_addresses` to find affected rows.
     donor_user = getattr(plan, "donor", None)
     address_parts = []
     if donor_user:
@@ -560,7 +800,16 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
             if addr:
                 address_parts = [addr]
                 break
-    donor_address_snapshot = "\n".join(address_parts) if address_parts else "Address on file — subscription renewal"
+    if address_parts:
+        donor_address_snapshot = "\n".join(address_parts)
+    else:
+        donor_address_snapshot = "[Address required — update donor profile]"
+        logger.warning(
+            "payments.handler.invoice_succeeded.missing_donor_address "
+            "plan_pk=%s donor_pk=%s — CRA receipt will have placeholder address",
+            str(plan.pk),
+            str(donor_user.pk) if donor_user else "unknown",
+        )
 
     # Create a new PaymentIntent for this renewal
     import uuid as _uuid_module
@@ -595,8 +844,17 @@ def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
         paid_at=timezone.now(),
     )
 
-    # donor_name_snapshot: CRA requirement — use display_name or full_name if available
+    # donor_name_snapshot: CRA requirement — use full_name or str(donor) fallback.
+    # If get_full_name() returns empty (new account with no name set), log a warning.
     donor_name_snapshot = getattr(donor, "get_full_name", lambda: "")() or str(donor)
+    if not donor_name_snapshot.strip():
+        donor_name_snapshot = "Recurring Donor"
+        logger.warning(
+            "payments.handler.invoice_succeeded.missing_donor_name "
+            "plan_pk=%s donor_pk=%s — CRA receipt will use placeholder name",
+            str(plan.pk),
+            str(donor_user.pk) if donor_user else "unknown",
+        )
 
     # Create the Donation record
     donation = Donation.objects.create(

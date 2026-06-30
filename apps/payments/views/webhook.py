@@ -30,6 +30,7 @@ from django.views.decorators.http import require_POST
 
 from apps.payments.gateway import get_gateway
 from apps.payments.models import GATEWAY_STRIPE, WebhookEvent
+from apps.payments.views.refund import _mask_ip
 
 logger = logging.getLogger(__name__)
 
@@ -94,9 +95,10 @@ def stripe_webhook(request):
 
     gateway = get_gateway()
     if not gateway.verify_webhook_signature(payload_bytes, signature_header, webhook_secret):
+        _raw_ip = request.META.get("REMOTE_ADDR", "")
         logger.warning(
             "payments.webhook.signature_invalid remote_addr=%s",
-            request.META.get("REMOTE_ADDR", ""),
+            _mask_ip(_raw_ip),
         )
         return HttpResponse("Invalid signature", status=400)
 

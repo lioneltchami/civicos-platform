@@ -57,13 +57,21 @@ TWO_PLACES = Decimal("0.01")
 
 
 def _check_rate_limit(user_pk: str) -> bool:
-    """Return True if the request is within rate limit (5 POST per minute)."""
+    """
+    Return True if the request is within rate limit (5 POST per minute).
+
+    Uses atomic cache.incr() to prevent race-condition bypass under concurrent
+    requests (e.g. two tabs double-clicking simultaneously).
+    Returns False when the limit is exceeded (caller should return 429).
+    """
     key = f"payments:create_intent:rl:{user_pk}"
-    count = cache.get(key, 0)
-    if count >= 5:
-        return False
-    cache.set(key, count + 1, timeout=60)
-    return True
+    try:
+        count = cache.incr(key)
+    except ValueError:
+        # Key does not exist yet — initialise it with a 60-second TTL.
+        cache.set(key, 1, timeout=60)
+        count = 1
+    return count <= 5
 
 logger = logging.getLogger(__name__)
 
