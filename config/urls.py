@@ -54,6 +54,8 @@ urlpatterns = [
     path("payments/", include("apps.payments.urls", namespace="payments")),
     # Donations public-facing flows
     path("donate/", include("apps.payments.donation_urls", namespace="donate")),
+    # Donor payments portal — authenticated view of giving history, receipts, recurring plans
+    path("donate/portal/", include("apps.payments.portal_urls", namespace="donor_portal")),
     # Django i18n — provides the {% url 'set_language' %} view used in base.html
     # Must be a non-i18n (language-prefix-free) URL so the language switcher works
     # regardless of which language is currently active.

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Recurring Gifts" %}{% endblock %}
+{% block meta_description %}{% trans "Manage your recurring charitable gift plans." %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 960px; margin: 0 auto; padding: 2rem 1rem;">
+
+  <h1>{% trans "Recurring Gifts" %}</h1>
+
+  {# ── Status summary ───────────────────────────────────────────────────── #}
+  <div class="status-summary"
+       role="status"
+       aria-live="polite"
+       style="display: flex; gap: 1rem; margin: 1rem 0; flex-wrap: wrap;">
+    <span class="badge badge--active" style="padding: .25rem .75rem; border-radius: 12px; background: #1a6e2e; color: #fff;">
+      {{ active_count }} {% trans "active" %}
+    </span>
+    <span class="badge badge--paused" style="padding: .25rem .75rem; border-radius: 12px; background: #7d5a00; color: #fff;">
+      {{ paused_count }} {% trans "paused" %}
+    </span>
+    <span class="badge badge--cancelled" style="padding: .25rem .75rem; border-radius: 12px; background: #555; color: #fff;">
+      {{ cancelled_count }} {% trans "cancelled" %}
+    </span>
+  </div>
+
+  {# ── Plans table ──────────────────────────────────────────────────────── #}
+  {% if plans %}
+  <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+    <caption class="visually-hidden">{% trans "Your recurring gift plans" %}</caption>
+    <thead>
+      <tr>
+        <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Campaign" %}</th>
+        <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Amount" %}</th>
+        <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Frequency" %}</th>
+        <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Status" %}</th>
+        <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Since" %}</th>
+        <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">
+          <span class="visually-hidden">{% trans "Actions" %}</span>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for plan in plans %}
+      <tr>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+          {% if plan.campaign %}{{ plan.campaign.get_name }}{% else %}{% trans "General fund" %}{% endif %}
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+          ${{ plan.amount|floatformat:2 }}
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+          {{ plan.get_frequency_display }}
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+          {% if plan.status == 'active' %}
+            <span class="badge badge--active" style="padding: .125rem .5rem; border-radius: 10px; background: #1a6e2e; color: #fff; font-size: .875rem;">
+              {% trans "Active" %}
+            </span>
+          {% elif plan.status == 'paused' %}
+            <span class="badge badge--paused" style="padding: .125rem .5rem; border-radius: 10px; background: #7d5a00; color: #fff; font-size: .875rem;">
+              {% trans "Paused" %}
+            </span>
+          {% else %}
+            <span class="badge badge--cancelled" style="padding: .125rem .5rem; border-radius: 10px; background: #555; color: #fff; font-size: .875rem;">
+              {% trans "Cancelled" %}
+            </span>
+          {% endif %}
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+          <time datetime="{{ plan.created_at|date:'Y-m-d' }}">{{ plan.created_at|date:"Y-m-d" }}</time>
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+          <a href="{% url 'donor_portal:recurring_detail' pk=plan.pk %}">
+            {% trans "View details" %}
+          </a>
+          {% if plan.status == 'active' or plan.status == 'paused' %}
+          &nbsp;|&nbsp;
+          <a href="{% url 'donate:recurring_cancel' plan_pk=plan.pk %}"
+             style="color: #b00;">
+            {% trans "Cancel" %}
+          </a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% else %}
+  <p class="empty-state">
+    {% trans "You have no recurring gift plans." %}
+  </p>
+  <p>
+    <a href="{% url 'donate:donation_select' %}" class="btn btn--primary">
+      {% trans "Set up a recurring gift" %}
+    </a>
+  </p>
+  {% endif %}
+
+  <p style="margin-top: 2rem;">
+    <a href="{% url 'donor_portal:dashboard' %}">&larr; {% trans "Back to My Giving History" %}</a>
+  </p>
+
+</div>
+{% endblock %}

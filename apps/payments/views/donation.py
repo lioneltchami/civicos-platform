@@ -62,6 +62,7 @@ from apps.payments.models import (
     PLAN_STATUS_CANCELLED,
     PaymentAuditEntry,
 )
+from apps.payments.views.refund import _mask_ip
 
 logger = logging.getLogger(__name__)
 
@@ -485,13 +486,22 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
             plan.cancellation_reason = "cancelled_by_donor"
             plan.save(update_fields=["status", "cancelled_at", "cancellation_reason", "updated_at"])
 
+            # Mask IP per PIPEDA before storing in audit log.
+            ip_raw = request.META.get("REMOTE_ADDR", "")
+            actor_ip = _mask_ip(ip_raw) if ip_raw else ""
+
+            # Mask gateway subscription ID — it is PII-adjacent and should
+            # not appear in full in the audit log.
+            sub_id = plan.gateway_subscription_id or ""
+            masked_sub_id = f"{sub_id[:8]}***" if len(sub_id) > 8 else "***"
+
             PaymentAuditEntry.objects.create(
                 action="recurring_plan_cancelled",
                 actor=request.user,
-                actor_ip="",   # Masked per PIPEDA; not masking here to avoid importing helper
+                actor_ip=actor_ip,
                 details={
                     "plan_pk": str(plan.pk),
-                    "gateway_subscription_id": plan.gateway_subscription_id or "",
+                    "gateway_subscription_id": masked_sub_id,
                     "gateway_cancelled": gateway_cancelled,
                     "cancelled_by": "donor",
                 },

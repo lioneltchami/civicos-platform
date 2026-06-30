@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Recurring Gift Plan" %}{% endblock %}
+{% block meta_description %}{% trans "View details and billing history for your recurring gift plan." %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 960px; margin: 0 auto; padding: 2rem 1rem;">
+
+  {# ── Plan header ──────────────────────────────────────────────────────── #}
+  <header style="margin-bottom: 1.5rem;">
+    <h1>{% trans "Recurring Gift Plan" %}</h1>
+
+    <dl class="summary-list" aria-label="{% trans 'Plan details' %}">
+      <div class="summary-row" style="display: flex; gap: 1rem; margin-bottom: .5rem;">
+        <dt style="font-weight: bold; min-width: 140px;">{% trans "Campaign" %}</dt>
+        <dd>{% if plan.campaign %}{{ plan.campaign.get_name }}{% else %}{% trans "General fund" %}{% endif %}</dd>
+      </div>
+      <div class="summary-row" style="display: flex; gap: 1rem; margin-bottom: .5rem;">
+        <dt style="font-weight: bold; min-width: 140px;">{% trans "Amount" %}</dt>
+        <dd>${{ plan.amount|floatformat:2 }} CAD</dd>
+      </div>
+      <div class="summary-row" style="display: flex; gap: 1rem; margin-bottom: .5rem;">
+        <dt style="font-weight: bold; min-width: 140px;">{% trans "Frequency" %}</dt>
+        <dd>{{ plan.get_frequency_display }}</dd>
+      </div>
+      <div class="summary-row" style="display: flex; gap: 1rem; margin-bottom: .5rem;">
+        <dt style="font-weight: bold; min-width: 140px;">{% trans "Status" %}</dt>
+        <dd>
+          {% if plan.status == 'active' %}
+            <span class="badge badge--active"
+                  style="padding: .125rem .5rem; border-radius: 10px; background: #1a6e2e; color: #fff;">
+              {% trans "Active" %}
+            </span>
+          {% elif plan.status == 'paused' %}
+            <span class="badge badge--paused"
+                  style="padding: .125rem .5rem; border-radius: 10px; background: #7d5a00; color: #fff;">
+              {% trans "Paused" %}
+            </span>
+          {% else %}
+            <span class="badge badge--cancelled"
+                  style="padding: .125rem .5rem; border-radius: 10px; background: #555; color: #fff;">
+              {% trans "Cancelled" %}
+            </span>
+          {% endif %}
+        </dd>
+      </div>
+      {% if plan.status == 'active' %}
+      <div class="summary-row" style="display: flex; gap: 1rem; margin-bottom: .5rem;">
+        <dt style="font-weight: bold; min-width: 140px;">{% trans "Next billing" %}</dt>
+        <dd><time datetime="{{ plan.next_charge_date|date:'Y-m-d' }}">{{ plan.next_charge_date }}</time></dd>
+      </div>
+      {% endif %}
+      {% if plan.status == 'cancelled' %}
+      <div class="summary-row" style="display: flex; gap: 1rem; margin-bottom: .5rem;">
+        <dt style="font-weight: bold; min-width: 140px;">{% trans "Cancelled on" %}</dt>
+        <dd>
+          {% if plan.cancelled_at %}
+            <time datetime="{{ plan.cancelled_at|date:'Y-m-d' }}">{{ plan.cancelled_at|date:"Y-m-d" }}</time>
+          {% else %}
+            {% trans "N/A" %}
+          {% endif %}
+        </dd>
+      </div>
+      {% if plan.cancellation_reason %}
+      <div class="summary-row" style="display: flex; gap: 1rem; margin-bottom: .5rem;">
+        <dt style="font-weight: bold; min-width: 140px;">{% trans "Reason" %}</dt>
+        <dd>{{ plan.cancellation_reason }}</dd>
+      </div>
+      {% endif %}
+      {% endif %}
+    </dl>
+
+    {# ── Cancel action — prominent for active/paused plans ──────────────── #}
+    {% if can_cancel %}
+    <div style="margin-top: 1.5rem; padding: 1rem; border: 1px solid #f5a623; border-radius: 4px; background: #fff8e6;">
+      <p style="margin: 0 0 .75rem;">
+        {% trans "You can cancel this recurring gift at any time. No further charges will be made after cancellation." %}
+      </p>
+      <a href="{{ cancel_url }}"
+         class="btn btn--danger"
+         style="background: #b00; color: #fff; padding: .5rem 1rem; border-radius: 3px; text-decoration: none;"
+         aria-label="{% blocktrans with campaign=plan.campaign.get_name|default:'general fund' amount=plan.amount %}Cancel recurring gift of ${{ amount }} to {{ campaign }}{% endblocktrans %}">
+        {% trans "Cancel recurring gift" %}
+      </a>
+    </div>
+    {% endif %}
+  </header>
+
+  {# ── Billing history ──────────────────────────────────────────────────── #}
+  <section aria-labelledby="billing-heading" style="margin: 2rem 0;">
+    <h2 id="billing-heading">{% trans "Billing History" %}</h2>
+
+    {% if plan_donations %}
+    <table style="width: 100%; border-collapse: collapse;">
+      <caption class="visually-hidden">{% trans "Billing history for this recurring gift plan" %}</caption>
+      <thead>
+        <tr>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Date" %}</th>
+          <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Amount" %}</th>
+          <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Eligible" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Status" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Receipt" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for donation in plan_donations %}
+        <tr>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            <time datetime="{{ donation.created_at|date:'Y-m-d' }}">{{ donation.created_at|date:"Y-m-d" }}</time>
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+            ${{ donation.amount|floatformat:2 }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+            ${{ donation.eligible_amount|floatformat:2 }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {{ donation.get_status_display }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {% with receipt=donation.receipts.all|first %}
+              {% if receipt %}
+                {% if receipt.pdf_path %}
+                  <a href="{% url 'donor_portal:receipt_download' receipt_pk=receipt.pk %}"
+                     aria-label="{% blocktrans with sn=receipt.serial_number %}Download receipt {{ sn }}{% endblocktrans %}">
+                    {% trans "Download" %}
+                  </a>
+                {% else %}
+                  <span class="badge badge--pending">{% trans "Pending" %}</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">{% trans "No receipt" %}</span>
+              {% endif %}
+            {% endwith %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if billing_history_truncated %}
+    <p role="status" style="font-size: .875rem; color: #555; margin-top: .75rem;">
+      {% trans "Showing the most recent 25 transactions. Contact the charity for a full statement." %}
+    </p>
+    {% endif %}
+
+    {% else %}
+    <p class="empty-state">{% trans "No charges have been made on this plan yet." %}</p>
+    {% endif %}
+  </section>
+
+  {# ── Tax receipts ─────────────────────────────────────────────────────── #}
+  {% if receipts %}
+  <section aria-labelledby="receipts-heading" style="margin: 2rem 0;">
+    <h2 id="receipts-heading">{% trans "Tax Receipts" %}</h2>
+    <table style="width: 100%; border-collapse: collapse;">
+      <caption class="visually-hidden">{% trans "Official donation receipts for this plan" %}</caption>
+      <thead>
+        <tr>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Receipt #" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Date" %}</th>
+          <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Eligible Amount" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Download" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for receipt in receipts %}
+        <tr>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;"><code>{{ receipt.serial_number }}</code></td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            <time datetime="{{ receipt.receipt_date|date:'Y-m-d' }}">{{ receipt.receipt_date }}</time>
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+            ${{ receipt.eligible_amount|floatformat:2 }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {% if receipt.pdf_path %}
+              <a href="{% url 'donor_portal:receipt_download' receipt_pk=receipt.pk %}"
+                 aria-label="{% blocktrans with sn=receipt.serial_number %}Download receipt {{ sn }} (PDF){% endblocktrans %}">
+                {% trans "Download PDF" %}
+              </a>
+            {% else %}
+              <span class="badge badge--pending">{% trans "Pending" %}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  <p style="margin-top: 2rem;">
+    <a href="{% url 'donor_portal:recurring_list' %}">&larr; {% trans "Back to Recurring Gifts" %}</a>
+  </p>
+
+</div>
+{% endblock %}

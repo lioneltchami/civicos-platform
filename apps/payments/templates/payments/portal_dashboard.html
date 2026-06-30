@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% load i18n humanize %}
+
+{% block title %}{% trans "My Giving History" %}{% endblock %}
+{% block meta_description %}{% trans "View your donation history, tax receipts, and recurring gifts." %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 960px; margin: 0 auto; padding: 2rem 1rem;">
+
+  <h1>{% trans "My Giving History" %}</h1>
+
+  {# ── Pending receipts notice ──────────────────────────────────────────── #}
+  {% if pending_receipt_count > 0 %}
+  <div class="message message--info"
+       role="status"
+       aria-live="polite"
+       aria-atomic="true">
+    {% blocktrans count count=pending_receipt_count %}
+      {{ count }} receipt is being prepared and will be emailed to you shortly.
+    {% plural %}
+      {{ count }} receipts are being prepared and will be emailed to you shortly.
+    {% endblocktrans %}
+  </div>
+  {% endif %}
+
+  {# ── Empty state ─────────────────────────────────────────────────────── #}
+  {% if donation_count == 0 and not active_plans %}
+  <section aria-labelledby="empty-heading" class="empty-state">
+    <h2 id="empty-heading">{% trans "You haven't made any donations yet." %}</h2>
+    <p>{% trans "Your donation helps fund important community programs." %}</p>
+    <a href="{% url 'donate:donation_select' %}" class="btn btn--primary">
+      {% trans "Make your first donation" %}
+    </a>
+  </section>
+
+  {% else %}
+
+  {# ── Hero stats ───────────────────────────────────────────────────────── #}
+  <section aria-labelledby="stats-heading" class="stats-section">
+    <h2 id="stats-heading" class="visually-hidden">{% trans "Summary" %}</h2>
+    <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin: 1.5rem 0;">
+
+      <div class="stat-card" style="padding: 1.25rem; border: 1px solid #ccc; border-radius: 4px;">
+        <p class="stat-card__label" style="margin: 0 0 .25rem; font-size: .875rem; color: #555;">
+          {% trans "Total Donated (Eligible)" %}
+        </p>
+        <p class="stat-card__value" style="margin: 0; font-size: 1.75rem; font-weight: 700;">
+          ${{ total_donated|floatformat:2|intcomma }}
+          <abbr title="{% trans 'Canadian dollars' %}">CAD</abbr>
+        </p>
+      </div>
+
+      <div class="stat-card" style="padding: 1.25rem; border: 1px solid #ccc; border-radius: 4px;">
+        <p class="stat-card__label" style="margin: 0 0 .25rem; font-size: .875rem; color: #555;">
+          {% trans "Donations Made" %}
+        </p>
+        <p class="stat-card__value" style="margin: 0; font-size: 1.75rem; font-weight: 700;">
+          {{ donation_count }}
+        </p>
+      </div>
+
+      <div class="stat-card" style="padding: 1.25rem; border: 1px solid #ccc; border-radius: 4px;">
+        <p class="stat-card__label" style="margin: 0 0 .25rem; font-size: .875rem; color: #555;">
+          {% trans "Pending Receipts" %}
+        </p>
+        <p class="stat-card__value" style="margin: 0; font-size: 1.75rem; font-weight: 700;">
+          {{ pending_receipt_count }}
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  {# ── Active recurring gifts ────────────────────────────────────────────── #}
+  {% if active_plans %}
+  <section aria-labelledby="recurring-heading" style="margin: 2rem 0;">
+    <h2 id="recurring-heading">{% trans "Active Recurring Gifts" %}</h2>
+    <table style="width: 100%; border-collapse: collapse;">
+      <caption class="visually-hidden">{% trans "Your active recurring gift plans" %}</caption>
+      <thead>
+        <tr>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Campaign" %}</th>
+          <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Amount" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Frequency" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Next Billing" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">
+            <span class="visually-hidden">{% trans "Actions" %}</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for plan in active_plans %}
+        <tr>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {% if plan.campaign %}{{ plan.campaign.get_name }}{% else %}{% trans "General fund" %}{% endif %}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+            ${{ plan.amount|floatformat:2 }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {{ plan.get_frequency_display }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {{ plan.next_charge_date }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            <a href="{% url 'donor_portal:recurring_detail' pk=plan.pk %}">
+              {% trans "View" %}
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {# ── Recent donations ──────────────────────────────────────────────────── #}
+  {% if recent_donations %}
+  <section aria-labelledby="recent-heading" style="margin: 2rem 0;">
+    <h2 id="recent-heading">{% trans "Recent Donations" %}</h2>
+    <table style="width: 100%; border-collapse: collapse;">
+      <caption class="visually-hidden">{% trans "Your five most recent donations" %}</caption>
+      <thead>
+        <tr>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Date" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Campaign" %}</th>
+          <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Amount" %}</th>
+          <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Eligible" %}</th>
+          <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Receipt" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for donation in recent_donations %}
+        <tr>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {{ donation.created_at|date:"Y-m-d" }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {% if donation.campaign %}{{ donation.campaign.get_name }}{% else %}{% trans "General fund" %}{% endif %}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+            ${{ donation.amount|floatformat:2 }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+            ${{ donation.eligible_amount|floatformat:2 }}
+          </td>
+          <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+            {% with receipt=donation.receipts.all|first %}
+              {% if receipt %}
+                {% if receipt.pdf_path %}
+                  <a href="{% url 'donor_portal:receipt_download' receipt_pk=receipt.pk %}"
+                     aria-label="{% blocktrans with sn=receipt.serial_number %}Download receipt {{ sn }}{% endblocktrans %}">
+                    {% trans "Download" %}
+                  </a>
+                {% else %}
+                  <span class="badge badge--pending">{% trans "Pending" %}</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">{% trans "No receipt" %}</span>
+              {% endif %}
+            {% endwith %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {# ── Quick links ──────────────────────────────────────────────────────── #}
+  <nav aria-label="{% trans 'Donor portal quick links' %}" style="margin: 2rem 0;">
+    <ul class="quick-links" style="list-style: none; padding: 0; display: flex; gap: 1rem; flex-wrap: wrap;">
+      <li>
+        <a href="{% url 'donor_portal:donation_history' %}" class="btn btn--secondary">
+          {% trans "View all donations" %}
+        </a>
+      </li>
+      <li>
+        <a href="{% url 'donor_portal:receipt_list' %}" class="btn btn--secondary">
+          {% trans "View all receipts" %}
+        </a>
+      </li>
+      <li>
+        <a href="{% url 'donor_portal:recurring_list' %}" class="btn btn--secondary">
+          {% trans "View recurring gifts" %}
+        </a>
+      </li>
+      <li>
+        <a href="{% url 'donate:donation_select' %}" class="btn btn--primary">
+          {% trans "Make a donation" %}
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  {% endif %}{# end empty-state else #}
+
+</div>
+{% endblock %}

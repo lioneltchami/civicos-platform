@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Donation History" %}{% endblock %}
+{% block meta_description %}{% trans "View your complete donation history and download tax receipts." %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 960px; margin: 0 auto; padding: 2rem 1rem;">
+
+  <h1>{% trans "Donation History" %}</h1>
+
+  {# ── Year filter ──────────────────────────────────────────────────────── #}
+  {% if available_years %}
+  <form method="get" action="" role="search" aria-label="{% trans 'Filter donations by year' %}" style="margin: 1rem 0;">
+    <label for="year-filter">{% trans "Filter by year:" %}</label>
+    <select id="year-filter" name="year">
+      <option value="">{% trans "All years" %}</option>
+      {% for year in available_years %}
+      <option value="{{ year }}" {% if tax_year_filter == year %}selected{% endif %}>{{ year }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn--secondary" style="margin-left: .5rem;">{% trans "Apply" %}</button>
+    {% if tax_year_filter %}
+    <a href="{% url 'donor_portal:donation_history' %}" style="margin-left: .5rem;">{% trans "Clear filter" %}</a>
+    {% endif %}
+  </form>
+  {% endif %}
+
+  {# ── Donations table ─────────────────────────────────────────────────── #}
+  {% if donations %}
+  <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+    <caption style="text-align: left; font-weight: bold; margin-bottom: .5rem;">
+      {% trans "Your donation history" %}
+      {% if tax_year_filter %}— {{ tax_year_filter }}{% endif %}
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Date" %}</th>
+        <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Campaign" %}</th>
+        <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Amount" %}</th>
+        <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Eligible Amount" %}</th>
+        <th scope="col" style="text-align: right; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Advantage Amount" %}</th>
+        <th scope="col" style="text-align: left; padding: .5rem; border-bottom: 2px solid #ccc;">{% trans "Receipt" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for donation in donations %}
+      <tr>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+          <time datetime="{{ donation.created_at|date:'Y-m-d' }}">{{ donation.created_at|date:"Y-m-d" }}</time>
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+          {% if donation.campaign %}{{ donation.campaign.get_name }}{% else %}{% trans "General fund" %}{% endif %}
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+          ${{ donation.amount|floatformat:2 }}
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+          ${{ donation.eligible_amount|floatformat:2 }}
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee; text-align: right;">
+          ${{ donation.advantage_amount|floatformat:2 }}
+        </td>
+        <td style="padding: .5rem; border-bottom: 1px solid #eee;">
+          {% with receipt=donation.receipts.all|first %}
+            {% if receipt %}
+              {% if receipt.pdf_path %}
+                <a href="{% url 'donor_portal:receipt_download' receipt_pk=receipt.pk %}"
+                   aria-label="{% blocktrans with sn=receipt.serial_number %}Download receipt {{ sn }}{% endblocktrans %}">
+                  {% trans "Download" %}
+                </a>
+              {% else %}
+                <span class="badge badge--pending">{% trans "Pending" %}</span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted">{% trans "No receipt" %}</span>
+            {% endif %}
+          {% endwith %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ── Pagination ───────────────────────────────────────────────────────── #}
+  {% if is_paginated %}
+  <nav aria-label="{% trans 'Donation history pagination' %}" style="margin-top: 1.5rem;">
+    <ul style="list-style: none; padding: 0; display: flex; gap: .5rem; flex-wrap: wrap; align-items: center;">
+
+      {% if page_obj.has_previous %}
+      <li>
+        <a href="?page={{ page_obj.previous_page_number }}{% if tax_year_filter %}&year={{ tax_year_filter }}{% endif %}"
+           aria-label="{% trans 'Previous page' %}">
+          &laquo; {% trans "Previous" %}
+        </a>
+      </li>
+      {% endif %}
+
+      {% for num in paginator.page_range %}
+        {% if page_obj.number == num %}
+        <li>
+          <span aria-current="page"
+                style="font-weight: bold; padding: .25rem .5rem; background: #005ea2; color: #fff; border-radius: 3px;">
+            {{ num }}
+          </span>
+        </li>
+        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+        <li>
+          <a href="?page={{ num }}{% if tax_year_filter %}&year={{ tax_year_filter }}{% endif %}">{{ num }}</a>
+        </li>
+        {% endif %}
+      {% endfor %}
+
+      {% if page_obj.has_next %}
+      <li>
+        <a href="?page={{ page_obj.next_page_number }}{% if tax_year_filter %}&year={{ tax_year_filter }}{% endif %}"
+           aria-label="{% trans 'Next page' %}">
+          {% trans "Next" %} &raquo;
+        </a>
+      </li>
+      {% endif %}
+
+    </ul>
+    <p style="font-size: .875rem; color: #555;">
+      {% blocktrans with start=page_obj.start_index end=page_obj.end_index total=paginator.count %}
+        Showing {{ start }}–{{ end }} of {{ total }} donations
+      {% endblocktrans %}
+    </p>
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <p class="empty-state">
+    {% if tax_year_filter %}
+      {% blocktrans with year=tax_year_filter %}No donations found for {{ year }}.{% endblocktrans %}
+    {% else %}
+      {% trans "No donations found." %}
+    {% endif %}
+  </p>
+  {% endif %}
+
+  <p style="margin-top: 2rem;">
+    <a href="{% url 'donor_portal:dashboard' %}">&larr; {% trans "Back to My Giving History" %}</a>
+  </p>
+
+</div>
+{% endblock %}
