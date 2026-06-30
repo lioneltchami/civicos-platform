@@ -29,7 +29,6 @@ from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.db.models import Model as DjangoModel
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -47,6 +46,7 @@ from apps.payments.models import (
     RecurringGiftPlan,
     CharitySettings,
 )
+from apps.payments.tests.factories import make_fixed_serial_fake_save
 from apps.payments.views.portal import _get_year_filter
 
 User = get_user_model()
@@ -161,12 +161,7 @@ def make_receipt(donation, status="issued", pdf_path=""):
     """
     serial = _next_serial()
 
-    def _fake_save(self_r, *args, **kwargs):
-        if not self_r.serial_number:
-            self_r.serial_number = serial
-        DjangoModel.save(self_r, *args, **kwargs)
-
-    with patch.object(OfficialDonationReceipt, "save", _fake_save):
+    with patch.object(OfficialDonationReceipt, "save", make_fixed_serial_fake_save(serial)):
         receipt = OfficialDonationReceipt(
             donation=donation,
             status=status,

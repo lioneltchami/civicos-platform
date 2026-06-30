@@ -822,7 +822,7 @@ class CharitySettings(TimestampedModel):
         help_text="Format: 123456789 RR 0001",
         validators=[
             RegexValidator(
-                r"^\d{9}\s+RR\s+\d{4}$",
+                r"^\d{9} RR \d{4}$",
                 "Must match CRA format: 123456789 RR 0001",
             )
         ],

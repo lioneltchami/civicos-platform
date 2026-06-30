@@ -256,7 +256,7 @@ class FeeRateLimitAtomicInitTest(TestCase):
 
             result = _check_rate_limit("user-pk-123")
 
-        self.assertTrue(result, "First call should be within rate limit")
+        self.assertFalse(result, "First call should be within rate limit (returns False = not exceeded)")
         self.assertEqual(len(call_order), 2)
         self.assertEqual(call_order[0][0], "add", "cache.add must be called first")
         self.assertEqual(call_order[1][0], "incr", "cache.incr must be called second")
@@ -273,13 +273,13 @@ class FeeRateLimitAtomicInitTest(TestCase):
             mock_cache.set.assert_not_called()
 
     def test_rate_limit_allows_up_to_5(self):
-        """Calls 1-5 should return True; call 6 should return False."""
+        """Calls 1-5 should return False (not exceeded); call 6 should return True (exceeded)."""
         user_pk = f"rl-test-{uuid.uuid4().hex[:8]}"
         for i in range(1, 6):
             result = _check_rate_limit(user_pk)
-            self.assertTrue(result, f"Call {i} should be within limit")
+            self.assertFalse(result, f"Call {i} should be within limit (returns False)")
         result = _check_rate_limit(user_pk)
-        self.assertFalse(result, "Call 6 should exceed the rate limit")
+        self.assertTrue(result, "Call 6 should exceed the rate limit (returns True)")
 
 
 class DonationRateLimitAtomicInitTest(TestCase):

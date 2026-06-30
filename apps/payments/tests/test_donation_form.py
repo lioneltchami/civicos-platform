@@ -233,3 +233,44 @@ class DonationFormTests(TestCase):
         form = self._form(amount="50.00", advantage_amount="0.00")
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["eligible_amount"], Decimal("50.00"))
+
+
+# ---------------------------------------------------------------------------
+# Nit 6 — DonationForm amount max_value cap
+# ---------------------------------------------------------------------------
+
+class DonationFormAmountCapTests(TestCase):
+    """
+    Nit 6: DonationForm.amount must reject any value above $999,999.99.
+    This prevents accidental 7-figure charges.
+    """
+
+    def setUp(self):
+        self.campaign = make_campaign(is_active=True)
+
+    def _form(self, amount, **overrides):
+        data = _valid_data(amount=amount, **overrides)
+        data["campaign"] = str(self.campaign.pk)
+        return DonationForm(data=data)
+
+    def test_amount_at_cap_is_valid(self):
+        """$999,999.99 is the maximum allowed amount."""
+        form = self._form("999999.99")
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_amount_above_cap_is_invalid(self):
+        """$1,000,000.00 exceeds the cap and must be rejected."""
+        form = self._form("1000000.00")
+        self.assertFalse(form.is_valid())
+        self.assertIn("amount", form.errors)
+
+    def test_amount_well_above_cap_is_invalid(self):
+        """Any 7-figure amount must be rejected."""
+        form = self._form("9999999.99")
+        self.assertFalse(form.is_valid())
+        self.assertIn("amount", form.errors)
+
+    def test_amount_just_below_cap_is_valid(self):
+        """$999,999.98 is below the cap and must be valid."""
+        form = self._form("999999.98")
+        self.assertTrue(form.is_valid(), form.errors)

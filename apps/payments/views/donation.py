@@ -384,8 +384,7 @@ class DonationSuccessView(TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         intent = getattr(self, "intent", None)
-        ctx["payment_intent"] = intent
-        ctx["reference"] = intent.reference if intent else ""
+        ctx["payment_reference"] = intent.reference if intent else ""
         return ctx
 
 

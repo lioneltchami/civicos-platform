@@ -34,6 +34,10 @@ _BRAND_MAP = {
     "mastercard": "mastercard",
     "amex": "amex",
     "interac": "interac",
+    "discover": "Discover",
+    "jcb": "JCB",
+    "diners": "Diners Club",
+    "unionpay": "UnionPay",
 }
 
 

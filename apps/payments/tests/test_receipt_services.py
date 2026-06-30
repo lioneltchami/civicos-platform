@@ -507,3 +507,143 @@ class ReceiptEmailTests(TestCase):
         self.assertNotIn(donor_email, log_output)
         # Serial number should be in error log
         self.assertIn(self.receipt.serial_number, log_output)
+
+
+# ---------------------------------------------------------------------------
+# Nit 5 — _get_donor_email logs WARNING with exc_type on exception
+# ---------------------------------------------------------------------------
+
+class GetDonorEmailExceptionLoggingTests(TestCase):
+    """
+    Nit 5: when the user / donation lookup raises, _get_donor_email must:
+    - return "" (not raise)
+    - emit a WARNING log containing "exc_type="
+    - NOT log any email address string
+
+    We patch the receipt's donation attribute via patch() so the Django FK
+    descriptor guard is bypassed cleanly.
+    """
+
+    def setUp(self):
+        self.user = make_user(email="donor_nit5@example.ca")
+        self.campaign = make_campaign()
+        self.intent = make_payment_intent(self.user)
+        self.donation = make_donation(self.user, self.intent)
+        self.receipt = make_receipt(self.donation)
+
+    def test_returns_empty_string_on_exception(self):
+        with patch(
+            "apps.payments.services.receipt_email._get_donor_email",
+            side_effect=RuntimeError("db gone"),
+        ):
+            pass  # _get_donor_email itself is under test; patch the FK instead
+
+        # Patch receipt.donation property access to raise
+        with patch.object(
+            self.receipt.__class__,
+            "donation",
+            new_callable=lambda: property(
+                fget=lambda self: (_ for _ in ()).throw(RuntimeError("db gone"))
+            ),
+        ):
+            result = _get_donor_email(self.receipt)
+        self.assertEqual(result, "")
+
+    def test_warning_logged_on_exception(self):
+        with patch.object(
+            self.receipt.__class__,
+            "donation",
+            new_callable=lambda: property(
+                fget=lambda self: (_ for _ in ()).throw(AttributeError("boom"))
+            ),
+        ):
+            with self.assertLogs("apps.payments.receipt_email", level="WARNING") as log_ctx:
+                _get_donor_email(self.receipt)
+        log_output = "\n".join(log_ctx.output)
+        self.assertIn("exc_type=", log_output)
+
+    def test_warning_contains_exc_type_name(self):
+        with patch.object(
+            self.receipt.__class__,
+            "donation",
+            new_callable=lambda: property(
+                fget=lambda self: (_ for _ in ()).throw(ValueError("nope"))
+            ),
+        ):
+            with self.assertLogs("apps.payments.receipt_email", level="WARNING") as log_ctx:
+                _get_donor_email(self.receipt)
+        log_output = "\n".join(log_ctx.output)
+        self.assertIn("ValueError", log_output)
+
+    def test_warning_does_not_log_email_string(self):
+        """PIPEDA: donor email must never appear in log output."""
+        donor_email = self.user.email
+        with patch.object(
+            self.receipt.__class__,
+            "donation",
+            new_callable=lambda: property(
+                fget=lambda self: (_ for _ in ()).throw(Exception(donor_email))
+            ),
+        ):
+            with self.assertLogs("apps.payments.receipt_email", level="WARNING") as log_ctx:
+                _get_donor_email(self.receipt)
+        log_output = "\n".join(log_ctx.output)
+        self.assertNotIn(donor_email, log_output)
+
+
+# ---------------------------------------------------------------------------
+# Nit 8 — CRA Business Number regex: exactly one space
+# ---------------------------------------------------------------------------
+
+class CRARegistrationNumberValidatorTests(TestCase):
+    """
+    Nit 8: the RegexValidator on charity_registration_number must accept
+    exactly one space between the 9-digit BN, "RR", and the 4-digit account
+    number. Multiple spaces must be rejected (CRA IT-110R3 format).
+    """
+
+    def _validate(self, value):
+        """
+        Run the model field's validators directly.
+        Returns the list of validation errors (empty = passes).
+        """
+        from django.core.exceptions import ValidationError
+        from apps.payments.models import CharitySettings
+        field = CharitySettings._meta.get_field("charity_registration_number")
+        errors = []
+        for v in field.validators:
+            try:
+                v(value)
+            except ValidationError as e:
+                errors.extend(e.messages)
+        return errors
+
+    def test_valid_single_space_passes(self):
+        """Standard CRA format with exactly one space must pass."""
+        errors = self._validate("123456789 RR 0001")
+        self.assertEqual(errors, [], f"Unexpected errors: {errors}")
+
+    def test_double_space_before_RR_fails(self):
+        """Two spaces before 'RR' must be rejected."""
+        errors = self._validate("123456789  RR 0001")
+        self.assertNotEqual(errors, [], "Double-space before RR should fail validation")
+
+    def test_double_space_after_RR_fails(self):
+        """Two spaces after 'RR' must be rejected."""
+        errors = self._validate("123456789 RR  0001")
+        self.assertNotEqual(errors, [], "Double-space after RR should fail validation")
+
+    def test_tab_instead_of_space_fails(self):
+        """A tab character must be rejected (only a single space is valid)."""
+        errors = self._validate("123456789\tRR\t0001")
+        self.assertNotEqual(errors, [], "Tab-separated format should fail validation")
+
+    def test_no_spaces_fails(self):
+        """Missing spaces must be rejected."""
+        errors = self._validate("123456789RR0001")
+        self.assertNotEqual(errors, [], "No-space format should fail validation")
+
+    def test_different_rr_number_passes(self):
+        """Any valid 4-digit account number must pass."""
+        errors = self._validate("987654321 RR 9999")
+        self.assertEqual(errors, [], f"Unexpected errors: {errors}")

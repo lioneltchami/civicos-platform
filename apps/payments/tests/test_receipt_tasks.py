@@ -29,6 +29,7 @@ from apps.payments.models import (
     PaymentIntent,
     DONATION_STATUS_COMPLETED,
 )
+from apps.payments.tests.factories import make_fake_save
 
 User = get_user_model()
 
@@ -364,15 +365,6 @@ class GenerateAnnualReceiptsTests(TestCase):
         # SQLite doesn't support nextval() — patch the serial_number generation
         # so OfficialDonationReceipt.save() doesn't call the PostgreSQL sequence.
         _counter = [0]
-
-        def _fake_save(receipt_instance, *args, **kwargs):
-            if not receipt_instance.serial_number:
-                _counter[0] += 1
-                receipt_instance.serial_number = f"{year}-{str(_counter[0]).zfill(6)}"
-            # Call the underlying Django model save, skipping OfficialDonationReceipt.save
-            from django.db.models import Model
-            Model.save(receipt_instance, *args, **kwargs)
-
         from apps.payments.models import OfficialDonationReceipt
 
         # captureOnCommitCallbacks(execute=True) forces on_commit hooks to run
@@ -380,7 +372,7 @@ class GenerateAnnualReceiptsTests(TestCase):
         # on_commit hooks are deferred until real commit, which never happens.
         # IMPORTANT: patch.object must wrap captureOnCommitCallbacks so that
         # when the callbacks fire (on context-manager exit), the mocks are still active.
-        with patch.object(OfficialDonationReceipt, "save", _fake_save):
+        with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=year)):
             with patch.object(generate_and_send_receipt, "delay", return_value=None) as mock_delay:
                 with self.captureOnCommitCallbacks(execute=True):
                     result = generate_annual_receipts.apply(args=[year]).get()
@@ -763,14 +755,7 @@ class AnnualReceiptDuplicateSafetyTests(TestCase):
 
         _counter = [0]
 
-        def _fake_save(receipt_instance, *args, **kwargs):
-            if not receipt_instance.serial_number:
-                _counter[0] += 1
-                receipt_instance.serial_number = f"{year}-{str(_counter[0]).zfill(6)}"
-            from django.db.models import Model
-            Model.save(receipt_instance, *args, **kwargs)
-
-        with patch.object(OfficialDonationReceipt, "save", _fake_save):
+        with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=year)):
             with patch.object(generate_and_send_receipt, "delay", return_value=None):
                 with self.captureOnCommitCallbacks(execute=True):
                     result = generate_annual_receipts.apply(args=[year]).get()

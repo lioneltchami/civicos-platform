@@ -944,3 +944,43 @@ class StripeGatewayNoGlobalApiKeyMutationTests(SimpleTestCase):
             "create_payment_intent must pass api_key= per call to stripe.PaymentIntent.create",
         )
         self.assertEqual(call_kwargs["api_key"], "sk_test_per_call")
+
+
+# ---------------------------------------------------------------------------
+# Nit 1 — _BRAND_MAP completeness tests
+# ---------------------------------------------------------------------------
+
+class BrandMapCompletenessTests(SimpleTestCase):
+    """
+    Verify that _BRAND_MAP maps all four additional Stripe card brands
+    that were added in Nit 1.  The .get(brand, "Other") fallback still
+    handles anything else — these tests confirm common cards no longer
+    fall through to "Other".
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import _BRAND_MAP
+        self._map = _BRAND_MAP
+
+    def test_discover_mapped(self):
+        self.assertEqual(self._map.get("discover"), "Discover")
+
+    def test_jcb_mapped(self):
+        self.assertEqual(self._map.get("jcb"), "JCB")
+
+    def test_diners_mapped(self):
+        self.assertEqual(self._map.get("diners"), "Diners Club")
+
+    def test_unionpay_mapped(self):
+        self.assertEqual(self._map.get("unionpay"), "UnionPay")
+
+    def test_existing_visa_still_mapped(self):
+        self.assertEqual(self._map.get("visa"), "visa")
+
+    def test_existing_mastercard_still_mapped(self):
+        self.assertEqual(self._map.get("mastercard"), "mastercard")
+
+    def test_unknown_brand_returns_none_not_other(self):
+        # _BRAND_MAP itself returns None for unknown brands via .get();
+        # the "Other" fallback lives at the call sites.
+        self.assertIsNone(self._map.get("unknown_brand"))

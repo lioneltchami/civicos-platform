@@ -59,17 +59,11 @@ TWO_PLACES = Decimal("0.01")
 
 
 def _check_rate_limit(user_pk: str) -> bool:
-    """
-    Return True if the request is within rate limit (5 POST per minute).
-
-    Uses atomic cache.incr() to prevent race-condition bypass under concurrent
-    requests (e.g. two tabs double-clicking simultaneously).
-    Returns False when the limit is exceeded (caller should return 429).
-    """
+    """Returns True if rate limit is exceeded."""
     key = f"payments:create_intent:rl:{user_pk}"
     cache.add(key, 0, timeout=60)   # initialises to 0 only if key absent (atomic)
     count = cache.incr(key)          # atomically increment and return new value
-    return count <= 5
+    return count > 5
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +153,7 @@ def create_payment_intent_api(request):
         return JsonResponse({"error": "Authentication required."}, status=401)
 
     # Rate-limit: 5 POST per minute per user to prevent double-click and abuse.
-    if not _check_rate_limit(str(request.user.pk)):
+    if _check_rate_limit(str(request.user.pk)):
         return JsonResponse(
             {"error": "Too many requests. Please wait a moment."},
             status=429,

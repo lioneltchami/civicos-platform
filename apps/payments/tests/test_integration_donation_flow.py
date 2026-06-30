@@ -39,6 +39,7 @@ from apps.payments.models import (
     GATEWAY_STRIPE,
 )
 from apps.payments.tasks import process_stripe_webhook
+from apps.payments.tests.factories import make_fake_save
 
 User = get_user_model()
 
@@ -124,19 +125,7 @@ def _succeeded_event_data(gateway_intent_id, gateway_charge_id="ch_test_integrat
 
 
 _serial_counter = [0]
-
-
-def _fake_save(receipt_instance, *args, **kwargs):
-    """
-    Bypass the PostgreSQL nextval() sequence inside OfficialDonationReceipt.save().
-    Assigns a deterministic serial_number if not already set, then calls
-    the real Model.save() to persist to SQLite (used in tests).
-    """
-    if not receipt_instance.serial_number:
-        _serial_counter[0] += 1
-        receipt_instance.serial_number = f"2026-{str(_serial_counter[0]).zfill(6)}"
-    from django.db.models import Model
-    Model.save(receipt_instance, *args, **kwargs)
+_fake_save = make_fake_save(_serial_counter, year=2026)
 
 
 # ---------------------------------------------------------------------------

@@ -93,5 +93,12 @@ def _get_donor_email(receipt) -> str:
         # donation.donor is a FK to AUTH_USER_MODEL which has an email field
         donor = donation.donor
         return donor.email or ""
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "payments.receipt_email.donor_email_lookup_failed "
+            "receipt_pk=%s exc_type=%s",
+            receipt.pk,
+            type(exc).__name__,
+            # NOTE: do NOT log exc message or str(exc) — may contain PII
+        )
         return ""

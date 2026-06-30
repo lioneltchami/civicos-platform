@@ -205,12 +205,14 @@ class DonationForm(forms.Form):
     amount = forms.DecimalField(
         label=_("Donation Amount (CAD)"),
         min_value=Decimal("1.00"),
+        max_value=Decimal("999999.99"),  # $1M cap — prevents accidental 7-figure charges
         max_digits=10,
         decimal_places=2,
         widget=forms.NumberInput(attrs={
             "class": "form-control",
             "step": "0.01",
             "min": "1.00",
+            "max": "999999.99",
             "placeholder": "0.00",
         }),
     )
