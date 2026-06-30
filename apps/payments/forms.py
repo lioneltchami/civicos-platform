@@ -10,7 +10,7 @@ Design decisions:
 - Tax is only applied when FeeSchedule.is_taxable is True.
 """
 import logging
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 
 from django import forms
 from django.db.models import Sum
@@ -169,9 +169,11 @@ class RefundForm(forms.Form):
             max_refundable = payment.amount_paid - already
             self.fields["amount"].max_value = max_refundable
             self.fields["amount"].widget.attrs["max"] = str(max_refundable)
+            max_display = max_refundable.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            paid_display = payment.amount_paid.quantize(Decimal("0.01"))
             self.fields["amount"].help_text = _(
-                f"Maximum refundable: ${max_refundable}. "
-                f"Original amount paid: ${payment.amount_paid}."
+                f"Maximum refundable: ${max_display}. "
+                f"Original amount paid: ${paid_display}."
             )
 
     def clean_amount(self):

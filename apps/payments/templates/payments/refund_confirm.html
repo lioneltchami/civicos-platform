@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Confirm Refund" %}{% endblock %}
+
+{% block content %}
+<div class="container py-5" style="max-width: 560px;">
+  <h1 class="h2 mb-4">{% trans "Confirm Refund" %}</h1>
+
+  <div class="alert alert-warning" role="alert">
+    <strong>{% trans "Please review carefully." %}</strong>
+    {% trans "Refunds are irreversible once confirmed." %}
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-5">{% trans "Payment Reference" %}</dt>
+        <dd class="col-sm-7"><code>{{ payment.intent.reference }}</code></dd>
+        <dt class="col-sm-5">{% trans "Original Amount" %}</dt>
+        <dd class="col-sm-7">${{ payment.amount_paid }}</dd>
+        <dt class="col-sm-5">{% trans "Refund Amount" %}</dt>
+        <dd class="col-sm-7 fw-bold text-danger">${{ refund_amount }}</dd>
+        <dt class="col-sm-5">{% trans "Reason" %}</dt>
+        <dd class="col-sm-7">{{ reason }}</dd>
+        {% if notes %}
+        <dt class="col-sm-5">{% trans "Notes" %}</dt>
+        <dd class="col-sm-7">{{ notes }}</dd>
+        {% endif %}
+      </dl>
+    </div>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-danger">
+        {% trans "Confirm Refund" %}
+      </button>
+      <a href="{% url 'payments:refund_create' payment_pk=payment.pk %}"
+         class="btn btn-outline-secondary">
+        {% trans "Go Back" %}
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}

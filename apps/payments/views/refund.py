@@ -1,7 +1,7 @@
 """
 Refund views for the GovStack Payments BB.
 
-Access: staff users only (is_staff=True). Citizens cannot initiate refunds.
+Access: staff users only (is_active=True AND is_staff=True). Citizens cannot initiate refunds.
 All refund actions are audit-logged. Partial refunds are supported.
 
 Security:
@@ -9,6 +9,8 @@ Security:
 - Gateway charge ID never exposed in logs (PCI DSS)
 - No PII in log statements
 - StaffRequiredMixin on ALL views: citizens must never reach these views
+- Two-step confirmation flow prevents accidental refunds
+- TOCTOU race serialized under select_for_update() lock on Payment row
 """
 import logging
 import uuid
@@ -28,36 +30,21 @@ from apps.payments.models import Payment, PaymentAuditEntry, Refund
 
 logger = logging.getLogger(__name__)
 
-
-class StaffRequiredMixin(UserPassesTestMixin):
-    """Restrict view to staff users (is_staff=True)."""
-
-    def test_func(self):
-        return self.request.user.is_authenticated and self.request.user.is_staff
+# Session key for storing validated refund data between form and confirmation
+REFUND_SESSION_KEY = "payments_pending_refund"
 
 
-def _already_refunded(payment):
+# ---------------------------------------------------------------------------
+# Shared helpers (module-level — used by both Create and Confirm views)
+# ---------------------------------------------------------------------------
+
+def _mask_ip(ip: str) -> str:
     """
-    Sum of all refunds on this payment.
-
-    Because Refund has no status field (it is created only after the gateway
-    confirms success), every Refund row counts toward the refunded total.
-    """
-    result = (
-        Refund.objects.filter(payment=payment).aggregate(total=Sum("amount"))["total"]
-        or Decimal("0.00")
-    )
-    return result
-
-
-def _mask_ip(request):
-    """
-    Return a masked IP for PIPEDA compliance.
+    Mask IP address for PIPEDA compliance.
     IPv4: zero the last octet.  IPv6: zero the last 80 bits.
     """
     import ipaddress
 
-    ip = request.META.get("REMOTE_ADDR", "")
     if not ip:
         return ""
     try:
@@ -73,20 +60,51 @@ def _mask_ip(request):
         return ""
 
 
+def _compute_already_refunded(payment) -> Decimal:
+    """Sum all refunds on this payment."""
+    return (
+        Refund.objects.filter(payment=payment)
+        .aggregate(total=Sum("amount"))["total"]
+        or Decimal("0.00")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Mixins
+# ---------------------------------------------------------------------------
+
+class StaffRequiredMixin(UserPassesTestMixin):
+    """Restrict view to active staff users only."""
+
+    def test_func(self):
+        u = self.request.user
+        return bool(u and u.is_authenticated and u.is_active and u.is_staff)
+
+
+# ---------------------------------------------------------------------------
+# RefundCreateView — FIX 1, 2, 3, 4, 7
+# ---------------------------------------------------------------------------
+
 class RefundCreateView(LoginRequiredMixin, StaffRequiredMixin, FormView):
     """
     Initiate a partial or full refund on a completed payment.
 
     Staff-only.  Logs the initiating staff member's PK (never email or PII).
-    Refund is created only after the gateway confirms success.  The Refund row
-    and audit entry are written atomically.
+    Validates the refund amount, then stores data in session and redirects
+    to RefundConfirmView for the two-step confirmation flow.
     """
 
     template_name = "payments/refund_create.html"
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
-        self.payment = get_object_or_404(Payment, pk=kwargs["payment_pk"])
+        # FIX 3: Guard — only load completed payments; 404 for anything else
+        from apps.payments.models import PaymentIntent
+        self.payment = get_object_or_404(
+            Payment.objects.select_related("intent"),
+            pk=kwargs["payment_pk"],
+            intent__status=PaymentIntent.STATUS_COMPLETED,
+        )
 
     def get_form_class(self):
         from apps.payments.forms import RefundForm
@@ -100,109 +118,205 @@ class RefundCreateView(LoginRequiredMixin, StaffRequiredMixin, FormView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["payment"] = self.payment
-        already = _already_refunded(self.payment)
-        ctx["already_refunded"] = already
-        ctx["max_refundable"] = self.payment.amount_paid - already
+        already_refunded = _compute_already_refunded(self.payment)
+        ctx["already_refunded"] = already_refunded
+        max_refundable = self.payment.amount_paid - already_refunded
+        ctx["max_refundable"] = max_refundable
+        # FIX 3: flag for template to suppress form when fully refunded
+        ctx["fully_refunded"] = max_refundable <= Decimal("0.00")
         return ctx
 
     def form_valid(self, form):
-        refund_amount = form.cleaned_data["amount"]
-        reason = form.cleaned_data["reason"]
-        notes = form.cleaned_data.get("notes", "")
+        # FIX 4: Store validated data in session; redirect to confirmation page
+        cd = form.cleaned_data
+        self.request.session[REFUND_SESSION_KEY] = {
+            "payment_pk": str(self.payment.pk),
+            "amount": str(cd["amount"]),
+            "reason": cd["reason"],
+            "notes": cd.get("notes", ""),
+        }
+        return redirect("payments:refund_confirm", payment_pk=self.payment.pk)
 
-        # Final server-side validation (client max= attribute is UX only)
-        already = _already_refunded(self.payment)
-        max_refundable = self.payment.amount_paid - already
-        if refund_amount > max_refundable:
-            form.add_error(
-                "amount",
-                f"Refund amount exceeds maximum refundable (${max_refundable}).",
-            )
-            return self.form_invalid(form)
 
+# ---------------------------------------------------------------------------
+# RefundConfirmView — FIX 1, 4
+# ---------------------------------------------------------------------------
+
+class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
+    """
+    Confirmation step before issuing a refund.
+    GET: show confirmation details.
+    POST: execute the refund (TOCTOU-safe, under select_for_update lock).
+    """
+
+    template_name = "payments/refund_confirm.html"
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        self.payment = get_object_or_404(
+            Payment.objects.select_related("intent"),
+            pk=kwargs["payment_pk"],
+        )
+
+    def _get_session_data(self):
+        data = self.request.session.get(REFUND_SESSION_KEY)
+        if not data:
+            return None
+        # Validate the session data belongs to this payment
+        if data.get("payment_pk") != str(self.payment.pk):
+            return None
+        return data
+
+    def get(self, request, *args, **kwargs):
+        if not self._get_session_data():
+            return redirect("payments:refund_create", payment_pk=self.payment.pk)
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        session_data = self._get_session_data() or {}
+        ctx["payment"] = self.payment
+        ctx["refund_amount"] = Decimal(session_data.get("amount", "0"))
+        ctx["reason"] = session_data.get("reason", "")
+        ctx["notes"] = session_data.get("notes", "")
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        """Execute the refund after confirmation — serialized under DB lock."""
+        from django.db import transaction as db_transaction
+        from apps.payments.models import PaymentIntent
+
+        session_data = self._get_session_data()
+        if not session_data:
+            messages.error(request, "Session expired. Please start over.")
+            return redirect("payments:refund_create", payment_pk=self.payment.pk)
+
+        refund_amount = Decimal(session_data["amount"])
+        reason = session_data["reason"]
+        notes = session_data.get("notes", "")
         idempotency_key = str(uuid.uuid4())
 
-        try:
-            gateway = get_gateway()
-            gateway_result = gateway.create_refund(
-                gateway_charge_id=self.payment.gateway_charge_id,
-                amount=refund_amount,
-                reason=reason,
-                idempotency_key=idempotency_key,
+        with db_transaction.atomic():
+            # FIX 1: Lock the Payment row — serializes concurrent refund attempts
+            payment = (
+                Payment.objects.select_for_update()
+                .select_related("intent")
+                .get(pk=self.payment.pk)
             )
-        except GatewayError as exc:
-            # Log gateway_code (not gateway_charge_id — PCI DSS)
-            logger.error(
-                "payments.refund.gateway_error type=%s gateway_code=%s payment_pk=%s",
-                type(exc).__name__,
-                exc.gateway_code,
-                str(self.payment.pk),
-            )
-            messages.error(
-                self.request,
-                "Refund could not be processed. Please try again or contact support.",
-            )
-            return self.form_invalid(form)
 
-        # Create Refund row and audit entry atomically
-        with transaction.atomic():
-            refund = Refund.objects.create(
-                payment=self.payment,
-                amount=refund_amount,
-                reason=reason,
-                notes=notes,
-                gateway_refund_id=gateway_result["gateway_refund_id"],
-                # authorized_by is the required FK on the Refund model (not initiated_by)
-                authorized_by=self.request.user,
-                # refunded_at is required by the model; set to now
-                refunded_at=timezone.now(),
-            )
+            # Guard: only completed payments can be refunded (re-check under lock)
+            if payment.intent.status != PaymentIntent.STATUS_COMPLETED:
+                messages.error(request, "Only completed payments can be refunded.")
+                request.session.pop(REFUND_SESSION_KEY, None)
+                return redirect("payments:refund_create", payment_pk=payment.pk)
+
+            # FIX 1: Re-compute under lock — prevents TOCTOU race condition
+            already_refunded = _compute_already_refunded(payment)
+            max_refundable = payment.amount_paid - already_refunded
+            if refund_amount > max_refundable:
+                messages.error(
+                    request,
+                    f"Refund amount ${refund_amount} now exceeds maximum refundable "
+                    f"${max_refundable} (another refund may have been issued). "
+                    "Please start over.",
+                )
+                request.session.pop(REFUND_SESSION_KEY, None)
+                return redirect("payments:refund_create", payment_pk=payment.pk)
+
+            # Gateway call inside the atomic block.
+            # If the DB write below fails, log the gateway_refund_id for manual reconciliation.
+            try:
+                gateway = get_gateway()
+                gateway_result = gateway.create_refund(
+                    gateway_charge_id=payment.gateway_charge_id,
+                    amount=refund_amount,
+                    reason=reason,
+                    idempotency_key=idempotency_key,
+                )
+            except GatewayError as exc:
+                logger.error(
+                    "payments.refund.gateway_error type=%s gateway_code=%s payment_pk=%s",
+                    type(exc).__name__,
+                    exc.gateway_code,
+                    str(payment.pk),
+                )
+                messages.error(request, "Refund could not be processed. Please try again.")
+                return redirect("payments:refund_confirm", payment_pk=payment.pk)
+
+            # DB write — if this fails, log the gateway_refund_id for reconciliation
+            try:
+                refund = Refund.objects.create(
+                    payment=payment,
+                    amount=refund_amount,
+                    reason=reason,
+                    notes=notes,
+                    gateway_refund_id=gateway_result["gateway_refund_id"],
+                    authorized_by=request.user,
+                    refunded_at=timezone.now(),
+                )
+            except Exception as db_exc:
+                # CRITICAL: Stripe refund issued but DB write failed.
+                # Log the gateway_refund_id for manual reconciliation.
+                logger.critical(
+                    "payments.refund.db_write_failed RECONCILIATION_REQUIRED "
+                    "gateway_refund_id=%s payment_pk=%s type=%s",
+                    gateway_result["gateway_refund_id"],
+                    str(payment.pk),
+                    type(db_exc).__name__,
+                )
+                raise  # Re-raise so the transaction rolls back and the 500 page shows
 
             PaymentAuditEntry.objects.create(
-                # payment_intent FK (nullable) — wire through payment.intent
-                payment_intent=self.payment.intent,
-                # payment FK (nullable) — link to the Payment record directly
-                payment=self.payment,
-                # refund FK (nullable) — link to the new Refund row
+                payment_intent=payment.intent,
+                payment=payment,
                 refund=refund,
-                # "refund_requested" is the valid ACTION_CHOICES value for this stage
                 action="refund_requested",
-                actor=self.request.user,
-                actor_ip=_mask_ip(self.request),
-                # PaymentAuditEntry has no actor_email field — omitted (PIPEDA)
+                actor=request.user,
+                actor_ip=_mask_ip(request.META.get("REMOTE_ADDR", "")),
                 details={
                     "refund_pk": str(refund.pk),
                     "amount": str(refund_amount),
                     "reason": reason,
-                    "payment_pk": str(self.payment.pk),
-                    "staff_pk": str(self.request.user.pk),
+                    "gateway_refund_id": gateway_result["gateway_refund_id"],
+                    "payment_pk": str(payment.pk),
+                    "staff_pk": str(request.user.pk),
                 },
             )
 
+        # Clear session after successful refund
+        request.session.pop(REFUND_SESSION_KEY, None)
+
         logger.info(
-            "payments.refund.initiated refund_pk=%s payment_pk=%s staff_pk=%s",
+            "payments.refund.confirmed refund_pk=%s payment_pk=%s staff_pk=%s",
             str(refund.pk),
-            str(self.payment.pk),
-            str(self.request.user.pk),
+            str(payment.pk),
+            str(request.user.pk),
         )
 
-        messages.success(
-            self.request,
-            f"Refund of ${refund_amount} initiated successfully.",
-        )
+        messages.success(request, f"Refund of ${refund_amount} issued successfully.")
         return redirect("payments:refund_detail", refund_pk=refund.pk)
 
+
+# ---------------------------------------------------------------------------
+# RefundDetailView — FIX 6
+# ---------------------------------------------------------------------------
 
 class RefundDetailView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
     """Show refund details. Staff-only."""
 
     template_name = "payments/refund_detail.html"
 
-    def get(self, request, *args, **kwargs):
-        self.refund = get_object_or_404(Refund, pk=kwargs["refund_pk"])
-        return super().get(request, *args, **kwargs)
+    def setup(self, request, *args, **kwargs):
+        # FIX 6: Load refund in setup() so it is available to any method,
+        # not just get() — prevents AttributeError if middleware or mixins
+        # call get_context_data() before get().
+        super().setup(request, *args, **kwargs)
+        self.refund = get_object_or_404(
+            Refund.objects.select_related("payment", "payment__intent"),
+            pk=kwargs["refund_pk"],
+        )
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["refund"] = getattr(self, "refund", None)
+        ctx["refund"] = self.refund
         return ctx

@@ -20,6 +20,12 @@
   </div>
   {% endif %}
 
+  {% if fully_refunded %}
+  <div class="alert alert-warning" role="alert">
+    {% trans "This payment has been fully refunded. No further refunds are possible." %}
+  </div>
+  {% else %}
+
   {% if form.non_field_errors %}
   <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
   {% endif %}
@@ -43,12 +49,14 @@
 
     <div class="d-flex gap-2 mt-4">
       <button type="submit" class="btn btn-warning">
-        {% trans "Issue Refund" %}
+        {% trans "Review Refund" %}
       </button>
       <a href="{% url 'admin:payments_payment_change' payment.pk %}" class="btn btn-outline-secondary">
         {% trans "Cancel" %}
       </a>
     </div>
   </form>
+
+  {% endif %}
 </div>
 {% endblock %}

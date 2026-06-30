@@ -222,6 +222,21 @@ class StripeGateway(PaymentGateway):
         reason: str,
         idempotency_key: str,
     ) -> dict:
+        """
+        Issue a refund on a previously captured charge.
+
+        ``reason`` must be one of the Refund.REASON_CHOICES values:
+        - "duplicate"              → Stripe "duplicate"
+        - "fraudulent"             → Stripe "fraudulent"
+        - "requested_by_customer"  → Stripe "requested_by_customer"
+        - "service_not_rendered"   → Stripe "requested_by_customer"
+          (Stripe does not have a "service_not_rendered" reason; we map it to
+          "requested_by_customer" at the gateway level. The original reason is
+          stored verbatim in our Refund row for internal audit purposes.)
+
+        Returns a dict with keys: gateway_refund_id, status, amount.
+        Raises GatewayError subclasses on Stripe API failures.
+        """
         stripe = self._stripe()
         # Map our reason choices to Stripe's accepted values
         stripe_reasons = {

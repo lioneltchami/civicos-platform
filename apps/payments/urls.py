@@ -14,7 +14,7 @@ from apps.payments.views.fee_payment import (
     FeePaymentCancelView,
     create_payment_intent_api,
 )
-from apps.payments.views.refund import RefundCreateView, RefundDetailView
+from apps.payments.views.refund import RefundCreateView, RefundConfirmView, RefundDetailView
 
 app_name = "payments"
 
@@ -63,6 +63,11 @@ urlpatterns = [
         "refunds/<uuid:payment_pk>/create/",
         RefundCreateView.as_view(),
         name="refund_create",
+    ),
+    path(
+        "refunds/<uuid:payment_pk>/confirm/",
+        RefundConfirmView.as_view(),
+        name="refund_confirm",
     ),
     path(
         "refunds/<uuid:refund_pk>/",
