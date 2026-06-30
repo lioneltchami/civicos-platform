@@ -56,13 +56,3 @@ app.conf.task_routes = {
     # it immediately delegates to generate_annual_receipts (receipts queue) via .delay().
 }
 
-
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-@app.task(bind=True, ignore_result=True)
-def debug_task(self):
-    """Diagnostic task — logs worker request info."""
-    logger.info("Debug task request: %r", self.request)

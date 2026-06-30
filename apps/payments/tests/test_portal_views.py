@@ -1065,3 +1065,28 @@ class GetYearFilterTests(TestCase):
     # Test 89
     def test_none_returns_none(self):
         self.assertIsNone(_get_year_filter(None))
+
+    # Test 90 — L6 fix: _get_year_filter must use localtime, not UTC year
+    def test_year_filter_uses_localtime_not_utc(self):
+        """
+        L6: _get_year_filter must use localtime(timezone.now()).year.
+        A BC donor at 21:00 PST on Dec 31 (= 05:00 UTC Jan 1) would have
+        their gift excluded from current-year results if the raw UTC year
+        is used instead.
+        """
+        import inspect
+        from apps.payments.views import portal
+        source = inspect.getsource(portal._get_year_filter)
+        # Must call localtime()
+        self.assertIn(
+            "localtime",
+            source,
+            "_get_year_filter must call localtime() to use the server's configured "
+            "local timezone, not raw UTC year.",
+        )
+        # The current_year assignment must wrap now() in localtime
+        self.assertIn(
+            "localtime(timezone.now()).year",
+            source,
+            "_get_year_filter must assign current_year = localtime(timezone.now()).year",
+        )

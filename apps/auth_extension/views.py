@@ -14,6 +14,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
+from two_factor.views.mixins import OTPRequiredMixin
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
@@ -78,7 +79,7 @@ def _get_client_ip(request: HttpRequest) -> str | None:
     return request.META.get("REMOTE_ADDR") or None
 
 
-class AccountDashboardView(LoginRequiredMixin, TemplateView):
+class AccountDashboardView(OTPRequiredMixin, TemplateView):
     """
     Citizen account home page.
     Shows profile summary, quick links to requests and settings.
@@ -107,7 +108,7 @@ class AccountDashboardView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class ProfileUpdateView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
+class ProfileUpdateView(OTPRequiredMixin, SuccessMessageMixin, UpdateView):
     """
     Allows a citizen to update their display name, phone number,
     and preferred language.
@@ -167,7 +168,7 @@ class ChangeLanguageView(LoginRequiredMixin, View):
         return response
 
 
-class MFAStatusView(LoginRequiredMixin, TemplateView):
+class MFAStatusView(OTPRequiredMixin, TemplateView):
     """
     Shows the citizen's current MFA configuration:
     - Whether TOTP is enabled
@@ -203,7 +204,7 @@ class MFAStatusView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class GenerateBackupCodesView(LoginRequiredMixin, View):
+class GenerateBackupCodesView(OTPRequiredMixin, View):
     """
     POST-only: regenerate 8 backup codes, invalidating all previous ones.
     Codes are stored in the session for one-time display only.

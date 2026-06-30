@@ -71,6 +71,8 @@ text-unidecode==1.3
 # Indirect dependencies (pinned for reproducibility)
 asgiref==3.8.1
 sqlparse==0.5.2
-cryptography==43.0.3
+# cryptography>=44.0.0 — fixes CVE-2024-26130 (PKCS12 null deref) and
+# CVE-2024-12797 (RSA key timing). Lower bound was 43.0.3.
+cryptography>=44.0.0,<46
 cffi==1.17.1
 pycparser==2.22

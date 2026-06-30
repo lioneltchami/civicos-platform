@@ -107,7 +107,11 @@ class User(AbstractUser):
         ordering = ["email"]
 
     def __str__(self) -> str:
-        return self.email
+        # PIPEDA: never return email in __str__ — may appear in application logs.
+        # Return display name if set, otherwise a PK-based placeholder.
+        if self.first_name or self.last_name:
+            return f"{self.first_name} {self.last_name}".strip()
+        return f"User #{self.pk}"
 
     def get_full_name(self) -> str:
         full_name = f"{self.first_name} {self.last_name}".strip()

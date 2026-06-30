@@ -1,7 +1,13 @@
 """
 test_models.py
 
-Regression tests for three medium-priority bug fixes:
+Regression tests for three medium-priority bug fixes and two low-priority fixes:
+
+L1: PaymentAuditEntry.save() now passes force_insert=True to avoid a spurious
+    SELECT EXISTS round-trip on every audit write (UUID PK is set before save).
+
+L4: User.__str__ no longer returns self.email (PIPEDA — email must not appear
+    in application logs via str(user)).
 
 M-B: cancel() and mark_superseded() on OfficialDonationReceipt now pass
      updated_at=timezone.now() to QuerySet.update(), preventing stale audit
@@ -10,6 +16,7 @@ M-B: cancel() and mark_superseded() on OfficialDonationReceipt now pass
 M-C: Payment model now has DB-level CheckConstraints preventing negative
      financial values and processor_fee > amount_paid.
 """
+import inspect
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -24,6 +31,7 @@ from apps.payments.models import (
     Donation,
     OfficialDonationReceipt,
     Payment,
+    PaymentAuditEntry,
     PaymentIntent,
 )
 
@@ -328,3 +336,95 @@ class PaymentFinancialConstraintsTests(TestCase):
             )
         )
         self.assertEqual(payment.net_amount, Decimal("0.00"))
+
+
+# ---------------------------------------------------------------------------
+# L1: PaymentAuditEntry.save() — force_insert avoids spurious SELECT EXISTS
+# ---------------------------------------------------------------------------
+
+class PaymentAuditEntryForceInsertTests(TestCase):
+    """
+    L1 fix: PaymentAuditEntry.save() must always pass force_insert=True.
+
+    Django issues a SELECT EXISTS before every save() when the pk is already
+    set (common with UUID primary keys) to decide between INSERT and UPDATE.
+    Since PaymentAuditEntry is append-only, this round-trip is wasted.
+    force_insert=True skips it.
+    """
+
+    def test_save_method_contains_force_insert(self):
+        """Source of PaymentAuditEntry.save() must contain force_insert."""
+        source = inspect.getsource(PaymentAuditEntry.save)
+        self.assertIn(
+            "force_insert",
+            source,
+            "PaymentAuditEntry.save() must pass force_insert=True to skip "
+            "spurious SELECT EXISTS on UUID pk.",
+        )
+
+    def test_audit_entry_create_succeeds(self):
+        """Creating a PaymentAuditEntry via objects.create() must succeed."""
+        user = User.objects.create_user(email="audit_l1@example.com", password="pw")
+        entry = PaymentAuditEntry.objects.create(
+            actor=user,
+            action="intent_created",
+        )
+        self.assertIsNotNone(entry.pk)
+
+    def test_audit_entry_update_raises(self):
+        """Attempting to save an existing PaymentAuditEntry must raise ValueError."""
+        user = User.objects.create_user(email="audit_l1b@example.com", password="pw")
+        entry = PaymentAuditEntry.objects.create(
+            actor=user,
+            action="intent_created",
+        )
+        entry.action = "payment_completed"
+        with self.assertRaises(ValueError):
+            entry.save()
+
+
+# ---------------------------------------------------------------------------
+# L4: User.__str__ — must not return email (PIPEDA)
+# ---------------------------------------------------------------------------
+
+class UserStrPIITests(TestCase):
+    """
+    L4 fix: User.__str__ must not return email address.
+
+    self.email in __str__ causes email addresses to leak into application
+    logs whenever a User object is coerced to string (e.g. in log formatters,
+    Django admin repr, or Celery task args repr). PIPEDA prohibits this.
+    """
+
+    def test_user_str_never_returns_email(self):
+        """str(user) must not contain the user's email address."""
+        user = User.objects.create_user(
+            email="pipeda_test@example.com", password="pw"
+        )
+        self.assertNotIn(
+            "pipeda_test@example.com",
+            str(user),
+            "User.__str__ must not return email — PIPEDA violation.",
+        )
+
+    def test_user_str_with_name_returns_name(self):
+        """str(user) returns the full name when first/last name are set."""
+        user = User.objects.create_user(
+            email="named_user@example.com",
+            password="pw",
+            first_name="Jane",
+            last_name="Citizen",
+        )
+        self.assertEqual(str(user), "Jane Citizen")
+
+    def test_user_str_without_name_returns_pk_placeholder(self):
+        """str(user) returns 'User #<pk>' when no name is set."""
+        user = User.objects.create_user(
+            email="noname@example.com", password="pw"
+        )
+        result = str(user)
+        self.assertIn(str(user.pk), result)
+        self.assertTrue(
+            result.startswith("User #"),
+            f"Expected 'User #<pk>', got: {result!r}",
+        )

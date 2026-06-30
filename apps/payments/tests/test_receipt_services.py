@@ -474,14 +474,18 @@ class ReceiptEmailTests(TestCase):
         result = send_receipt_email(receipt, self.pdf_bytes)
         self.assertFalse(result)
 
-    # 21. send_receipt_email returns False (not raise) when SMTP fails
-    def test_returns_false_on_smtp_failure(self):
+    # 21. send_receipt_email raises on SMTP failure (L5 fix)
+    # Previously this swallowed exceptions and returned False — silent failures
+    # meant donors never received their receipt and no retry was triggered.
+    # Now it re-raises so Celery can retry the task.
+    def test_raises_on_smtp_failure(self):
+        """L5: SMTP failures must raise, not be swallowed, so Celery can retry."""
         with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmail:
             mock_email_instance = MagicMock()
             mock_email_instance.send.side_effect = Exception("SMTP connection refused")
             MockEmail.return_value = mock_email_instance
-            result = send_receipt_email(self.receipt, self.pdf_bytes)
-        self.assertFalse(result)
+            with self.assertRaises(Exception):
+                send_receipt_email(self.receipt, self.pdf_bytes)
 
     # 22. No PII in any log output during email send
     def test_no_pii_in_logs(self):
@@ -509,7 +513,7 @@ class ReceiptEmailTests(TestCase):
         result = _get_donor_email(self.receipt)
         self.assertEqual(result, "donor@example.ca")
 
-    # 25. send_receipt_email error-logs only serial_number, not PII
+    # 25. send_receipt_email error-logs only serial_number, not PII (L5 fix)
     def test_error_log_no_pii_on_failure(self):
         donor_email = self.user.email
         with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmail:
@@ -517,7 +521,8 @@ class ReceiptEmailTests(TestCase):
             mock_email_instance.send.side_effect = Exception("Network error")
             MockEmail.return_value = mock_email_instance
             with self.assertLogs("apps.payments.receipt_email", level="ERROR") as log_ctx:
-                send_receipt_email(self.receipt, self.pdf_bytes)
+                with self.assertRaises(Exception):
+                    send_receipt_email(self.receipt, self.pdf_bytes)
         log_output = "\n".join(log_ctx.output)
         self.assertNotIn(donor_email, log_output)
         # Serial number should be in error log

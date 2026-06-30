@@ -220,3 +220,31 @@ class PaymentsAppConfigMetaTest(SimpleTestCase):
         from django.apps import apps
         config = apps.get_app_config("payments")
         self.assertEqual(config.verbose_name, "Payments")
+
+
+# ---------------------------------------------------------------------------
+# L2: debug_task must not exist in config.celery (production safety)
+# ---------------------------------------------------------------------------
+
+class CeleryDebugTaskRemovedTest(SimpleTestCase):
+    """
+    L2 fix: debug_task was removed from config/celery.py.
+
+    debug_task is Django-Celery boilerplate that prints worker request
+    internals (including task headers that may contain metadata).
+    It must not be present in the production Celery module.
+    """
+
+    def test_debug_task_not_in_celery_module(self):
+        """config.celery must not define debug_task."""
+        import config.celery as celery_module
+        self.assertFalse(
+            hasattr(celery_module, "debug_task"),
+            "debug_task must be removed from config/celery.py — "
+            "it leaks worker internals and is not safe for production.",
+        )
+
+    def test_celery_app_exists(self):
+        """config.celery.app must still exist after debug_task removal."""
+        import config.celery as celery_module
+        self.assertTrue(hasattr(celery_module, "app"))

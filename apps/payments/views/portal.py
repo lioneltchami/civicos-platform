@@ -31,6 +31,7 @@ from django.db.models import Count, Sum
 from django.http import FileResponse, Http404, HttpResponse
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.timezone import localtime
 from django.views import View
 from django.views.generic import DetailView, ListView, TemplateView
 
@@ -62,7 +63,10 @@ def _get_year_filter(raw_value: str | None) -> int | None:
     if not (raw.isdigit() and len(raw) == 4):
         return None
     year = int(raw)
-    current_year = timezone.now().year
+    # Use localtime so a donor in PT/MT/AT on Dec 31 sees the correct year.
+    # timezone.now().year would return UTC year, excluding gifts made after
+    # 16:00–21:00 PST on New Year's Eve from the current-year filter.
+    current_year = localtime(timezone.now()).year
     if not (2000 <= year <= current_year):
         return None
     return year
@@ -121,7 +125,7 @@ class DonorPortalDashboardView(LoginRequiredMixin, TemplateView):
                 "pending_receipt_count": pending_receipt_count,
                 "active_plans": active_plans,
                 "recent_donations": recent_donations,
-                "current_year": timezone.now().year,
+                "current_year": localtime(timezone.now()).year,
             }
         )
         return ctx

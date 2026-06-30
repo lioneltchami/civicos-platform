@@ -25,7 +25,7 @@
         <dd class="col-sm-7">{{ reason }}</dd>
         {% if notes %}
         <dt class="col-sm-5">{% trans "Notes" %}</dt>
-        <dd class="col-sm-7">{{ notes }}</dd>
+        <dd class="col-sm-7">{{ notes|escape }}</dd>
         {% endif %}
       </dl>
     </div>

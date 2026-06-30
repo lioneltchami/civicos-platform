@@ -24,7 +24,7 @@
 
         {% if refund.notes %}
         <dt class="col-sm-5">{% trans "Notes" %}</dt>
-        <dd class="col-sm-7">{{ refund.notes }}</dd>
+        <dd class="col-sm-7">{{ refund.notes|escape }}</dd>
         {% endif %}
 
         <dt class="col-sm-5">{% trans "Refunded At" %}</dt>

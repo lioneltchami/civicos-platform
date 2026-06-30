@@ -30,6 +30,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404, redirect
@@ -70,6 +71,24 @@ def _get_client_ip(request) -> str:
 
 # Session key for storing validated refund data between form and confirmation
 REFUND_SESSION_KEY = "payments_pending_refund"
+
+
+# ---------------------------------------------------------------------------
+# Rate limiter for RefundConfirmView
+# ---------------------------------------------------------------------------
+
+def _check_refund_rate_limit(request) -> bool:
+    """Returns True if limit exceeded (3 confirms per minute per staff user).
+
+    Uses atomic cache.add + cache.incr so there is no TOCTOU window between
+    checking the key and initialising it.  The key is scoped to the staff
+    user PK — not the payment — so a single staff member cannot flood the
+    endpoint regardless of which payment they target.
+    """
+    key = f"refund_confirm_ratelimit_user_{request.user.pk}"
+    cache.add(key, 0, timeout=60)
+    count = cache.incr(key)
+    return count > 3
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +249,10 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
         """Execute the refund after confirmation — serialized under DB lock."""
         from django.db import transaction as db_transaction
         from apps.payments.models import PaymentIntent
+
+        if _check_refund_rate_limit(request):
+            messages.error(request, "Too many refund attempts. Please wait a minute.")
+            return redirect("payments:refund_create", payment_pk=self.payment.pk)
 
         session_data = self._get_session_data()
         if not session_data:

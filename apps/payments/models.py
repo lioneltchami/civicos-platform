@@ -779,9 +779,17 @@ class PaymentAuditEntry(TimestampedModel):
             return ""  # Invalid IP — store empty rather than PII
 
     def save(self, *args, **kwargs):
+        # PaymentAuditEntry is append-only: always INSERT, never UPDATE.
+        # Use self._state.adding (set by Django to True for unsaved instances,
+        # False after the first successful save) rather than SELECT EXISTS to
+        # determine whether this is a new record.  This avoids the spurious
+        # SELECT EXISTS round-trip that Django otherwise issues when pk is
+        # already set (common with UUID primary keys whose default assigns the
+        # pk in Python before the first save call).
         self.actor_ip = self._mask_ip(self.actor_ip)
-        if self.pk and self.__class__._default_manager.filter(pk=self.pk).exists():
+        if not self._state.adding:
             raise ValueError("PaymentAuditEntry is append-only and cannot be modified.")
+        kwargs.setdefault("force_insert", True)
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

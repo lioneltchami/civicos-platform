@@ -9,6 +9,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -97,6 +98,11 @@ GATEWAY_REFUND_RESULT = {
 class RefundViewTestBase(TestCase):
 
     def setUp(self):
+        # Clear the locmem cache so rate-limit counters from prior tests don't
+        # bleed into this test. Without this, multiple POSTs across tests in the
+        # same class would accumulate against the 3-per-minute limit and cause
+        # spurious 429-style redirects even though each individual test is valid.
+        cache.clear()
         self.staff = make_user(
             email="staff1@example.com",
             password="staffpass",
