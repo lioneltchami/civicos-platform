@@ -127,6 +127,11 @@ LOGGING = {
 # Sentry — error tracking & performance monitoring
 # ---------------------------------------------------------------------------
 
+# PII-filtering hooks are defined in apps/core/sentry.py so they can be
+# imported and unit-tested without pulling in the sentry_sdk package.
+from apps.core.sentry import before_breadcrumb as _before_breadcrumb  # noqa: E402
+from apps.core.sentry import before_send as _before_send  # noqa: E402
+
 SENTRY_DSN = env("SENTRY_DSN", default="")
 
 if SENTRY_DSN:
@@ -142,9 +147,10 @@ if SENTRY_DSN:
         profiles_sample_rate=env.float("SENTRY_PROFILES_SAMPLE_RATE", default=0.1),
         environment=env("SENTRY_ENVIRONMENT", default="production"),
         send_default_pii=False,  # NEVER send PII to Sentry
+        before_breadcrumb=_before_breadcrumb,
+        before_send=_before_send,
     )
 else:
-    import warnings
     warnings.warn(
         "SENTRY_DSN is not configured — unhandled exceptions will not be reported.",
         RuntimeWarning,

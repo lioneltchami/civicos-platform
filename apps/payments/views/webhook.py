@@ -22,14 +22,13 @@ import copy
 import json
 import logging
 
-from django.conf import settings
 from django.db import IntegrityError
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from apps.payments.gateway import get_gateway
-from apps.payments.models import GATEWAY_STRIPE, WebhookEvent
+from apps.payments.models import GATEWAY_STRIPE, TenantPaymentConfig, WebhookEvent
 from apps.payments.views.refund import _mask_ip
 
 logger = logging.getLogger(__name__)
@@ -90,8 +89,19 @@ def stripe_webhook(request):
     payload_bytes = request.body
 
     # ── 1. Verify signature ───────────────────────────────────────────────────
+    # M8 fix: read webhook secret from TenantPaymentConfig (per-tenant, encrypted
+    # at rest) instead of a global Django setting.  Using settings.STRIPE_WEBHOOK_SECRET
+    # means only one tenant's secret is ever in use — all other tenants' webhooks
+    # fail signature verification and return 400.  TenantPaymentConfig stores the
+    # secret encrypted via EncryptedCharField (Fernet/AES-128-CBC); the field
+    # auto-decrypts on access.
     signature_header = request.META.get("HTTP_STRIPE_SIGNATURE", "")
-    webhook_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", "")
+    config = TenantPaymentConfig.get_solo()
+    webhook_secret = config.webhook_endpoint_secret or ""
+
+    if not webhook_secret:
+        logger.error("payments.webhook.empty_secret — TenantPaymentConfig.webhook_endpoint_secret is not set")
+        return HttpResponse("Webhook secret not configured", status=400)
 
     gateway = get_gateway()
     if not gateway.verify_webhook_signature(payload_bytes, signature_header, webhook_secret):

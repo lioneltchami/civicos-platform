@@ -194,10 +194,17 @@ class ReceiptPdfTests(TestCase):
         DB update crashed), save() must NOT be called — we reuse the existing file
         and still update the DB record.
         """
+        from io import BytesIO
+
         pdf_bytes = b"%PDF-1.4 test"
         expected_path = f"receipts/{self.receipt.serial_number}.pdf"
         with patch("django.core.files.storage.default_storage") as mock_storage:
             mock_storage.exists.return_value = True  # File already in storage
+            # open() must return a context manager that yields a file-like with a
+            # valid %PDF header so the corrupt-file check passes (M5 fix).
+            mock_file = BytesIO(b"%PDF-1.4 valid")
+            mock_storage.open.return_value.__enter__ = lambda s: mock_file
+            mock_storage.open.return_value.__exit__ = lambda s, *a: False
             with patch.object(
                 self.receipt.__class__._base_manager,
                 "filter",
@@ -248,9 +255,16 @@ class ReceiptPdfTests(TestCase):
         # exists() returns False on first call, True on second (file now in storage)
         exists_side_effects = [False, True]
 
+        from io import BytesIO
+
+        # open() must return a context manager with a valid %PDF header so the
+        # corrupt-file check (M5 fix) treats the existing file as reusable.
+        mock_file = BytesIO(b"%PDF-1.4 valid")
         with patch("django.core.files.storage.default_storage") as mock_storage:
             mock_storage.exists.side_effect = exists_side_effects
             mock_storage.save.return_value = expected_path
+            mock_storage.open.return_value.__enter__ = lambda s: mock_file
+            mock_storage.open.return_value.__exit__ = lambda s, *a: False
 
             # First call: simulate DB update failure after file is written
             with patch.object(
@@ -266,6 +280,7 @@ class ReceiptPdfTests(TestCase):
 
             # Reset in-memory pdf_path to simulate fresh retry (DB still empty)
             self.receipt.pdf_path = ""
+            mock_file.seek(0)  # rewind so second call re-reads the header
 
             # Second call: file is already in storage (exists()=True), DB update succeeds
             result = save_receipt_pdf(self.receipt, pdf_bytes)

@@ -537,6 +537,21 @@ SPECTACULAR_SETTINGS = {
     "SORT_OPERATIONS": False,
 }
 
+# ── IP / Proxy trust (django-ipware) ─────────────────────────────────────────
+# django-ipware is used in apps/payments/views/donation.py to extract the real
+# client IP behind load-balancers, reverse proxies (nginx, AWS ALB, Cloudflare).
+#
+# For a single trusted proxy (e.g. nginx in front of Gunicorn) set:
+#   IPWARE_META_PRECEDENCE_ORDER = ("HTTP_X_FORWARDED_FOR",)
+#
+# For a fixed number of proxy hops (e.g. Cloudflare -> ALB -> Gunicorn):
+#   NUM_PROXIES = 2   # number of trusted proxies between client and app
+#
+# Neither is set here because the correct value depends on the deployment
+# topology. Override in production.py / .env once the proxy chain is known.
+# Leaving both unset causes ipware to fall back to safe defaults (rightmost
+# non-private IP from X-Forwarded-For), which is correct for most setups.
+
 # ── Payments BB ──────────────────────────────────────────────────────────────
 PAYMENT_GATEWAY = env("PAYMENT_GATEWAY", default="stripe")
 STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", default="")

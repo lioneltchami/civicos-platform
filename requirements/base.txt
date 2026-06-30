@@ -25,6 +25,7 @@ argon2-cffi-bindings==21.2.0
 # Security
 django-csp==3.8
 django-ratelimit==4.1.0
+django-ipware==7.0.1
 
 # File storage
 django-storages[s3]==1.14.4
@@ -53,10 +54,10 @@ openpyxl==3.1.5
 et-xmlfile==2.0.0
 
 # Payments
-stripe>=7.0.0,<16
+stripe>=15.0.0,<16  # M9: pinned to installed major (15.x); Stripe has breaking changes across majors
 
 # PDF generation — CRA donation receipts
-weasyprint>=60.0
+weasyprint>=60.0,<70  # M10: upper bound added; installed is 69.x; WeasyPrint has breaking API changes across majors
 
 # REST API
 djangorestframework>=3.15,<4.0

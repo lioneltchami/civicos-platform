@@ -144,16 +144,37 @@ def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
         )
         return receipt.pdf_path
 
+    saved_path = None  # resolved below via reuse or fresh write
+
     if default_storage.exists(filename):
         # Storage-level guard: file was written in a previous attempt but the
         # DB update (below) failed, leaving pdf_path empty in the DB.
-        # Reuse the existing file rather than creating a second orphaned copy.
-        logger.info(
-            "payments.save_receipt_pdf.reusing_existing_file serial=%s",
-            serial,
-        )
-        saved_path = filename
-    else:
+        # Before reusing, verify the file is non-corrupt (non-zero, starts with
+        # %PDF header). A partial/interrupted write leaves a 0-byte or truncated
+        # file that would be silently delivered as a corrupt PDF attachment.
+        try:
+            with default_storage.open(filename, "rb") as _fh:
+                _header = _fh.read(4)
+            if _header == b"%PDF":
+                logger.info(
+                    "payments.save_receipt_pdf.reusing_existing_file serial=%s",
+                    serial,
+                )
+                saved_path = filename
+            else:
+                logger.warning(
+                    "payments.receipt_pdf.corrupt_existing_file_regenerating path=%s",
+                    filename,  # path only -- no PII
+                )
+                default_storage.delete(filename)
+        except (OSError, IOError):
+            logger.warning(
+                "payments.receipt_pdf.unreadable_file_regenerating path=%s",
+                filename,
+            )
+
+    if saved_path is None:
+        # Either no existing file, or it was corrupt/unreadable and deleted above.
         try:
             saved_path = default_storage.save(filename, ContentFile(pdf_bytes))
         except Exception as exc:

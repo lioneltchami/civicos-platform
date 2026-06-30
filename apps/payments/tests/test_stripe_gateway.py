@@ -966,16 +966,17 @@ class BrandMapCompletenessTests(SimpleTestCase):
         self._map = _BRAND_MAP
 
     def test_discover_mapped(self):
-        self.assertEqual(self._map.get("discover"), "Discover")
+        # M3 fix: _BRAND_MAP values must be CARD_BRAND_CHOICES keys, not display names.
+        self.assertEqual(self._map.get("discover"), "discover")
 
     def test_jcb_mapped(self):
-        self.assertEqual(self._map.get("jcb"), "JCB")
+        self.assertEqual(self._map.get("jcb"), "jcb")
 
     def test_diners_mapped(self):
-        self.assertEqual(self._map.get("diners"), "Diners Club")
+        self.assertEqual(self._map.get("diners"), "diners")
 
     def test_unionpay_mapped(self):
-        self.assertEqual(self._map.get("unionpay"), "UnionPay")
+        self.assertEqual(self._map.get("unionpay"), "unionpay")
 
     def test_existing_visa_still_mapped(self):
         self.assertEqual(self._map.get("visa"), "visa")
@@ -1378,7 +1379,11 @@ class CreateSubscriptionTests(SimpleTestCase):
                 idempotency_key="idem-sub-001",
                 metadata={},
             )
-        self.assertEqual(result["current_period_end"], str(1700100000))
+        # M2 fix: current_period_end must be an ISO 8601 string, not a raw Unix timestamp.
+        import datetime
+        self.assertIsInstance(result["current_period_end"], str)
+        dt = datetime.datetime.fromisoformat(result["current_period_end"])
+        self.assertIsNotNone(dt)
 
     def test_passes_connect_account_id(self):
         with patch("stripe.Subscription.create", return_value=self.fake_sub) as mock_create:
@@ -1761,7 +1766,11 @@ class ParseSubscriptionEventTests(SimpleTestCase):
         result = self.gw._parse_subscription_event(obj)
         self.assertEqual(result["gateway_subscription_id"], "sub_parse_001")
         self.assertEqual(result["status"], "active")
-        self.assertEqual(result["current_period_end"], "1700200000")
+        # M2 fix: current_period_end must be an ISO 8601 string, not a raw Unix timestamp.
+        import datetime
+        self.assertIsInstance(result["current_period_end"], str)
+        dt = datetime.datetime.fromisoformat(result["current_period_end"])
+        self.assertIsNotNone(dt)
         self.assertFalse(result["cancel_at_period_end"])
 
     def test_cancel_at_period_end_true(self):
@@ -1923,3 +1932,172 @@ class CreateSubscriptionSCATest(SimpleTestCase):
         # Must still return the base result dict
         self.assertEqual(result["status"], "incomplete")
         self.assertNotIn("client_secret", result)
+
+
+# ---------------------------------------------------------------------------
+# M1 — Serial number regex consistency (model vs migration 0001)
+# ---------------------------------------------------------------------------
+
+class SerialNumberRegexConsistencyTests(SimpleTestCase):
+    """
+    M1: The charity_registration_number RegexValidator in models.py must use
+    the same regex string as the one baked into 0001_initial.py.  If they
+    differ, a squash or fresh-run of migrations will apply the wrong
+    validator, and `makemigrations --check` will flag a pending migration.
+    """
+
+    def test_model_and_migration_regex_are_identical(self):
+        """
+        The charity_registration_number RegexValidator regex must be identical
+        in models.py and in 0001_initial.py.  The migration regex was previously
+        r'^\\d{9}\\s+RR\\s+\\d{4}$' while the model used r'^\\d{9} RR \\d{4}$'
+        (literal spaces vs. \\s+).  This test pins both to the same string.
+        """
+        import django.core.validators as dv
+        import importlib
+
+        # Pull the regex from the live model field.
+        # The charity_registration_number RegexValidator lives on CharitySettings,
+        # not OfficialDonationReceipt (which stores a plain copy without re-validating).
+        from apps.payments.models import CharitySettings
+        field = CharitySettings._meta.get_field("charity_registration_number")
+        model_regex = next(
+            v.regex.pattern
+            for v in field.validators
+            if isinstance(v, dv.RegexValidator)
+        )
+
+        # Pull the regex from the 0001_initial migration's CreateModel operation.
+        mig = importlib.import_module("apps.payments.migrations.0001_initial")
+        migration_regex = None
+        for op in mig.Migration.operations:
+            # CreateModel has a 'fields' attribute (list of (name, field) tuples).
+            fields_attr = getattr(op, "fields", None)
+            if not fields_attr:
+                continue
+            for col_name, field_obj in fields_attr:
+                if col_name == "charity_registration_number":
+                    for v in getattr(field_obj, "validators", []):
+                        if isinstance(v, dv.RegexValidator):
+                            migration_regex = v.regex.pattern
+        self.assertIsNotNone(
+            migration_regex,
+            "Could not locate charity_registration_number RegexValidator in 0001_initial.py.",
+        )
+        self.assertEqual(
+            model_regex,
+            migration_regex,
+            f"Regex mismatch — model: {model_regex!r}, migration: {migration_regex!r}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# M2 — current_period_end returned as ISO 8601 string
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class CurrentPeriodEndISO8601Tests(SimpleTestCase):
+    """
+    M2: create_subscription and _parse_subscription_event must return
+    current_period_end as an ISO 8601 string, not a raw Unix timestamp integer.
+    """
+
+    def _make_gateway(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        return StripeGateway()
+
+    def test_create_subscription_current_period_end_is_iso_string(self):
+        import datetime
+        gw = self._make_gateway()
+        mock_sub = MagicMock()
+        mock_sub.id = "sub_iso_001"
+        mock_sub.status = "active"
+        mock_sub.current_period_end = 1735689600  # raw Unix timestamp from Stripe
+
+        with patch("stripe.Subscription.create", return_value=mock_sub):
+            result = gw.create_subscription(
+                customer_id="cus_iso",
+                price_id="price_iso",
+                payment_method_id="pm_iso",
+                idempotency_key="idem-iso-001",
+                metadata={},
+            )
+
+        self.assertIsInstance(result["current_period_end"], str)
+        dt = datetime.datetime.fromisoformat(result["current_period_end"])
+        self.assertIsNotNone(dt)
+        # Confirm the value is UTC-aware and correct
+        self.assertEqual(dt, datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc))
+
+    def test_create_subscription_none_period_end_returns_none(self):
+        """A cancelled/incomplete subscription may have no current_period_end."""
+        gw = self._make_gateway()
+        mock_sub = MagicMock()
+        mock_sub.id = "sub_none_pe"
+        mock_sub.status = "canceled"
+        mock_sub.current_period_end = None
+
+        with patch("stripe.Subscription.create", return_value=mock_sub):
+            result = gw.create_subscription(
+                customer_id="cus_none",
+                price_id="price_none",
+                payment_method_id="pm_none",
+                idempotency_key="idem-none-001",
+                metadata={},
+            )
+
+        self.assertIsNone(result["current_period_end"])
+
+    def test_parse_subscription_event_current_period_end_is_iso_string(self):
+        import datetime
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        gw = StripeGateway()
+        obj = {
+            "id": "sub_evt_001",
+            "status": "active",
+            "current_period_end": 1735689600,
+            "cancel_at_period_end": False,
+        }
+        result = gw._parse_subscription_event(obj)
+
+        self.assertIsInstance(result["current_period_end"], str)
+        dt = datetime.datetime.fromisoformat(result["current_period_end"])
+        self.assertEqual(dt, datetime.datetime(2025, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc))
+
+    def test_parse_subscription_event_none_period_end_returns_none(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        gw = StripeGateway()
+        obj = {
+            "id": "sub_evt_002",
+            "status": "canceled",
+            "current_period_end": None,
+            "cancel_at_period_end": True,
+        }
+        result = gw._parse_subscription_event(obj)
+        self.assertIsNone(result["current_period_end"])
+
+
+# ---------------------------------------------------------------------------
+# M3 — _BRAND_MAP values all present in CARD_BRAND_CHOICES
+# ---------------------------------------------------------------------------
+
+class BrandMapChoicesConsistencyTests(SimpleTestCase):
+    """
+    M3: Every value (choice key) in _BRAND_MAP must appear as a key in
+    CARD_BRAND_CHOICES.  If a new brand is added to the gateway's map without
+    updating the model's choices list, get_card_brand_display() silently
+    returns empty string and Django admin warns about invalid choices.
+    """
+
+    def test_all_brand_map_values_in_card_brand_choices(self):
+        from apps.payments.gateways.stripe_gateway import _BRAND_MAP
+        from apps.payments.models import Payment
+
+        choice_keys = {k for k, _ in Payment.CARD_BRAND_CHOICES}
+        for stripe_brand, stored_value in _BRAND_MAP.items():
+            self.assertIn(
+                stored_value,
+                choice_keys,
+                f"_BRAND_MAP['{stripe_brand}'] = {stored_value!r} is missing from "
+                f"Payment.CARD_BRAND_CHOICES. Add it or correct the mapping.",
+            )

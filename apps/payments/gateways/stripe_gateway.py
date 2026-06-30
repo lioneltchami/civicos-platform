@@ -11,6 +11,7 @@ payment method tokens and PaymentIntent client_secrets.
 Stripe pricing for Canadian non-profits: 2.2% + $0.30 (Stripe.org discount).
 Apply via Stripe dashboard — no code change required.
 """
+import datetime
 import logging
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -34,10 +35,10 @@ _BRAND_MAP = {
     "mastercard": "mastercard",
     "amex": "amex",
     "interac": "interac",
-    "discover": "Discover",
-    "jcb": "JCB",
-    "diners": "Diners Club",
-    "unionpay": "UnionPay",
+    "discover": "discover",
+    "jcb": "jcb",
+    "diners": "diners",
+    "unionpay": "unionpay",
 }
 
 
@@ -330,7 +331,13 @@ class StripeGateway(PaymentGateway):
         result = {
             "gateway_subscription_id": sub.id,
             "status": sub.status,
-            "current_period_end": str(sub.current_period_end),
+            "current_period_end": (
+                datetime.datetime.fromtimestamp(
+                    sub.current_period_end, tz=datetime.timezone.utc
+                ).isoformat()
+                if sub.current_period_end
+                else None
+            ),
         }
 
         if sub.status == "incomplete":
@@ -554,10 +561,18 @@ class StripeGateway(PaymentGateway):
 
     def _parse_subscription_event(self, obj: dict) -> dict:
         """Parse customer.subscription.* events."""
+        raw_period_end = obj.get("current_period_end")
+        current_period_end = (
+            datetime.datetime.fromtimestamp(
+                raw_period_end, tz=datetime.timezone.utc
+            ).isoformat()
+            if raw_period_end
+            else None
+        )
         return {
             "gateway_subscription_id": obj.get("id", ""),
             "status": obj.get("status", ""),
-            "current_period_end": str(obj.get("current_period_end", "")),
+            "current_period_end": current_period_end,
             "cancel_at_period_end": obj.get("cancel_at_period_end", False),
         }
 

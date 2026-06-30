@@ -16,12 +16,20 @@ class StripeWebhookViewTests(TestCase):
     """Tests for stripe_webhook view."""
 
     def setUp(self):
+        from apps.payments.models import TenantPaymentConfig
+
         self.url = reverse("payments:stripe_webhook")
         self.valid_payload = {
             "id": "evt_test_001",
             "type": "payment_intent.succeeded",
             "data": {"object": {"id": "pi_test_001"}},
         }
+        # M8 fix: the view now reads the webhook secret from TenantPaymentConfig.
+        # Seed the singleton so existing tests that mock verify_webhook_signature
+        # still reach the gateway call (the empty-secret guard must not fire).
+        config = TenantPaymentConfig.get_solo()
+        config.webhook_endpoint_secret = "whsec_test_fixture_secret"
+        config.save()
 
     def _post(self, payload=None, sig="t=1234,v1=valid", verify_result=True):
         """Helper: POST to webhook endpoint with mocked gateway and task."""
@@ -274,3 +282,69 @@ class StripeWebhookViewTests(TestCase):
         self._post(payload=payload1)
         self._post(payload=payload2)
         self.assertEqual(WebhookEvent.objects.count(), 2)
+
+    # ── M8 — Webhook secret sourced from TenantPaymentConfig, not settings ────
+
+    def test_webhook_secret_read_from_tenant_config_not_settings(self):
+        """
+        M8: The webhook view must pass TenantPaymentConfig.webhook_endpoint_secret
+        to gateway.verify_webhook_signature, NOT a value from Django settings.
+
+        This ensures the per-tenant secret (stored encrypted in the DB) is used
+        for HMAC verification.  A global settings.STRIPE_WEBHOOK_SECRET would
+        fail for all tenants except one and would not auto-rotate when Stripe
+        rotates the signing secret.
+        """
+        from apps.payments.models import TenantPaymentConfig
+
+        config = TenantPaymentConfig.get_solo()
+        config.webhook_endpoint_secret = "whsec_per_tenant_secret_xyz"
+        config.save()
+
+        body = json.dumps(self.valid_payload).encode()
+        captured_secret = []
+
+        def capturing_verify(payload_bytes, sig_header, secret):
+            captured_secret.append(secret)
+            return True  # simulate valid signature
+
+        with patch("apps.payments.views.webhook.get_gateway") as mock_get_gw, \
+             patch("apps.payments.tasks.process_stripe_webhook.delay"):
+            mock_gw = mock_get_gw.return_value
+            mock_gw.verify_webhook_signature.side_effect = capturing_verify
+            self.client.post(
+                self.url,
+                data=body,
+                content_type="application/json",
+                HTTP_STRIPE_SIGNATURE="t=1234,v1=valid",
+            )
+
+        self.assertEqual(len(captured_secret), 1, "verify_webhook_signature should be called once")
+        self.assertEqual(
+            captured_secret[0],
+            "whsec_per_tenant_secret_xyz",
+            "The secret passed to verify_webhook_signature must come from "
+            "TenantPaymentConfig, not settings.STRIPE_WEBHOOK_SECRET.",
+        )
+
+    def test_webhook_returns_400_when_tenant_config_secret_empty(self):
+        """
+        M8: If TenantPaymentConfig.webhook_endpoint_secret is blank, the view
+        must return 400 and not process the webhook.
+        """
+        from apps.payments.models import TenantPaymentConfig
+
+        config = TenantPaymentConfig.get_solo()
+        config.webhook_endpoint_secret = ""
+        config.save()
+
+        body = json.dumps(self.valid_payload).encode()
+        with patch("apps.payments.tasks.process_stripe_webhook.delay") as mock_delay:
+            response = self.client.post(
+                self.url,
+                data=body,
+                content_type="application/json",
+                HTTP_STRIPE_SIGNATURE="t=1234,v1=valid",
+            )
+        self.assertEqual(response.status_code, 400)
+        mock_delay.assert_not_called()

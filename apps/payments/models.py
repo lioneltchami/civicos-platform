@@ -339,12 +339,20 @@ class Payment(TimestampedModel):
     CARD_BRAND_MASTERCARD = "mastercard"
     CARD_BRAND_AMEX = "amex"
     CARD_BRAND_INTERAC = "interac"
+    CARD_BRAND_DISCOVER = "discover"
+    CARD_BRAND_JCB = "jcb"
+    CARD_BRAND_DINERS = "diners"
+    CARD_BRAND_UNIONPAY = "unionpay"
     CARD_BRAND_OTHER = "other"
     CARD_BRAND_CHOICES = [
         (CARD_BRAND_VISA, "Visa"),
         (CARD_BRAND_MASTERCARD, "Mastercard"),
         (CARD_BRAND_AMEX, "Amex"),
         (CARD_BRAND_INTERAC, "Interac"),
+        (CARD_BRAND_DISCOVER, "Discover"),
+        (CARD_BRAND_JCB, "JCB"),
+        (CARD_BRAND_DINERS, "Diners Club"),
+        (CARD_BRAND_UNIONPAY, "UnionPay"),
         (CARD_BRAND_OTHER, "Other"),
     ]
 
@@ -1775,6 +1783,15 @@ class OfficialDonationReceipt(TimestampedModel):
             models.CheckConstraint(
                 check=models.Q(advantage_amount__gte=0),
                 name="payments_receipt_advantage_nonneg",
+            ),
+            # CRA IT-110R3: advantage_amount must never exceed eligible_amount.
+            # eligible_amount = amount - advantage_amount, so advantage > eligible
+            # would imply a negative net donation — invalid for tax receipt purposes.
+            # Python-level validation alone is insufficient; a direct DB insert or
+            # ORM bypass could create an invalid receipt without this constraint.
+            models.CheckConstraint(
+                check=models.Q(advantage_amount__lte=models.F("eligible_amount")),
+                name="payments_receipt_advantage_lte_eligible",
             ),
             # Prevents two issued receipts for the same donation (anchor FK).
             # For annual consolidated receipts the anchor is the first donation in the

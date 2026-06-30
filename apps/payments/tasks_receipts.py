@@ -9,12 +9,16 @@ Security invariants:
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from decimal import Decimal
 
+import pytz
+
 from celery import shared_task
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from django.utils.timezone import localtime
+from django.utils.timezone import localtime, make_aware
 
 logger = logging.getLogger("apps.payments.tasks_receipts")
 
@@ -202,12 +206,21 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
         )
         return {"processed": 0, "skipped": 0, "failed": 0}
 
+    # M7 fix: derive the year boundary in local Canadian time, then convert to UTC
+    # for the DB query.  Using __year=tax_year filters by UTC year, which means
+    # donations made at e.g. 23:00 ET on Dec 31 (= 04:00 UTC Jan 1) would fall
+    # into the wrong tax year — a CRA compliance failure.
+    _tz = pytz.timezone(settings.TIME_ZONE)  # "America/Toronto" from settings
+    _year_start_utc = make_aware(datetime(tax_year, 1, 1, 0, 0, 0), _tz).astimezone(pytz.UTC)
+    _year_end_utc = make_aware(datetime(tax_year, 12, 31, 23, 59, 59, 999999), _tz).astimezone(pytz.UTC)
+
     # All completed donations in the tax year
     completed_donations = (
         Donation.objects
         .filter(
             status="completed",
-            created_at__year=tax_year,
+            created_at__gte=_year_start_utc,
+            created_at__lte=_year_end_utc,
         )
         .select_related("donor", "payment_intent")
         .order_by("donor_id", "created_at")
@@ -285,9 +298,12 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
             # Check if an issued receipt already exists for this donor/year (fast pre-check).
             # A UniqueConstraint on (donation, status=issued) prevents true duplicates at
             # the DB level — we catch IntegrityError below for the TOCTOU window.
+            # Use the same UTC-converted local-time bounds (_year_start_utc / _year_end_utc)
+            # as the main donation query above — not __year= which uses UTC year.
             if OfficialDonationReceipt.objects.filter(
                 donation__donor_id=donor_id,
-                donation__created_at__year=tax_year,  # Django ORM __year respects USE_TZ + TIME_ZONE
+                donation__created_at__gte=_year_start_utc,
+                donation__created_at__lte=_year_end_utc,
                 status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
             ).exists():
                 skipped += 1

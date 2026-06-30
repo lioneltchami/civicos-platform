@@ -14,7 +14,7 @@ Patching strategy:
   way the mock is picked up by Python's module cache.
 """
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, call, patch
 
@@ -1093,4 +1093,109 @@ class TaskQueueRoutingTests(TestCase):
             "webhooks",
             "process_stripe_webhook.queue must be 'webhooks' so Stripe webhooks "
             "reach dedicated workers and are not delayed by receipt batch tasks.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# M7 — Annual receipt year filter uses local Canadian time, not UTC year
+# ---------------------------------------------------------------------------
+
+class AnnualReceiptsLocalTimezoneFilterTests(TestCase):
+    """
+    M7: generate_annual_receipts must include donations that fall within the
+    tax year in local Canadian time (America/Toronto), even if their UTC
+    timestamp falls into the next calendar year.
+
+    A donation at 23:00 ET on Dec 31 = 04:00 UTC Jan 1 of the following year.
+    Using __year=tax_year on a UTC-stored timestamp would exclude this donation
+    from the current-year run — a CRA compliance failure (donor receives no
+    official receipt for that tax year).
+    """
+
+    def _make_donation_at_local_time(self, user, intent, local_dt_naive, tz_name="America/Toronto"):
+        """
+        Create a Donation and force its created_at to a specific local-time moment.
+
+        Django's auto_now_add ignores any value passed to create(), so we use a
+        post-create update() on the base manager to bypass the auto-set behaviour.
+
+        Args:
+            local_dt_naive: a naive datetime in the given local timezone.
+            tz_name: IANA timezone name (default: America/Toronto).
+        Returns:
+            The refreshed Donation instance with the overridden timestamp.
+        """
+        import pytz
+        tz = pytz.timezone(tz_name)
+        dt_utc = tz.localize(local_dt_naive).astimezone(pytz.UTC)
+        donation = make_donation(user, intent)
+        # Force-set the auto_now_add field via update() — create() ignores it.
+        Donation.objects.filter(pk=donation.pk).update(created_at=dt_utc)
+        donation.refresh_from_db()
+        return donation
+
+    def setUp(self):
+        self.user = make_user()
+        self.charity = make_charity_settings()
+        self.intent = make_payment_intent(self.user)
+
+        # 2024-12-31 23:00 ET = 2025-01-01 04:00 UTC.
+        # This is a valid 2024 donation by Canadian local time, but its UTC year is 2025.
+        # A naive __year=2024 filter on UTC-stored timestamps would miss it entirely.
+        self.late_dec_donation = self._make_donation_at_local_time(
+            self.user,
+            self.intent,
+            datetime(2024, 12, 31, 23, 0, 0),
+        )
+
+    def test_annual_receipt_includes_dec31_late_evening_et(self):
+        """
+        A donation at 23:00 ET on Dec 31 must be included in that year's run,
+        even though its UTC timestamp falls on Jan 1 of the following year.
+        """
+        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+
+        _counter = [0]
+        with patch.object(
+            OfficialDonationReceipt, "save", make_fake_save(_counter, year=2024)
+        ):
+            with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                result = generate_annual_receipts.apply(args=[2024]).get()
+
+        self.assertEqual(
+            result["processed"],
+            1,
+            "A donation at 23:00 ET on Dec 31 (UTC Jan 1) must be processed in "
+            "the 2024 annual receipt run — UTC year filter would miss it.",
+        )
+        self.assertEqual(result["failed"], 0)
+
+    def test_annual_receipt_excludes_next_year_donation(self):
+        """
+        A donation in January of the following year must NOT be included in
+        the current year's receipt run.
+        """
+        user2 = make_user()
+        intent2 = make_payment_intent(user2)
+        # 2025-01-15 10:00 ET — clearly in 2025, must not appear in 2024 run.
+        self._make_donation_at_local_time(
+            user2,
+            intent2,
+            datetime(2025, 1, 15, 10, 0, 0),
+        )
+
+        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+
+        _counter = [0]
+        with patch.object(
+            OfficialDonationReceipt, "save", make_fake_save(_counter, year=2024)
+        ):
+            with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                result = generate_annual_receipts.apply(args=[2024]).get()
+
+        # Only the Dec 31 ET donation belongs to 2024; the Jan 15 2025 one must not.
+        self.assertEqual(
+            result["processed"],
+            1,
+            "A Jan 2025 donation must not appear in the 2024 annual receipt run.",
         )

@@ -65,12 +65,44 @@ from apps.payments.models import (
 )
 from apps.payments.views.refund import _mask_ip
 
+try:
+    from ipware import get_client_ip as _ipware_get_client_ip
+except ImportError:  # pragma: no cover
+    _ipware_get_client_ip = None
+
 logger = logging.getLogger(__name__)
 
 TWO_PLACES = Decimal("0.01")
 
 # Session key — namespaced to avoid collisions with fee payment and other apps
 DONATION_SESSION_KEY = "payments_donation_intent"
+
+
+# ---------------------------------------------------------------------------
+# IP extraction helper
+# ---------------------------------------------------------------------------
+
+def _get_client_ip(request) -> str:
+    """Return the real client IP, trusting the configured proxy chain.
+
+    Uses django-ipware which honours IPWARE_META_PRECEDENCE_ORDER and
+    NUM_PROXIES so that the correct header (X-Forwarded-For, X-Real-IP)
+    is used behind load-balancers, Cloudflare, or AWS ALB rather than
+    the always-proxy REMOTE_ADDR.
+
+    Falls back to REMOTE_ADDR when django-ipware is unavailable.
+
+    See config/settings/base.py for IPWARE_META_PRECEDENCE_ORDER /
+    NUM_PROXIES tuning required for the production proxy chain.
+    """
+    if _ipware_get_client_ip is not None:
+        try:
+            ip, _is_routable = _ipware_get_client_ip(request)
+            if ip:
+                return ip
+        except Exception:
+            pass
+    return request.META.get("REMOTE_ADDR", "")
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +114,7 @@ def _check_donation_rate_limit(request) -> bool:
     if request.user.is_authenticated:
         key = f"donation_ratelimit_user_{request.user.pk}"
     else:
-        ip = request.META.get("REMOTE_ADDR", "")
+        ip = _get_client_ip(request)
         ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
         key = f"donation_ratelimit_ip_{ip_hash}"
     cache.add(key, 0, timeout=60)   # initialises to 0 only if key absent (atomic)
@@ -215,7 +247,7 @@ def create_donation_intent_api(request):
     if not session_data:
         logger.warning(
             "payments.donation.create_intent.session_expired remote_addr=%s",
-            _mask_ip(request.META.get("REMOTE_ADDR", "")),
+            _mask_ip(_get_client_ip(request)),
         )
         return JsonResponse(
             {"error": "Session expired. Please start over."},
@@ -487,7 +519,7 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
             plan.save(update_fields=["status", "cancelled_at", "cancellation_reason", "updated_at"])
 
             # Mask IP per PIPEDA before storing in audit log.
-            ip_raw = request.META.get("REMOTE_ADDR", "")
+            ip_raw = _get_client_ip(request)
             actor_ip = _mask_ip(ip_raw) if ip_raw else ""
 
             # Mask gateway subscription ID — it is PII-adjacent and should
