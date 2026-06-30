@@ -1330,3 +1330,118 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
             f"Toronto donor at 23:00 ET Dec 31 (UTC: {dt_utc}) must remain in 2024 run.",
         )
         self.assertEqual(result["failed"], 0)
+
+
+# ---------------------------------------------------------------------------
+# M-G — generate_annual_receipts must not buffer all donor rows in memory
+# ---------------------------------------------------------------------------
+
+class AnnualReceiptsGroupbyTests(TestCase):
+    """
+    M-G: generate_annual_receipts must process donations donor-by-donor using
+    itertools.groupby rather than building a donations_by_donor dict that holds
+    all rows in memory simultaneously.
+
+    For a large municipality (200k donors, 1.5M donations) the old pattern
+    caused OOM kills because every donation row was appended to a dict before
+    any processing happened — completely defeating .iterator(chunk_size=500).
+    """
+
+    def test_source_uses_groupby_not_donor_dict(self):
+        """Source code must use itertools.groupby, not a donations_by_donor dict."""
+        import inspect
+        from apps.payments.tasks_receipts import generate_annual_receipts
+
+        source = inspect.getsource(generate_annual_receipts)
+        self.assertNotIn(
+            "donations_by_donor = {}",
+            source,
+            "generate_annual_receipts must not build an all-donors-in-memory dict. "
+            "Use itertools.groupby to process one donor at a time.",
+        )
+        self.assertNotIn(
+            "donations_by_donor: dict = defaultdict(list)",
+            source,
+            "generate_annual_receipts must not use a defaultdict to buffer all donors. "
+            "Use itertools.groupby instead.",
+        )
+        self.assertIn(
+            "groupby",
+            source,
+            "generate_annual_receipts must use itertools.groupby to stream "
+            "donations donor-by-donor without buffering all rows in memory.",
+        )
+
+    def test_multiple_donors_processed_correctly_with_groupby(self):
+        """
+        Two donors with different donations must each receive their own receipt.
+        Verifies that the groupby refactor preserves correct per-donor aggregation.
+        """
+        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        from apps.payments.models import OfficialDonationReceipt
+
+        charity = make_charity_settings()
+        user1 = make_user()
+        user2 = make_user()
+        intent1 = make_payment_intent(user1)
+        intent2a = make_payment_intent(user2)
+        intent2b = make_payment_intent(user2)
+
+        make_donation(user1, intent1, eligible_amount=Decimal("100.00"), amount=Decimal("100.00"))
+        make_donation(user2, intent2a, eligible_amount=Decimal("50.00"), amount=Decimal("50.00"))
+        make_donation(user2, intent2b, eligible_amount=Decimal("75.00"), amount=Decimal("75.00"))
+
+        _counter = [0]
+        with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=2026)):
+            with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                with self.captureOnCommitCallbacks(execute=True):
+                    result = generate_annual_receipts.apply(args=[2026]).get()
+
+        self.assertEqual(result["processed"], 2, "Both donors must get a receipt.")
+        self.assertEqual(result["failed"], 0)
+
+        receipts = OfficialDonationReceipt.objects.all()
+        self.assertEqual(receipts.count(), 2)
+
+        # user2's receipt must be consolidated with summed eligible amount
+        user2_receipt = receipts.filter(donation__donor=user2).first()
+        self.assertIsNotNone(user2_receipt)
+        self.assertTrue(user2_receipt.is_annual_consolidated)
+        self.assertEqual(user2_receipt.eligible_amount, Decimal("125.00"))
+
+
+# ---------------------------------------------------------------------------
+# M-H — kickoff_annual_receipts must have acks_late=True, reject_on_worker_lost=True
+# ---------------------------------------------------------------------------
+
+class KickoffAnnualReceiptsReliabilityTests(TestCase):
+    """
+    M-H: kickoff_annual_receipts is a once-per-year CRA compliance task.
+    If the Celery worker dies mid-task with acks_late=False (the default),
+    the message is acked on pickup and permanently lost — every donor in
+    that tax year silently misses their official receipt.
+
+    acks_late=True defers the ACK until after successful task completion.
+    reject_on_worker_lost=True requeues the task on worker death (SIGKILL/OOM).
+    Together they guarantee the kickoff task is retried if the worker fails.
+    """
+
+    def test_kickoff_annual_receipts_has_acks_late(self):
+        """kickoff_annual_receipts must declare acks_late=True."""
+        from apps.payments.tasks_receipts import kickoff_annual_receipts
+        self.assertTrue(
+            kickoff_annual_receipts.acks_late,
+            "kickoff_annual_receipts must set acks_late=True so the message is not "
+            "acked until after the task completes. Without this, a worker death "
+            "between pickup and .delay() permanently loses the annual receipt run.",
+        )
+
+    def test_kickoff_annual_receipts_has_reject_on_worker_lost(self):
+        """kickoff_annual_receipts must declare reject_on_worker_lost=True."""
+        from apps.payments.tasks_receipts import kickoff_annual_receipts
+        self.assertTrue(
+            kickoff_annual_receipts.reject_on_worker_lost,
+            "kickoff_annual_receipts must set reject_on_worker_lost=True so a "
+            "SIGKILL or OOM during execution causes Celery to requeue the task "
+            "rather than silently dropping the annual receipt run.",
+        )

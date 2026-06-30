@@ -855,3 +855,225 @@ class DonationSuccessViewIDORTests(DonationViewTestBase):
         self._set_donation_session(sd)
         resp = self.client.get(SUCCESS_URL, {"payment_intent_pk": str(intent_b.pk)})
         self.assertEqual(resp.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# M-D — Rate limit order: auth check must precede rate-limit check
+# ---------------------------------------------------------------------------
+
+class MDRateLimitOrderTests(DonationViewTestBase):
+    """M-D: unauthenticated requests must NOT consume the rate-limit quota."""
+
+    def test_unauthenticated_request_does_not_consume_rate_limit(self):
+        """Anonymous POST returns 401 and must not touch the cache rate-limit key."""
+        self._set_donation_session()
+        with patch("apps.payments.views.donation.cache") as mock_cache:
+            resp = self._post_intent()  # unauthenticated
+        # Must return 401 — auth check fires before rate limit
+        self.assertEqual(resp.status_code, 401)
+        # Cache must NOT have been touched — rate limit key was never incremented
+        mock_cache.add.assert_not_called()
+        mock_cache.incr.assert_not_called()
+
+    def test_rate_limit_uses_user_key_for_authenticated_users(self):
+        """For authenticated users, rate limit must key by user PK, not IP."""
+        self.client.force_login(self.user)
+        self._set_donation_session()
+        with patch("apps.payments.views.donation.cache") as mock_cache:
+            mock_cache.add.return_value = True   # key created
+            mock_cache.incr.return_value = 1     # count = 1, under limit
+            with self._mock_gateway():
+                resp = self._post_intent()
+        # cache.add must have been called with a key containing the user PK
+        self.assertTrue(mock_cache.add.called, "cache.add should have been called")
+        cache_key = mock_cache.add.call_args[0][0]
+        self.assertIn(str(self.user.pk), cache_key, "Rate limit key must include user PK for auth'd users")
+        self.assertNotIn("_ip_", cache_key, "Rate limit key must NOT be IP-based for auth'd users")
+
+    def test_rate_limit_fires_after_auth_check(self):
+        """Auth check must come before rate limit — 401 returned, not 429."""
+        # Fill up the IP rate-limit bucket manually (simulating a bot attack)
+        from django.core.cache import cache as real_cache
+        import hashlib
+        ip = "127.0.0.1"
+        ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
+        ip_key = f"donation_ratelimit_ip_{ip_hash}"
+        real_cache.set(ip_key, 10, timeout=60)  # way over limit
+
+        # An unauthenticated request — should get 401, not 429
+        self._set_donation_session()
+        resp = self._post_intent()
+        self.assertEqual(resp.status_code, 401,
+            "Unauthenticated request should return 401 (auth check), not 429 (rate limit).")
+
+
+# ---------------------------------------------------------------------------
+# M-E — RecurringGiftCancelView defers Stripe call to on_commit
+# ---------------------------------------------------------------------------
+
+class MERecurringCancelDeferredTests(DonationViewTestBase):
+    """M-E: gateway.cancel_subscription must be called via on_commit, not inside atomic()."""
+
+    def _cancel_url(self, plan_pk):
+        return reverse("donate:recurring_cancel", kwargs={"plan_pk": str(plan_pk)})
+
+    def test_recurring_gift_cancel_defers_stripe_call_to_on_commit(self):
+        """Stripe cancel_subscription must fire after the transaction commits."""
+        self.client.force_login(self.user)
+        plan = make_recurring_plan(self.user)
+
+        mock_gw = MagicMock()
+        mock_gw.cancel_subscription.return_value = True
+
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(self._cancel_url(plan.pk))
+
+        self.assertEqual(resp.status_code, 302)
+        mock_gw.cancel_subscription.assert_called_once_with(plan.gateway_subscription_id)
+
+    def test_stripe_cancel_registered_via_on_commit(self):
+        """Stripe cancel must be deferred via on_commit, not called inline.
+
+        connection.in_atomic_block is always True inside TestCase (the test
+        itself runs in a wrapping savepoint transaction), so we verify deferral
+        structurally: (1) source contains 'on_commit', and (2) cancel is NOT
+        called before on_commit callbacks execute.
+        """
+        import inspect
+        from apps.payments.views import donation as donation_module
+
+        source = inspect.getsource(donation_module.RecurringGiftCancelView.post)
+        self.assertIn(
+            "on_commit",
+            source,
+            "RecurringGiftCancelView.post() must register cancel_subscription "
+            "via on_commit (M-E fix).",
+        )
+
+        self.client.force_login(self.user)
+        plan = make_recurring_plan(self.user)
+        mock_gw = MagicMock()
+        mock_gw.cancel_subscription.return_value = True
+
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            # execute=False: callbacks are captured but NOT run — Stripe must not
+            # be called while the inner atomic() is still open.
+            with self.captureOnCommitCallbacks(execute=False):
+                self.client.post(self._cancel_url(plan.pk))
+                mock_gw.cancel_subscription.assert_not_called()
+        # Callbacks still not executed after the context exits (execute=False)
+        mock_gw.cancel_subscription.assert_not_called()
+
+    def test_recurring_cancel_plan_cancelled_even_if_stripe_fails(self):
+        """Plan must be CANCELLED in DB even if Stripe cancel raises (on_commit path)."""
+        self.client.force_login(self.user)
+        plan = make_recurring_plan(self.user)
+
+        mock_gw = MagicMock()
+        mock_gw.cancel_subscription.side_effect = GatewayError("stripe down", gateway_code="network_error")
+
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(self._cancel_url(plan.pk))
+
+        # Plan must still be cancelled locally
+        plan.refresh_from_db()
+        self.assertEqual(plan.status, PLAN_STATUS_CANCELLED)
+        # Response must still redirect (not 500)
+        self.assertEqual(resp.status_code, 302)
+
+
+# ---------------------------------------------------------------------------
+# M-F — IP masking via ipware in audit logs
+# ---------------------------------------------------------------------------
+
+class MFIPMaskingDonationTests(DonationViewTestBase):
+    """M-F: session-expired log in donation views uses _mask_ip(_get_client_ip()), not REMOTE_ADDR."""
+
+    def test_session_expired_log_uses_get_client_ip(self):
+        """session_expired warning must use _get_client_ip, not raw REMOTE_ADDR."""
+        self.client.force_login(self.user)
+        # No session set — triggers the session_expired log warning path
+        with patch("apps.payments.views.donation._get_client_ip", return_value="10.0.0.1") as mock_ip:
+            resp = self._post_intent()
+        # Should be 403 (session expired) — proving the session_expired branch was hit
+        self.assertEqual(resp.status_code, 403)
+        mock_ip.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# M-M — DonationCancelView cancels Stripe PI
+# ---------------------------------------------------------------------------
+
+class MMDonationCancelStripeTests(DonationViewTestBase):
+    """M-M: DonationCancelView must cancel the live Stripe PI via on_commit."""
+
+    def test_cancel_view_cancels_stripe_pi_on_commit(self):
+        """When a pending PaymentIntent exists in session, cancel it via on_commit."""
+        self.client.force_login(self.user)
+        intent = make_payment_intent(
+            self.user,
+            status=PaymentIntent.STATUS_PENDING,
+            gateway_intent_id="pi_live_test_001",
+        )
+        # Simulate session as set by create_donation_intent_api
+        sd = self._default_session_data()
+        sd["donation_payment_intent_pk"] = str(intent.pk)
+        self._set_donation_session(sd)
+
+        mock_gw = MagicMock()
+        mock_gw.cancel_payment_intent.return_value = True
+
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(CANCEL_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        mock_gw.cancel_payment_intent.assert_called_once_with("pi_live_test_001")
+
+    def test_cancel_view_no_stripe_call_when_no_session_pi(self):
+        """No Stripe PI cancel when session has no intent PK."""
+        mock_gw = MagicMock()
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(CANCEL_URL)
+        self.assertEqual(resp.status_code, 200)
+        mock_gw.cancel_payment_intent.assert_not_called()
+
+    def test_cancel_view_session_cleared_after_get(self):
+        """Session must be cleared regardless of whether a PI exists."""
+        self.client.force_login(self.user)
+        intent = make_payment_intent(self.user, status=PaymentIntent.STATUS_PENDING)
+        sd = self._default_session_data()
+        sd["donation_payment_intent_pk"] = str(intent.pk)
+        self._set_donation_session(sd)
+
+        mock_gw = MagicMock()
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=False):
+                self.client.get(CANCEL_URL)
+
+        session = self.client.session
+        self.assertNotIn(DONATION_SESSION_KEY, session)
+
+    def test_cancel_view_stripe_cancel_failure_does_not_crash(self):
+        """A Stripe cancel failure must not propagate — view must still return 200."""
+        self.client.force_login(self.user)
+        intent = make_payment_intent(
+            self.user,
+            status=PaymentIntent.STATUS_PENDING,
+            gateway_intent_id="pi_fail_test",
+        )
+        sd = self._default_session_data()
+        sd["donation_payment_intent_pk"] = str(intent.pk)
+        self._set_donation_session(sd)
+
+        mock_gw = MagicMock()
+        mock_gw.cancel_payment_intent.side_effect = Exception("Stripe is down")
+
+        with patch("apps.payments.views.donation.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(CANCEL_URL)
+
+        self.assertEqual(resp.status_code, 200)

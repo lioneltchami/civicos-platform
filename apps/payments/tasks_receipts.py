@@ -8,9 +8,11 @@ Security invariants:
 """
 from __future__ import annotations
 
+import itertools
 import logging
 from datetime import datetime
 from decimal import Decimal
+from operator import attrgetter
 
 import pytz
 
@@ -251,12 +253,18 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
         total,
     )
 
-    # Group by donor_id
-    from collections import defaultdict
-    donations_by_donor: dict = defaultdict(list)
-    # chunk_size=500: server-side cursor fetches 500 rows at a time.
-    # Prevents loading hundreds of thousands of donation rows into memory at once.
-    # Celery workers have limited RAM and the annual run processes all donors.
+    # M-G fix: process donations donor-by-donor using itertools.groupby to avoid
+    # buffering all rows in a dict simultaneously.
+    #
+    # The old pattern (donations_by_donor = defaultdict(list)) collected every
+    # donation row into a single in-memory dict before processing anyone, negating
+    # the entire benefit of .iterator(chunk_size=500). For a municipality with
+    # 200k annual donors / 1.5M donations this causes an OOM kill.
+    #
+    # itertools.groupby consumes one contiguous group at a time: only the current
+    # donor's rows are held in memory while we build and save their receipt.
+    # The queryset is already sorted by (donor_id, created_at) — groupby requires
+    # a sorted input to work correctly, and the sort happens in PostgreSQL.
     #
     # H4 fix: transaction.atomic() is required for PostgreSQL server-side cursors.
     # Without an open transaction, Django silently falls back to loading the entire
@@ -264,123 +272,124 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
     # large datasets. Inner transaction.atomic() blocks inside the per-donor loop
     # nest as savepoints, which is safe in Django with PostgreSQL.
     with transaction.atomic():
-        for donation in completed_donations.iterator(chunk_size=500):
-            donations_by_donor[donation.donor_id].append(donation)
-
-    for donor_id, donor_donations in donations_by_donor.items():
-        try:
-            # Filter to donations with eligible_amount > 0 (outside lock — read-only)
-            eligible_donations = [
-                d for d in donor_donations
-                if d.eligible_amount > Decimal("0.00")
-            ]
-            if not eligible_donations:
-                skipped += 1
-                continue
-
-            # Use the first donation as the anchor (FK required by model)
-            anchor = eligible_donations[0]
-            is_consolidated = len(eligible_donations) > 1
-
-            # Sum eligible amounts across all donations in year
-            total_eligible = sum(d.eligible_amount for d in eligible_donations)
-            total_advantage = sum(d.advantage_amount for d in eligible_donations)
-
-            # Build charity address snapshot
-            charity_address = (
-                f"{charity.charity_address_line1}, "
-                f"{charity.charity_city}, "
-                f"{charity.charity_province} "
-                f"{charity.charity_postal_code}"
-            )
-
-            # Parse donor address from snapshot (stored as free text)
-            # The snapshot contains the full address string; we store it in charity_address
-            # style. For individual fields, fall back to splitting or using the snapshot.
-            donor_address_snapshot = anchor.donor_address_snapshot
-
-            # OfficialDonationReceipt requires individual donor address fields.
-            # Parse from the snapshot. Format stored by donation form:
-            # "line1\ncity, province  postal_code"
-            donor_address_parts = _parse_donor_address(donor_address_snapshot)
-
-            # Consolidate advantage descriptions across all eligible donations
-            unique_advantage_descriptions = "; ".join(
-                desc for desc in dict.fromkeys(  # preserve order, deduplicate
-                    d.advantage_description for d in eligible_donations
-                    if getattr(d, "advantage_description", None)
-                )
-            )
-            advantage_description = unique_advantage_descriptions[:255] if unique_advantage_descriptions else ""
-
-            # Check if an issued receipt already exists for this donor/year (fast pre-check).
-            # A UniqueConstraint on (donation, status=issued) prevents true duplicates at
-            # the DB level — we catch IntegrityError below for the TOCTOU window.
-            # Use the same UTC-converted local-time bounds (_year_start_utc / _year_end_utc)
-            # as the main donation query above — not __year= which uses UTC year.
-            if OfficialDonationReceipt.objects.filter(
-                donation__donor_id=donor_id,
-                donation__created_at__gte=_year_start_utc,
-                donation__created_at__lte=_year_end_utc,
-                status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
-            ).exists():
-                skipped += 1
-                continue
-
+        for donor_id, donor_group in itertools.groupby(
+            completed_donations.iterator(chunk_size=500),
+            key=attrgetter("donor_id"),
+        ):
+            donor_donations = list(donor_group)  # only current donor's rows in memory
             try:
-                with transaction.atomic():
-                    receipt = OfficialDonationReceipt(
-                        donation=anchor,
-                        status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
-                        donor_legal_name=anchor.donor_name_snapshot,
-                        donor_address_line1=donor_address_parts.get("line1", donor_address_snapshot[:255]),
-                        donor_city=donor_address_parts.get("city", ""),
-                        donor_province=donor_address_parts.get("province", ""),
-                        donor_postal_code=donor_address_parts.get("postal_code", ""),
-                        # CRA date fields — use local time so a donation at 23:30 ET on Dec 31
-                        # does not appear as Jan 1 on the CRA receipt due to UTC offset.
-                        donation_date=localtime(anchor.created_at).date(),
-                        receipt_date=localtime(timezone.now()).date(),
-                        eligible_amount=total_eligible,
-                        advantage_amount=total_advantage,
-                        advantage_description=advantage_description,
-                        charity_legal_name=charity.charity_legal_name,
-                        charity_registration_number=charity.charity_registration_number,
-                        charity_address=charity_address,
-                        place_of_issue=charity.place_of_issue,
-                        authorized_signatory_name=charity.authorized_signatory_name,
-                        authorized_signatory_title=charity.authorized_signatory_title,
-                        is_annual_consolidated=is_consolidated,
-                    )
-                    receipt.save()
-                    # Queue PDF generation + email AFTER commit to avoid orphaned tasks
-                    transaction.on_commit(lambda r=receipt: generate_and_send_receipt.delay(str(r.pk)))
-            except IntegrityError as exc:
-                # C3 fix: only swallow the specific unique-receipt constraint violation
-                # (expected race condition when two annual receipt workers run concurrently
-                # for the same donor). Re-raise all other IntegrityErrors so real DB
-                # errors (FK violations, NOT NULL failures, etc.) surface to operators
-                # rather than being silently counted as "skipped".
-                _UNIQUE_CONSTRAINT = "payments_receipt_unique_issued_per_donation"
-                if _UNIQUE_CONSTRAINT not in str(exc):
-                    raise
-                logger.info(
-                    "payments.annual_receipts.duplicate_skipped donation_pk=%s",
-                    anchor.pk,
+                # Filter to donations with eligible_amount > 0 (outside lock — read-only)
+                eligible_donations = [
+                    d for d in donor_donations
+                    if d.eligible_amount > Decimal("0.00")
+                ]
+                if not eligible_donations:
+                    skipped += 1
+                    continue
+
+                # Use the first donation as the anchor (FK required by model)
+                anchor = eligible_donations[0]
+                is_consolidated = len(eligible_donations) > 1
+
+                # Sum eligible amounts across all donations in year
+                total_eligible = sum(d.eligible_amount for d in eligible_donations)
+                total_advantage = sum(d.advantage_amount for d in eligible_donations)
+
+                # Build charity address snapshot
+                charity_address = (
+                    f"{charity.charity_address_line1}, "
+                    f"{charity.charity_city}, "
+                    f"{charity.charity_province} "
+                    f"{charity.charity_postal_code}"
                 )
-                skipped += 1
-                continue
 
-            processed += 1
+                # Parse donor address from snapshot (stored as free text)
+                # The snapshot contains the full address string; we store it in charity_address
+                # style. For individual fields, fall back to splitting or using the snapshot.
+                donor_address_snapshot = anchor.donor_address_snapshot
 
-        except Exception as exc:
-            logger.error(
-                "payments.task.annual_receipts.donor_error "
-                "tax_year=%s error_type=%s",
-                tax_year,
-                type(exc).__name__,
-            )
-            failed += 1
+                # OfficialDonationReceipt requires individual donor address fields.
+                # Parse from the snapshot. Format stored by donation form:
+                # "line1\ncity, province  postal_code"
+                donor_address_parts = _parse_donor_address(donor_address_snapshot)
+
+                # Consolidate advantage descriptions across all eligible donations
+                unique_advantage_descriptions = "; ".join(
+                    desc for desc in dict.fromkeys(  # preserve order, deduplicate
+                        d.advantage_description for d in eligible_donations
+                        if getattr(d, "advantage_description", None)
+                    )
+                )
+                advantage_description = unique_advantage_descriptions[:255] if unique_advantage_descriptions else ""
+
+                # Check if an issued receipt already exists for this donor/year (fast pre-check).
+                # A UniqueConstraint on (donation, status=issued) prevents true duplicates at
+                # the DB level — we catch IntegrityError below for the TOCTOU window.
+                # Use the same UTC-converted local-time bounds (_year_start_utc / _year_end_utc)
+                # as the main donation query above — not __year= which uses UTC year.
+                if OfficialDonationReceipt.objects.filter(
+                    donation__donor_id=donor_id,
+                    donation__created_at__gte=_year_start_utc,
+                    donation__created_at__lte=_year_end_utc,
+                    status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
+                ).exists():
+                    skipped += 1
+                    continue
+
+                try:
+                    with transaction.atomic():
+                        receipt = OfficialDonationReceipt(
+                            donation=anchor,
+                            status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
+                            donor_legal_name=anchor.donor_name_snapshot,
+                            donor_address_line1=donor_address_parts.get("line1", donor_address_snapshot[:255]),
+                            donor_city=donor_address_parts.get("city", ""),
+                            donor_province=donor_address_parts.get("province", ""),
+                            donor_postal_code=donor_address_parts.get("postal_code", ""),
+                            # CRA date fields — use local time so a donation at 23:30 ET on Dec 31
+                            # does not appear as Jan 1 on the CRA receipt due to UTC offset.
+                            donation_date=localtime(anchor.created_at).date(),
+                            receipt_date=localtime(timezone.now()).date(),
+                            eligible_amount=total_eligible,
+                            advantage_amount=total_advantage,
+                            advantage_description=advantage_description,
+                            charity_legal_name=charity.charity_legal_name,
+                            charity_registration_number=charity.charity_registration_number,
+                            charity_address=charity_address,
+                            place_of_issue=charity.place_of_issue,
+                            authorized_signatory_name=charity.authorized_signatory_name,
+                            authorized_signatory_title=charity.authorized_signatory_title,
+                            is_annual_consolidated=is_consolidated,
+                        )
+                        receipt.save()
+                        # Queue PDF generation + email AFTER commit to avoid orphaned tasks
+                        transaction.on_commit(lambda r=receipt: generate_and_send_receipt.delay(str(r.pk)))
+                except IntegrityError as exc:
+                    # C3 fix: only swallow the specific unique-receipt constraint violation
+                    # (expected race condition when two annual receipt workers run concurrently
+                    # for the same donor). Re-raise all other IntegrityErrors so real DB
+                    # errors (FK violations, NOT NULL failures, etc.) surface to operators
+                    # rather than being silently counted as "skipped".
+                    _UNIQUE_CONSTRAINT = "payments_receipt_unique_issued_per_donation"
+                    if _UNIQUE_CONSTRAINT not in str(exc):
+                        raise
+                    logger.info(
+                        "payments.annual_receipts.duplicate_skipped donation_pk=%s",
+                        anchor.pk,
+                    )
+                    skipped += 1
+                    continue
+
+                processed += 1
+
+            except Exception as exc:
+                logger.error(
+                    "payments.task.annual_receipts.donor_error "
+                    "tax_year=%s error_type=%s",
+                    tax_year,
+                    type(exc).__name__,
+                )
+                failed += 1
 
     logger.info(
         "payments.task.annual_receipts.done "
@@ -442,8 +451,11 @@ def _parse_donor_address(address_snapshot: str) -> dict:
 @shared_task(
     bind=True,
     name="apps.payments.tasks_receipts.kickoff_annual_receipts",
-    max_retries=0,
-    acks_late=False,
+    max_retries=3,
+    default_retry_delay=300,  # 5 min between retries
+    acks_late=True,           # M-H fix: ack only after successful completion
+    reject_on_worker_lost=True,  # M-H fix: requeue if worker is SIGKILL'd mid-dispatch
+    queue="receipts",
 )
 def kickoff_annual_receipts(self) -> dict:
     """

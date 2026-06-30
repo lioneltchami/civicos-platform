@@ -2227,3 +2227,146 @@ class StripeApiVersionPinningTests(SimpleTestCase):
             "stripe.Subscription.cancel must pass stripe_version=",
         )
         self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
+
+
+# ---------------------------------------------------------------------------
+# M-A — retrieve_payment_intent expands latest_charge and returns card data
+# ---------------------------------------------------------------------------
+
+def _make_expanded_charge_dict(last4="4242", brand="visa", created=1700000000, amount_received=2000):
+    """Return a plain dict representing an expanded Stripe Charge object."""
+    return {
+        "id": "ch_expanded_test",
+        "payment_method_details": {
+            "card": {
+                "last4": last4,
+                "brand": brand,
+            },
+        },
+        "created": created,
+        "amount_received": amount_received,
+        "amount": amount_received,
+    }
+
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class RetrievePaymentIntentExpandsLatestChargeTests(SimpleTestCase):
+    """
+    M-A: retrieve_payment_intent must pass expand=['latest_charge'] to Stripe
+    and return card_last_four, card_brand, paid_at, and amount_received from
+    the expanded charge object so Payment rows are never NULL for these fields.
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def _make_intent_with_expanded_charge(self, charge_dict):
+        """Build a minimal MagicMock PaymentIntent with an expanded charge dict."""
+        intent = MagicMock()
+        intent.id = "pi_ma_test"
+        intent.status = "succeeded"
+        intent.amount = charge_dict.get("amount_received", 2000)
+        intent.currency = "cad"
+        intent.last_payment_error = None
+        # Simulate expanded charge as a plain dict (as returned by to_dict() on
+        # a real StripeObject, or directly when stripe returns a dict).
+        # We attach it as a dict so isinstance(raw_charge, dict) is True.
+        intent.latest_charge = charge_dict
+        return intent
+
+    def test_retrieve_payment_intent_passes_expand_latest_charge(self):
+        """retrieve_payment_intent must pass expand=['latest_charge'] to Stripe."""
+        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict())
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent) as mock_retrieve:
+            self.gw.retrieve_payment_intent("pi_ma_test")
+        call_kwargs = mock_retrieve.call_args[1]
+        self.assertIn(
+            "expand", call_kwargs,
+            "retrieve_payment_intent must pass expand= to stripe.PaymentIntent.retrieve",
+        )
+        self.assertIn(
+            "latest_charge",
+            call_kwargs["expand"],
+            "expand must include 'latest_charge'",
+        )
+
+    def test_card_last_four_extracted_from_expanded_charge(self):
+        """card_last_four is extracted from expanded charge payment_method_details."""
+        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(last4="4242"))
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_ma_test")
+        self.assertEqual(result["card_last_four"], "4242")
+
+    def test_card_last_four_never_more_than_4_chars(self):
+        """card_last_four is hard-truncated to 4 characters even for malformed source data."""
+        # Simulate a malformed last4 (e.g., full PAN accidentally sent by bad middleware)
+        intent = self._make_intent_with_expanded_charge(
+            _make_expanded_charge_dict(last4="4111111111111111")
+        )
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_ma_test")
+        self.assertIsNotNone(result["card_last_four"])
+        self.assertLessEqual(
+            len(result["card_last_four"]), 4,
+            "card_last_four must never exceed 4 characters (PCI DSS)",
+        )
+        self.assertEqual(result["card_last_four"], "4111")
+
+    def test_card_brand_extracted_and_mapped(self):
+        """card_brand is mapped through _BRAND_MAP from the expanded charge."""
+        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(brand="visa"))
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_ma_test")
+        self.assertEqual(result["card_brand"], "visa")
+
+    def test_card_brand_unknown_maps_to_other(self):
+        """Unknown brand from Stripe falls back to 'other' via _BRAND_MAP.get default."""
+        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(brand="bogus_brand"))
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_ma_test")
+        self.assertEqual(result["card_brand"], "other")
+
+    def test_paid_at_is_datetime_from_charge_created(self):
+        """paid_at is a timezone-aware datetime derived from charge.created Unix timestamp."""
+        import datetime
+        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(created=1700000000))
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_ma_test")
+        self.assertIsNotNone(result["paid_at"])
+        self.assertIsInstance(result["paid_at"], datetime.datetime)
+        self.assertIsNotNone(result["paid_at"].tzinfo, "paid_at must be timezone-aware")
+        self.assertEqual(
+            result["paid_at"],
+            datetime.datetime.fromtimestamp(1700000000, tz=datetime.timezone.utc),
+        )
+
+    def test_amount_received_returned_as_decimal(self):
+        """amount_received is returned as a CAD Decimal converted from Stripe cents."""
+        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(amount_received=2000))
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_ma_test")
+        from decimal import Decimal
+        self.assertEqual(result["amount_received"], Decimal("20.00"))
+
+    def test_no_latest_charge_returns_null_card_fields(self):
+        """When there is no latest_charge, card fields are all None/zero."""
+        intent = MagicMock()
+        intent.id = "pi_no_charge"
+        intent.status = "requires_payment_method"
+        intent.amount = 5000
+        intent.currency = "cad"
+        intent.last_payment_error = None
+        intent.latest_charge = None
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_no_charge")
+        self.assertIsNone(result["card_last_four"])
+        self.assertIsNone(result["card_brand"])
+        self.assertIsNone(result["paid_at"])
+
+    def test_mastercard_brand_mapped_correctly(self):
+        """'mastercard' Stripe brand maps to 'mastercard' in our model."""
+        intent = self._make_intent_with_expanded_charge(_make_expanded_charge_dict(brand="mastercard"))
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_ma_test")
+        self.assertEqual(result["card_brand"], "mastercard")

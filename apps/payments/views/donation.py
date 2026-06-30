@@ -47,6 +47,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
+from django.db import transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -231,17 +232,21 @@ def create_donation_intent_api(request):
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed."}, status=405)
 
-    # Rate limit — 5 per minute per IP (anonymous) or user pk (authenticated)
+    # Auth check BEFORE rate limit — unauthenticated requests must not consume
+    # the rate-limit quota.  An IP-based bot could otherwise exhaust the bucket
+    # for all users behind the same proxy before any real (authenticated) donor
+    # has a chance to use it.  (M-D fix)
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "authentication_required"}, status=401)
+
+    # Rate limit — 5 per minute per IP (anonymous) or user pk (authenticated).
+    # Now placed after the auth check so authenticated users always use the
+    # user-keyed bucket, not the IP-keyed bucket.  (M-D fix)
     if _check_donation_rate_limit(request):
         return JsonResponse(
             {"error": "Too many requests. Please wait a moment."},
             status=429,
         )
-
-    # Auth check BEFORE any gateway call — avoids creating an orphaned Stripe
-    # PaymentIntent for anonymous users (PaymentIntent.payer is NOT NULL).
-    if not request.user.is_authenticated:
-        return JsonResponse({"error": "authentication_required"}, status=401)
 
     session_data = request.session.get(DONATION_SESSION_KEY)
     if not session_data:
@@ -448,15 +453,61 @@ class DonationSuccessView(TemplateView):
 # Step 5: Cancel
 # ---------------------------------------------------------------------------
 
+def _cancel_stripe_pi_safe(gateway, pi_id: str) -> None:
+    """Cancel a Stripe PaymentIntent — fire-and-forget.
+
+    Called via transaction.on_commit() from DonationCancelView and
+    FeePaymentCancelView.  A failed cancel is NOT fatal — we log and move on.
+    The PI is left in 'requires_payment_method' state on Stripe but the session
+    has already been cleared, so the donor cannot be charged.
+    """
+    try:
+        gateway.cancel_payment_intent(pi_id)
+    except Exception as exc:
+        logger.warning(
+            "payments.cancel.stripe_pi_cancel_failed pi_id=%s exc_type=%s",
+            pi_id,
+            type(exc).__name__,
+        )
+
+
 class DonationCancelView(TemplateView):
     """
     Step 5: donor cancelled — clear session, show no-charge message.
+
+    M-M fix: if a live Stripe PaymentIntent was created for this session, cancel
+    it via on_commit() (fire-and-forget) to avoid accumulating stale PIs on Stripe.
     """
 
     template_name = "payments/donation_cancel.html"
 
     def get(self, request, *args, **kwargs):
-        request.session.pop(DONATION_SESSION_KEY, None)
+        session_data = request.session.pop(DONATION_SESSION_KEY, {})
+
+        # M-M fix: cancel the live Stripe PI if one was created for this session.
+        intent_pk = session_data.get("donation_payment_intent_pk")
+        if intent_pk:
+            try:
+                import uuid as _uuid_mod
+                _uuid_mod.UUID(str(intent_pk))  # validate before DB lookup
+                intent = PaymentIntent.objects.get(
+                    pk=intent_pk,
+                    status=PaymentIntent.STATUS_PENDING,
+                )
+                if intent.gateway_intent_id:
+                    _gw = get_gateway()
+                    _pi_id = intent.gateway_intent_id
+                    # Use on_commit if inside a transaction, otherwise call directly.
+                    # DonationCancelView makes no DB writes so there may be no active
+                    # transaction — wrap in atomic() so on_commit fires reliably.
+                    with transaction.atomic():
+                        transaction.on_commit(
+                            lambda gw=_gw, pi_id=_pi_id:
+                                _cancel_stripe_pi_safe(gw, pi_id)
+                        )
+            except (PaymentIntent.DoesNotExist, ValueError):
+                pass
+
         return super().get(request, *args, **kwargs)
 
 
@@ -491,7 +542,13 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
         return ctx
 
     def post(self, request, *args, **kwargs):
-        """Execute recurring gift cancellation."""
+        """Execute recurring gift cancellation.
+
+        M-E fix: gateway.cancel_subscription() is deferred to transaction.on_commit()
+        so the DB lock is released before the Stripe HTTP call.  Holding the lock
+        during a 1-3 second network call causes connection pool exhaustion under load
+        and leaves the DB record in a half-cancelled state if Stripe times out.
+        """
         from django.db import transaction as db_transaction
 
         plan = self.plan
@@ -500,6 +557,8 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
         if plan.status == PLAN_STATUS_CANCELLED:
             return redirect("donate:donation_select")
 
+        _gateway_sub_id_holder: list = []
+
         with db_transaction.atomic():
             # Re-fetch with row lock inside the transaction
             plan = RecurringGiftPlan.objects.select_for_update().get(pk=plan.pk)
@@ -507,23 +566,8 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
             if plan.status == PLAN_STATUS_CANCELLED:
                 return redirect("donate:donation_select")
 
-            # Cancel on gateway if subscription ID is set
-            gateway_cancelled = False
-            if plan.gateway_subscription_id:
-                try:
-                    gateway = get_gateway()
-                    gateway_cancelled = gateway.cancel_subscription(plan.gateway_subscription_id)
-                except GatewayError as exc:
-                    logger.error(
-                        "payments.recurring_cancel.gateway_error type=%s gateway_code=%s plan_pk=%s",
-                        type(exc).__name__,
-                        exc.gateway_code,
-                        str(plan.pk),
-                    )
-                    # Continue to mark cancelled locally so donor isn't stuck
-                    gateway_cancelled = False
-
-            # Update plan status regardless of gateway result
+            # Update plan status BEFORE the gateway call — the on_commit callback
+            # will attempt the Stripe cancel after the lock is released.
             plan.status = PLAN_STATUS_CANCELLED
             plan.cancelled_at = timezone.now()
             plan.cancellation_reason = "cancelled_by_donor"
@@ -545,15 +589,38 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
                 details={
                     "plan_pk": str(plan.pk),
                     "gateway_subscription_id": masked_sub_id,
-                    "gateway_cancelled": gateway_cancelled,
+                    "gateway_cancelled": "deferred",
                     "cancelled_by": "donor",
                 },
             )
 
+            # Defer Stripe cancel to after commit — releases DB lock first.
+            # (M-E fix: same pattern as RefundConfirmView H8 fix)
+            if plan.gateway_subscription_id:
+                _sub_id = plan.gateway_subscription_id
+                _plan_pk_str = str(plan.pk)
+
+                def _do_stripe_cancel(
+                    gateway_sub_id=_sub_id,
+                    plan_pk_str=_plan_pk_str,
+                ):
+                    try:
+                        gateway = get_gateway()
+                        gateway.cancel_subscription(gateway_sub_id)
+                    except Exception as exc:
+                        logger.critical(
+                            "payments.recurring_cancel.stripe_cancel_failed "
+                            "plan_pk=%s sub_id_prefix=%s exc_type=%s RECONCILIATION_REQUIRED",
+                            plan_pk_str,
+                            gateway_sub_id[:8] if len(gateway_sub_id) > 8 else "***",
+                            type(exc).__name__,
+                        )
+
+                db_transaction.on_commit(_do_stripe_cancel)
+
         logger.info(
-            "payments.recurring_cancel.done plan_pk=%s gateway_cancelled=%s",
+            "payments.recurring_cancel.done plan_pk=%s",
             str(plan.pk),
-            gateway_cancelled,
         )
 
         return redirect("donate:donation_select")

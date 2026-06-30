@@ -42,6 +42,32 @@ from apps.payments.models import Payment, PaymentAuditEntry, Refund
 
 logger = logging.getLogger(__name__)
 
+# M-F fix: use django-ipware for correct IP extraction behind load balancers /
+# Cloudflare.  REMOTE_ADDR is always the proxy IP in those environments.
+try:
+    from ipware import get_client_ip as _ipware_get_client_ip
+except ImportError:  # pragma: no cover
+    _ipware_get_client_ip = None
+
+
+def _get_client_ip(request) -> str:
+    """Return the real client IP, honouring the configured proxy chain.
+
+    Uses django-ipware which respects IPWARE_META_PRECEDENCE_ORDER / NUM_PROXIES
+    so the correct header (X-Forwarded-For, X-Real-IP) is used behind ALBs and
+    Cloudflare rather than the always-proxy REMOTE_ADDR.
+
+    Falls back to REMOTE_ADDR when django-ipware is unavailable.
+    """
+    if _ipware_get_client_ip is not None:
+        try:
+            ip, _ = _ipware_get_client_ip(request)
+            if ip:
+                return ip
+        except Exception:
+            pass
+    return request.META.get("REMOTE_ADDR", "")
+
 # Session key for storing validated refund data between form and confirmation
 REFUND_SESSION_KEY = "payments_pending_refund"
 
@@ -289,7 +315,7 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                 refund=refund,
                 action="refund_requested",
                 actor=request.user,
-                actor_ip=_mask_ip(request.META.get("REMOTE_ADDR", "")),
+                actor_ip=_mask_ip(_get_client_ip(request)),
                 details={
                     "refund_pk": str(refund.pk),
                     "amount": str(refund_amount),

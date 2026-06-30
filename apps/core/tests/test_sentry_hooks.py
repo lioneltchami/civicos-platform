@@ -50,10 +50,12 @@ class BeforeBreadcrumbPIIFieldsTest(SimpleTestCase):
         self.assertEqual(result["data"]["webhook_endpoint_secret"], "[Filtered]")
 
     def test_preserves_non_pii_fields(self):
-        crumb = {"message": "payment processed", "data": {"payment_id": "pi_abc123", "amount": 5000}, "category": "app"}
+        # Note: "amount" was moved to PII_FIELDS by M-J fix (financial data is PII
+        # when combined with donor identity under PIPEDA). Use non-PII keys instead.
+        crumb = {"message": "payment processed", "data": {"payment_id": "pi_abc123", "status": "succeeded"}, "category": "app"}
         result = _before_breadcrumb(crumb, {})
         self.assertEqual(result["data"]["payment_id"], "pi_abc123")
-        self.assertEqual(result["data"]["amount"], 5000)
+        self.assertEqual(result["data"]["status"], "succeeded")
 
     def test_handles_missing_data_key(self):
         crumb = {"message": "something happened", "category": "app"}
@@ -174,3 +176,154 @@ class BeforeSendHeaderStrippingTest(SimpleTestCase):
         event = self._make_event({"Content-Type": "application/json"})
         result = _before_send(event, {})
         self.assertIs(result, event)
+
+
+# ---------------------------------------------------------------------------
+# M-I — httpx and httpcore breadcrumbs must be dropped
+# ---------------------------------------------------------------------------
+
+class BeforeBreadcrumbHttpxDropTest(SimpleTestCase):
+    """
+    M-I: Stripe SDK >= 15 switched its HTTP transport from requests/urllib3 to
+    httpx. If httpx breadcrumbs are not dropped, Stripe API calls to
+    api.stripe.com/v1/payment_intents appear in Sentry with full request/response
+    bodies including charge IDs and customer references — a PIPEDA violation.
+
+    httpcore is httpx's underlying transport layer and may emit its own
+    breadcrumbs with raw HTTP data.
+    """
+
+    def test_httpx_breadcrumbs_dropped(self):
+        """httpx category breadcrumbs must be filtered entirely (Stripe SDK >= 15 uses httpx)."""
+        crumb = {
+            "category": "httpx",
+            "message": "GET https://api.stripe.com/v1/customers/cus_xxx",
+            "data": {"status_code": 200},
+        }
+        result = _before_breadcrumb(crumb, {})
+        self.assertIsNone(
+            result,
+            "httpx breadcrumbs must be dropped — Stripe SDK >= 15 uses httpx as "
+            "its HTTP transport and request/response bodies may contain customer IDs.",
+        )
+
+    def test_httpcore_breadcrumbs_dropped(self):
+        """httpcore category breadcrumbs must be filtered entirely (transport layer under httpx)."""
+        crumb = {
+            "category": "httpcore",
+            "message": "HTTP/1.1 200 OK",
+            "data": {},
+        }
+        result = _before_breadcrumb(crumb, {})
+        self.assertIsNone(
+            result,
+            "httpcore breadcrumbs must be dropped — it is the transport layer "
+            "under httpx and may emit raw HTTP data including Stripe response bodies.",
+        )
+
+    def test_urllib3_still_dropped(self):
+        """Regression: urllib3 breadcrumbs must still be dropped after M-I change."""
+        crumb = {"category": "urllib3", "message": "http request", "data": {}}
+        result = _before_breadcrumb(crumb, {})
+        self.assertIsNone(result)
+
+    def test_requests_still_dropped(self):
+        """Regression: requests breadcrumbs must still be dropped after M-I change."""
+        crumb = {"category": "requests", "message": "GET /v1/customers", "data": {}}
+        result = _before_breadcrumb(crumb, {})
+        self.assertIsNone(result)
+
+
+# ---------------------------------------------------------------------------
+# M-J — before_send must scrub event["extra"]
+# ---------------------------------------------------------------------------
+
+class BeforeSendExtraScrubbingTest(SimpleTestCase):
+    """
+    M-J: Django's Sentry SDK (with send_default_pii=False, DEBUG=False) places
+    request.POST in event["extra"] rather than event["request"]["data"].
+    The existing header-scrub logic misses this, exposing donor names, amounts,
+    and email addresses in POST bodies to Sentry's US servers — a PIPEDA violation
+    under the municipal data-processing agreement.
+    """
+
+    def test_before_send_scrubs_donor_name_from_extra(self):
+        """before_send must replace donor_name in event['extra'] with '[Filtered]'."""
+        event = {
+            "request": {},
+            "extra": {"donor_name": "Alice Smith", "non_pii_key": "keep_this"},
+        }
+        result = _before_send(event, {})
+        self.assertEqual(result["extra"]["donor_name"], "[Filtered]")
+        self.assertEqual(result["extra"]["non_pii_key"], "keep_this")
+
+    def test_before_send_scrubs_amount_from_extra(self):
+        """before_send must replace amount in event['extra'] with '[Filtered]'."""
+        event = {
+            "request": {},
+            "extra": {"amount": "100.00", "tax_year": 2024},
+        }
+        result = _before_send(event, {})
+        self.assertEqual(result["extra"]["amount"], "[Filtered]")
+        self.assertEqual(result["extra"]["tax_year"], 2024)
+
+    def test_before_send_scrubs_multiple_pii_fields_from_extra(self):
+        """before_send must scrub all PII keys from event['extra'] in one pass."""
+        event = {
+            "request": {},
+            "extra": {
+                "donor_name": "Alice Smith",
+                "amount": "100.00",
+                "non_pii_key": "keep_this",
+            },
+        }
+        result = _before_send(event, {})
+        self.assertEqual(result["extra"]["donor_name"], "[Filtered]")
+        self.assertEqual(result["extra"]["amount"], "[Filtered]")
+        self.assertEqual(result["extra"]["non_pii_key"], "keep_this")
+
+    def test_before_send_scrubs_email_from_extra(self):
+        """before_send must scrub email addresses from event['extra']."""
+        event = {
+            "request": {},
+            "extra": {"email": "donor@example.com", "record_id": 42},
+        }
+        result = _before_send(event, {})
+        self.assertEqual(result["extra"]["email"], "[Filtered]")
+        self.assertEqual(result["extra"]["record_id"], 42)
+
+    def test_before_send_no_extra_key_does_not_raise(self):
+        """before_send must handle events without an 'extra' key gracefully."""
+        event = {"request": {"headers": {}}}
+        result = _before_send(event, {})
+        self.assertIsNotNone(result)
+        self.assertNotIn("extra", result)
+
+    def test_before_send_scrubs_nested_pii_in_extra(self):
+        """before_send must recursively scrub nested dicts in event['extra']."""
+        event = {
+            "request": {},
+            "extra": {
+                "form_data": {"donor_name": "Alice Smith", "amount": "50.00"},
+                "safe_key": "safe_value",
+            },
+        }
+        result = _before_send(event, {})
+        self.assertEqual(result["extra"]["form_data"]["donor_name"], "[Filtered]")
+        self.assertEqual(result["extra"]["form_data"]["amount"], "[Filtered]")
+        self.assertEqual(result["extra"]["safe_key"], "safe_value")
+
+    def test_before_send_still_strips_headers_after_mj_change(self):
+        """Regression: header scrubbing must still work after the M-J extra-scrub addition."""
+        event = {
+            "request": {
+                "headers": {
+                    "Authorization": "Bearer sk_live_abc",
+                    "Content-Type": "application/json",
+                }
+            },
+            "extra": {"donor_name": "Bob"},
+        }
+        result = _before_send(event, {})
+        self.assertNotIn("Authorization", result["request"]["headers"])
+        self.assertEqual(result["extra"]["donor_name"], "[Filtered]")

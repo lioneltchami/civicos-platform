@@ -43,6 +43,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.translation import gettext_lazy as _
@@ -55,6 +56,32 @@ from apps.payments.models import PaymentIntent, TenantPaymentConfig
 from apps.payments.views.refund import _mask_ip
 
 TWO_PLACES = Decimal("0.01")
+
+# M-F fix: use django-ipware for correct IP extraction behind load balancers /
+# Cloudflare.  REMOTE_ADDR is always the proxy IP in those environments.
+try:
+    from ipware import get_client_ip as _ipware_get_client_ip
+except ImportError:  # pragma: no cover
+    _ipware_get_client_ip = None
+
+
+def _get_client_ip(request) -> str:
+    """Return the real client IP, honouring the configured proxy chain.
+
+    Uses django-ipware which respects IPWARE_META_PRECEDENCE_ORDER / NUM_PROXIES
+    so the correct header (X-Forwarded-For, X-Real-IP) is used behind ALBs and
+    Cloudflare rather than the always-proxy REMOTE_ADDR.
+
+    Falls back to REMOTE_ADDR when django-ipware is unavailable.
+    """
+    if _ipware_get_client_ip is not None:
+        try:
+            ip, _ = _ipware_get_client_ip(request)
+            if ip:
+                return ip
+        except Exception:
+            pass
+    return request.META.get("REMOTE_ADDR", "")
 
 
 def _check_rate_limit(user_pk: str) -> bool:
@@ -162,7 +189,7 @@ def create_payment_intent_api(request):
     if not session_data:
         logger.warning(
             "payments.create_intent.session_expired remote_addr=%s",
-            _mask_ip(request.META.get("REMOTE_ADDR", "")),
+            _mask_ip(_get_client_ip(request)),
         )
         return JsonResponse(
             {"error": "Session expired. Please start over."},
@@ -325,11 +352,56 @@ class FeePaymentSuccessView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+def _cancel_stripe_pi_safe(gateway, pi_id: str) -> None:
+    """Cancel a Stripe PaymentIntent — fire-and-forget.
+
+    Called via transaction.on_commit() from FeePaymentCancelView.
+    A failed cancel is NOT fatal — we log and move on.
+    """
+    try:
+        gateway.cancel_payment_intent(pi_id)
+    except Exception as exc:
+        logger.warning(
+            "payments.fee_cancel.stripe_pi_cancel_failed pi_id=%s exc_type=%s",
+            pi_id,
+            type(exc).__name__,
+        )
+
+
 class FeePaymentCancelView(LoginRequiredMixin, TemplateView):
-    """Step 5: citizen cancelled — clear session, show confirmation."""
+    """Step 5: citizen cancelled — clear session, show confirmation.
+
+    M-M fix: if a live Stripe PaymentIntent was created for this session, cancel
+    it via on_commit() (fire-and-forget) to avoid accumulating stale PIs on Stripe.
+    """
 
     template_name = "payments/fee_payment_cancel.html"
 
     def get(self, request, *args, **kwargs):
-        request.session.pop(SESSION_KEY, None)
+        session_data = request.session.pop(SESSION_KEY, {})
+
+        # M-M fix: cancel the live Stripe PI if one was created for this session.
+        intent_pk = session_data.get("payment_intent_pk")
+        if intent_pk:
+            try:
+                import uuid as _uuid_mod
+                _uuid_mod.UUID(str(intent_pk))  # validate before DB lookup
+                intent = PaymentIntent.objects.get(
+                    pk=intent_pk,
+                    payer=request.user,
+                    status=PaymentIntent.STATUS_PENDING,
+                )
+                if intent.gateway_intent_id:
+                    _gw = get_gateway()
+                    _pi_id = intent.gateway_intent_id
+                    # Wrap in atomic() so on_commit fires reliably even when
+                    # there is no surrounding transaction.
+                    with transaction.atomic():
+                        transaction.on_commit(
+                            lambda gw=_gw, pi_id=_pi_id:
+                                _cancel_stripe_pi_safe(gw, pi_id)
+                        )
+            except (PaymentIntent.DoesNotExist, ValueError):
+                pass
+
         return super().get(request, *args, **kwargs)

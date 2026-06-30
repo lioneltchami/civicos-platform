@@ -421,6 +421,24 @@ class Payment(TimestampedModel):
         ordering = ["-paid_at"]
         verbose_name = _("Payment")
         verbose_name_plural = _("Payments")
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount_paid__gte=0),
+                name="payments_payment_amount_paid_non_negative",
+            ),
+            models.CheckConstraint(
+                check=models.Q(processor_fee__gte=0),
+                name="payments_payment_processor_fee_non_negative",
+            ),
+            models.CheckConstraint(
+                check=models.Q(net_amount__gte=0),
+                name="payments_payment_net_amount_non_negative",
+            ),
+            models.CheckConstraint(
+                check=models.Q(processor_fee__lte=models.F("amount_paid")),
+                name="payments_payment_processor_fee_lte_amount_paid",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Payment {self.gateway_charge_id}"
@@ -1876,6 +1894,7 @@ class OfficialDonationReceipt(TimestampedModel):
     def cancel(self, reason: str, superseded_by: "OfficialDonationReceipt | None" = None) -> None:
         """Cancel this receipt. Only 'issued' receipts can be cancelled."""
         from django.db import transaction
+        now = timezone.now()
         with transaction.atomic():
             updated = self.__class__._base_manager.filter(
                 pk=self.pk, status=self.RECEIPT_STATUS_ISSUED
@@ -1883,6 +1902,7 @@ class OfficialDonationReceipt(TimestampedModel):
                 status=self.RECEIPT_STATUS_CANCELLED,
                 cancellation_reason=reason,
                 superseded_by_id=superseded_by.pk if superseded_by else None,
+                updated_at=now,
             )
             if not updated:
                 raise ValueError(
@@ -1891,18 +1911,21 @@ class OfficialDonationReceipt(TimestampedModel):
                 )
             self.status = self.RECEIPT_STATUS_CANCELLED
             self.cancellation_reason = reason
+            self.updated_at = now
             if superseded_by:
                 self.superseded_by = superseded_by
 
     def mark_superseded(self, new_receipt: "OfficialDonationReceipt") -> None:
         """Mark this receipt as superseded by a corrected re-issue."""
         from django.db import transaction
+        now = timezone.now()
         with transaction.atomic():
             updated = self.__class__._base_manager.filter(
                 pk=self.pk, status=self.RECEIPT_STATUS_ISSUED
             ).update(
                 status=self.RECEIPT_STATUS_SUPERSEDED,
                 superseded_by_id=new_receipt.pk,
+                updated_at=now,
             )
             if not updated:
                 raise ValueError(
@@ -1911,3 +1934,4 @@ class OfficialDonationReceipt(TimestampedModel):
                 )
             self.status = self.RECEIPT_STATUS_SUPERSEDED
             self.superseded_by = new_receipt
+            self.updated_at = now

@@ -598,19 +598,23 @@ class RecurringGiftPlanAdmin(admin.ModelAdmin):
 
 @admin.register(OfficialDonationReceipt)
 class OfficialDonationReceiptAdmin(admin.ModelAdmin):
+    # list_display contains only non-PII fields.
+    # donor_legal_name, donor_address_*, and donor PII are restricted to the
+    # detail view which is gated by has_view_permission.
     list_display = [
         "serial_number",
         "status",
         "receipt_date",
         "eligible_amount",
-        "advantage_amount",
         "is_annual_consolidated",
-        "issued_at",
+        "email_sent",
     ]
     list_filter = ["status", "is_annual_consolidated", "donor_province"]
     # donor_legal_name excluded from search_fields — PIPEDA: name in URL/logs is a privacy violation.
     search_fields = ["serial_number", "charity_registration_number"]
-    # pdf_path is intentionally excluded from readonly_fields, fieldsets, and list_display
+    # pdf_path is intentionally excluded from readonly_fields, fieldsets, and list_display.
+    # PII fields (donor_legal_name, donor_address_*) are in readonly_fields for the
+    # detail view only; the detail view is gated by has_view_permission below.
     readonly_fields = [
         "id",
         "donation",
@@ -636,10 +640,17 @@ class OfficialDonationReceiptAdmin(admin.ModelAdmin):
         "authorized_signatory_title",
         "issued_at",
         "is_annual_consolidated",
+        "email_sent",
         "created_at",
         "updated_at",
     ]
     ordering = ["-issued_at"]
+
+    def has_view_permission(self, request, obj=None):
+        # Superusers always have access; other staff need the explicit permission.
+        return request.user.is_superuser or request.user.has_perm(
+            "payments.view_officialdonationreceipt"
+        )
 
     def has_add_permission(self, request):
         return False  # Issued programmatically only

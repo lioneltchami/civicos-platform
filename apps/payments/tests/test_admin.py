@@ -601,3 +601,138 @@ class AdminOTPEnforcementTest(TestCase):
             200,
             "Admin returned 200 to an unverified superuser — OTP enforcement is broken.",
         )
+
+
+# ---------------------------------------------------------------------------
+# M-L: OfficialDonationReceiptAdmin PII access control (Bug Fix)
+# ---------------------------------------------------------------------------
+
+class OfficialDonationReceiptAdminPermissionTests(TestCase):
+    """
+    has_view_permission() must gate access to the OfficialDonationReceipt
+    admin to superusers or users with the explicit
+    payments.view_officialdonationreceipt permission.
+
+    A plain is_staff=True user (finance clerk at another municipality) must
+    not be able to browse donor PII.
+    """
+
+    def setUp(self):
+        self.site = AdminSite()
+        self.admin_instance = OfficialDonationReceiptAdmin(OfficialDonationReceipt, self.site)
+        self.factory = RequestFactory()
+
+    def _make_staff_user(self):
+        user = User.objects.create_user(
+            email=f"staff_{uuid.uuid4().hex[:6]}@example.com",
+            password="StaffPass123!",
+            is_staff=True,
+        )
+        return user
+
+    def _make_superuser(self):
+        return User.objects.create_superuser(
+            email=f"super_{uuid.uuid4().hex[:6]}@example.com",
+            password="SuperPass123!",
+        )
+
+    def _request_for(self, user):
+        request = self.factory.get("/")
+        request.user = user
+        return request
+
+    # -- has_view_permission --------------------------------------------------
+
+    def test_has_view_permission_denied_for_plain_staff(self):
+        """Staff user without explicit permission must be denied view access."""
+        user = self._make_staff_user()
+        request = self._request_for(user)
+        self.assertFalse(
+            self.admin_instance.has_view_permission(request),
+            "Plain staff user (no view_officialdonationreceipt perm) must not have view access.",
+        )
+
+    def test_has_view_permission_denied_for_staff_with_obj(self):
+        """has_view_permission(request, obj) is also denied for plain staff."""
+        user = self._make_staff_user()
+        request = self._request_for(user)
+        mock_receipt = MagicMock(spec=OfficialDonationReceipt)
+        self.assertFalse(self.admin_instance.has_view_permission(request, mock_receipt))
+
+    def test_has_view_permission_granted_to_superuser(self):
+        """Superusers must always have view access."""
+        superuser = self._make_superuser()
+        request = self._request_for(superuser)
+        self.assertTrue(
+            self.admin_instance.has_view_permission(request),
+            "Superuser must have view access to OfficialDonationReceiptAdmin.",
+        )
+
+    def test_has_view_permission_granted_with_explicit_perm(self):
+        """Staff user with payments.view_officialdonationreceipt must be granted access."""
+        from django.contrib.auth.models import Permission
+        from django.contrib.contenttypes.models import ContentType
+
+        user = self._make_staff_user()
+        ct = ContentType.objects.get_for_model(OfficialDonationReceipt)
+        perm = Permission.objects.get(codename="view_officialdonationreceipt", content_type=ct)
+        user.user_permissions.add(perm)
+        # Refresh to bust permission cache
+        user = User.objects.get(pk=user.pk)
+        request = self._request_for(user)
+        self.assertTrue(
+            self.admin_instance.has_view_permission(request),
+            "Staff user with explicit view_officialdonationreceipt perm must have access.",
+        )
+
+    # -- list_display PII exclusion -------------------------------------------
+
+    def test_list_display_excludes_donor_legal_name(self):
+        """list_display must not include donor_legal_name (PII)."""
+        self.assertNotIn(
+            "donor_legal_name",
+            self.admin_instance.list_display,
+            "donor_legal_name is PII and must not appear in list_display.",
+        )
+
+    def test_list_display_excludes_donor_address_line1(self):
+        """list_display must not include donor_address_line1 (PII)."""
+        self.assertNotIn(
+            "donor_address_line1",
+            self.admin_instance.list_display,
+            "donor_address_line1 is PII and must not appear in list_display.",
+        )
+
+    def test_list_display_excludes_donor_email(self):
+        """list_display must not include donor_email (PII)."""
+        self.assertNotIn(
+            "donor_email",
+            self.admin_instance.list_display,
+            "donor_email is PII and must not appear in list_display.",
+        )
+
+    def test_list_display_includes_serial_number(self):
+        """serial_number is a non-PII identifier and must remain in list_display."""
+        self.assertIn("serial_number", self.admin_instance.list_display)
+
+    def test_list_display_includes_is_annual_consolidated(self):
+        """is_annual_consolidated must remain in list_display."""
+        self.assertIn("is_annual_consolidated", self.admin_instance.list_display)
+
+    def test_list_display_includes_email_sent(self):
+        """email_sent status indicator must be in list_display."""
+        self.assertIn("email_sent", self.admin_instance.list_display)
+
+    # -- append-only permission guards (regression: still enforced) -----------
+
+    def test_has_add_permission_still_false(self):
+        request = self.factory.get("/")
+        self.assertFalse(self.admin_instance.has_add_permission(request))
+
+    def test_has_change_permission_still_false(self):
+        request = self.factory.get("/")
+        self.assertFalse(self.admin_instance.has_change_permission(request))
+
+    def test_has_delete_permission_still_false(self):
+        request = self.factory.get("/")
+        self.assertFalse(self.admin_instance.has_delete_permission(request))

@@ -480,3 +480,128 @@ class FeePaymentCancelViewTests(FeePaymentViewTestBase):
         """Cancel with no session key set is still a valid 200."""
         resp = self.client.get(self.CANCEL_URL)
         self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# M-F — IP masking via ipware in fee_payment views
+# ---------------------------------------------------------------------------
+
+class MFIPMaskingFeePaymentTests(FeePaymentViewTestBase):
+    """M-F: session-expired log in fee_payment uses _mask_ip(_get_client_ip()), not REMOTE_ADDR."""
+
+    def _post_intent(self, **extra):
+        return self.client.post(
+            self.INTENT_URL,
+            content_type="application/json",
+            **extra,
+        )
+
+    def test_session_expired_log_uses_get_client_ip_not_remote_addr(self):
+        """session_expired warning must call _get_client_ip, not request.META['REMOTE_ADDR']."""
+        # No session set — will trigger session_expired branch (403 response)
+        with patch("apps.payments.views.fee_payment._get_client_ip", return_value="203.0.113.5") as mock_ip:
+            resp = self._post_intent()
+        self.assertEqual(resp.status_code, 403)
+        mock_ip.assert_called()
+
+    def test_session_expired_log_does_not_use_raw_remote_addr(self):
+        """REMOTE_ADDR must not appear directly in the masked IP log — ipware must be used."""
+        # Patch request.META to have a proxy IP as REMOTE_ADDR
+        # and ipware to return the real client IP
+        with patch("apps.payments.views.fee_payment._get_client_ip", return_value="1.2.3.4") as mock_ip:
+            resp = self._post_intent()
+        self.assertEqual(resp.status_code, 403)
+        # _get_client_ip was called, not raw META access
+        mock_ip.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# M-M — FeePaymentCancelView cancels Stripe PI
+# ---------------------------------------------------------------------------
+
+class MMFeePaymentCancelStripeTests(FeePaymentViewTestBase):
+    """M-M: FeePaymentCancelView must cancel the live Stripe PI via on_commit."""
+
+    def test_cancel_view_cancels_stripe_pi_on_commit(self):
+        """When a pending PaymentIntent exists in session, cancel it via on_commit."""
+        intent = make_payment_intent(
+            self.user,
+            status=PaymentIntent.STATUS_PENDING,
+            gateway_intent_id="pi_fee_live_001",
+        )
+        sd = _session_data()
+        sd["payment_intent_pk"] = str(intent.pk)
+        self._set_session(sd)
+
+        mock_gw = MagicMock()
+        mock_gw.cancel_payment_intent.return_value = {}
+
+        with patch("apps.payments.views.fee_payment.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(self.CANCEL_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        mock_gw.cancel_payment_intent.assert_called_once_with("pi_fee_live_001")
+
+    def test_cancel_view_no_stripe_call_when_no_session_pi(self):
+        """No Stripe PI cancel when session has no payment_intent_pk."""
+        mock_gw = MagicMock()
+        with patch("apps.payments.views.fee_payment.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(self.CANCEL_URL)
+        self.assertEqual(resp.status_code, 200)
+        mock_gw.cancel_payment_intent.assert_not_called()
+
+    def test_cancel_view_session_cleared_after_get(self):
+        """Session must be cleared regardless of whether a PI exists."""
+        intent = make_payment_intent(self.user, status=PaymentIntent.STATUS_PENDING)
+        sd = _session_data()
+        sd["payment_intent_pk"] = str(intent.pk)
+        self._set_session(sd)
+
+        mock_gw = MagicMock()
+        with patch("apps.payments.views.fee_payment.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=False):
+                self.client.get(self.CANCEL_URL)
+
+        session = self.client.session
+        self.assertNotIn(SESSION_KEY, session)
+
+    def test_cancel_view_stripe_cancel_failure_does_not_crash(self):
+        """A Stripe cancel failure must not propagate — view must still return 200."""
+        intent = make_payment_intent(
+            self.user,
+            status=PaymentIntent.STATUS_PENDING,
+            gateway_intent_id="pi_fee_fail_test",
+        )
+        sd = _session_data()
+        sd["payment_intent_pk"] = str(intent.pk)
+        self._set_session(sd)
+
+        mock_gw = MagicMock()
+        mock_gw.cancel_payment_intent.side_effect = Exception("Stripe is down")
+
+        with patch("apps.payments.views.fee_payment.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(self.CANCEL_URL)
+
+        self.assertEqual(resp.status_code, 200)
+
+    def test_cancel_view_only_cancels_pending_intents(self):
+        """Completed or failed intents must NOT be cancelled — only STATUS_PENDING."""
+        intent = make_payment_intent(
+            self.user,
+            status=PaymentIntent.STATUS_COMPLETED,
+            gateway_intent_id="pi_fee_completed",
+        )
+        sd = _session_data()
+        sd["payment_intent_pk"] = str(intent.pk)
+        self._set_session(sd)
+
+        mock_gw = MagicMock()
+        with patch("apps.payments.views.fee_payment.get_gateway", return_value=mock_gw):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.get(self.CANCEL_URL)
+
+        self.assertEqual(resp.status_code, 200)
+        mock_gw.cancel_payment_intent.assert_not_called()

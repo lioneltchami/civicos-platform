@@ -372,11 +372,17 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
     # All set in create_donation_intent_api; legacy intents (pre-fix) may lack them.
     meta = intent.metadata or {}
 
-    # advantage_amount: use donor-submitted value; fall back to campaign default
+    # advantage_amount: use donor-submitted value; fall back to campaign default.
+    # M-K fix: floor at Decimal("0.00") — a negative advantage_amount from
+    # metadata (bad upstream computation or tampering) is nonsensical and must
+    # not produce a negative eligible_amount that blocks CRA receipt generation.
     meta_advantage = meta.get("advantage_amount", "")
     if meta_advantage:
         try:
-            advantage_amount = Decimal(meta_advantage).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            advantage_amount = max(
+                Decimal("0.00"),
+                Decimal(meta_advantage).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            )
         except (InvalidOperation, TypeError):
             advantage_amount = Decimal("0.00")
             logger.warning(
@@ -390,12 +396,17 @@ def _handle_one_time_donation(intent, payment, webhook_event) -> None:
         if campaign:
             advantage_amount = getattr(campaign, "advantage_amount", Decimal("0.00")) or Decimal("0.00")
 
-    # eligible_amount: prefer metadata, otherwise compute from payment minus advantage
+    # eligible_amount: prefer metadata, otherwise compute from payment minus advantage.
+    # M-K fix: floor at Decimal("0.00") on the happy path — a negative value from
+    # metadata permanently blocks CRA receipt generation (receipt service rejects < 0).
     payment_amount = payment.amount_paid
     meta_eligible = meta.get("eligible_amount", "")
     if meta_eligible:
         try:
-            eligible_amount = Decimal(meta_eligible).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            eligible_amount = max(
+                Decimal("0.00"),
+                Decimal(meta_eligible).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            )
         except (InvalidOperation, TypeError):
             eligible_amount = max(Decimal("0.00"), payment_amount - advantage_amount)
     else:

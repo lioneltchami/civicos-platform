@@ -201,24 +201,81 @@ class StripeGateway(PaymentGateway):
         }
 
     def retrieve_payment_intent(self, gateway_intent_id: str) -> dict:
+        """
+        Retrieve a PaymentIntent from Stripe with latest_charge expanded.
+
+        M-A fix: expand=["latest_charge"] is required so that the full Charge
+        object is embedded in the response rather than just the bare charge ID
+        string.  Without expansion, latest_charge is a string and card_last_four,
+        card_brand, and paid_at are always NULL in the Payment row.
+
+        Security invariant: card_last_four is hard-truncated to 4 chars.
+        card_brand is mapped through _BRAND_MAP — never a raw PAN.
+        """
         stripe = self._stripe()
         try:
             intent = stripe.PaymentIntent.retrieve(
                 gateway_intent_id,
+                expand=["latest_charge"],
                 api_key=self._api_key(),
                 stripe_version=self._STRIPE_API_VERSION,
             )
         except Exception as exc:
             self._handle_stripe_error(exc)
 
-        # Extract charge info if present
+        # Extract charge info from the expanded latest_charge object.
+        # After expand=["latest_charge"], intent.latest_charge is the full
+        # Charge object (dict or stripe object), not just a string ID.
         gateway_charge_id = None
-        if intent.latest_charge:
-            gateway_charge_id = (
-                intent.latest_charge
-                if isinstance(intent.latest_charge, str)
-                else intent.latest_charge.id
-            )
+        card_last_four = None
+        card_brand = None
+        paid_at = None
+        amount_received = 0
+
+        raw_charge = intent.latest_charge if intent.latest_charge else None
+        if raw_charge is not None:
+            # Normalise to plain dict regardless of whether Stripe SDK returns
+            # a StripeObject (which has to_dict()) or a bare dict.
+            if isinstance(raw_charge, dict):
+                charge = raw_charge
+            elif hasattr(raw_charge, "to_dict"):
+                candidate = raw_charge.to_dict()
+                # Guard: to_dict() on a real StripeObject returns a dict;
+                # if it returns something else (e.g. in tests), fall back to
+                # attribute-based extraction so existing tests stay green.
+                charge = candidate if isinstance(candidate, dict) else {}
+            else:
+                # Unexpanded — only the string ID is available (shouldn't happen
+                # after expand=["latest_charge"], but guard defensively).
+                charge = {}
+                gateway_charge_id = str(raw_charge)
+
+            if charge:
+                gateway_charge_id = charge.get("id") or gateway_charge_id
+
+                pm_details = charge.get("payment_method_details") or {}
+                card = pm_details.get("card") or {}
+
+                if card:
+                    raw_last4 = card.get("last4") or ""
+                    # Security: hard truncation — must never store more than 4 digits
+                    card_last_four = raw_last4[:4] if raw_last4 else None
+                    stripe_brand = card.get("brand") or ""
+                    card_brand = _BRAND_MAP.get(stripe_brand, "other") if stripe_brand else None
+
+                paid_at_ts = charge.get("created")
+                if paid_at_ts:
+                    import datetime as _dt
+                    paid_at = _dt.datetime.fromtimestamp(paid_at_ts, tz=_dt.timezone.utc)
+
+                raw_received = charge.get("amount_received") or charge.get("amount") or 0
+                amount_received = int(raw_received) if isinstance(raw_received, (int, float)) else 0
+
+            elif raw_charge is not None and not isinstance(raw_charge, (str, dict)):
+                # Stripe object that didn't serialise to a dict — extract id via attribute
+                raw_id = getattr(raw_charge, "id", None)
+                if raw_id and isinstance(raw_id, str):
+                    gateway_charge_id = raw_id
 
         return {
             "gateway_intent_id": intent.id,
@@ -226,6 +283,10 @@ class StripeGateway(PaymentGateway):
             "amount": _from_cents(intent.amount),
             "currency": intent.currency,
             "gateway_charge_id": gateway_charge_id,
+            "card_last_four": card_last_four,
+            "card_brand": card_brand,
+            "paid_at": paid_at,
+            "amount_received": _from_cents(amount_received) if amount_received else Decimal("0.00"),
             "failure_reason": (
                 intent.last_payment_error.code
                 if intent.last_payment_error
