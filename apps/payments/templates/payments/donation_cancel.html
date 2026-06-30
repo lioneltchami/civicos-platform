@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Donation Cancelled" %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 640px; margin: 0 auto; padding: 2rem 1rem; text-align: center;">
+  <h1>{% trans "Donation Cancelled" %}</h1>
+  <p>{% trans "Your donation was cancelled. No charge has been made to your card." %}</p>
+  <p>
+    <a href="{% url 'donate:donation_select' %}" class="btn btn--primary">
+      {% trans "Try Again" %}
+    </a>
+  </p>
+</div>
+{% endblock %}

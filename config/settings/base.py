@@ -543,3 +543,6 @@ STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", default="")
 STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
 # Stripe publishable key is safe for front-end — kept in settings for template context
 STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY", default="")
+
+# ── Donation Receipt Email ────────────────────────────────────────────────────
+RECEIPT_FROM_EMAIL = env("RECEIPT_FROM_EMAIL", default="receipts@example.ca")

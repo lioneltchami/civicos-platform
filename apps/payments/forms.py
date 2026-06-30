@@ -181,3 +181,132 @@ class RefundForm(forms.Form):
         if amount is not None and amount <= Decimal("0.00"):
             raise forms.ValidationError(_("Refund amount must be greater than zero."))
         return amount
+
+
+class DonationForm(forms.Form):
+    """
+    Donor selects campaign, amount, and optionally sets up recurring giving.
+    Eligible amount = amount - advantage_amount (CRA rule).
+
+    Security: amount is derived server-side and authoritative from session —
+    this form only collects donor intent for session storage, never for
+    direct charging.
+    """
+
+    from apps.payments.models import DonationCampaign as _DonationCampaign  # noqa: F811
+
+    campaign = forms.ModelChoiceField(
+        label=_("Campaign"),
+        queryset=None,  # Set in __init__ to avoid import at class-definition time
+        empty_label=_("— Select a campaign —"),
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    amount = forms.DecimalField(
+        label=_("Donation Amount (CAD)"),
+        min_value=Decimal("1.00"),
+        max_digits=10,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={
+            "class": "form-control",
+            "step": "0.01",
+            "min": "1.00",
+            "placeholder": "0.00",
+        }),
+    )
+    is_recurring = forms.BooleanField(
+        label=_("Make this a recurring gift"),
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input", "id": "id_is_recurring"}),
+    )
+    frequency = forms.ChoiceField(
+        label=_("Frequency"),
+        required=False,
+        choices=[("", _("— Select frequency —"))] + [
+            ("monthly", _("Monthly")),
+            ("quarterly", _("Quarterly")),
+            ("annually", _("Annually")),
+        ],
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    donor_name = forms.CharField(
+        label=_("Full Name"),
+        max_length=200,
+        widget=forms.TextInput(attrs={
+            "class": "form-control",
+            "autocomplete": "name",
+            "placeholder": _("Your legal name"),
+        }),
+    )
+    donor_email = forms.EmailField(
+        label=_("Email Address"),
+        widget=forms.EmailInput(attrs={
+            "class": "form-control",
+            "autocomplete": "email",
+            "placeholder": _("you@example.ca"),
+        }),
+    )
+    is_anonymous = forms.BooleanField(
+        label=_("Make my donation anonymous"),
+        required=False,
+        help_text=_("Your name will not appear in public donor lists."),
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+    advantage_amount = forms.DecimalField(
+        label=_("Advantage Amount (CAD)"),
+        required=False,
+        min_value=Decimal("0.00"),
+        max_digits=10,
+        decimal_places=2,
+        initial=Decimal("0.00"),
+        help_text=_(
+            "Fair market value of any benefit you received in exchange for this donation "
+            "(CRA requirement). Enter 0.00 if none."
+        ),
+        widget=forms.NumberInput(attrs={
+            "class": "form-control",
+            "step": "0.01",
+            "min": "0.00",
+        }),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from apps.payments.models import DonationCampaign
+        self.fields["campaign"].queryset = DonationCampaign.objects.filter(is_active=True).order_by(
+            "sort_order", "name_en"
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        amount = cleaned.get("amount")
+        advantage_amount = cleaned.get("advantage_amount") or Decimal("0.00")
+        is_recurring = cleaned.get("is_recurring", False)
+        frequency = cleaned.get("frequency", "")
+
+        # CRA rule: advantage_amount must be less than donation amount
+        if amount is not None and advantage_amount >= amount:
+            raise forms.ValidationError(
+                _(
+                    "The advantage amount ($%(adv)s) must be less than the donation amount "
+                    "($%(amt)s). The eligible tax credit amount must be positive."
+                ),
+                params={"adv": advantage_amount, "amt": amount},
+            )
+
+        # Compute eligible amount (CRA receipt rule)
+        if amount is not None:
+            cleaned["eligible_amount"] = max(
+                Decimal("0.00"),
+                amount - advantage_amount,
+            )
+
+        # Frequency is required when recurring is selected
+        if is_recurring and not frequency:
+            self.add_error(
+                "frequency",
+                _("Please select a frequency for your recurring gift."),
+            )
+
+        cleaned["advantage_amount"] = advantage_amount
+        return cleaned

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Make a Donation" %}{% endblock %}
+{% block meta_description %}{% trans "Support our charitable programs with a one-time or recurring donation." %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 640px; margin: 0 auto; padding: 2rem 1rem;">
+  <h1>{% trans "Make a Donation" %}</h1>
+  <p class="lead">{% trans "Your donation supports important community programs. All donations are tax-deductible under the Income Tax Act (Canada)." %}</p>
+
+  {# Non-field errors — focusable for keyboard/screen reader users #}
+  {% if form.non_field_errors %}
+  <div role="alert"
+       id="form-errors"
+       aria-live="assertive"
+       class="form-errors"
+       tabindex="-1">
+    {% for error in form.non_field_errors %}
+      <p>{{ error }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="post"
+        novalidate
+        aria-describedby="{% if form.non_field_errors %}form-errors{% endif %}">
+    {% csrf_token %}
+
+    {# ── Campaign ─────────────────────────────────────────────────── #}
+    <div class="form-group">
+      <label for="{{ form.campaign.id_for_label }}">
+        {{ form.campaign.label }}
+      </label>
+      {{ form.campaign }}
+      {% if form.campaign.help_text %}
+      <p class="form-help" id="{{ form.campaign.id_for_label }}-help">{{ form.campaign.help_text }}</p>
+      {% endif %}
+      {% if form.campaign.errors %}
+      <p class="field-error" id="{{ form.campaign.id_for_label }}-error" role="alert">
+        {% for error in form.campaign.errors %}{{ error }}{% endfor %}
+      </p>
+      {% endif %}
+    </div>
+
+    {# ── Donation amount ───────────────────────────────────────────── #}
+    <div class="form-group">
+      <label for="{{ form.amount.id_for_label }}">
+        {{ form.amount.label }}
+        <span aria-hidden="true" class="required-indicator">*</span>
+      </label>
+      {{ form.amount }}
+      {% if form.amount.help_text %}
+      <p class="form-help" id="{{ form.amount.id_for_label }}-help">{{ form.amount.help_text }}</p>
+      {% endif %}
+      {% if form.amount.errors %}
+      <p class="field-error" id="{{ form.amount.id_for_label }}-error" role="alert">
+        {% for error in form.amount.errors %}{{ error }}{% endfor %}
+      </p>
+      {% endif %}
+    </div>
+
+    {# ── Donor name ───────────────────────────────────────────────── #}
+    <div class="form-group">
+      <label for="{{ form.donor_name.id_for_label }}">
+        {{ form.donor_name.label }}
+        <span aria-hidden="true" class="required-indicator">*</span>
+      </label>
+      {{ form.donor_name }}
+      {% if form.donor_name.errors %}
+      <p class="field-error" id="{{ form.donor_name.id_for_label }}-error" role="alert">
+        {% for error in form.donor_name.errors %}{{ error }}{% endfor %}
+      </p>
+      {% endif %}
+    </div>
+
+    {# ── Donor email ──────────────────────────────────────────────── #}
+    <div class="form-group">
+      <label for="{{ form.donor_email.id_for_label }}">
+        {{ form.donor_email.label }}
+        <span aria-hidden="true" class="required-indicator">*</span>
+      </label>
+      {{ form.donor_email }}
+      <p class="form-help" id="{{ form.donor_email.id_for_label }}-help">
+        {% trans "Your official tax receipt will be emailed to this address." %}
+      </p>
+      {% if form.donor_email.errors %}
+      <p class="field-error" id="{{ form.donor_email.id_for_label }}-error" role="alert">
+        {% for error in form.donor_email.errors %}{{ error }}{% endfor %}
+      </p>
+      {% endif %}
+    </div>
+
+    {# ── Anonymous checkbox ────────────────────────────────────────── #}
+    <div class="form-group form-check">
+      {{ form.is_anonymous }}
+      <label class="form-check-label" for="{{ form.is_anonymous.id_for_label }}">
+        {{ form.is_anonymous.label }}
+      </label>
+      {% if form.is_anonymous.help_text %}
+      <p class="form-help" id="{{ form.is_anonymous.id_for_label }}-help">{{ form.is_anonymous.help_text }}</p>
+      {% endif %}
+    </div>
+
+    {# ── Recurring gift ───────────────────────────────────────────── #}
+    <div class="form-group form-check">
+      {{ form.is_recurring }}
+      <label class="form-check-label" for="{{ form.is_recurring.id_for_label }}">
+        {{ form.is_recurring.label }}
+      </label>
+    </div>
+
+    {# Frequency selector — visible only when recurring is checked #}
+    <div id="frequency-group"
+         class="form-group"
+         {% if not form.is_recurring.value %}hidden{% endif %}
+         aria-hidden="{% if not form.is_recurring.value %}true{% else %}false{% endif %}">
+      <label for="{{ form.frequency.id_for_label }}">
+        {{ form.frequency.label }}
+        <span aria-hidden="true" class="required-indicator">*</span>
+      </label>
+      {{ form.frequency }}
+      {% if form.frequency.errors %}
+      <p class="field-error" id="{{ form.frequency.id_for_label }}-error" role="alert">
+        {% for error in form.frequency.errors %}{{ error }}{% endfor %}
+      </p>
+      {% endif %}
+    </div>
+
+    {# ── Advantage amount (collapsible — CRA advanced section) ─────── #}
+    <details class="form-details" {% if form.advantage_amount.value and form.advantage_amount.value != '0.00' %}open{% endif %}>
+      <summary class="form-details__summary">
+        {% trans "Advantage amount (advanced — CRA requirement)" %}
+      </summary>
+      <div class="form-details__body">
+        <div class="form-group">
+          <label for="{{ form.advantage_amount.id_for_label }}">
+            {{ form.advantage_amount.label }}
+          </label>
+          {{ form.advantage_amount }}
+          {% if form.advantage_amount.help_text %}
+          <p class="form-help" id="{{ form.advantage_amount.id_for_label }}-help">
+            {{ form.advantage_amount.help_text }}
+          </p>
+          {% endif %}
+          {% if form.advantage_amount.errors %}
+          <p class="field-error" id="{{ form.advantage_amount.id_for_label }}-error" role="alert">
+            {% for error in form.advantage_amount.errors %}{{ error }}{% endfor %}
+          </p>
+          {% endif %}
+        </div>
+      </div>
+    </details>
+
+    <p class="form-required-note">
+      <span aria-hidden="true">*</span> {% trans "Required field" %}
+    </p>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">
+        {% trans "Continue to Payment" %}
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+  var checkbox = document.getElementById('id_is_recurring');
+  var freqGroup = document.getElementById('frequency-group');
+
+  function toggleFrequency() {
+    if (!freqGroup) return;
+    var show = checkbox && checkbox.checked;
+    freqGroup.hidden = !show;
+    freqGroup.setAttribute('aria-hidden', show ? 'false' : 'true');
+  }
+
+  if (checkbox) {
+    checkbox.addEventListener('change', toggleFrequency);
+    toggleFrequency();
+  }
+}());
+</script>
+{% endblock %}

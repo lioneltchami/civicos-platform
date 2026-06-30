@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% load i18n csp %}
+
+{% block title %}{% trans "Confirm Donation" %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 640px; margin: 0 auto; padding: 2rem 1rem;">
+  <h1>{% trans "Confirm Donation" %}</h1>
+
+  {# Order summary — all figures are server-rendered and authoritative.
+     The JavaScript layer reads amount from session, never from this DOM. #}
+  <section aria-labelledby="summary-heading" class="order-summary">
+    <h2 id="summary-heading">{% trans "Donation Summary" %}</h2>
+    <dl class="summary-list">
+      {% if campaign_name %}
+      <div class="summary-row">
+        <dt>{% trans "Campaign" %}</dt>
+        <dd>{{ campaign_name }}</dd>
+      </div>
+      {% endif %}
+      <div class="summary-row">
+        <dt>{% trans "Donation Amount" %}</dt>
+        <dd>${{ amount }}</dd>
+      </div>
+      {% if advantage_amount and advantage_amount != "0.00" %}
+      <div class="summary-row">
+        <dt>{% trans "Advantage Amount" %}</dt>
+        <dd>${{ advantage_amount }}</dd>
+      </div>
+      {% endif %}
+      <div class="summary-row summary-row--total">
+        <dt><strong>{% trans "Eligible Amount (for tax receipt)" %}</strong></dt>
+        <dd><strong>${{ eligible_amount }}</strong></dd>
+      </div>
+      {% if is_recurring %}
+      <div class="summary-row">
+        <dt>{% trans "Frequency" %}</dt>
+        <dd>{{ frequency|capfirst }}</dd>
+      </div>
+      {% endif %}
+    </dl>
+  </section>
+
+  {# Payment form — card data entered into Stripe-hosted iframe only.
+     Card numbers never touch our server. #}
+  <section aria-labelledby="payment-heading">
+    <h2 id="payment-heading">{% trans "Card Details" %}</h2>
+
+    <form id="payment-form" novalidate>
+      {% csrf_token %}
+
+      <div class="form-group">
+        <label for="card-element">
+          {% trans "Card number, expiry, and CVC" %}
+          <span aria-hidden="true" class="required-indicator">*</span>
+        </label>
+        {# Stripe Elements mounts here — do not put any content inside this div #}
+        <div id="card-element" class="stripe-card-element" aria-required="true">
+        </div>
+        {# Real-time card error message from Stripe #}
+        <p id="card-errors"
+           class="field-error"
+           role="alert"
+           aria-live="assertive"
+           aria-atomic="true"
+           tabindex="-1"></p>
+      </div>
+
+      <div class="form-actions">
+        <button id="submit-button" type="submit" class="btn btn--primary">
+          <span id="button-text">{% trans "Donate" %} ${{ amount }}</span>
+          <span id="spinner"
+                class="spinner"
+                role="status"
+                aria-label="{% trans 'Processing donation…' %}"
+                hidden></span>
+        </button>
+        <a href="{% url 'donate:donation_cancel' %}" class="btn btn--secondary">
+          {% trans "Cancel" %}
+        </a>
+      </div>
+
+      <div id="payment-status"
+           aria-live="polite"
+           aria-atomic="true"
+           class="visually-hidden"></div>
+    </form>
+  </section>
+
+  <p class="form-help" style="margin-top: 1rem;">
+    {% trans "Your payment is processed securely by Stripe. Your card details never touch our servers." %}
+  </p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{# Stripe.js — loaded from https://js.stripe.com as required by CSP_SCRIPT_SRC. #}
+{% script src="https://js.stripe.com/v3/" defer=True %}{% endscript %}
+{% script %}
+(function () {
+  'use strict';
+
+  var PUBLISHABLE_KEY   = '{{ stripe_publishable_key|escapejs }}';
+  var CREATE_INTENT_URL = '{% url "donate:create_donation_intent" %}';
+  var SUCCESS_URL       = '{% url "donate:donation_success" %}';
+
+  // Read CSRF token from the <meta> tag that base.html always renders.
+  // CSRF_COOKIE_HTTPONLY=True means JS cannot read the cookie directly.
+  function getCsrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.content : '';
+  }
+
+  function showError(message) {
+    var el = document.getElementById('card-errors');
+    el.textContent = message;
+    el.focus();
+  }
+
+  function setLoading(loading) {
+    var btn          = document.getElementById('submit-button');
+    var spinner      = document.getElementById('spinner');
+    var btnText      = document.getElementById('button-text');
+    var statusRegion = document.getElementById('payment-status');
+    btn.disabled = loading;
+    btn.setAttribute('aria-disabled', loading ? 'true' : 'false');
+    spinner.hidden = !loading;
+    btnText.setAttribute('aria-busy', loading ? 'true' : 'false');
+    if (statusRegion) {
+      statusRegion.textContent = loading ? '{% trans "Processing donation, please wait…" %}' : '';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!PUBLISHABLE_KEY) {
+      showError('{% trans "Payment is not configured. Please contact support." %}');
+      return;
+    }
+
+    var stripe      = Stripe(PUBLISHABLE_KEY);  // eslint-disable-line no-undef
+    var elements    = stripe.elements();
+    var cardElement = elements.create('card', {
+      style: {
+        base:    { fontSize: '16px', color: '#1a1a1a' },
+        invalid: { color: '#c0392b' },
+      },
+      hidePostalCode: false,
+    });
+    cardElement.mount('#card-element');
+
+    // Real-time validation feedback from Stripe
+    cardElement.on('change', function (event) {
+      if (event.error) {
+        showError(event.error.message);
+      } else {
+        document.getElementById('card-errors').textContent = '';
+      }
+    });
+
+    document.getElementById('payment-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      setLoading(true);
+      document.getElementById('card-errors').textContent = '';
+
+      // Step 1: create PaymentIntent server-side.
+      // Amount is authoritative from the session — we send an empty body.
+      fetch(CREATE_INTENT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken':  getCsrfToken(),
+        },
+        body: JSON.stringify({}),
+      })
+      .then(function (response) {
+        if (!response.ok) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            showError(data.error || '{% trans "An error occurred. Please try again." %}');
+            setLoading(false);
+            return null;
+          });
+        }
+        return response.json();
+      })
+      .then(function (data) {
+        if (!data) return;  // Error already shown above
+
+        var clientSecret = data.client_secret;
+        var intentPk     = data.payment_intent_pk;
+
+        // Step 2: confirm card payment via Stripe.js.
+        // Card data is submitted directly to Stripe — it never touches our server.
+        return stripe.confirmCardPayment(clientSecret, {
+          payment_method: { card: cardElement },
+        }).then(function (result) {
+          if (result.error) {
+            showError(
+              result.error.message ||
+              '{% trans "Payment failed. Please check your card details." %}'
+            );
+            setLoading(false);
+            return;
+          }
+          // Step 3: redirect to success page.
+          // The webhook will update PaymentIntent.status asynchronously.
+          window.location.href =
+            SUCCESS_URL + '?payment_intent_pk=' + encodeURIComponent(intentPk);
+        });
+      })
+      .catch(function () {
+        // Network error — no PII logged
+        showError('{% trans "A network error occurred. Please check your connection and try again." %}');
+        setLoading(false);
+      });
+    });
+  });
+}());
+{% endscript %}
+{% endblock %}

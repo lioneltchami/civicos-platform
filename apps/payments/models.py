@@ -1505,6 +1505,7 @@ class OfficialDonationReceipt(TimestampedModel):
         "donor_province",
         "donor_postal_code",
         "donation_date",
+        "receipt_date",
         "eligible_amount",
         "advantage_amount",
         "advantage_description",

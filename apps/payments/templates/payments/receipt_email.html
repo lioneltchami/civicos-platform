@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Official Donation Receipt</title>
+  <style>
+    /* Inline-safe CSS for email clients — no external resources */
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      color: #222222;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 0;
+    }
+    .wrapper {
+      max-width: 600px;
+      margin: 24px auto;
+      background-color: #ffffff;
+      border: 1px solid #dddddd;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .header {
+      background-color: #1a1a4b;
+      color: #ffffff;
+      padding: 20px 24px;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: bold;
+      letter-spacing: 0.3px;
+    }
+    .header p {
+      margin: 4px 0 0 0;
+      font-size: 12px;
+      color: #cccccc;
+      font-style: italic;
+    }
+    .body {
+      padding: 24px;
+    }
+    .body p {
+      margin: 0 0 14px 0;
+      line-height: 1.6;
+    }
+    .receipt-box {
+      border: 1px solid #1a1a4b;
+      border-radius: 3px;
+      padding: 16px 20px;
+      margin: 20px 0;
+      background-color: #f9f9ff;
+    }
+    .receipt-box table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .receipt-box td {
+      padding: 5px 0;
+      font-size: 13px;
+      vertical-align: top;
+    }
+    .receipt-box td.label {
+      font-weight: bold;
+      width: 55%;
+      color: #444444;
+    }
+    .receipt-box td.value {
+      text-align: right;
+      font-size: 14px;
+    }
+    .receipt-box .eligible-row td {
+      font-size: 15px;
+      font-weight: bold;
+      color: #1a1a4b;
+      border-top: 1px solid #1a1a4b;
+      padding-top: 8px;
+    }
+    .attachment-note {
+      background-color: #fffbe6;
+      border-left: 4px solid #f0a500;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin: 16px 0;
+    }
+    .footer {
+      background-color: #f4f4f4;
+      border-top: 1px solid #dddddd;
+      padding: 14px 24px;
+      font-size: 11px;
+      color: #888888;
+      text-align: center;
+    }
+    .footer p {
+      margin: 3px 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="wrapper">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Official Donation Receipt / Reçu officiel</h1>
+    <p>aux fins de l'impôt sur le revenu &mdash; Income Tax Act (Canada)</p>
+  </div>
+
+  <!-- Body -->
+  <div class="body">
+
+    <p>
+      Thank you for your generous contribution to
+      <strong>{{ charity_legal_name }}</strong>.
+      Your official donation receipt for Canadian income tax purposes is
+      attached to this email as a PDF document.
+    </p>
+
+    <!-- Receipt summary box -->
+    <div class="receipt-box">
+      <table>
+        <tr>
+          <td class="label">Receipt Serial Number</td>
+          <td class="value">{{ serial_number }}</td>
+        </tr>
+        <tr>
+          <td class="label">Date of Donation</td>
+          <td class="value">{{ donation_date }}</td>
+        </tr>
+        <tr>
+          <td class="label">Receipt Date</td>
+          <td class="value">{{ receipt_date }}</td>
+        </tr>
+        {% if is_annual_consolidated %}
+        <tr>
+          <td class="label">Receipt Type</td>
+          <td class="value">Annual Consolidated / Annuel consolidé</td>
+        </tr>
+        {% endif %}
+        <tr class="eligible-row">
+          <td class="label">Eligible Amount for Tax Credit (CAD)</td>
+          <td class="value">${{ eligible_amount }}</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="attachment-note">
+      <strong>PDF Receipt Attached / Reçu PDF joint</strong> &mdash;
+      The official receipt is attached to this email
+      (receipt-{{ serial_number }}.pdf).
+      Please save it for your tax records.
+      /
+      Le reçu officiel est joint à ce courriel. Veuillez le conserver pour
+      vos déclarations fiscales.
+    </div>
+
+    <p>
+      This receipt was issued pursuant to section&nbsp;118.1 of the
+      <em>Income Tax Act</em> (Canada) and may be used to claim a charitable
+      donation tax credit on your federal and provincial income tax return.
+    </p>
+
+    <p>
+      If you have questions about this receipt, please contact
+      <strong>{{ charity_legal_name }}</strong>.
+      Do not reply to this email directly.
+    </p>
+
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <p>{{ charity_legal_name }}</p>
+    <p>This email was generated automatically. / Ce courriel a été généré automatiquement.</p>
+    <p>
+      Canada Revenue Agency / Agence du revenu du Canada &mdash;
+      IT-110R3 / T4033
+    </p>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Thank You for Your Donation" %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 640px; margin: 0 auto; padding: 2rem 1rem; text-align: center;">
+
+  {# Success icon — decorative, aria-hidden #}
+  <svg aria-hidden="true" focusable="false"
+       width="64" height="64" viewBox="0 0 24 24" fill="none"
+       style="margin-bottom: 1rem;">
+    <circle cx="12" cy="12" r="12" fill="#2e7d32"/>
+    <path d="M7 12.5l3.5 3.5 6-7"
+          stroke="#ffffff"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+  </svg>
+
+  <h1>{% trans "Thank You for Your Donation!" %}</h1>
+  <p>
+    {% trans "Your donation has been received. We are grateful for your support." %}
+  </p>
+
+  <section aria-labelledby="receipt-heading"
+           class="order-summary"
+           style="text-align: left; margin: 1.5rem 0;">
+    <h2 id="receipt-heading" class="visually-hidden">{% trans "Donation details" %}</h2>
+    <dl class="summary-list">
+      <div class="summary-row">
+        <dt>{% trans "Reference Number" %}</dt>
+        <dd><code>{{ reference }}</code></dd>
+      </div>
+      <div class="summary-row">
+        <dt>{% trans "Status" %}</dt>
+        <dd>{% trans "Processing" %}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <p class="form-help">
+    {% trans "Your official tax receipt will be emailed to you within 24 hours. Please keep your reference number for your records." %}
+  </p>
+
+  <p class="form-help" style="font-size: 0.875rem; color: #555;">
+    {% blocktrans trimmed %}
+      <strong>CRA disclaimer:</strong> This organization is a registered Canadian charity.
+      Official donation receipts are issued in accordance with the
+      <em>Income Tax Act</em> (Canada). The eligible amount for tax purposes
+      is the donation amount minus the fair market value of any advantage received.
+    {% endblocktrans %}
+  </p>
+
+  <a href="{% url 'donate:donation_select' %}" class="btn btn--secondary">
+    {% trans "Make Another Donation" %}
+  </a>
+</div>
+{% endblock %}

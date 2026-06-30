@@ -379,10 +379,7 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
         return
 
     logger.info(
-        "payments.handler.charge_refunded "
-        "gateway_refund_id=%s gateway_charge_id=%s gateway_event_id=%s",
-        gateway_refund_id,
-        gateway_charge_id,
+        "payments.handler.charge_refunded gateway_event_id=%s",
         webhook_event.gateway_event_id,
     )
 
@@ -487,6 +484,219 @@ def _handle_subscription_updated(event_data: dict, webhook_event) -> None:
         )
 
 
+def _handle_invoice_payment_succeeded(event_data: dict, webhook_event) -> None:
+    """
+    Create a Donation + Payment when a Stripe Subscription renews.
+
+    Fires on invoice.payment_succeeded for subscription invoices.
+    Called inside an atomic transaction by process_stripe_webhook.
+    Idempotent: skips if a Payment already exists for this charge_id.
+
+    Note: donor_name_snapshot and donor_address_snapshot are CRA requirements.
+    We populate them from the donor's User fields. If a RecurringGiftPlan is
+    found, the donor is the plan.donor FK; address snapshot defaults to "" if
+    not available (CRA allows blank for recurring donors where address is on file).
+
+    Signal emission deferred to on_commit() so it fires only after DB commits.
+    """
+    from apps.payments.models import (
+        Payment,
+        PaymentIntent,
+        Donation,
+        RecurringGiftPlan,
+        PaymentAuditEntry,
+        DONATION_STATUS_COMPLETED,
+    )
+    from apps.payments.signals import donation_completed
+
+    gateway_subscription_id = event_data.get("gateway_subscription_id", "")
+    gateway_charge_id = event_data.get("gateway_charge_id", "")
+    amount_paid = event_data.get("amount_paid", Decimal("0.00"))
+
+    if not gateway_subscription_id:
+        logger.error(
+            "payments.handler.invoice_succeeded.missing_sub_id "
+            "gateway_event_id=%s",
+            webhook_event.gateway_event_id,
+        )
+        return
+
+    logger.info(
+        "payments.handler.invoice_succeeded sub_id=%s",
+        gateway_subscription_id,
+    )
+
+    # Idempotency: skip if Payment already exists for this charge
+    if gateway_charge_id and Payment.objects.filter(gateway_charge_id=gateway_charge_id).exists():
+        logger.info(
+            "payments.handler.invoice_succeeded.already_processed "
+            "gateway_charge_id=%s",
+            gateway_charge_id,
+        )
+        return
+
+    # Find the RecurringGiftPlan for this subscription — row-locked for consistency
+    try:
+        plan = RecurringGiftPlan.objects.select_for_update().get(
+            gateway_subscription_id=gateway_subscription_id
+        )
+    except RecurringGiftPlan.DoesNotExist:
+        logger.warning(
+            "payments.handler.invoice_succeeded.plan_not_found "
+            "gateway_subscription_id=%s",
+            gateway_subscription_id,
+        )
+        return
+
+    donor = plan.donor
+
+    # Get address snapshot from the linked donor user — address may not be on profile
+    # Use getattr with nested fallback to avoid AttributeError
+    donor_user = getattr(plan, "donor", None)
+    address_parts = []
+    if donor_user:
+        for attr in ("address", "billing_address", "profile_address"):
+            addr = getattr(donor_user, attr, None)
+            if addr:
+                address_parts = [addr]
+                break
+    donor_address_snapshot = "\n".join(address_parts) if address_parts else "Address on file — subscription renewal"
+
+    # Create a new PaymentIntent for this renewal
+    import uuid as _uuid_module
+    new_idempotency_key = _uuid_module.uuid4()
+    intent = PaymentIntent.objects.create(
+        payer=donor,
+        amount=amount_paid,
+        tax_amount=Decimal("0.00"),
+        currency="CAD",
+        purpose=PaymentIntent.PURPOSE_DONATION,
+        status=PaymentIntent.STATUS_COMPLETED,
+        gateway=PaymentIntent.GATEWAY_STRIPE,
+        gateway_intent_id="",  # Invoice renewals don't have a standalone PI id
+        idempotency_key=new_idempotency_key,
+        metadata={
+            "gateway_subscription_id": gateway_subscription_id,
+            "source": "recurring_renewal",
+            "gateway_event_id": webhook_event.gateway_event_id,
+        },
+    )
+
+    # Create the Payment record
+    payment = Payment.objects.create(
+        intent=intent,
+        gateway_charge_id=gateway_charge_id or f"inv_{webhook_event.gateway_event_id}",
+        amount_paid=amount_paid,
+        processor_fee=Decimal("0.00"),
+        # net_amount computed in Payment.save() as amount_paid - processor_fee
+        payment_method_type=Payment.PAYMENT_METHOD_CARD,
+        card_last_four=None,
+        card_brand=None,
+        paid_at=timezone.now(),
+    )
+
+    # donor_name_snapshot: CRA requirement — use display_name or full_name if available
+    donor_name_snapshot = getattr(donor, "get_full_name", lambda: "")() or str(donor)
+
+    # Create the Donation record
+    donation = Donation.objects.create(
+        payment_intent=intent,
+        donor=donor,
+        campaign=plan.campaign,
+        amount=amount_paid,
+        advantage_amount=Decimal("0.00"),
+        # eligible_amount computed in Donation.save()
+        eligible_amount=amount_paid,  # Will be recomputed in save()
+        is_recurring=True,
+        recurring_plan=plan,
+        is_anonymous=False,
+        status=DONATION_STATUS_COMPLETED,
+        donor_name_snapshot=donor_name_snapshot or "Recurring Donor",
+        donor_address_snapshot=donor_address_snapshot,
+    )
+
+    PaymentAuditEntry.objects.create(
+        action="donation_created",
+        actor=None,          # system / webhook event
+        actor_ip="",
+        payment_intent=intent,
+        payment=payment,
+        details={
+            "gateway_event_id": webhook_event.gateway_event_id,
+            "gateway_subscription_id": gateway_subscription_id,
+            "donation_pk": str(donation.pk),
+            "payment_pk": str(payment.pk),
+        },
+    )
+
+    logger.info(
+        "payments.handler.invoice_succeeded.done "
+        "sub_id=%s donation_pk=%s payment_pk=%s",
+        gateway_subscription_id,
+        str(donation.pk),
+        str(payment.pk),
+    )
+
+    # Defer signal to post-commit so it fires only after DB commits
+    donation_pk = str(donation.pk)
+    payment_pk = str(payment.pk)
+
+    def _send_donation_completed(donation_pk=donation_pk, payment_pk=payment_pk):
+        from apps.payments.models import Donation as _Donation, Payment as _Payment
+        from apps.payments.signals import donation_completed as _signal
+        try:
+            _donation = _Donation.objects.get(pk=donation_pk)
+            _payment = _Payment.objects.get(pk=payment_pk)
+            _signal.send(sender=_Donation, donation=_donation, payment=_payment)
+        except Exception:
+            pass  # Never let signal errors crash post-commit hooks
+
+    db_transaction.on_commit(_send_donation_completed)
+
+
+def _handle_invoice_payment_failed(event_data: dict, webhook_event) -> None:
+    """
+    Mark RecurringGiftPlan as past_due when a subscription renewal fails.
+
+    Fires on invoice.payment_failed for subscription invoices.
+    RecurringGiftPlan.PLAN_STATUS_* constants only have active/paused/cancelled —
+    no STATUS_PAST_DUE exists. We use PLAN_STATUS_PAUSED as the closest match
+    and record the reason in cancellation_reason for audit purposes.
+    """
+    from apps.payments.models import RecurringGiftPlan, PLAN_STATUS_PAUSED
+
+    gateway_subscription_id = event_data.get("gateway_subscription_id", "")
+
+    if not gateway_subscription_id:
+        logger.error(
+            "payments.handler.invoice_failed.missing_sub_id "
+            "gateway_event_id=%s",
+            webhook_event.gateway_event_id,
+        )
+        return
+
+    logger.info(
+        "payments.handler.invoice_failed sub_id=%s",
+        gateway_subscription_id,
+    )
+
+    updated = RecurringGiftPlan.objects.filter(
+        gateway_subscription_id=gateway_subscription_id
+    ).exclude(
+        status=PLAN_STATUS_PAUSED,
+    ).update(
+        status=PLAN_STATUS_PAUSED,
+        cancellation_reason="invoice_payment_failed",
+    )
+
+    if updated:
+        logger.info(
+            "payments.handler.invoice_failed.paused "
+            "gateway_subscription_id=%s",
+            gateway_subscription_id,
+        )
+
+
 # ── Handler dispatch table ─────────────────────────────────────────────────────
 # FIX 8: Freeze the dispatch table to prevent runtime mutation bugs.
 # types.MappingProxyType is a read-only view — assignment raises TypeError.
@@ -497,4 +707,6 @@ _HANDLERS = types.MappingProxyType({
     "charge.refunded": _handle_charge_refunded,
     "customer.subscription.deleted": _handle_subscription_deleted,
     "customer.subscription.updated": _handle_subscription_updated,
+    "invoice.payment_succeeded": _handle_invoice_payment_succeeded,
+    "invoice.payment_failed": _handle_invoice_payment_failed,
 })

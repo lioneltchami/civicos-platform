@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Cancel Recurring Gift" %}{% endblock %}
+
+{% block content %}
+<div class="container" style="max-width: 640px; margin: 0 auto; padding: 2rem 1rem;">
+  <h1>{% trans "Cancel Recurring Gift" %}</h1>
+
+  {# Plan details #}
+  <section aria-labelledby="plan-heading" class="order-summary">
+    <h2 id="plan-heading">{% trans "Your Recurring Gift" %}</h2>
+    <dl class="summary-list">
+      {% if plan.campaign %}
+      <div class="summary-row">
+        <dt>{% trans "Campaign" %}</dt>
+        <dd>{{ plan.campaign.get_name }}</dd>
+      </div>
+      {% endif %}
+      <div class="summary-row">
+        <dt>{% trans "Amount" %}</dt>
+        <dd>${{ plan.amount }} {% trans "per" %} {{ plan.get_frequency_display }}</dd>
+      </div>
+      <div class="summary-row">
+        <dt>{% trans "Status" %}</dt>
+        <dd>{{ plan.get_status_display }}</dd>
+      </div>
+      {% if plan.next_charge_date %}
+      <div class="summary-row">
+        <dt>{% trans "Next Charge Date" %}</dt>
+        <dd>{{ plan.next_charge_date }}</dd>
+      </div>
+      {% endif %}
+    </dl>
+  </section>
+
+  <div class="alert" role="alert" style="background: #fff3cd; border: 1px solid #ffc107; padding: 1rem; border-radius: 4px; margin: 1.5rem 0;">
+    <p><strong>{% trans "Are you sure you want to cancel this recurring gift?" %}</strong></p>
+    <p>{% trans "Your subscription will be cancelled immediately. No further charges will be made. This action cannot be undone." %}</p>
+  </div>
+
+  {# Confirmation form — POST to cancel #}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="form-actions">
+      <button type="submit" class="btn btn--danger">
+        {% trans "Yes, Cancel My Recurring Gift" %}
+      </button>
+      <a href="{% url 'donate:donation_select' %}" class="btn btn--secondary">
+        {% trans "Keep My Recurring Gift" %}
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}

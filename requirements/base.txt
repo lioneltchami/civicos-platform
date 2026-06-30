@@ -55,6 +55,9 @@ et-xmlfile==2.0.0
 # Payments
 stripe>=7.0.0
 
+# PDF generation — CRA donation receipts
+weasyprint>=60.0
+
 # REST API
 djangorestframework>=3.15,<4.0
 djangorestframework-simplejwt>=5.3,<6.0

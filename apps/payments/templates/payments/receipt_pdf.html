@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Official Donation Receipt / Reçu officiel aux fins de l'impôt</title>
+  <style>
+    /* Self-contained CSS for WeasyPrint — no external resources */
+    @page {
+      size: Letter;
+      margin: 2cm 2.5cm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11pt;
+      color: #000000;
+      line-height: 1.4;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ── Header ── */
+    .receipt-header {
+      border-bottom: 3px solid #000000;
+      padding-bottom: 14px;
+      margin-bottom: 18px;
+    }
+
+    .bilingual-title {
+      font-size: 13pt;
+      font-weight: bold;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.5pt;
+      margin: 0 0 4px 0;
+    }
+
+    .bilingual-subtitle {
+      font-size: 10pt;
+      font-style: italic;
+      text-align: center;
+      color: #333333;
+      margin: 0 0 12px 0;
+    }
+
+    .consolidated-banner {
+      background-color: #f0f0f0;
+      border: 1px solid #999999;
+      padding: 5px 10px;
+      text-align: center;
+      font-size: 10pt;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    /* ── Charity section ── */
+    .charity-block {
+      margin-bottom: 14px;
+    }
+
+    .charity-name {
+      font-size: 13pt;
+      font-weight: bold;
+      margin: 0 0 2px 0;
+    }
+
+    .charity-address {
+      font-size: 10pt;
+      margin: 0;
+      white-space: pre-line;
+    }
+
+    /* ── Field layout ── */
+    .fields-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+    }
+
+    .fields-table td {
+      padding: 4px 6px;
+      vertical-align: top;
+    }
+
+    .field-label {
+      font-weight: bold;
+      font-size: 9.5pt;
+      color: #222222;
+      width: 45%;
+      border-bottom: 1px dotted #cccccc;
+    }
+
+    .field-label-fr {
+      font-size: 8.5pt;
+      font-style: italic;
+      color: #555555;
+      display: block;
+    }
+
+    .field-value {
+      font-size: 11pt;
+      width: 55%;
+      border-bottom: 1px dotted #cccccc;
+    }
+
+    /* ── Amount box (CRA fields 11-14) ── */
+    .amount-section {
+      border: 2px solid #000000;
+      padding: 10px 14px;
+      margin: 16px 0;
+      background-color: #fafafa;
+    }
+
+    .amount-section-title {
+      font-size: 10pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      border-bottom: 1px solid #000000;
+      padding-bottom: 4px;
+      margin-bottom: 8px;
+    }
+
+    .amount-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      font-size: 11pt;
+    }
+
+    .amount-row.total {
+      font-weight: bold;
+      font-size: 12pt;
+      border-top: 1px solid #000000;
+      padding-top: 6px;
+      margin-top: 4px;
+    }
+
+    .amount-label {
+      flex: 1;
+    }
+
+    .amount-label-fr {
+      font-size: 9pt;
+      font-style: italic;
+      color: #555555;
+      display: block;
+    }
+
+    .amount-value {
+      font-weight: bold;
+      min-width: 100px;
+      text-align: right;
+    }
+
+    .advantage-description {
+      font-size: 9.5pt;
+      color: #333333;
+      font-style: italic;
+      margin-top: 4px;
+    }
+
+    /* ── Signatory ── */
+    .signatory-section {
+      margin-top: 24px;
+      border-top: 1px solid #cccccc;
+      padding-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .signature-block {
+      width: 48%;
+    }
+
+    .signature-line {
+      border-bottom: 1px solid #000000;
+      height: 30px;
+      margin-bottom: 4px;
+    }
+
+    .signature-caption {
+      font-size: 9pt;
+      color: #444444;
+    }
+
+    .signatory-name {
+      font-size: 10pt;
+      font-weight: bold;
+    }
+
+    .signatory-title {
+      font-size: 9.5pt;
+      color: #444444;
+    }
+
+    /* ── Footer ── */
+    .receipt-footer {
+      margin-top: 20px;
+      border-top: 1px solid #cccccc;
+      padding-top: 8px;
+      font-size: 8.5pt;
+      color: #555555;
+      text-align: center;
+    }
+
+    .cra-note {
+      margin-top: 6px;
+      font-size: 8pt;
+      color: #666666;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       HEADER — CRA Field 1: Bilingual official title
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="receipt-header">
+    <p class="bilingual-title">
+      Official Receipt for Income Tax Purposes
+    </p>
+    <p class="bilingual-subtitle">
+      Reçu officiel aux fins de l'impôt sur le revenu
+    </p>
+
+    {% if is_annual_consolidated %}
+    <div class="consolidated-banner">
+      Annual Consolidated Receipt / Reçu annuel consolidé
+    </div>
+    {% endif %}
+
+    <!-- CRA Field 2: Charity legal name -->
+    <!-- CRA Field 3: Charity address -->
+    <div class="charity-block">
+      <p class="charity-name">{{ charity_legal_name }}</p>
+      <p class="charity-address">{{ charity_address }}</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       RECEIPT IDENTIFICATION FIELDS
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <table class="fields-table">
+    <tbody>
+
+      <!-- CRA Field 4: CRA Registration Number -->
+      <tr>
+        <td class="field-label">
+          CRA Registration Number
+          <span class="field-label-fr">Numéro d'enregistrement ARC</span>
+        </td>
+        <td class="field-value">{{ charity_registration_number }}</td>
+      </tr>
+
+      <!-- CRA Field 5: Serial Number -->
+      <tr>
+        <td class="field-label">
+          Receipt Serial Number
+          <span class="field-label-fr">Numéro de série du reçu</span>
+        </td>
+        <td class="field-value">{{ serial_number }}</td>
+      </tr>
+
+      <!-- CRA Field 6: Place of Issue -->
+      <tr>
+        <td class="field-label">
+          Place of Issue
+          <span class="field-label-fr">Lieu d'émission</span>
+        </td>
+        <td class="field-value">{{ place_of_issue }}</td>
+      </tr>
+
+      <!-- CRA Field 7: Date Receipt Issued -->
+      <tr>
+        <td class="field-label">
+          Date Receipt Issued
+          <span class="field-label-fr">Date d'émission du reçu</span>
+        </td>
+        <td class="field-value">{{ receipt_date }}</td>
+      </tr>
+
+      <!-- CRA Field 8: Date of Donation -->
+      <tr>
+        <td class="field-label">
+          Date of Donation
+          <span class="field-label-fr">Date du don</span>
+        </td>
+        <td class="field-value">{{ donation_date }}</td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       DONOR INFORMATION — CRA Fields 9 & 10
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <table class="fields-table">
+    <tbody>
+
+      <!-- CRA Field 9: Donor Legal Name -->
+      <tr>
+        <td class="field-label">
+          Donor's Full Name
+          <span class="field-label-fr">Nom complet du donateur</span>
+        </td>
+        <td class="field-value">{{ donor_legal_name }}</td>
+      </tr>
+
+      <!-- CRA Field 10: Donor Full Address -->
+      <tr>
+        <td class="field-label">
+          Donor's Address
+          <span class="field-label-fr">Adresse du donateur</span>
+        </td>
+        <td class="field-value">
+          {{ donor_address_line1 }}<br>
+          {{ donor_city }}, {{ donor_province }}&nbsp;&nbsp;{{ donor_postal_code }}
+        </td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       AMOUNT BOX — CRA Fields 11, 12, 13, 14
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="amount-section">
+    <div class="amount-section-title">
+      Gift Information / Renseignements sur le don
+    </div>
+
+    <!-- CRA Field 11: Total donation amount -->
+    <div class="amount-row">
+      <div class="amount-label">
+        Total Donation Amount (CAD)
+        <span class="amount-label-fr">Montant total du don (CAD)</span>
+      </div>
+      <div class="amount-value">${{ total_donation_amount }}</div>
+    </div>
+
+    <!-- CRA Field 13: Advantage amount received -->
+    <div class="amount-row">
+      <div class="amount-label">
+        Advantage Amount Received
+        <span class="amount-label-fr">Montant de l'avantage reçu</span>
+      </div>
+      <div class="amount-value">${{ advantage_amount }}</div>
+    </div>
+
+    <!-- CRA Field 12: Eligible amount of the gift -->
+    <div class="amount-row total">
+      <div class="amount-label">
+        Eligible Amount of the Gift (CAD)
+        <span class="amount-label-fr">Montant admissible du don (CAD)</span>
+      </div>
+      <div class="amount-value">${{ eligible_amount }}</div>
+    </div>
+
+    <!-- CRA Field 14: Description of advantage (only if advantage > 0) -->
+    {% if has_advantage and advantage_description %}
+    <div class="advantage-description">
+      Description of advantage / Description de l'avantage :
+      {{ advantage_description }}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       AUTHORIZED SIGNATORY — CRA Field 15
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="signatory-section">
+    <div class="signature-block">
+      <div class="signature-line"></div>
+      <div class="signature-caption">
+        Signature of Authorized Official /
+        Signature du représentant autorisé
+      </div>
+    </div>
+    <div class="signature-block" style="text-align:right;">
+      <p class="signatory-name">{{ authorized_signatory_name }}</p>
+      <p class="signatory-title">{{ authorized_signatory_title }}</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       FOOTER
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="receipt-footer">
+    <p>
+      This is an official donation receipt issued pursuant to the
+      <em>Income Tax Act</em> (Canada), s.&nbsp;118.1.
+      /
+      Ce reçu officiel est émis conformément à la
+      <em>Loi de l'impôt sur le revenu</em> (Canada), art.&nbsp;118.1.
+    </p>
+    <p class="cra-note">
+      Canada Revenue Agency / Agence du revenu du Canada &mdash;
+      IT-110R3 / T4033
+    </p>
+  </div>
+
+</body>
+</html>

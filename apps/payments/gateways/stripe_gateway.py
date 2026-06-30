@@ -391,6 +391,8 @@ class StripeGateway(PaymentGateway):
             "customer.subscription.updated",
         ):
             return self._parse_subscription_event(obj)
+        elif event_type.startswith("invoice."):
+            return self._parse_invoice_event(obj)
         else:
             # Unknown event type — return minimal normalised data
             return {"gateway_intent_id": obj.get("id", "")}
@@ -458,4 +460,22 @@ class StripeGateway(PaymentGateway):
             "status": obj.get("status", ""),
             "current_period_end": str(obj.get("current_period_end", "")),
             "cancel_at_period_end": obj.get("cancel_at_period_end", False),
+        }
+
+    def _parse_invoice_event(self, obj: dict) -> dict:
+        """
+        Parse invoice.payment_succeeded/failed events.
+
+        Extracts subscription and charge IDs plus the amount paid.
+        NOTE: obj.get("subscription") may be a string ID or None (for one-off invoices).
+        We only process subscription invoices where subscription is a non-empty string.
+        """
+        subscription_id = obj.get("subscription", "")
+        charge_id = obj.get("charge", "")
+        amount_paid = _from_cents(obj.get("amount_paid", 0))
+        return {
+            "gateway_subscription_id": subscription_id if isinstance(subscription_id, str) else "",
+            "gateway_charge_id": charge_id if isinstance(charge_id, str) else "",
+            "amount_paid": amount_paid,
+            "status": obj.get("status", ""),
         }
