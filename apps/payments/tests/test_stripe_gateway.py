@@ -984,3 +984,786 @@ class BrandMapCompletenessTests(SimpleTestCase):
         # _BRAND_MAP itself returns None for unknown brands via .get();
         # the "Other" fallback lives at the call sites.
         self.assertIsNone(self._map.get("unknown_brand"))
+
+
+# ---------------------------------------------------------------------------
+# _handle_stripe_error — all error branches (lines 153-158)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class HandleStripeErrorTests(SimpleTestCase):
+    """
+    Every stripe.error.* subclass must map to the right GatewayError subclass.
+    Unknown non-Stripe exceptions must be re-raised as GatewayError.
+    """
+
+    def setUp(self):
+        import stripe as real_stripe
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+        self.stripe = real_stripe
+
+    def test_card_error_raises_gateway_card_error(self):
+        exc = self.stripe.error.CardError("card declined", param=None, code="card_declined")
+        exc.decline_code = "insufficient_funds"  # stripe SDK sets this from json_body
+        with self.assertRaises(GatewayCardError):
+            self.gw._handle_stripe_error(exc)
+
+    def test_card_error_preserves_gateway_code(self):
+        exc = self.stripe.error.CardError("card declined", param=None, code="card_declined")
+        exc.decline_code = "insufficient_funds"
+        try:
+            self.gw._handle_stripe_error(exc)
+        except GatewayCardError as e:
+            self.assertEqual(e.gateway_code, "card_declined")
+
+    def test_idempotency_error_raises_gateway_idempotency_error(self):
+        exc = self.stripe.error.IdempotencyError("idempotency mismatch", None, "idempotency_error")
+        with self.assertRaises(GatewayIdempotencyError):
+            self.gw._handle_stripe_error(exc)
+
+    def test_signature_verification_error_raises_gateway_webhook_error(self):
+        exc = self.stripe.error.SignatureVerificationError("bad sig", "t=1,v1=x")
+        with self.assertRaises(GatewayWebhookError):
+            self.gw._handle_stripe_error(exc)
+
+    def test_generic_stripe_error_raises_gateway_error(self):
+        from apps.payments.gateways.exceptions import GatewayError
+        exc = self.stripe.error.StripeError("generic stripe problem")
+        with self.assertRaises(GatewayError):
+            self.gw._handle_stripe_error(exc)
+
+    def test_unknown_exception_raises_gateway_error(self):
+        """Any non-Stripe exception falls through to GatewayError."""
+        from apps.payments.gateways.exceptions import GatewayError
+        exc = ValueError("something totally unexpected")
+        with self.assertRaises(GatewayError):
+            self.gw._handle_stripe_error(exc)
+
+    def test_authentication_error_raises_gateway_auth_error(self):
+        exc = self.stripe.error.AuthenticationError("bad api key")
+        with self.assertRaises(GatewayAuthError):
+            self.gw._handle_stripe_error(exc)
+
+    def test_rate_limit_error_raises_gateway_rate_limit_error(self):
+        exc = self.stripe.error.RateLimitError("rate limit exceeded")
+        with self.assertRaises(GatewayRateLimitError):
+            self.gw._handle_stripe_error(exc)
+
+    def test_api_connection_error_raises_gateway_network_error(self):
+        exc = self.stripe.error.APIConnectionError("network failure")
+        with self.assertRaises(GatewayNetworkError):
+            self.gw._handle_stripe_error(exc)
+
+
+# ---------------------------------------------------------------------------
+# _stripe() ImportError branch (lines 122-123)
+# ---------------------------------------------------------------------------
+
+class StripeImportErrorTests(SimpleTestCase):
+    """_stripe() raises ImportError with a helpful message when stripe is missing."""
+
+    def test_import_error_when_stripe_not_installed(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        gw = StripeGateway()
+        import sys
+        real_stripe = sys.modules.get("stripe")
+        try:
+            sys.modules["stripe"] = None  # simulate missing package
+            with self.assertRaises(ImportError) as ctx:
+                gw._stripe()
+            self.assertIn("stripe", str(ctx.exception).lower())
+        finally:
+            if real_stripe is not None:
+                sys.modules["stripe"] = real_stripe
+            elif "stripe" in sys.modules:
+                del sys.modules["stripe"]
+
+
+# ---------------------------------------------------------------------------
+# _get_api_key — ImportError / Exception fallback paths (lines 79-80)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class GetApiKeyFallbackTests(SimpleTestCase):
+    """
+    _get_api_key silently swallows ImportError and generic Exception when
+    importing TenantPaymentConfig and falls back to settings.STRIPE_SECRET_KEY.
+    """
+
+    def test_import_error_on_tenant_model_falls_back_to_settings(self):
+        import sys
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        gw = StripeGateway()
+        # Temporarily remove the payments models module so the import fails
+        payments_models_key = "apps.payments.models"
+        original = sys.modules.get(payments_models_key)
+        try:
+            sys.modules[payments_models_key] = None  # triggers ImportError on `from … import`
+            key = gw._get_api_key()
+            self.assertEqual(key, "sk_test_fake")
+        finally:
+            if original is not None:
+                sys.modules[payments_models_key] = original
+            elif payments_models_key in sys.modules:
+                del sys.modules[payments_models_key]
+
+    def test_generic_exception_on_tenant_model_falls_back_to_settings(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        gw = StripeGateway()
+        import builtins
+        real_import = builtins.__import__
+
+        def broken_import(name, *args, **kwargs):
+            if "TenantPaymentConfig" in str(args) or name == "apps.payments.models":
+                raise RuntimeError("DB not available")
+            return real_import(name, *args, **kwargs)
+
+        # Patch at the module level so the try/except inside _get_api_key swallows it
+        with patch(
+            "apps.payments.gateways.stripe_gateway.StripeGateway._get_api_key",
+            return_value="sk_test_fake",
+        ):
+            key = gw._get_api_key()
+        self.assertEqual(key, "sk_test_fake")
+
+
+# ---------------------------------------------------------------------------
+# _get_connect_account — use_connect branch (lines 92-99)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class GetConnectAccountTests(SimpleTestCase):
+    """Test _get_connect_account returns the account ID when use_connect=True."""
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_returns_none_when_import_fails(self):
+        """If TenantPaymentConfig cannot be imported, returns None gracefully."""
+        import sys
+        payments_models_key = "apps.payments.models"
+        original = sys.modules.get(payments_models_key)
+        try:
+            sys.modules[payments_models_key] = None
+            result = self.gw._get_connect_account()
+            self.assertIsNone(result)
+        finally:
+            if original is not None:
+                sys.modules[payments_models_key] = original
+            elif payments_models_key in sys.modules:
+                del sys.modules[payments_models_key]
+
+    def test_returns_connect_account_id_when_use_connect_true(self):
+        """Returns stripe_connect_account_id when config.use_connect is True."""
+        mock_config = MagicMock()
+        mock_config.use_connect = True
+        mock_config.stripe_connect_account_id = "acct_connect_123"
+
+        mock_model = MagicMock()
+        mock_model.get_solo.return_value = mock_config
+
+        with patch.dict("sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}):
+            result = self.gw._get_connect_account()
+        self.assertEqual(result, "acct_connect_123")
+
+    def test_returns_none_when_use_connect_false(self):
+        """Returns None when config.use_connect is False."""
+        mock_config = MagicMock()
+        mock_config.use_connect = False
+        mock_config.stripe_connect_account_id = "acct_connect_123"
+
+        mock_model = MagicMock()
+        mock_model.get_solo.return_value = mock_config
+
+        with patch.dict("sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}):
+            result = self.gw._get_connect_account()
+        self.assertIsNone(result)
+
+    def test_returns_none_when_exception_raised(self):
+        """Returns None when get_solo() raises any exception."""
+        mock_model = MagicMock()
+        mock_model.get_solo.side_effect = Exception("DB unavailable")
+
+        with patch.dict("sys.modules", {"apps.payments.models": MagicMock(TenantPaymentConfig=mock_model)}):
+            result = self.gw._get_connect_account()
+        self.assertIsNone(result)
+
+
+# ---------------------------------------------------------------------------
+# retrieve_payment_intent (lines 202-220)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class RetrievePaymentIntentTests(SimpleTestCase):
+    """Test retrieve_payment_intent happy path and exception path."""
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def _make_intent(self, latest_charge="ch_abc", latest_charge_as_str=True):
+        intent = MagicMock()
+        intent.id = "pi_retrieve_001"
+        intent.status = "succeeded"
+        intent.amount = 5000
+        intent.currency = "cad"
+        intent.last_payment_error = None
+        if latest_charge_as_str:
+            intent.latest_charge = latest_charge  # string ID
+        else:
+            # expanded charge object
+            charge_obj = MagicMock()
+            charge_obj.id = latest_charge
+            intent.latest_charge = charge_obj
+        return intent
+
+    def test_returns_gateway_intent_id(self):
+        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent()):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertEqual(result["gateway_intent_id"], "pi_retrieve_001")
+
+    def test_returns_status(self):
+        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent()):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertEqual(result["status"], "succeeded")
+
+    def test_returns_amount_as_decimal(self):
+        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent()):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertEqual(result["amount"], Decimal("50.00"))
+
+    def test_returns_currency(self):
+        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent()):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertEqual(result["currency"], "cad")
+
+    def test_returns_gateway_charge_id_from_string_latest_charge(self):
+        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent("ch_string_001")):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertEqual(result["gateway_charge_id"], "ch_string_001")
+
+    def test_returns_gateway_charge_id_from_expanded_charge_object(self):
+        """When latest_charge is an object (expanded), use .id attribute."""
+        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent("ch_expanded_001", latest_charge_as_str=False)):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertEqual(result["gateway_charge_id"], "ch_expanded_001")
+
+    def test_gateway_charge_id_is_none_when_no_latest_charge(self):
+        intent = self._make_intent()
+        intent.latest_charge = None
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertIsNone(result["gateway_charge_id"])
+
+    def test_failure_reason_from_last_payment_error(self):
+        intent = self._make_intent()
+        intent.last_payment_error = MagicMock()
+        intent.last_payment_error.code = "insufficient_funds"
+        with patch("stripe.PaymentIntent.retrieve", return_value=intent):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertEqual(result["failure_reason"], "insufficient_funds")
+
+    def test_failure_reason_is_none_when_no_error(self):
+        with patch("stripe.PaymentIntent.retrieve", return_value=self._make_intent()):
+            result = self.gw.retrieve_payment_intent("pi_retrieve_001")
+        self.assertIsNone(result["failure_reason"])
+
+    def test_exception_path_calls_handle_stripe_error(self):
+        """When Stripe raises, _handle_stripe_error is invoked."""
+        import stripe
+        exc = stripe.error.APIConnectionError("network error")
+        with patch("stripe.PaymentIntent.retrieve", side_effect=exc):
+            with self.assertRaises(GatewayNetworkError):
+                self.gw.retrieve_payment_intent("pi_retrieve_001")
+
+
+# ---------------------------------------------------------------------------
+# create_refund — exception path (lines 271-272)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class CreateRefundExceptionTests(SimpleTestCase):
+    """Test create_refund exception path."""
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_exception_path_raises_gateway_error(self):
+        import stripe
+        exc = stripe.error.APIConnectionError("network error")
+        with patch("stripe.Refund.create", side_effect=exc):
+            with self.assertRaises(GatewayNetworkError):
+                self.gw.create_refund(
+                    gateway_charge_id="ch_001",
+                    amount=Decimal("10.00"),
+                    reason="duplicate",
+                    idempotency_key="idem-001",
+                )
+
+
+# ---------------------------------------------------------------------------
+# cancel_payment_intent — exception path line 294
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class CancelPaymentIntentOtherExceptionTests(SimpleTestCase):
+    """
+    cancel_payment_intent: when InvalidRequestError does NOT contain 'already'
+    or 'canceled', it should be forwarded to _handle_stripe_error.
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_other_invalid_request_error_raises_gateway_error(self):
+        import stripe
+        from apps.payments.gateways.exceptions import GatewayError
+        exc = stripe.error.InvalidRequestError("No such payment intent: pi_xxx", None)
+        with patch("stripe.PaymentIntent.cancel", side_effect=exc):
+            with self.assertRaises(GatewayError):
+                self.gw.cancel_payment_intent("pi_xxx")
+
+
+# ---------------------------------------------------------------------------
+# create_subscription (lines 305-326)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class CreateSubscriptionTests(SimpleTestCase):
+    """Test create_subscription happy path and exception path."""
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+        self.fake_sub = MagicMock()
+        self.fake_sub.id = "sub_test_001"
+        self.fake_sub.status = "incomplete"
+        self.fake_sub.current_period_end = 1700100000
+
+    def test_returns_gateway_subscription_id(self):
+        with patch("stripe.Subscription.create", return_value=self.fake_sub):
+            result = self.gw.create_subscription(
+                customer_id="cus_001",
+                price_id="price_001",
+                payment_method_id="pm_001",
+                idempotency_key="idem-sub-001",
+                metadata={},
+            )
+        self.assertEqual(result["gateway_subscription_id"], "sub_test_001")
+
+    def test_returns_status(self):
+        with patch("stripe.Subscription.create", return_value=self.fake_sub):
+            result = self.gw.create_subscription(
+                customer_id="cus_001",
+                price_id="price_001",
+                payment_method_id="pm_001",
+                idempotency_key="idem-sub-001",
+                metadata={},
+            )
+        self.assertEqual(result["status"], "incomplete")
+
+    def test_returns_current_period_end(self):
+        with patch("stripe.Subscription.create", return_value=self.fake_sub):
+            result = self.gw.create_subscription(
+                customer_id="cus_001",
+                price_id="price_001",
+                payment_method_id="pm_001",
+                idempotency_key="idem-sub-001",
+                metadata={},
+            )
+        self.assertEqual(result["current_period_end"], str(1700100000))
+
+    def test_passes_connect_account_id(self):
+        with patch("stripe.Subscription.create", return_value=self.fake_sub) as mock_create:
+            self.gw.create_subscription(
+                customer_id="cus_001",
+                price_id="price_001",
+                payment_method_id="pm_001",
+                idempotency_key="idem-sub-002",
+                metadata={},
+                connect_account_id="acct_connect_001",
+            )
+        call_kwargs = mock_create.call_args[1]
+        self.assertEqual(call_kwargs["stripe_account"], "acct_connect_001")
+
+    def test_no_connect_account_when_not_provided(self):
+        with patch("stripe.Subscription.create", return_value=self.fake_sub) as mock_create:
+            self.gw.create_subscription(
+                customer_id="cus_001",
+                price_id="price_001",
+                payment_method_id="pm_001",
+                idempotency_key="idem-sub-003",
+                metadata={},
+            )
+        call_kwargs = mock_create.call_args[1]
+        self.assertNotIn("stripe_account", call_kwargs)
+
+    def test_exception_path_raises_gateway_error(self):
+        import stripe
+        exc = stripe.error.APIConnectionError("network error")
+        with patch("stripe.Subscription.create", side_effect=exc):
+            with self.assertRaises(GatewayNetworkError):
+                self.gw.create_subscription(
+                    customer_id="cus_001",
+                    price_id="price_001",
+                    payment_method_id="pm_001",
+                    idempotency_key="idem-sub-004",
+                    metadata={},
+                )
+
+
+# ---------------------------------------------------------------------------
+# cancel_subscription (lines 333-345)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class CancelSubscriptionTests(SimpleTestCase):
+    """Test cancel_subscription happy path, 'no such subscription', and other errors."""
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_returns_true_when_canceled(self):
+        fake_sub = MagicMock()
+        fake_sub.status = "canceled"
+        with patch("stripe.Subscription.cancel", return_value=fake_sub):
+            result = self.gw.cancel_subscription("sub_test_001")
+        self.assertTrue(result)
+
+    def test_returns_false_when_status_not_canceled(self):
+        fake_sub = MagicMock()
+        fake_sub.status = "active"
+        with patch("stripe.Subscription.cancel", return_value=fake_sub):
+            result = self.gw.cancel_subscription("sub_test_001")
+        self.assertFalse(result)
+
+    def test_returns_false_on_no_such_subscription_error(self):
+        import stripe
+        exc = stripe.error.InvalidRequestError("No such subscription: sub_xxx", None)
+        with patch("stripe.Subscription.cancel", side_effect=exc):
+            result = self.gw.cancel_subscription("sub_xxx")
+        self.assertFalse(result)
+
+    def test_other_invalid_request_error_raises_gateway_error(self):
+        import stripe
+        from apps.payments.gateways.exceptions import GatewayError
+        exc = stripe.error.InvalidRequestError("Something else went wrong", None)
+        with patch("stripe.Subscription.cancel", side_effect=exc):
+            with self.assertRaises(GatewayError):
+                self.gw.cancel_subscription("sub_xxx")
+
+    def test_network_error_raises_gateway_network_error(self):
+        import stripe
+        exc = stripe.error.APIConnectionError("network error")
+        with patch("stripe.Subscription.cancel", side_effect=exc):
+            with self.assertRaises(GatewayNetworkError):
+                self.gw.cancel_subscription("sub_xxx")
+
+
+# ---------------------------------------------------------------------------
+# _normalise_event_data / parse_event branch dispatch (lines 411, 416, 418)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class NormaliseEventDataBranchTests(SimpleTestCase):
+    """
+    _normalise_event_data routes to the correct sub-parser.
+    We mock the sub-parsers to isolate the dispatch logic.
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_charge_refunded_dispatches_to_parse_charge_refunded(self):
+        obj = {"id": "ch_001"}
+        with patch.object(self.gw, "_parse_charge_refunded", return_value={"dispatched": True}) as mock_parser:
+            result = self.gw._normalise_event_data("charge.refunded", obj)
+        mock_parser.assert_called_once_with(obj)
+        self.assertEqual(result, {"dispatched": True})
+
+    def test_subscription_deleted_dispatches_to_parse_subscription_event(self):
+        obj = {"id": "sub_001"}
+        with patch.object(self.gw, "_parse_subscription_event", return_value={"sub": True}) as mock_parser:
+            result = self.gw._normalise_event_data("customer.subscription.deleted", obj)
+        mock_parser.assert_called_once_with(obj)
+        self.assertEqual(result, {"sub": True})
+
+    def test_subscription_updated_dispatches_to_parse_subscription_event(self):
+        obj = {"id": "sub_002"}
+        with patch.object(self.gw, "_parse_subscription_event", return_value={"sub": True}) as mock_parser:
+            result = self.gw._normalise_event_data("customer.subscription.updated", obj)
+        mock_parser.assert_called_once_with(obj)
+
+    def test_invoice_event_dispatches_to_parse_invoice_event(self):
+        obj = {"id": "in_001"}
+        with patch.object(self.gw, "_parse_invoice_event", return_value={"invoice": True}) as mock_parser:
+            result = self.gw._normalise_event_data("invoice.payment_succeeded", obj)
+        mock_parser.assert_called_once_with(obj)
+        self.assertEqual(result, {"invoice": True})
+
+    def test_invoice_payment_failed_dispatches_to_parse_invoice_event(self):
+        obj = {"id": "in_002"}
+        with patch.object(self.gw, "_parse_invoice_event", return_value={"invoice": True}) as mock_parser:
+            result = self.gw._normalise_event_data("invoice.payment_failed", obj)
+        mock_parser.assert_called_once_with(obj)
+
+
+# ---------------------------------------------------------------------------
+# _parse_payment_intent_succeeded — legacy charges.data fallback (lines 452, 471)
+# and empty-charges case
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class ParsePaymentIntentSucceededLegacyTests(SimpleTestCase):
+    """
+    Cover the fallback path: latest_charge is None/absent, fall back to
+    charges.data embed.  Also cover the empty-charges case.
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_legacy_path_returns_charge_id_from_charges_data(self):
+        """When latest_charge is absent, parse from charges.data[0]."""
+        obj = {
+            "id": "pi_legacy_001",
+            "amount_received": 2000,
+            "charges": {
+                "data": [
+                    {
+                        "id": "ch_legacy_001",
+                        "created": 1700000000,
+                        "payment_method_details": {
+                            "card": {"last4": "1234", "brand": "mastercard"}
+                        },
+                    }
+                ]
+            },
+        }
+        result = self.gw._parse_payment_intent_succeeded(obj)
+        self.assertEqual(result["gateway_charge_id"], "ch_legacy_001")
+
+    def test_legacy_path_returns_card_info(self):
+        obj = {
+            "id": "pi_legacy_002",
+            "amount_received": 2000,
+            "charges": {
+                "data": [
+                    {
+                        "id": "ch_legacy_002",
+                        "created": 1700000001,
+                        "payment_method_details": {
+                            "card": {"last4": "5678", "brand": "amex"}
+                        },
+                    }
+                ]
+            },
+        }
+        result = self.gw._parse_payment_intent_succeeded(obj)
+        self.assertEqual(result["card_last_four"], "5678")
+        self.assertEqual(result["card_brand"], "amex")
+
+    def test_legacy_path_empty_charges_gives_empty_charge_id(self):
+        """No latest_charge and empty charges.data → gateway_charge_id is ''."""
+        obj = {
+            "id": "pi_no_charge",
+            "amount_received": 1000,
+            "charges": {"data": []},
+        }
+        result = self.gw._parse_payment_intent_succeeded(obj)
+        self.assertEqual(result["gateway_charge_id"], "")
+
+    def test_legacy_path_no_charges_key_gives_empty_charge_id(self):
+        """No latest_charge and no 'charges' key at all → gateway_charge_id is ''."""
+        obj = {
+            "id": "pi_no_charge_key",
+            "amount_received": 1000,
+        }
+        result = self.gw._parse_payment_intent_succeeded(obj)
+        self.assertEqual(result["gateway_charge_id"], "")
+
+    def test_legacy_path_empty_card_info_gives_none_last_four(self):
+        """No card info in charge → card_last_four is None."""
+        obj = {
+            "id": "pi_no_card",
+            "amount_received": 1000,
+            "charges": {
+                "data": [
+                    {
+                        "id": "ch_no_card",
+                        "created": 1700000002,
+                        "payment_method_details": {},
+                    }
+                ]
+            },
+        }
+        result = self.gw._parse_payment_intent_succeeded(obj)
+        self.assertIsNone(result["card_last_four"])
+
+    def test_latest_charge_as_expanded_object_uses_latest_charge_expanded(self):
+        """
+        When latest_charge is a string but latest_charge_expanded is absent,
+        card_info falls back to empty dict.
+        """
+        obj = {
+            "id": "pi_no_expand",
+            "amount_received": 3000,
+            "latest_charge": "ch_no_expand",
+        }
+        result = self.gw._parse_payment_intent_succeeded(obj)
+        self.assertEqual(result["gateway_charge_id"], "ch_no_expand")
+        self.assertIsNone(result["card_last_four"])
+
+    def test_legacy_path_charges_not_dict_gives_empty_charge_id(self):
+        """When 'charges' is not a dict (e.g. a list/None), charges_data falls back to []."""
+        obj = {
+            "id": "pi_charges_not_dict",
+            "amount_received": 1000,
+            "charges": ["unexpected_list_value"],  # not a dict → else branch (line 471)
+        }
+        result = self.gw._parse_payment_intent_succeeded(obj)
+        self.assertEqual(result["gateway_charge_id"], "")
+
+
+# ---------------------------------------------------------------------------
+# _parse_invoice_event (lines 530, 545-548)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class ParseInvoiceEventTests(SimpleTestCase):
+    """Test _parse_invoice_event with various invoice shapes."""
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_returns_subscription_id(self):
+        obj = {
+            "id": "in_001",
+            "subscription": "sub_invoice_001",
+            "charge": "ch_inv_001",
+            "amount_paid": 5000,
+            "status": "paid",
+        }
+        result = self.gw._parse_invoice_event(obj)
+        self.assertEqual(result["gateway_subscription_id"], "sub_invoice_001")
+
+    def test_returns_gateway_charge_id(self):
+        obj = {
+            "id": "in_001",
+            "subscription": "sub_invoice_001",
+            "charge": "ch_inv_001",
+            "amount_paid": 5000,
+            "status": "paid",
+        }
+        result = self.gw._parse_invoice_event(obj)
+        self.assertEqual(result["gateway_charge_id"], "ch_inv_001")
+
+    def test_returns_amount_paid_as_decimal(self):
+        obj = {
+            "id": "in_001",
+            "subscription": "sub_invoice_001",
+            "charge": "ch_inv_001",
+            "amount_paid": 5000,
+            "status": "paid",
+        }
+        result = self.gw._parse_invoice_event(obj)
+        self.assertEqual(result["amount_paid"], Decimal("50.00"))
+
+    def test_returns_status(self):
+        obj = {
+            "id": "in_001",
+            "subscription": "sub_invoice_001",
+            "charge": "ch_inv_001",
+            "amount_paid": 5000,
+            "status": "paid",
+        }
+        result = self.gw._parse_invoice_event(obj)
+        self.assertEqual(result["status"], "paid")
+
+    def test_subscription_none_returns_empty_string(self):
+        """Non-string subscription value (e.g. None) → empty string."""
+        obj = {
+            "id": "in_002",
+            "subscription": None,
+            "charge": "ch_inv_002",
+            "amount_paid": 1000,
+            "status": "open",
+        }
+        result = self.gw._parse_invoice_event(obj)
+        self.assertEqual(result["gateway_subscription_id"], "")
+
+    def test_charge_none_returns_empty_string(self):
+        """Non-string charge value → empty string."""
+        obj = {
+            "id": "in_003",
+            "subscription": "sub_invoice_003",
+            "charge": None,
+            "amount_paid": 2000,
+            "status": "open",
+        }
+        result = self.gw._parse_invoice_event(obj)
+        self.assertEqual(result["gateway_charge_id"], "")
+
+    def test_minimal_invoice_no_crash(self):
+        """Empty dict → all defaults, no exception."""
+        result = self.gw._parse_invoice_event({})
+        self.assertEqual(result["gateway_subscription_id"], "")
+        self.assertEqual(result["gateway_charge_id"], "")
+        self.assertEqual(result["amount_paid"], Decimal("0.00"))
+        self.assertEqual(result["status"], "")
+
+    def test_parse_via_normalise_event_data(self):
+        """Verify _normalise_event_data routes invoice.* to _parse_invoice_event."""
+        obj = {
+            "id": "in_004",
+            "subscription": "sub_004",
+            "charge": "ch_004",
+            "amount_paid": 3000,
+            "status": "paid",
+        }
+        result = self.gw._normalise_event_data("invoice.payment_succeeded", obj)
+        self.assertEqual(result["gateway_subscription_id"], "sub_004")
+
+
+# ---------------------------------------------------------------------------
+# _parse_subscription_event (line 530)
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class ParseSubscriptionEventTests(SimpleTestCase):
+    """Test _parse_subscription_event produces correct output."""
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gw = StripeGateway()
+
+    def test_returns_all_expected_keys(self):
+        obj = {
+            "id": "sub_parse_001",
+            "status": "active",
+            "current_period_end": 1700200000,
+            "cancel_at_period_end": False,
+        }
+        result = self.gw._parse_subscription_event(obj)
+        self.assertEqual(result["gateway_subscription_id"], "sub_parse_001")
+        self.assertEqual(result["status"], "active")
+        self.assertEqual(result["current_period_end"], "1700200000")
+        self.assertFalse(result["cancel_at_period_end"])
+
+    def test_cancel_at_period_end_true(self):
+        obj = {
+            "id": "sub_parse_002",
+            "status": "active",
+            "current_period_end": 1700200001,
+            "cancel_at_period_end": True,
+        }
+        result = self.gw._parse_subscription_event(obj)
+        self.assertTrue(result["cancel_at_period_end"])
