@@ -47,7 +47,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -417,9 +417,21 @@ class DonationSuccessView(TemplateView):
         except ValueError:
             return redirect("donate:donation_select")
 
-        # No IDOR risk: receipt only shows reference number (not financial details).
-        # We do NOT filter by payer so anonymous donors can see their success page.
-        self.intent = get_object_or_404(PaymentIntent, pk=intent_pk)
+        # Layer 1 (primary IDOR defence): if the user is authenticated, restrict the
+        # lookup to their own PaymentIntents. This prevents any authenticated user from
+        # viewing another donor's receipt by guessing or obtaining a UUID.
+        if request.user.is_authenticated:
+            self.intent = get_object_or_404(PaymentIntent, pk=intent_pk, payer=request.user)
+        else:
+            # Layer 2 (belt-and-suspenders for anonymous/guest donors): verify the intent
+            # PK matches what was stored in this session by create_donation_intent_api.
+            # A probe or replay from a different browser/session cannot pass this check
+            # even if the UUID is known, because the session key won't be present.
+            session_data = request.session.get(DONATION_SESSION_KEY, {})
+            session_intent_pk = session_data.get("donation_payment_intent_pk")
+            if not session_intent_pk or str(intent_pk) != str(session_intent_pk):
+                raise Http404  # Not your session → not your receipt
+            self.intent = get_object_or_404(PaymentIntent, pk=intent_pk)
 
         # Clear session so Back+Refresh doesn't re-show stale data
         request.session.pop(DONATION_SESSION_KEY, None)

@@ -206,13 +206,31 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
         )
         return {"processed": 0, "skipped": 0, "failed": 0}
 
-    # M7 fix: derive the year boundary in local Canadian time, then convert to UTC
-    # for the DB query.  Using __year=tax_year filters by UTC year, which means
-    # donations made at e.g. 23:00 ET on Dec 31 (= 04:00 UTC Jan 1) would fall
-    # into the wrong tax year — a CRA compliance failure.
-    _tz = pytz.timezone(settings.TIME_ZONE)  # "America/Toronto" from settings
-    _year_start_utc = make_aware(datetime(tax_year, 1, 1, 0, 0, 0), _tz).astimezone(pytz.UTC)
-    _year_end_utc = make_aware(datetime(tax_year, 12, 31, 23, 59, 59, 999999), _tz).astimezone(pytz.UTC)
+    # H-D fix: use timezone-aware year boundaries that cover all Canadian timezones.
+    #
+    # Canada spans UTC-3:30 (NL, America/St_Johns) to UTC-8 in winter (BC,
+    # America/Vancouver).  Using America/Toronto (UTC-5) for both boundaries
+    # excluded BC/AB donors who donate late on Dec 31 local time — a CRA
+    # compliance failure (donor receives no receipt for a deductible donation).
+    #
+    # Start boundary: use Newfoundland time (UTC-3:30) — the easternmost zone,
+    # where Jan 1 starts earliest.  This ensures we never accidentally capture a
+    # late Dec 31 donation from NL in the *following* year's run.
+    #   2025-01-01 00:00:00 NST = 2025-01-01 03:30:00 UTC
+    #
+    # End boundary: use Pacific time (UTC-8 in winter) — the westernmost zone,
+    # where Dec 31 ends latest.  A BC donor giving at 22:30 PST = 06:30 UTC Jan 1
+    # would be missed if we used Eastern time (UTC-5) for the end.
+    #   2024-12-31 23:59:59 PST = 2025-01-01 07:59:59 UTC
+    _CANADA_NL_TZ = pytz.timezone("America/St_Johns")
+    _CANADA_WESTERN_TZ = pytz.timezone("America/Vancouver")
+
+    _year_start_utc = _CANADA_NL_TZ.localize(
+        datetime(tax_year, 1, 1, 0, 0, 0)
+    ).astimezone(pytz.UTC)
+    _year_end_utc = _CANADA_WESTERN_TZ.localize(
+        datetime(tax_year, 12, 31, 23, 59, 59, 999999)
+    ).astimezone(pytz.UTC)
 
     # All completed donations in the tax year
     completed_donations = (

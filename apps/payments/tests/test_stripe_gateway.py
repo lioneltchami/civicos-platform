@@ -2101,3 +2101,129 @@ class BrandMapChoicesConsistencyTests(SimpleTestCase):
                 f"_BRAND_MAP['{stripe_brand}'] = {stored_value!r} is missing from "
                 f"Payment.CARD_BRAND_CHOICES. Add it or correct the mapping.",
             )
+
+
+# ---------------------------------------------------------------------------
+# H-A — stripe_version pinned on every Stripe API call
+# ---------------------------------------------------------------------------
+
+@override_settings(STRIPE_SECRET_KEY="sk_test_fake")
+class StripeApiVersionPinningTests(SimpleTestCase):
+    """
+    H-A: Every Stripe SDK call must pass stripe_version=StripeGateway._STRIPE_API_VERSION
+    so that a one-click Stripe Dashboard upgrade never silently changes response shapes
+    (e.g. latest_charge structure changed between 2022-11-15 and 2024-06-20).
+    """
+
+    def setUp(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        self.gateway = StripeGateway()
+
+    def test_create_payment_intent_passes_stripe_version(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        mock_intent = MagicMock()
+        mock_intent.id = "pi_test_ver"
+        mock_intent.client_secret = "secret_ver"
+        mock_intent.status = "requires_payment_method"
+        with patch("stripe.PaymentIntent.create", return_value=mock_intent) as mock_create:
+            self.gateway.create_payment_intent(
+                amount=Decimal("50.00"),
+                currency="cad",
+                idempotency_key="idem-key-001",
+                metadata={"source": "donation"},
+                description="Test",
+            )
+        call_kwargs = mock_create.call_args[1]
+        self.assertIn(
+            "stripe_version", call_kwargs,
+            "stripe.PaymentIntent.create must pass stripe_version=",
+        )
+        self.assertEqual(
+            call_kwargs["stripe_version"],
+            StripeGateway._STRIPE_API_VERSION,
+        )
+
+    def test_retrieve_payment_intent_passes_stripe_version(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        mock_intent = MagicMock()
+        mock_intent.id = "pi_test_ver"
+        mock_intent.status = "succeeded"
+        mock_intent.amount = 5000
+        mock_intent.currency = "cad"
+        mock_intent.latest_charge = None
+        mock_intent.last_payment_error = None
+        with patch("stripe.PaymentIntent.retrieve", return_value=mock_intent) as mock_retrieve:
+            self.gateway.retrieve_payment_intent("pi_test_ver")
+        call_kwargs = mock_retrieve.call_args[1]
+        self.assertIn(
+            "stripe_version", call_kwargs,
+            "stripe.PaymentIntent.retrieve must pass stripe_version=",
+        )
+        self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
+
+    def test_create_refund_passes_stripe_version(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        mock_refund = MagicMock()
+        mock_refund.id = "re_test_ver"
+        mock_refund.status = "succeeded"
+        mock_refund.amount = 5000
+        with patch("stripe.Refund.create", return_value=mock_refund) as mock_create:
+            self.gateway.create_refund(
+                gateway_charge_id="ch_test_001",
+                amount=Decimal("50.00"),
+                reason="requested_by_customer",
+                idempotency_key="idem-refund-001",
+            )
+        call_kwargs = mock_create.call_args[1]
+        self.assertIn(
+            "stripe_version", call_kwargs,
+            "stripe.Refund.create must pass stripe_version=",
+        )
+        self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
+
+    def test_cancel_payment_intent_passes_stripe_version(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        mock_intent = MagicMock()
+        mock_intent.status = "canceled"
+        with patch("stripe.PaymentIntent.cancel", return_value=mock_intent) as mock_cancel:
+            self.gateway.cancel_payment_intent("pi_test_ver")
+        call_kwargs = mock_cancel.call_args[1]
+        self.assertIn(
+            "stripe_version", call_kwargs,
+            "stripe.PaymentIntent.cancel must pass stripe_version=",
+        )
+        self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
+
+    def test_create_subscription_passes_stripe_version(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        mock_sub = MagicMock()
+        mock_sub.id = "sub_test_ver"
+        mock_sub.status = "active"
+        mock_sub.current_period_end = None
+        with patch("stripe.Subscription.create", return_value=mock_sub) as mock_create:
+            self.gateway.create_subscription(
+                customer_id="cus_test",
+                price_id="price_test",
+                payment_method_id="pm_test",
+                idempotency_key="idem-sub-001",
+                metadata={"source": "donation"},
+            )
+        call_kwargs = mock_create.call_args[1]
+        self.assertIn(
+            "stripe_version", call_kwargs,
+            "stripe.Subscription.create must pass stripe_version=",
+        )
+        self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)
+
+    def test_cancel_subscription_passes_stripe_version(self):
+        from apps.payments.gateways.stripe_gateway import StripeGateway
+        mock_sub = MagicMock()
+        mock_sub.status = "canceled"
+        with patch("stripe.Subscription.cancel", return_value=mock_sub) as mock_cancel:
+            self.gateway.cancel_subscription("sub_test_ver")
+        call_kwargs = mock_cancel.call_args[1]
+        self.assertIn(
+            "stripe_version", call_kwargs,
+            "stripe.Subscription.cancel must pass stripe_version=",
+        )
+        self.assertEqual(call_kwargs["stripe_version"], StripeGateway._STRIPE_API_VERSION)

@@ -189,6 +189,7 @@ class StripeGateway(PaymentGateway):
                 **kwargs,
                 idempotency_key=str(idempotency_key),
                 api_key=self._api_key(),
+                stripe_version=self._STRIPE_API_VERSION,
             )
         except Exception as exc:
             self._handle_stripe_error(exc)
@@ -205,6 +206,7 @@ class StripeGateway(PaymentGateway):
             intent = stripe.PaymentIntent.retrieve(
                 gateway_intent_id,
                 api_key=self._api_key(),
+                stripe_version=self._STRIPE_API_VERSION,
             )
         except Exception as exc:
             self._handle_stripe_error(exc)
@@ -268,6 +270,7 @@ class StripeGateway(PaymentGateway):
                 reason=stripe_reasons.get(reason, "requested_by_customer"),
                 idempotency_key=str(idempotency_key),
                 api_key=self._api_key(),
+                stripe_version=self._STRIPE_API_VERSION,
             )
         except Exception as exc:
             self._handle_stripe_error(exc)
@@ -284,6 +287,7 @@ class StripeGateway(PaymentGateway):
             intent = stripe.PaymentIntent.cancel(
                 gateway_intent_id,
                 api_key=self._api_key(),
+                stripe_version=self._STRIPE_API_VERSION,
             )
             return intent.status == "canceled"
         except Exception as exc:
@@ -324,6 +328,7 @@ class StripeGateway(PaymentGateway):
                 **kwargs,
                 idempotency_key=str(idempotency_key),
                 api_key=self._api_key(),
+                stripe_version=self._STRIPE_API_VERSION,
             )
         except Exception as exc:
             self._handle_stripe_error(exc)
@@ -366,6 +371,7 @@ class StripeGateway(PaymentGateway):
             sub = stripe.Subscription.cancel(
                 gateway_subscription_id,
                 api_key=self._api_key(),
+                stripe_version=self._STRIPE_API_VERSION,
             )
             return sub.status == "canceled"
         except Exception as exc:

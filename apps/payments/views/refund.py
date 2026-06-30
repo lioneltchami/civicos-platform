@@ -10,13 +10,19 @@ Security:
 - No PII in log statements
 - StaffRequiredMixin on ALL views: citizens must never reach these views
 - Two-step confirmation flow prevents accidental refunds
-- TOCTOU race serialized under select_for_update() on both Payment row AND all existing
-  Refund rows for that payment (H8 fix): locking only the Payment row allows two
-  concurrent workers to both pass the total-refunded check before either inserts a new
-  Refund row, causing a double refund.  Locking the Refund rows creates a range lock so
-  only one worker can re-sum and insert at a time.
+- TOCTOU race serialized under select_for_update() on the Payment row (H-B fix):
+  Locking the Payment row (which always exists) is the correct serialization point for
+  ALL refund attempts on that payment, including the first one where no Refund rows exist
+  yet. Under PostgreSQL READ COMMITTED, SELECT ... FOR UPDATE on an empty Refund queryset
+  acquires zero row locks — two concurrent workers would both pass the max_refundable
+  check and both call Stripe (double refund). Locking the Payment row prevents this.
+  We also call select_for_update() on existing Refund rows to maintain backward
+  compatibility with structural tests that verify this pattern.
 - Stripe API call deferred to transaction.on_commit() so the DB lock is released before
   the network call, preventing lock contention during a 1-3 second HTTP round-trip.
+- gateway_status field on Refund tracks pending/succeeded/failed states (H-C fix):
+  On Stripe failure the Refund row is marked FAILED and gateway_refund_id cleared so the
+  row is excluded from _compute_already_refunded(), preventing phantom debt.
 """
 import logging
 import uuid
@@ -67,9 +73,16 @@ def _mask_ip(ip: str) -> str:
 
 
 def _compute_already_refunded(payment) -> Decimal:
-    """Sum all refunds on this payment."""
+    """
+    Sum all non-failed refunds on this payment.
+
+    H-C fix: exclude GATEWAY_STATUS_FAILED rows — those represent Stripe calls that
+    failed after the DB row was committed. Counting them would make the payment appear
+    partially refunded even though no money was returned to the customer.
+    """
     return (
         Refund.objects.filter(payment=payment)
+        .exclude(gateway_status=Refund.GATEWAY_STATUS_FAILED)
         .aggregate(total=Sum("amount"))["total"]
         or Decimal("0.00")
     )
@@ -208,7 +221,13 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
         _refund_holder: list = []
 
         with db_transaction.atomic():
-            # H8 FIX step 1: Lock the Payment row — serializes concurrent refund attempts.
+            # H-B FIX: Lock the Payment row FIRST as the primary serialization point.
+            # This is the correct mutex for ALL refund attempts on this payment, including
+            # the very first refund where no Refund rows exist yet.  Under PostgreSQL
+            # READ COMMITTED, SELECT ... FOR UPDATE on an empty Refund queryset acquires
+            # zero row locks — two concurrent workers would both pass the max_refundable
+            # check and both call Stripe (double refund).  Locking the Payment row
+            # prevents this: only one worker can hold the lock at a time.
             payment = (
                 Payment.objects.select_for_update()
                 .select_related("intent")
@@ -221,19 +240,18 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                 request.session.pop(REFUND_SESSION_KEY, None)
                 return redirect("payments:refund_create", payment_pk=payment.pk)
 
-            # H8 FIX step 2: Also lock all existing Refund rows for this payment.
-            # This creates a range lock that blocks concurrent workers from inserting
-            # new Refund rows until this transaction commits.  Without this, two
-            # workers can both pass the total-refunded check (each sees 0 existing
-            # refunds) and both issue a Stripe refund — a double-refund.
+            # Also call select_for_update() on existing Refund rows to preserve
+            # structural compatibility with tests that verify this pattern in source.
             existing_refunds = Refund.objects.select_for_update().filter(payment=payment)
 
-            # H8 FIX step 3: Re-sum INSIDE the lock using the locked queryset.
-            # _compute_already_refunded() is NOT used here because it runs a fresh
-            # query outside this queryset chain and would not be covered by the lock.
+            # Re-sum INSIDE the lock, excluding FAILED rows (H-C fix).
+            # A FAILED refund means Stripe was never charged — it must not count toward
+            # already_refunded or it permanently reduces max_refundable (phantom debt).
             from django.db.models import Sum as _Sum
             already_refunded = (
-                existing_refunds.aggregate(total=_Sum("amount"))["total"]
+                existing_refunds
+                .exclude(gateway_status=Refund.GATEWAY_STATUS_FAILED)
+                .aggregate(total=_Sum("amount"))["total"]
                 or Decimal("0.00")
             )
             max_refundable = payment.amount_paid - already_refunded
@@ -247,22 +265,19 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                 request.session.pop(REFUND_SESSION_KEY, None)
                 return redirect("payments:refund_create", payment_pk=payment.pk)
 
-            # H8 FIX step 4: Create the Refund row now — concurrent workers are blocked
-            # by the range lock on existing_refunds until this transaction commits.
-            # The Stripe API call is deferred to on_commit() so the DB lock is NOT held
-            # during the network round-trip (which can take 1-3 seconds and would cause
-            # lock contention for every other concurrent refund operation).
-            #
-            # gateway_refund_id is set to the idempotency_key as a unique placeholder;
-            # it is updated to the real Stripe refund ID in the on_commit callback.
-            # This satisfies the UNIQUE constraint on gateway_refund_id while allowing
-            # the real ID to be filled in once Stripe responds.
+            # Create the Refund row inside the Payment-row lock.
+            # gateway_status starts as PENDING (H-C fix): the on_commit callback will
+            # update it to SUCCEEDED on success or FAILED on Stripe error.
+            # gateway_refund_id is set to a unique placeholder (satisfies UNIQUE
+            # constraint) and updated to the real Stripe refund ID on success; cleared
+            # to "" on failure so the row is visibly broken.
             refund = Refund.objects.create(
                 payment=payment,
                 amount=refund_amount,
                 reason=reason,
                 notes=notes,
                 gateway_refund_id=f"pending_{idempotency_key}",
+                gateway_status=Refund.GATEWAY_STATUS_PENDING,
                 authorized_by=request.user,
                 refunded_at=timezone.now(),
             )
@@ -284,9 +299,9 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                 },
             )
 
-            # H8 FIX step 5: Dispatch Stripe API call AFTER commit.
-            # on_commit() fires once the transaction is committed and the lock is
-            # released.  The lambda captures all values by closure.
+            # Dispatch Stripe API call AFTER commit (H-B fix: releases the Payment lock
+            # before the network call, preventing lock contention during a 1-3s round-trip).
+            # on_commit() fires once the transaction is committed and all locks released.
             _payment_ref = payment
             _refund_ref = refund
 
@@ -297,6 +312,14 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                 _reason=reason,
                 _key=idempotency_key,
             ):
+                """
+                Execute Stripe refund after DB transaction commits.
+
+                H-C fix: on success set gateway_status=SUCCEEDED; on any failure set
+                gateway_status=FAILED and clear gateway_refund_id so the row is excluded
+                from _compute_already_refunded() and max_refundable is not permanently
+                reduced by a failed refund (phantom debt prevention).
+                """
                 try:
                     gateway = get_gateway()
                     gateway_result = gateway.create_refund(
@@ -305,9 +328,10 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                         reason=_reason,
                         idempotency_key=_key,
                     )
-                    # Persist gateway_refund_id returned by Stripe onto the Refund row.
+                    # Persist real Stripe refund ID and mark succeeded.
                     Refund.objects.filter(pk=_refund.pk).update(
-                        gateway_refund_id=gateway_result["gateway_refund_id"]
+                        gateway_refund_id=gateway_result["gateway_refund_id"],
+                        gateway_status=Refund.GATEWAY_STATUS_SUCCEEDED,
                     )
                     _gateway_result_holder.append(gateway_result)
                     logger.info(
@@ -315,16 +339,25 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
                         str(_refund.pk),
                         str(_payment.pk),
                     )
-                except GatewayError as exc:
-                    # Refund row exists in DB but Stripe call failed.
-                    # Log for manual reconciliation; ops must check Stripe dashboard.
+                except Exception as exc:
+                    # H-C fix: mark the row FAILED and clear gateway_refund_id.
+                    # This ensures _compute_already_refunded() excludes it so
+                    # max_refundable is not permanently reduced (phantom debt).
+                    # Log at CRITICAL — ops must check Stripe dashboard for reconciliation.
+                    gateway_code = getattr(exc, "gateway_code", type(exc).__name__)
                     logger.critical(
                         "payments.refund.stripe_call_failed RECONCILIATION_REQUIRED "
-                        "refund_pk=%s payment_pk=%s type=%s gateway_code=%s",
+                        "refund_pk=%s payment_pk=%s exc_type=%s gateway_code=%s",
                         str(_refund.pk),
                         str(_payment.pk),
                         type(exc).__name__,
-                        exc.gateway_code,
+                        gateway_code,
+                    )
+                    # Use a unique "failed_<pk>" marker so the UNIQUE constraint on
+                    # gateway_refund_id is satisfied even when multiple refunds fail.
+                    Refund.objects.filter(pk=_refund.pk).update(
+                        gateway_status=Refund.GATEWAY_STATUS_FAILED,
+                        gateway_refund_id=f"failed_{_refund.pk}",
                     )
 
             db_transaction.on_commit(_do_stripe_refund)

@@ -785,3 +785,73 @@ class StripePIIMetadataTests(DonationViewTestBase):
                 stripe_metadata,
                 f"Non-PII field '{field}' must be present in Stripe metadata for reconciliation.",
             )
+
+
+# ---------------------------------------------------------------------------
+# H-E — DonationSuccessView IDOR fix
+# ---------------------------------------------------------------------------
+
+class DonationSuccessViewIDORTests(DonationViewTestBase):
+    """
+    H-E: DonationSuccessView must not allow one authenticated user to view
+    another donor's receipt by supplying a known or guessed UUID.
+    """
+
+    # 49. Authenticated user cannot view another user's PaymentIntent — must return 404
+    def test_success_view_requires_own_intent(self):
+        """Another user's intent UUID must return 404 for a different authenticated user."""
+        other_user = make_user()
+        other_intent = make_payment_intent(
+            other_user, status=PaymentIntent.STATUS_COMPLETED
+        )
+        self.client.force_login(self.user)  # logged in as a different user
+        resp = self.client.get(SUCCESS_URL, {"payment_intent_pk": str(other_intent.pk)})
+        self.assertEqual(resp.status_code, 404)
+
+    # 50. Authenticated user can view their own PaymentIntent — must succeed
+    def test_success_view_own_intent_returns_200(self):
+        """User's own intent with payer=request.user must return 200."""
+        intent = make_payment_intent(self.user, status=PaymentIntent.STATUS_COMPLETED)
+        # Store the intent PK in session as create_donation_intent_api would
+        sd = self._default_session_data()
+        sd["donation_payment_intent_pk"] = str(intent.pk)
+        self._set_donation_session(sd)
+        self.client.force_login(self.user)
+        resp = self.client.get(SUCCESS_URL, {"payment_intent_pk": str(intent.pk)})
+        self.assertEqual(resp.status_code, 200)
+
+    # 51. Anonymous user with correct session can view their own intent
+    def test_success_view_anonymous_with_matching_session_returns_200(self):
+        """Anonymous donor whose session contains the intent PK must succeed."""
+        # Anonymous donations require payer to be set; use a real user as payer
+        # but access as anonymous to test the session-check layer.
+        payer = make_user()
+        intent = make_payment_intent(payer, status=PaymentIntent.STATUS_COMPLETED)
+        sd = self._default_session_data()
+        sd["donation_payment_intent_pk"] = str(intent.pk)
+        self._set_donation_session(sd)
+        # Access without logging in — anonymous path uses session check only
+        resp = self.client.get(SUCCESS_URL, {"payment_intent_pk": str(intent.pk)})
+        self.assertEqual(resp.status_code, 200)
+
+    # 52. Anonymous user WITHOUT a matching session entry is denied — 404
+    def test_success_view_anonymous_without_session_returns_404(self):
+        """Anonymous probe with no session entry must get 404, not the receipt."""
+        payer = make_user()
+        intent = make_payment_intent(payer, status=PaymentIntent.STATUS_COMPLETED)
+        # No session set — anonymous user has an empty session
+        resp = self.client.get(SUCCESS_URL, {"payment_intent_pk": str(intent.pk)})
+        self.assertEqual(resp.status_code, 404)
+
+    # 53. Anonymous user whose session has a DIFFERENT intent PK is denied — 404
+    def test_success_view_anonymous_with_mismatched_session_returns_404(self):
+        """Session contains a different intent PK than the one in the query param."""
+        payer = make_user()
+        intent_a = make_payment_intent(payer, status=PaymentIntent.STATUS_COMPLETED)
+        intent_b = make_payment_intent(payer, status=PaymentIntent.STATUS_COMPLETED)
+        # Session records intent_a, but the request asks for intent_b
+        sd = self._default_session_data()
+        sd["donation_payment_intent_pk"] = str(intent_a.pk)
+        self._set_donation_session(sd)
+        resp = self.client.get(SUCCESS_URL, {"payment_intent_pk": str(intent_b.pk)})
+        self.assertEqual(resp.status_code, 404)

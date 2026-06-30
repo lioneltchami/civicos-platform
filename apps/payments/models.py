@@ -452,6 +452,15 @@ class Refund(TimestampedModel):
         (REASON_NOT_RENDERED, "Service Not Rendered"),
     ]
 
+    GATEWAY_STATUS_PENDING = "pending"
+    GATEWAY_STATUS_SUCCEEDED = "succeeded"
+    GATEWAY_STATUS_FAILED = "failed"
+    GATEWAY_STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("succeeded", "Succeeded"),
+        ("failed", "Failed"),
+    ]
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -478,6 +487,13 @@ class Refund(TimestampedModel):
         max_length=255,
         unique=True,
         verbose_name=_("Gateway Refund ID"),
+    )
+    gateway_status = models.CharField(
+        max_length=20,
+        choices=GATEWAY_STATUS_CHOICES,
+        default=GATEWAY_STATUS_PENDING,
+        db_index=True,
+        verbose_name=_("Gateway Status"),
     )
     refunded_at = models.DateTimeField(
         verbose_name=_("Refunded At"),

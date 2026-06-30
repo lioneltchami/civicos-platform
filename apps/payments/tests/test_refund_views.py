@@ -9,7 +9,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -20,7 +20,10 @@ from apps.payments.models import (
     PaymentIntent,
     Refund,
 )
-from apps.payments.views.refund import REFUND_SESSION_KEY
+from apps.payments.views.refund import (
+    REFUND_SESSION_KEY,
+    _compute_already_refunded,
+)
 
 User = get_user_model()
 
@@ -778,3 +781,176 @@ class RefundConfirmViewRangeLockTests(RefundViewTestBase):
             resp.content.decode(),
             "Expected an over-refund error message but did not find one.",
         )
+
+    def test_payment_row_locked_during_refund_create(self):
+        """
+        H-B: Verify that RefundConfirmView.post() calls select_for_update() on the
+        Payment queryset — the primary serialization point for first-refund races.
+
+        Structural check: inspect source for 'Payment.objects.select_for_update()'
+        so the pattern cannot be accidentally removed without a test failure.
+        """
+        import inspect
+        from apps.payments.views.refund import RefundConfirmView
+
+        source = inspect.getsource(RefundConfirmView.post)
+        self.assertIn(
+            "Payment.objects.select_for_update()",
+            source,
+            "RefundConfirmView.post() must call Payment.objects.select_for_update() "
+            "to lock the Payment row — the correct serialization point for the first "
+            "refund where no Refund rows exist yet to lock.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# H-B — Payment row lock prevents first-refund double-spend
+# ---------------------------------------------------------------------------
+
+class RefundDoubleRacePreventionTest(RefundViewTestBase):
+    """H-B: Lock on Payment row prevents first-refund double-spend."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.staff)
+        self._set_session(self._valid_session_data())
+
+    def test_payment_select_for_update_in_source(self):
+        """
+        Structural check: RefundConfirmView.post() source must contain
+        'Payment.objects.select_for_update()' — the primary serialization point
+        for the first-refund race condition where no Refund rows exist yet.
+
+        Under PostgreSQL READ COMMITTED, SELECT ... FOR UPDATE on an empty Refund
+        queryset acquires zero locks.  Locking the Payment row (which always exists)
+        is the correct fix.
+        """
+        import inspect
+        from apps.payments.views.refund import RefundConfirmView
+
+        source = inspect.getsource(RefundConfirmView.post)
+        self.assertIn(
+            "Payment.objects.select_for_update()",
+            source,
+            "RefundConfirmView.post() must call Payment.objects.select_for_update() "
+            "to lock the Payment row — the correct serialization point for the first "
+            "refund on a payment where no Refund rows exist yet to lock.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# H-C — gateway_status field transitions
+# ---------------------------------------------------------------------------
+
+class RefundGatewayStatusTest(RefundViewTestBase):
+    """H-C: gateway_status field on Refund tracks pending/succeeded/failed states."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.staff)
+
+    def test_new_refund_has_pending_status(self):
+        """A freshly created Refund defaults to GATEWAY_STATUS_PENDING."""
+        refund = make_refund(self.payment, Decimal("10.00"), self.staff)
+        # make_refund does not set gateway_status, so the model default kicks in
+        self.assertEqual(refund.gateway_status, Refund.GATEWAY_STATUS_PENDING)
+
+    def test_refund_created_by_view_has_pending_status(self):
+        """RefundConfirmView.post() sets gateway_status=PENDING on creation."""
+        self._set_session(self._valid_session_data(amount="10.00"))
+        with self._mock_gateway():
+            self.client.post(self.CONFIRM_URL)
+        refund = Refund.objects.get()
+        # In TestCase on_commit does not fire, so status stays PENDING
+        self.assertEqual(refund.gateway_status, Refund.GATEWAY_STATUS_PENDING)
+
+    def test_failed_refund_excluded_from_already_refunded(self):
+        """Failed refund must not count against max_refundable (phantom debt prevention)."""
+        make_refund(
+            self.payment,
+            Decimal("50.00"),
+            self.staff,
+            gateway_status=Refund.GATEWAY_STATUS_FAILED,
+            gateway_refund_id=f"failed_{uuid.uuid4().hex[:8]}",
+        )
+        already = _compute_already_refunded(self.payment)
+        self.assertEqual(
+            already,
+            Decimal("0.00"),
+            "A FAILED refund row must be excluded from _compute_already_refunded(). "
+            "No money was returned so it must not reduce max_refundable.",
+        )
+
+    def test_succeeded_refund_counts_toward_already_refunded(self):
+        """Succeeded refund must count toward already_refunded."""
+        make_refund(
+            self.payment,
+            Decimal("50.00"),
+            self.staff,
+            gateway_status=Refund.GATEWAY_STATUS_SUCCEEDED,
+        )
+        already = _compute_already_refunded(self.payment)
+        self.assertEqual(already, Decimal("50.00"))
+
+    def test_pending_refund_counts_toward_already_refunded(self):
+        """Pending refund (in-flight) must count toward already_refunded to prevent over-refund."""
+        make_refund(
+            self.payment,
+            Decimal("30.00"),
+            self.staff,
+            gateway_status=Refund.GATEWAY_STATUS_PENDING,
+        )
+        already = _compute_already_refunded(self.payment)
+        self.assertEqual(already, Decimal("30.00"))
+
+    def test_mixed_statuses_only_non_failed_counted(self):
+        """Only PENDING and SUCCEEDED rows count; FAILED rows are excluded."""
+        make_refund(
+            self.payment, Decimal("20.00"), self.staff,
+            gateway_status=Refund.GATEWAY_STATUS_SUCCEEDED,
+        )
+        make_refund(
+            self.payment, Decimal("10.00"), self.staff,
+            gateway_status=Refund.GATEWAY_STATUS_FAILED,
+            gateway_refund_id=f"failed_{uuid.uuid4().hex[:8]}",
+        )
+        make_refund(
+            self.payment, Decimal("5.00"), self.staff,
+            gateway_status=Refund.GATEWAY_STATUS_PENDING,
+            gateway_refund_id=f"pending_{uuid.uuid4().hex[:8]}",
+        )
+        already = _compute_already_refunded(self.payment)
+        # Only SUCCEEDED ($20) + PENDING ($5) = $25; FAILED ($10) excluded
+        self.assertEqual(already, Decimal("25.00"))
+
+    def test_failed_refund_blocked_from_reducing_max_refundable_in_view(self):
+        """
+        A FAILED refund must not prevent a subsequent valid refund attempt.
+        If the FAILED row were counted, max_refundable would be reduced and
+        a legitimate refund for the full amount would be incorrectly blocked.
+        """
+        # Create a failed refund for the full amount — as if Stripe timed out
+        make_refund(
+            self.payment,
+            Decimal("100.00"),
+            self.staff,
+            gateway_status=Refund.GATEWAY_STATUS_FAILED,
+            gateway_refund_id=f"failed_{uuid.uuid4().hex[:8]}",
+        )
+
+        # Now request the full amount again — should succeed (FAILED row excluded)
+        self._set_session(self._valid_session_data(amount="100.00"))
+        with self._mock_gateway(refund_result={
+            "gateway_refund_id": f"re_retry_{uuid.uuid4().hex[:6]}",
+            "status": "succeeded",
+            "amount": Decimal("100.00"),
+        }):
+            resp = self.client.post(self.CONFIRM_URL)
+
+        # A new PENDING refund row was created (the FAILED one already existed)
+        self.assertEqual(Refund.objects.count(), 2)
+        new_refund = Refund.objects.exclude(
+            gateway_status=Refund.GATEWAY_STATUS_FAILED
+        ).get()
+        self.assertEqual(new_refund.gateway_status, Refund.GATEWAY_STATUS_PENDING)
+        self.assertEqual(resp.status_code, 302)

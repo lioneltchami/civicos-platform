@@ -1199,3 +1199,134 @@ class AnnualReceiptsLocalTimezoneFilterTests(TestCase):
             1,
             "A Jan 2025 donation must not appear in the 2024 annual receipt run.",
         )
+
+
+# ---------------------------------------------------------------------------
+# H-D — BC/NL timezone boundary: all Dec 31 Canadian donations captured
+# ---------------------------------------------------------------------------
+
+class AnnualReceiptsBCTimezoneTest(TestCase):
+    """
+    H-D: The year filter must use America/Vancouver (westernmost CA timezone,
+    UTC-8 in winter) for the end boundary so that BC donors giving on Dec 31
+    after 19:00 PST (= next UTC day) are included in the correct tax year.
+
+    The start boundary must use America/St_Johns (UTC-3:30) so NL donors are
+    never incorrectly spilled into the prior year's run.
+    """
+
+    def _make_donation_at_utc(self, user, intent, dt_utc):
+        """Create a Donation with created_at forced to a specific UTC datetime."""
+        donation = make_donation(user, intent)
+        Donation.objects.filter(pk=donation.pk).update(created_at=dt_utc)
+        donation.refresh_from_db()
+        return donation
+
+    def setUp(self):
+        self.charity = make_charity_settings()
+
+    def _run_annual_for_year(self, tax_year):
+        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        _counter = [0]
+        with patch.object(
+            OfficialDonationReceipt, "save", make_fake_save(_counter, year=tax_year)
+        ):
+            with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                return generate_annual_receipts.apply(args=[tax_year]).get()
+
+    def test_bc_donor_dec31_22h_pst_included_in_current_year(self):
+        """
+        22:00 PST Dec 31 2024 = 06:00 UTC Jan 1 2025 — must be included in the
+        2024 run because it is Dec 31 in the donor's local (Pacific) time.
+        """
+        import pytz
+        pst = pytz.timezone("America/Vancouver")
+        dt_utc = pst.localize(datetime(2024, 12, 31, 22, 0, 0)).astimezone(pytz.UTC)
+
+        user = make_user()
+        intent = make_payment_intent(user)
+        donation = self._make_donation_at_utc(user, intent, dt_utc)
+
+        result = self._run_annual_for_year(2024)
+        self.assertEqual(
+            result["processed"],
+            1,
+            f"BC donor giving at 22:00 PST Dec 31 (UTC: {dt_utc}) must be in 2024 run. "
+            "year_end_utc must reach Pacific midnight.",
+        )
+        self.assertEqual(result["failed"], 0)
+
+    def test_bc_donor_jan1_0001_pst_excluded_from_prior_year(self):
+        """
+        00:01 PST Jan 1 2025 = 08:01 UTC Jan 1 2025 — must NOT be in the 2024 run
+        because it is already January 1 in the donor's local (Pacific) time.
+        """
+        import pytz
+        pst = pytz.timezone("America/Vancouver")
+        dt_utc = pst.localize(datetime(2025, 1, 1, 0, 1, 0)).astimezone(pytz.UTC)
+
+        user = make_user()
+        intent = make_payment_intent(user)
+        self._make_donation_at_utc(user, intent, dt_utc)
+
+        result = self._run_annual_for_year(2024)
+        self.assertEqual(
+            result["processed"],
+            0,
+            f"BC donor giving at 00:01 PST Jan 1 (UTC: {dt_utc}) must NOT be in 2024 run.",
+        )
+
+    def test_nl_donor_jan1_0001_nst_boundary_behaviour(self):
+        """
+        00:01 NST Jan 1 2025 = 03:31 UTC Jan 1 2025.
+
+        This timestamp is Jan 1 in NL local time, but because the system does not
+        store per-donor timezone it uses a single country-wide window:
+          start = NL Jan 1 00:00 NST  (UTC-3:30, earliest Canadian Jan 1)
+          end   = BC Dec 31 23:59 PST (UTC-8, latest Canadian Dec 31)
+
+        The end boundary (2025-01-01 07:59:59 UTC) extends past this timestamp
+        (2025-01-01 03:31 UTC), so the donation IS captured in the 2024 run.
+        This is intentional: the system errs toward inclusion to avoid a donor
+        missing a CRA-claimable receipt due to an ambiguous boundary.  A NL donor
+        giving at 00:01 NST Jan 1 is simultaneously Dec 31 20:31 ET, so the
+        ambiguity is real.  Including it guarantees CRA compliance; issuing a
+        duplicate is rectifiable, but a missing receipt is not.
+        """
+        import pytz
+        nst = pytz.timezone("America/St_Johns")
+        dt_utc = nst.localize(datetime(2025, 1, 1, 0, 1, 0)).astimezone(pytz.UTC)
+
+        user = make_user()
+        intent = make_payment_intent(user)
+        self._make_donation_at_utc(user, intent, dt_utc)
+
+        result = self._run_annual_for_year(2024)
+        # Included by design — see docstring above.
+        self.assertEqual(
+            result["processed"],
+            1,
+            f"NL donor at 00:01 NST Jan 1 (UTC: {dt_utc}) is within the country-wide "
+            "Dec 31 PST end boundary and is included in 2024 run by design.",
+        )
+
+    def test_existing_toronto_case_still_passes(self):
+        """
+        Previously-fixed M7 case: 23:00 ET Dec 31 (= 04:00 UTC Jan 1) must still
+        be included in the current-year run — regression guard.
+        """
+        import pytz
+        et = pytz.timezone("America/Toronto")
+        dt_utc = et.localize(datetime(2024, 12, 31, 23, 0, 0)).astimezone(pytz.UTC)
+
+        user = make_user()
+        intent = make_payment_intent(user)
+        self._make_donation_at_utc(user, intent, dt_utc)
+
+        result = self._run_annual_for_year(2024)
+        self.assertEqual(
+            result["processed"],
+            1,
+            f"Toronto donor at 23:00 ET Dec 31 (UTC: {dt_utc}) must remain in 2024 run.",
+        )
+        self.assertEqual(result["failed"], 0)
