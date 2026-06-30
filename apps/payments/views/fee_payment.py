@@ -35,6 +35,7 @@ CSP note: Stripe.js is loaded from https://js.stripe.com. The deployer must
 add "https://js.stripe.com" to CSP_SCRIPT_SRC and "https://api.stripe.com"
 to CSP_CONNECT_SRC in config/settings/base.py (or production.py).
 """
+import hashlib
 import logging
 import uuid as _uuid
 import uuid
@@ -52,6 +53,7 @@ from apps.payments.forms import FeePaymentForm
 from apps.payments.gateway import get_gateway
 from apps.payments.gateways.exceptions import GatewayError
 from apps.payments.models import PaymentIntent, TenantPaymentConfig
+from apps.payments.views.refund import _mask_ip
 
 TWO_PLACES = Decimal("0.01")
 
@@ -65,12 +67,8 @@ def _check_rate_limit(user_pk: str) -> bool:
     Returns False when the limit is exceeded (caller should return 429).
     """
     key = f"payments:create_intent:rl:{user_pk}"
-    try:
-        count = cache.incr(key)
-    except ValueError:
-        # Key does not exist yet — initialise it with a 60-second TTL.
-        cache.set(key, 1, timeout=60)
-        count = 1
+    cache.add(key, 0, timeout=60)   # initialises to 0 only if key absent (atomic)
+    count = cache.incr(key)          # atomically increment and return new value
     return count <= 5
 
 logger = logging.getLogger(__name__)
@@ -171,7 +169,7 @@ def create_payment_intent_api(request):
     if not session_data:
         logger.warning(
             "payments.create_intent.session_expired remote_addr=%s",
-            request.META.get("REMOTE_ADDR", ""),
+            _mask_ip(request.META.get("REMOTE_ADDR", "")),
         )
         return JsonResponse(
             {"error": "Session expired. Please start over."},

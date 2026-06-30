@@ -715,3 +715,96 @@ class ParseErrorTests(TestCase):
                 process_stripe_webhook(str(event.pk))
             except Exception as exc:
                 self.fail(f"Task raised unexpectedly on parse error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Item 15 — _handle_subscription_updated backwards-transition guard
+# Item 16 — updated_at populated by QuerySet.update()
+# ---------------------------------------------------------------------------
+
+class SubscriptionUpdatedBackwardsTransitionTests(TestCase):
+    """
+    Item 15: subscription.updated must never reactivate a cancelled plan.
+    Item 16: QuerySet.update() in _handle_subscription_updated must include
+             updated_at=timezone.now() since auto_now=True is not respected.
+    """
+
+    def _make_recurring_plan(self, user=None, status=PLAN_STATUS_ACTIVE, sub_id=None):
+        if user is None:
+            user = _make_user()
+        return RecurringGiftPlan.objects.create(
+            donor=user,
+            amount=Decimal("25.00"),
+            frequency="monthly",
+            next_charge_date=timezone.now().date(),
+            gateway_subscription_id=sub_id or f"sub_{uuid.uuid4().hex[:8]}",
+            status=status,
+        )
+
+    def _run_subscription_updated(self, sub_id, stripe_status):
+        event = _make_webhook_event(
+            event_type="customer.subscription.updated",
+            gateway_intent_id=sub_id,
+        )
+        mock_parse_return = (
+            "customer.subscription.updated",
+            {
+                "gateway_subscription_id": sub_id,
+                "status": stripe_status,
+                "current_period_end": "1700000000",
+                "cancel_at_period_end": False,
+            },
+        )
+        with patch("apps.payments.gateway.get_gateway") as mock_get_gw:
+            mock_gw = MagicMock()
+            mock_gw.parse_webhook_event.return_value = mock_parse_return
+            mock_get_gw.return_value = mock_gw
+            process_stripe_webhook(str(event.pk))
+        return event
+
+    # Item 15 — cancelled plan must not be reactivated by subscription.updated(status=active)
+    def test_subscription_updated_does_not_reactivate_cancelled_plan(self):
+        """A subscription.updated(status=active) must not un-cancel an already-cancelled plan."""
+        sub_id = f"sub_{uuid.uuid4().hex[:8]}"
+        plan = self._make_recurring_plan(sub_id=sub_id, status=PLAN_STATUS_CANCELLED)
+
+        self._run_subscription_updated(sub_id, "active")
+
+        plan.refresh_from_db()
+        self.assertEqual(
+            plan.status,
+            PLAN_STATUS_CANCELLED,
+            "Backwards transition prevention failed: cancelled plan was reactivated.",
+        )
+
+    # Item 15 — cancelled plan must not be set to paused either
+    def test_subscription_updated_does_not_change_cancelled_plan_to_paused(self):
+        """A subscription.updated(status=paused) must not change a cancelled plan to paused."""
+        sub_id = f"sub_{uuid.uuid4().hex[:8]}"
+        plan = self._make_recurring_plan(sub_id=sub_id, status=PLAN_STATUS_CANCELLED)
+
+        self._run_subscription_updated(sub_id, "paused")
+
+        plan.refresh_from_db()
+        self.assertEqual(plan.status, PLAN_STATUS_CANCELLED)
+
+    # Item 16 — updated_at must be bumped by the QuerySet.update() call
+    def test_subscription_updated_sets_updated_at(self):
+        """updated_at must be bumped; auto_now=True is NOT respected by QuerySet.update()."""
+        from datetime import timedelta
+        sub_id = f"sub_{uuid.uuid4().hex[:8]}"
+        plan = self._make_recurring_plan(sub_id=sub_id, status=PLAN_STATUS_PAUSED)
+
+        # Back-date updated_at so we can confirm it was bumped by the handler
+        before = timezone.now() - timedelta(seconds=5)
+        RecurringGiftPlan.objects.filter(pk=plan.pk).update(updated_at=before)
+
+        self._run_subscription_updated(sub_id, "active")
+
+        plan.refresh_from_db()
+        self.assertGreater(
+            plan.updated_at,
+            before,
+            "updated_at was not bumped — auto_now=True is not respected by "
+            "QuerySet.update(); updated_at must be passed explicitly.",
+        )

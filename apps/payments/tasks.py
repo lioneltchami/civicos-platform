@@ -748,7 +748,9 @@ def _handle_subscription_updated(event_data: dict, webhook_event) -> None:
         )
         return
 
-    update_fields = {"status": our_status}
+    # Item 16: auto_now=True is NOT respected by QuerySet.update() — supply
+    # updated_at explicitly so the field reflects the actual modification time.
+    update_fields = {"status": our_status, "updated_at": timezone.now()}
     if our_status == PLAN_STATUS_CANCELLED:
         update_fields["cancelled_at"] = timezone.now()
         update_fields["cancellation_reason"] = f"stripe_status_{new_status}"
@@ -757,6 +759,11 @@ def _handle_subscription_updated(event_data: dict, webhook_event) -> None:
         gateway_subscription_id=gateway_subscription_id
     ).exclude(
         status=our_status
+    ).exclude(
+        # Item 15: never reactivate a cancelled plan via subscription.updated.
+        # A plan cancelled via _handle_subscription_deleted or the staff portal
+        # must not be un-cancelled by a subsequent Stripe status event.
+        status=PLAN_STATUS_CANCELLED,
     ).update(**update_fields)
 
     if updated:

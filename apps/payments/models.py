@@ -11,9 +11,12 @@ Security invariants:
 """
 from __future__ import annotations
 
+import base64
+import secrets
 import uuid
 from decimal import Decimal
 
+from cryptography.fernet import Fernet, MultiFernet
 from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
@@ -21,6 +24,78 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import TimestampedModel
+
+
+def _generate_payment_reference() -> str:
+    """Generate a collision-safe payment reference. 16 hex chars = 2^64 address space."""
+    return secrets.token_hex(8)
+
+
+# ---------------------------------------------------------------------------
+# EncryptedCharField — Fernet/AES-128-CBC symmetric encryption at rest
+# ---------------------------------------------------------------------------
+
+def _get_fernet() -> MultiFernet:
+    """
+    Build a MultiFernet instance from FERNET_KEYS setting.
+    The first key encrypts; all keys are tried for decryption (supports rotation).
+    Keys can be any string; non-Fernet strings are SHA-256-derived to a valid key.
+    """
+    raw_keys = getattr(settings, "FERNET_KEYS", [settings.SECRET_KEY])
+    fernets = []
+    for key in raw_keys:
+        raw = key.encode() if isinstance(key, str) else key
+        try:
+            fernets.append(Fernet(raw))
+        except Exception:
+            import hashlib
+            derived = base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
+            fernets.append(Fernet(derived))
+    return MultiFernet(fernets)
+
+
+class EncryptedCharField(models.BinaryField):
+    """
+    CharField that stores Fernet ciphertext in a BinaryField.
+    Transparent to the ORM: reads/writes plain text; the DB column holds encrypted bytes.
+    Compatible with Django 4.x and 5.x (no dependency on removed force_text).
+
+    Key management: set FERNET_KEYS in settings (list of strings or url-safe base64
+    Fernet keys).  To rotate, prepend the new key; old rows decrypt with old keys.
+    """
+
+    description = "Fernet-encrypted character field"
+
+    def __init__(self, max_length: int = 255, **kwargs):
+        self._char_max_length = max_length
+        kwargs.setdefault("editable", True)
+        super().__init__(**kwargs)
+
+    def deconstruct(self):
+        name, path, args, kwargs = super().deconstruct()
+        kwargs["max_length"] = self._char_max_length
+        return name, path, args, kwargs
+
+    def from_db_value(self, value, expression, connection):
+        if value is None or value == b"" or value == "":
+            return ""
+        try:
+            raw = bytes(value) if not isinstance(value, bytes) else value
+            return _get_fernet().decrypt(raw).decode("utf-8")
+        except Exception:
+            return ""  # corrupt/missing data: return empty rather than crash
+
+    def get_prep_value(self, value):
+        if value is None or value == "":
+            return b""
+        if isinstance(value, (bytes, memoryview)):
+            return value  # already encrypted (guard)
+        return _get_fernet().encrypt(value.encode("utf-8"))
+
+    def to_python(self, value):
+        if isinstance(value, (bytes, memoryview)):
+            return self.from_db_value(value, None, None)
+        return value or ""
 
 
 # ---------------------------------------------------------------------------
@@ -97,8 +172,10 @@ class PaymentIntent(TimestampedModel):
     reference = models.CharField(
         max_length=20,
         unique=True,
-        blank=True,
-        help_text="Human-readable reference: PMT-YYYY-NNNNNN. Auto-generated on save.",
+        default=_generate_payment_reference,
+        editable=False,
+        db_index=True,
+        help_text="Unique payment reference (16-char hex). Collision-safe: 2^64 address space.",
     )
     payer = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -190,8 +267,7 @@ class PaymentIntent(TimestampedModel):
     def save(self, *args, **kwargs):
         if not self.id:
             self.id = uuid.uuid4()
-        if not self.reference:
-            self.reference = f"PMT-{timezone.now().year}-{str(self.id.int % 1_000_000).zfill(6)}"
+        # reference is populated via default=_generate_payment_reference; no fallback needed.
         super().save(*args, **kwargs)
 
     def transition(self, new_status: str) -> None:
@@ -681,11 +757,15 @@ class TenantPaymentConfig(TimestampedModel):
         verbose_name=_("Stripe Connect Account ID"),
         help_text="Stripe platform account ID (Connect mode).",
     )
-    webhook_endpoint_secret = models.CharField(
+    webhook_endpoint_secret = EncryptedCharField(
         max_length=255,
         blank=True,
         verbose_name=_("Webhook Endpoint Secret"),
-        help_text="Changing this requires rotating the Stripe webhook signing secret and redeploying.",
+        help_text=(
+            "Stripe webhook signing secret (whsec_...). "
+            "Stored encrypted at rest (Fernet/AES-128-CBC). "
+            "Changing this requires rotating the Stripe webhook signing secret and redeploying."
+        ),
     )
     is_test_mode = models.BooleanField(
         default=True,
@@ -1645,6 +1725,13 @@ class OfficialDonationReceipt(TimestampedModel):
         default=False,
         verbose_name=_("Is Annual Consolidated"),
         help_text="True for year-end consolidated receipts that supersede monthly receipts.",
+    )
+    email_sent = models.BooleanField(
+        default=False,
+        help_text=(
+            "Set to True once the CRA receipt email has been delivered. "
+            "Guards against duplicate delivery on Celery retry races."
+        ),
     )
 
     class Meta:

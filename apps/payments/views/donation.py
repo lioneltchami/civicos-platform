@@ -39,6 +39,7 @@ CRA compliance notes:
 - Donation row (with donor_name_snapshot) created by webhook handler.
 - OfficialDonationReceipt issued by post-payment signal receiver.
 """
+import hashlib
 import logging
 import uuid as _uuid
 import uuid
@@ -81,14 +82,11 @@ def _check_donation_rate_limit(request) -> bool:
     if request.user.is_authenticated:
         key = f"donation_ratelimit_user_{request.user.pk}"
     else:
-        ip = request.META.get("REMOTE_ADDR", "unknown")
-        key = f"donation_ratelimit_ip_{ip}"
-    try:
-        count = cache.incr(key)
-    except ValueError:
-        # Key doesn't exist yet
-        cache.set(key, 1, timeout=60)
-        count = 1
+        ip = request.META.get("REMOTE_ADDR", "")
+        ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16]
+        key = f"donation_ratelimit_ip_{ip_hash}"
+    cache.add(key, 0, timeout=60)   # initialises to 0 only if key absent (atomic)
+    count = cache.incr(key)          # atomically increment and return new value
     return count > 5
 
 
@@ -217,7 +215,7 @@ def create_donation_intent_api(request):
     if not session_data:
         logger.warning(
             "payments.donation.create_intent.session_expired remote_addr=%s",
-            request.META.get("REMOTE_ADDR", ""),
+            _mask_ip(request.META.get("REMOTE_ADDR", "")),
         )
         return JsonResponse(
             {"error": "Session expired. Please start over."},

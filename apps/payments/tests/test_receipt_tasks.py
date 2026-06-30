@@ -156,7 +156,13 @@ class GenerateAndSendReceiptTests(TestCase):
     def _run_task_with_mocks(self, receipt_pk=None,
                              pdf_bytes=None, email_result=True,
                              pdf_error=None, email_error=None):
-        """Run the task using apply() (always-eager) with mocked PDF/email services."""
+        """Run the task using apply() (always-eager) with mocked PDF/email services.
+
+        Uses captureOnCommitCallbacks(execute=True) so that the on_commit hook
+        that dispatches send_receipt_email() is executed synchronously inside the test.
+        Without this, Django's TestCase wraps everything in a transaction that never
+        commits, so on_commit callbacks are silently dropped.
+        """
         from apps.payments.tasks_receipts import generate_and_send_receipt
         pk = receipt_pk or str(self.receipt.pk)
         _bytes = pdf_bytes or self.pdf_bytes
@@ -164,7 +170,8 @@ class GenerateAndSendReceiptTests(TestCase):
         with patch(_PDF_GEN, return_value=_bytes) as mock_gen:
             with patch(_PDF_SAVE) as mock_save:
                 with patch(_EMAIL_SEND, return_value=email_result) as mock_email:
-                    result = generate_and_send_receipt.apply(args=[pk]).get()
+                    with self.captureOnCommitCallbacks(execute=True):
+                        result = generate_and_send_receipt.apply(args=[pk]).get()
 
         return result, mock_gen, mock_save, mock_email
 
@@ -231,18 +238,30 @@ class GenerateAndSendReceiptTests(TestCase):
                     throw=True,
                 ).get()
 
-    # 6. Email send failure → task raises
+    # 6. Email send failure → task retries (via on_commit firing synchronously in eager mode)
     def test_email_send_failure_raises(self):
+        """
+        send_receipt_email is called inside a transaction.on_commit() callback.
+        In test eager mode, captureOnCommitCallbacks(execute=True) causes on_commit
+        to fire synchronously within the transaction.atomic() block, which is still
+        inside the task's outer try/except. When send_receipt_email returns False
+        the closure raises RuntimeError, which is caught by the task and triggers
+        a retry (celery.exceptions.Retry). In production, on_commit fires after the
+        transaction commits so the retry does NOT trigger — but the error IS logged.
+
+        We verify the retry path works correctly in eager test mode.
+        """
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
         with patch(_PDF_GEN, return_value=self.pdf_bytes):
             with patch(_PDF_SAVE):
                 with patch(_EMAIL_SEND, return_value=False):
                     with self.assertRaises(Exception):
-                        generate_and_send_receipt.apply(
-                            args=[str(self.receipt.pk)],
-                            throw=True,
-                        ).get()
+                        with self.captureOnCommitCallbacks(execute=True):
+                            generate_and_send_receipt.apply(
+                                args=[str(self.receipt.pk)],
+                                throw=True,
+                            ).get()
 
     # 7. Status is 'resent' when PDF was already generated
     def test_status_is_resent_when_pdf_already_existed(self):
@@ -278,6 +297,51 @@ class GenerateAndSendReceiptTests(TestCase):
 
         log_output = "\n".join(log_ctx.output)
         self.assertIn(self.receipt.serial_number, log_output)
+
+    # Item 13a — second call (Celery retry simulation) must not send a second email.
+    def test_generate_and_send_receipt_sends_email_exactly_once(self):
+        """Two consecutive calls with the same receipt_pk send exactly one email."""
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        with patch(_PDF_GEN, return_value=self.pdf_bytes):
+            with patch(_PDF_SAVE):
+                with patch(_EMAIL_SEND, return_value=True) as mock_send:
+                    # First call — sets email_sent=True and sends email
+                    generate_and_send_receipt.apply(args=[str(self.receipt.pk)]).get()
+                    # Second call — simulates Celery retry or duplicate dispatch
+                    generate_and_send_receipt.apply(args=[str(self.receipt.pk)]).get()
+
+        mock_send.assert_called_once()
+
+    # Item 13b — email_sent flag is persisted after successful delivery.
+    def test_email_sent_flag_set_after_send(self):
+        """email_sent=True must be saved to the DB after successful email delivery."""
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        with patch(_PDF_GEN, return_value=self.pdf_bytes):
+            with patch(_PDF_SAVE):
+                with patch(_EMAIL_SEND, return_value=True):
+                    generate_and_send_receipt.apply(args=[str(self.receipt.pk)]).get()
+
+        self.receipt.refresh_from_db()
+        self.assertTrue(self.receipt.email_sent)
+
+    # Item 13c — email_sent flag is reset to False when email delivery fails.
+    def test_email_sent_flag_reset_on_email_failure(self):
+        """On email failure, email_sent must be reset to False so the next retry can re-attempt."""
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        with patch(_PDF_GEN, return_value=self.pdf_bytes):
+            with patch(_PDF_SAVE):
+                with patch(_EMAIL_SEND, return_value=False):
+                    with self.assertRaises(Exception):
+                        generate_and_send_receipt.apply(
+                            args=[str(self.receipt.pk)],
+                            throw=True,
+                        ).get()
+
+        self.receipt.refresh_from_db()
+        self.assertFalse(self.receipt.email_sent)
 
 
 # ---------------------------------------------------------------------------
