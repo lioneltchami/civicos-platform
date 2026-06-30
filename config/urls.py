@@ -20,15 +20,27 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
+from django_otp.admin import OTPAdminSite
 from two_factor.urls import urlpatterns as two_factor_urlpatterns
 from wagtail import urls as wagtail_urls
 from wagtail.admin import urls as wagtailadmin_urls
 from wagtail.documents import urls as wagtaildocs_urls
 
+# ---------------------------------------------------------------------------
+# Security: enforce OTP / MFA on the Django admin site.
+# Without this, the standard AdminSite authenticates via its own login flow
+# and completely bypasses two-factor verification — allowing any staff user
+# with only a password to reach donor PII, Stripe keys, and audit data.
+# OTPAdminSite.has_permission() requires request.user.is_verified() (i.e. the
+# user must have completed a second factor via django-two-factor-auth before
+# being granted access). This is the standard pattern recommended by django-otp.
+# ---------------------------------------------------------------------------
+admin.site.__class__ = OTPAdminSite
+
 urlpatterns = [
     # Wagtail admin
     path("cms/", include(wagtailadmin_urls)),
-    # Django admin — behind a non-obvious path
+    # Django admin — behind a non-obvious path; OTP enforcement applied above
     path("django-admin/", admin.site.urls),
     # Document downloads (protected)
     path("documents/", include(wagtaildocs_urls)),

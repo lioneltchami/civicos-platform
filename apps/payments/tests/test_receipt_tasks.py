@@ -19,6 +19,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, call, patch
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import TestCase, override_settings
 
 from apps.payments.models import (
@@ -810,3 +811,157 @@ class KickoffAnnualReceiptsTests(TestCase):
         self.assertEqual(result["tax_year"], expected_year)
         self.assertEqual(result["task_id"], "fake-task-id-1234")
         self.assertEqual(result["status"], "dispatched")
+
+
+# ---------------------------------------------------------------------------
+# C2 — email_sent=True must only be set AFTER successful send
+# ---------------------------------------------------------------------------
+
+class GenerateAndSendReceiptEmailSentFlagTest(TestCase):
+    """
+    C2: email_sent=True must only be committed to the DB after a confirmed
+    successful email send.  If it is set before the send and the worker dies
+    between commit and send, the receipt is permanently marked delivered
+    without having been sent — a CRA compliance failure.
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        self.campaign = make_campaign()
+        self.intent = make_payment_intent(self.user)
+        self.donation = make_donation(self.user, self.intent)
+        self.receipt = make_receipt(self.donation)
+        self.pdf_bytes = b"%PDF-1.4 fake content"
+
+    def test_email_sent_false_if_send_raises(self):
+        """If send_receipt_email raises, email_sent must remain False for retry."""
+        from smtplib import SMTPException
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        with patch(_PDF_GEN, return_value=self.pdf_bytes):
+            with patch(_PDF_SAVE):
+                with patch(_EMAIL_SEND, side_effect=SMTPException("timeout")):
+                    with self.assertRaises(Exception):
+                        generate_and_send_receipt.apply(
+                            args=[str(self.receipt.pk)],
+                            throw=True,
+                        ).get()
+
+        self.receipt.refresh_from_db()
+        self.assertFalse(
+            self.receipt.email_sent,
+            "email_sent must remain False after a failed send so the retry can re-attempt",
+        )
+
+    def test_email_sent_true_after_successful_send(self):
+        """After a successful send, email_sent must be True in the DB."""
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        with patch(_PDF_GEN, return_value=self.pdf_bytes):
+            with patch(_PDF_SAVE):
+                with patch(_EMAIL_SEND, return_value=True):
+                    generate_and_send_receipt.apply(args=[str(self.receipt.pk)]).get()
+
+        self.receipt.refresh_from_db()
+        self.assertTrue(
+            self.receipt.email_sent,
+            "email_sent must be True after a successful send",
+        )
+
+    def test_email_sent_true_skips_resend(self):
+        """If email_sent=True already on the receipt, the task exits without sending."""
+        from apps.payments.tasks_receipts import generate_and_send_receipt
+
+        # Mark the receipt as already delivered
+        OfficialDonationReceipt._base_manager.filter(pk=self.receipt.pk).update(
+            email_sent=True
+        )
+
+        with patch(_PDF_GEN, return_value=self.pdf_bytes) as mock_gen:
+            with patch(_PDF_SAVE) as mock_save:
+                with patch(_EMAIL_SEND) as mock_send:
+                    generate_and_send_receipt.apply(args=[str(self.receipt.pk)]).get()
+
+        mock_send.assert_not_called()
+        mock_gen.assert_not_called()
+        mock_save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# C3 — only the specific unique constraint IntegrityError is swallowed
+# ---------------------------------------------------------------------------
+
+class AnnualReceiptIntegrityErrorTest(TestCase):
+    """
+    C3: generate_annual_receipts must only swallow IntegrityError raised by the
+    specific duplicate-receipt unique constraint.  Any other IntegrityError
+    (FK violation, NOT NULL failure, etc.) must propagate so it surfaces to
+    operators rather than being silently absorbed as "skipped".
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        self.campaign = make_campaign()
+        self.charity = make_charity_settings()
+        self.intent = make_payment_intent(self.user)
+        make_donation(self.user, self.intent)
+
+    def test_unrelated_integrity_error_is_reraised(self):
+        """
+        An IntegrityError whose message does NOT contain the unique constraint name
+        must propagate out of the inner try/except, be caught by the outer
+        per-donor except block, and increment failed (not skipped).
+        """
+        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        from apps.payments.models import OfficialDonationReceipt
+
+        unrelated_exc = IntegrityError(
+            "NOT NULL constraint failed: payments_officialdonationreceipt.serial_number"
+        )
+
+        _counter = [0]
+        with patch.object(OfficialDonationReceipt, "save", make_fake_save(_counter, year=2026)):
+            # Patch the inner transaction.atomic save to raise an unrelated IntegrityError
+            original_save = OfficialDonationReceipt.save
+
+            def _raise_unrelated(instance, *args, **kwargs):
+                raise unrelated_exc
+
+            with patch.object(OfficialDonationReceipt, "save", _raise_unrelated):
+                with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                    result = generate_annual_receipts.apply(args=[2026]).get()
+
+        # The unrelated IntegrityError must escape the inner except and be caught
+        # by the outer per-donor handler, incrementing `failed`.
+        self.assertEqual(
+            result["failed"],
+            1,
+            "An unrelated IntegrityError must not be swallowed — it should increment failed",
+        )
+        self.assertEqual(result["skipped"], 0)
+
+    def test_unique_constraint_integrity_error_is_skipped(self):
+        """
+        An IntegrityError whose message contains the specific unique constraint name
+        must be swallowed and increment skipped (not failed).
+        """
+        from apps.payments.tasks_receipts import generate_annual_receipts, generate_and_send_receipt
+        from apps.payments.models import OfficialDonationReceipt
+
+        duplicate_exc = IntegrityError(
+            "UNIQUE constraint failed: payments_receipt_unique_issued_per_donation"
+        )
+
+        def _raise_duplicate(instance, *args, **kwargs):
+            raise duplicate_exc
+
+        with patch.object(OfficialDonationReceipt, "save", _raise_duplicate):
+            with patch.object(generate_and_send_receipt, "delay", return_value=None):
+                result = generate_annual_receipts.apply(args=[2026]).get()
+
+        self.assertEqual(
+            result["skipped"],
+            1,
+            "A duplicate-receipt IntegrityError must be swallowed and counted as skipped",
+        )
+        self.assertEqual(result["failed"], 0)

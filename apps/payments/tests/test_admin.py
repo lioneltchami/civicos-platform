@@ -543,3 +543,61 @@ class OfficialDonationReceiptAdminTest(TestCase):
         receipt = _make_receipt(self.donation)
         request = self.factory.get("/")
         self.assertFalse(self.admin.has_delete_permission(request, receipt))
+
+
+# ---------------------------------------------------------------------------
+# AdminOTPEnforcementTest — security regression guard for C5
+# ---------------------------------------------------------------------------
+
+class AdminOTPEnforcementTest(TestCase):
+    """
+    Verify that the Django admin site at /django-admin/ enforces OTP / MFA.
+
+    A staff user authenticated with only a password (force_login bypasses the
+    login form but does NOT call is_verified()) must not be able to access the
+    admin index.  The OTPAdminSite.has_permission() check requires
+    request.user.is_verified() to return True, so an unverified staff user
+    should receive a redirect (302) or a forbidden-equivalent response rather
+    than a 200 OK admin page.
+
+    This test is a regression guard for vulnerability C5: Django admin
+    completely bypassing MFA.
+    """
+
+    def test_admin_redirects_unverified_staff(self):
+        """Staff user logged in without OTP must not see the admin index."""
+        user = User.objects.create_user(
+            email="staff_otp_test@example.com",
+            password="correct-password-123!",
+            is_staff=True,
+            is_active=True,
+        )
+        # force_login authenticates the user at the session level but does NOT
+        # mark them as OTP-verified (is_verified() returns False).
+        self.client.force_login(user)
+        response = self.client.get("/django-admin/")
+        # OTPAdminSite redirects unverified users to the login page.
+        self.assertNotEqual(
+            response.status_code,
+            200,
+            "Admin returned 200 to an unverified staff user — OTP enforcement is broken.",
+        )
+        self.assertIn(
+            response.status_code,
+            [302, 301, 403],
+            f"Expected a redirect or 403, got {response.status_code}.",
+        )
+
+    def test_admin_denies_unverified_superuser(self):
+        """Superuser without OTP verification must also be blocked."""
+        superuser = User.objects.create_superuser(
+            email="super_otp_test@example.com",
+            password="super-password-123!",
+        )
+        self.client.force_login(superuser)
+        response = self.client.get("/django-admin/")
+        self.assertNotEqual(
+            response.status_code,
+            200,
+            "Admin returned 200 to an unverified superuser — OTP enforcement is broken.",
+        )

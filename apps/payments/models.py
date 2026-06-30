@@ -1773,7 +1773,8 @@ class OfficialDonationReceipt(TimestampedModel):
     def save(self, *args, **kwargs):
         if not self.serial_number:
             from django.db import connection
-            year = timezone.now().year
+            from django.utils.timezone import localtime
+            year = localtime(timezone.now()).year
             with connection.cursor() as cursor:
                 cursor.execute("SELECT nextval('payments_receipt_serial_seq')")
                 seq = cursor.fetchone()[0]

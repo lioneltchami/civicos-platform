@@ -64,7 +64,13 @@ def generate_and_send_receipt(self, receipt_pk: str) -> dict:
         )
         return {"status": "skipped", "reason": "not_issued"}
 
-    # -- PDF generation (idempotent, serialised under DB lock) --
+    # -- Phase 1: PDF generation (idempotent, serialised under DB lock) --
+    #
+    # C2 fix: email_sent=True is deliberately NOT set inside this atomic block.
+    # Setting it here and then sending the email outside the transaction creates
+    # a window where a SIGKILL/OOM between commit and send permanently marks the
+    # receipt as delivered without it ever being sent — a CRA compliance failure.
+    # Instead, email_sent=True is set only after a confirmed successful send (Phase 2).
     pdf_bytes = None
     was_generated = False
     try:
@@ -76,11 +82,12 @@ def generate_and_send_receipt(self, receipt_pk: str) -> dict:
                 .get(pk=receipt.pk)
             )
 
-            # Guard: if a concurrent worker already sent the email, bail out.
-            # This prevents duplicate CRA receipts when two workers both pass
-            # the initial status check and then race into this atomic block.
-            # select_for_update() ensures only one worker holds the lock at a
-            # time; the second worker sees email_sent=True and returns early.
+            # Guard: if a concurrent worker already delivered the email, bail out.
+            # Without email_sent=True inside the lock, two concurrent workers could
+            # both pass this check and both call send_receipt_email — this is
+            # acceptable (one duplicate CRA receipt) vs. the alternative of a receipt
+            # never delivered. The atomic conditional update in Phase 2 ensures only
+            # one worker "wins" the flag even if both send.
             if receipt_locked.email_sent:
                 return {"status": "skipped", "reason": "email_already_sent"}
 
@@ -91,13 +98,8 @@ def generate_and_send_receipt(self, receipt_pk: str) -> dict:
                 pdf_bytes = generate_receipt_pdf(receipt_locked)
                 save_receipt_pdf(receipt_locked, pdf_bytes)
                 was_generated = True
-
-            # Persist email_sent=True inside the same atomic block so the flag
-            # is committed atomically under the row lock.  If the email send
-            # below fails we reset the flag so the next Celery retry can
-            # re-attempt delivery (see reset logic after the except block).
-            receipt_locked.email_sent = True
-            receipt_locked.save(update_fields=["email_sent", "updated_at"])
+                # Save pdf_path (and updated_at) only — email_sent stays False here.
+                receipt_locked.save(update_fields=["pdf_path", "updated_at"])
 
     except Exception as exc:
         logger.error(
@@ -124,26 +126,30 @@ def generate_and_send_receipt(self, receipt_pk: str) -> dict:
             )
             raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
 
-    # -- Email delivery --
-    # email_sent=True is already committed.  On failure we reset the flag via
-    # _base_manager (bypasses the OfficialDonationReceipt QuerySet guard that
-    # blocks bulk updates) so the next Celery retry can re-attempt delivery.
+    # -- Phase 2: Email delivery, then mark delivered --
+    #
+    # C2 fix: email_sent=True is set ONLY after a confirmed successful send.
+    # On failure, we log and re-raise so Celery retries. The receipt remains
+    # with email_sent=False, allowing the retry to re-attempt delivery.
+    # The conditional filter(email_sent=False) ensures idempotency: if two
+    # concurrent workers both reach this point, only one write will take effect.
     try:
         sent = send_receipt_email(receipt_locked, pdf_bytes)
         if not sent:
             raise RuntimeError("send_receipt_email returned False")
     except Exception as exc:
         logger.error(
-            "payments.task.receipt_email_error serial=%s error_type=%s",
-            receipt.serial_number,
+            "payments.receipt.email_delivery_failed receipt_pk=%s exc_type=%s",
+            receipt_pk,
             type(exc).__name__,
         )
-        # Reset flag so next retry attempt is not blocked by the guard above.
-        OfficialDonationReceipt._base_manager.filter(pk=receipt_locked.pk).update(
-            email_sent=False,
-            updated_at=timezone.now(),
-        )
         raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+
+    # Atomic conditional update — only sets flag if not already set by a concurrent worker.
+    OfficialDonationReceipt._base_manager.filter(
+        pk=receipt_pk,
+        email_sent=False,
+    ).update(email_sent=True, updated_at=timezone.now())
 
     status = "generated_and_sent" if was_generated else "resent"
     logger.info("payments.task.receipt_sent serial=%s", receipt.serial_number)
@@ -305,13 +311,18 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
                     receipt.save()
                     # Queue PDF generation + email AFTER commit to avoid orphaned tasks
                     transaction.on_commit(lambda r=receipt: generate_and_send_receipt.delay(str(r.pk)))
-            except IntegrityError:
-                # Concurrent worker already created a receipt for this donor/year.
-                # The DB UniqueConstraint on (donation_id) for issued receipts is the true guard.
+            except IntegrityError as exc:
+                # C3 fix: only swallow the specific unique-receipt constraint violation
+                # (expected race condition when two annual receipt workers run concurrently
+                # for the same donor). Re-raise all other IntegrityErrors so real DB
+                # errors (FK violations, NOT NULL failures, etc.) surface to operators
+                # rather than being silently counted as "skipped".
+                _UNIQUE_CONSTRAINT = "payments_receipt_unique_issued_per_donation"
+                if _UNIQUE_CONSTRAINT not in str(exc):
+                    raise
                 logger.info(
-                    "payments.generate_annual_receipts.duplicate_skipped donor_id=%s tax_year=%s",
-                    str(donor_id),
-                    tax_year,
+                    "payments.annual_receipts.duplicate_skipped donation_pk=%s",
+                    anchor.pk,
                 )
                 skipped += 1
                 continue
