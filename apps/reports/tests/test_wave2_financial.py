@@ -16,7 +16,7 @@ Covers:
   - _compute_all_snapshots task helper
 
 PIPEDA invariants verified throughout:
-  - actor_email always "" in ExportRecord
+  - actor_pk stores the user's integer pk — no email, name, or address
   - No PII in log messages (only pk, amounts, counts)
 """
 from __future__ import annotations
@@ -729,15 +729,13 @@ class ReconciliationExportViewTest(TestCase):
         self.assertEqual(ExportRecord.objects.count(), before + 1)
 
     def test_audit_record_no_pii_stored(self):
-        """PIPEDA: ExportRecord stores actor_pk (UUID) — never email or name."""
+        """PIPEDA: ExportRecord stores actor_pk (int) — never email or name."""
         self.client.force_login(self.user)
         self.client.get(self.url, {"start": "2025-06-01", "end": "2025-06-30"})
         record = ExportRecord.objects.latest("created_at")
-        # actor_pk must be the user's UUID — not their email
-        # actor_pk is populated (not None) — we don't assert equality because
-        # User.pk is an integer but actor_pk is UUIDField; the PIPEDA guarantee
-        # is that *no email or name* is stored, not the exact UUID value.
-        self.assertIsNotNone(record.actor_pk)
+        # actor_pk is the user's integer pk — exact equality now safe because
+        # both User.pk and ExportRecord.actor_pk are BigIntegerField.
+        self.assertEqual(record.actor_pk, self.user.pk)
         self.assertFalse(hasattr(record, "actor_email"))
 
     def test_audit_record_export_type(self):
@@ -805,14 +803,12 @@ class RevenueExportViewTest(TestCase):
         self.assertEqual(ExportRecord.objects.count(), before + 1)
 
     def test_audit_record_no_pii_stored(self):
-        """PIPEDA: actor_pk is UUID, not email; no actor_email field exists."""
+        """PIPEDA: actor_pk is the user's int pk — never email or name."""
         self.client.force_login(self.user)
         self.client.get(self.url, {"year": "2025", "month": "6"})
         record = ExportRecord.objects.latest("created_at")
-        # actor_pk is populated (not None) — we don't assert equality because
-        # User.pk is an integer but actor_pk is UUIDField; the PIPEDA guarantee
-        # is that *no email or name* is stored, not the exact UUID value.
-        self.assertIsNotNone(record.actor_pk)
+        # actor_pk is BigIntegerField — exact equality is safe.
+        self.assertEqual(record.actor_pk, self.user.pk)
         self.assertFalse(hasattr(record, "actor_email"))
 
     def test_audit_record_export_type(self):

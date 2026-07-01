@@ -108,7 +108,8 @@ class ExportRecord(models.Model):
     exists solely to satisfy PIPEDA accountability and CRA audit requirements.
 
     PIPEDA invariants:
-    - actor_pk stores the user's UUID primary key, never their email address.
+    - actor_pk stores the user's integer primary key (BigAutoField), never
+      their email address or name.
     - actor_ip is masked at the IPv4 /24 or IPv6 /48 level before storage
       (consistent with the sentry.py masking policy).
     - No donor name, email, address, or SIN is ever stored here.
@@ -148,9 +149,13 @@ class ExportRecord(models.Model):
     )
     period_start = models.DateField(verbose_name=_("Period start"))
     period_end = models.DateField(verbose_name=_("Period end"))
-    actor_pk = models.UUIDField(
+    actor_pk = models.BigIntegerField(
         verbose_name=_("Actor PK"),
-        help_text=_("UUID primary key of the staff user who triggered this export."),
+        help_text=_(
+            "Integer primary key of the staff user who triggered this export. "
+            "Stored as BigIntegerField to match User.pk (BigAutoField). "
+            "Never stores email, name, or any other PII."
+        ),
     )
     actor_ip = models.GenericIPAddressField(
         null=True,
