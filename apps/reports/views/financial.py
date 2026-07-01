@@ -399,10 +399,16 @@ class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, View):
         month = kwargs.get("month")
 
         if not year or not month or not (2000 <= year <= 2100) or not (1 <= month <= 12):
-            from django.http import HttpResponseBadRequest
             return HttpResponseBadRequest("Invalid year or month.")
 
-        # ── Audit record ──────────────────────────────────────────────────────
+        # ── Generate PDF first — only write audit record on success ──────────
+        # ExportRecord creation is intentionally deferred until after PDF bytes
+        # are produced. If WeasyPrint raises (missing C libs, OOM, template error)
+        # we must not record a completed export that never reached the client.
+        from apps.reports.exports.pdf_export import export_monthly_summary_pdf
+        response = export_monthly_summary_pdf(year, month)
+
+        # ── Audit record (written only if PDF generation succeeded) ──────────
         last_day = calendar.monthrange(year, month)[1]
         masked_ip = _mask_ip(request.META.get("REMOTE_ADDR") or "")
         ExportRecord.objects.create(
@@ -420,5 +426,4 @@ class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, View):
             request.user.pk, year, month,
         )
 
-        from apps.reports.exports.pdf_export import export_monthly_summary_pdf
-        return export_monthly_summary_pdf(year, month)
+        return response

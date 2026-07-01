@@ -284,6 +284,16 @@ class WebhookSummaryTests(TestCase):
         self.assertEqual(by_type["charge.refunded"]["count"], 1)
         self.assertEqual(by_type["charge.refunded"]["processed_count"], 0)
 
+    def test_by_event_type_includes_other_count(self):
+        """other_count = count - processed_count (pre-computed for templates)."""
+        _make_webhook_event(event_type="payment_intent.succeeded", processed=True)
+        _make_webhook_event(event_type="payment_intent.succeeded", processed=False, error="")
+        result = get_webhook_processing_summary(days=30)
+        row = next(r for r in result["by_event_type"] if r["event_type"] == "payment_intent.succeeded")
+        self.assertIn("other_count", row)
+        self.assertEqual(row["other_count"], row["count"] - row["processed_count"])
+        self.assertEqual(row["other_count"], 1)
+
     def test_days_window_excludes_old_events(self):
         old = datetime(2020, 1, 1, tzinfo=dt_timezone.utc)
         _make_webhook_event(created_at=old)

@@ -179,6 +179,9 @@ def get_webhook_processing_summary(days: int = 30) -> dict:
             "event_type": row["event_type"] or "(unknown)",
             "count": row["count"],
             "processed_count": row["processed_count"],
+            # Pre-computed so templates don't need arithmetic: Django's add filter
+            # with "-" returns '' (empty string), not a subtraction result.
+            "other_count": row["count"] - row["processed_count"],
         }
         for row in by_type_rows
     ]
@@ -275,7 +278,15 @@ def get_task_failure_details(task_name: str | None = None, limit: int = 50) -> l
 
     limit = min(limit, 200)  # hard cap — prevents accidental oversized responses
 
-    qs = TaskResult.objects.filter(status="FAILURE").order_by("-date_done")
+    qs = (
+        TaskResult.objects
+        .filter(status="FAILURE")
+        # Only fetch the columns we actually use — traceback can be multi-KB;
+        # deferring unused columns (result, meta, etc.) cuts memory significantly
+        # when a failure spike produces many rows.
+        .only("task_id", "task_name", "date_done", "traceback")
+        .order_by("-date_done")
+    )
     if task_name:
         qs = qs.filter(task_name=task_name)
 
@@ -307,8 +318,9 @@ def compute_operational_snapshot(year: int, month: int) -> dict:
     Called by the Celery Beat ``compute_monthly_snapshots`` task. Must be
     idempotent — safe to re-run for the same (year, month).
 
-    Returns a dict with keys: task_summary, webhook_summary, beat_status,
-    row_count (total events in window).
+    Returns a dict with keys: task_summary, webhook_summary, row_count
+    (total events in window). Beat status is intentionally excluded — it
+    is not time-series data and would not be meaningful as a historical snapshot.
     """
     # Anchor the lookback window at midnight on the last day of the given month
     # (UTC) so historical re-computation returns consistent values.
