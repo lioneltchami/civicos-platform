@@ -183,4 +183,13 @@ def before_send(event, hint):
     if "extra" in event:
         event["extra"] = _scrub_dict(event["extra"])
 
+    # 4. Scrub event["request"]["data"] — the parsed JSON/form body forwarded by
+    #    the Sentry SDK for API requests. This contains donor names, email addresses,
+    #    and donation amounts sent in POST/PUT bodies (PIPEDA violation if forwarded).
+    if "data" in request and isinstance(request["data"], dict):
+        request["data"] = _scrub_dict(request["data"])
+    elif "data" in request and isinstance(request["data"], str):
+        # Form-encoded body or raw JSON string — replace entirely to be safe.
+        request["data"] = "[Filtered]"
+
     return event

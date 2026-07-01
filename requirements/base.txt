@@ -29,7 +29,7 @@ django-ipware==7.0.1
 
 # File storage
 django-storages[s3]==1.14.4
-Pillow==11.0.0
+Pillow>=11.1.0,<12  # M-I: CVE-2025-27520 heap buffer overflow in TIFF/image parsing fixed in 11.1.0
 boto3==1.35.68
 
 # Email / notifications

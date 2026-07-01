@@ -67,6 +67,15 @@ class PaymentIntentAdmin(admin.ModelAdmin):
     def payer_pk(self, obj):
         return obj.payer_id
 
+    def has_change_permission(self, request, obj=None):
+        # Financial records must not be mutated via admin — gateway is sole writer.
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # PaymentIntents are permanent financial records; deletion cascades to
+        # Payment, Donation, and OfficialDonationReceipt rows (CRA audit risk).
+        return False
+
 
 # ---------------------------------------------------------------------------
 # RefundInline — shown on the Payment change page
@@ -210,7 +219,7 @@ class WebhookEventAdmin(admin.ModelAdmin):
         "created_at",
     ]
     list_filter = ["gateway", "signature_verified", "processed"]
-    search_fields = ["gateway_event_id", "event_type", "payload"]  # payload LIKE scan — consider GIN index at scale
+    search_fields = ["gateway_event_id", "event_type"]  # payload excluded: LIKE scan is slow + payload may contain PII
     readonly_fields = [
         "id",
         "gateway",
@@ -343,6 +352,12 @@ class TenantPaymentConfigAdmin(admin.ModelAdmin):
         return "⚠ Not configured"
     webhook_secret_display.short_description = "Webhook signing secret"
 
+    def has_change_permission(self, request, obj=None):
+        # is_test_mode controls whether live or test Stripe keys are used.
+        # Flipping it via admin could route real donor money to a test account.
+        # Changes require a code deploy + environment variable rotation.
+        return False
+
     def has_delete_permission(self, request, obj=None):
         return False
 
@@ -400,6 +415,11 @@ class CharitySettingsAdmin(admin.ModelAdmin):
         ),
     ]
 
+    def has_delete_permission(self, request, obj=None):
+        # CharitySettings rows are referenced by issued CRA receipts.
+        # Deletion would corrupt the audit trail.
+        return False
+
 
 # ---------------------------------------------------------------------------
 # FeeSchedule
@@ -422,6 +442,11 @@ class FeeScheduleAdmin(admin.ModelAdmin):
     readonly_fields = ["id", "created_at", "updated_at"]
     ordering = ["fee_code", "-effective_date"]
 
+    def has_delete_permission(self, request, obj=None):
+        # FeeSchedule rows are referenced by historical ServiceFeePayment records.
+        # Deletion would break audit trail references.
+        return False
+
 
 # ---------------------------------------------------------------------------
 # TaxRate
@@ -440,6 +465,11 @@ class TaxRateAdmin(admin.ModelAdmin):
     search_fields = ["province", "tax_name_en"]
     readonly_fields = ["id", "created_at", "updated_at"]
     ordering = ["province"]
+
+    def has_delete_permission(self, request, obj=None):
+        # TaxRate rows are embedded in historical receipts by snapshot (tax_rate_applied).
+        # Deleting the source row would break backwards reconciliation.
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +528,11 @@ class DonationCampaignAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ["name_en"]}
     readonly_fields = ["id", "created_at", "updated_at"]
 
+    def has_delete_permission(self, request, obj=None):
+        # DonationCampaign rows are referenced by Donation records (FK).
+        # Deletion would cascade or orphan donation history.
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Donation
@@ -548,7 +583,16 @@ class DonationAdmin(admin.ModelAdmin):
     def donor_pk(self, obj):
         return obj.donor_id
 
+    def has_view_permission(self, request, obj=None):
+        # PIPEDA: donor_name_snapshot and donor_address_snapshot are personal information.
+        # Require explicit payments.view_donation permission beyond basic staff status.
+        return request.user.is_superuser or request.user.has_perm("payments.view_donation")
+
     def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        # Donation records are financial audit evidence — immutable after creation.
         return False
 
     def has_delete_permission(self, request, obj=None):

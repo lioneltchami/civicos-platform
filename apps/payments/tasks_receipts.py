@@ -470,14 +470,32 @@ def kickoff_annual_receipts(self) -> dict:
 
     Called by the 'payments.generate_annual_receipts' PeriodicTask registered
     via `python manage.py setup_periodic_tasks`.
+
+    M-B: Idempotency guard — cache.add() is atomic; only the first concurrent
+    caller gets True. Prevents double-dispatch from Beat restart, clock drift,
+    or manual re-trigger, which would cause duplicate CRA receipts.
     """
+    from django.core.cache import cache
     from django.utils.timezone import now
 
     tax_year = now().year - 1
-    result = generate_annual_receipts.delay(tax_year)
-    logger.info(
-        "payments.task.kickoff_annual_receipts.dispatched tax_year=%s task_id=%s",
-        tax_year,
-        result.id,
-    )
-    return {"tax_year": tax_year, "task_id": result.id, "status": "dispatched"}
+    lock_key = f"payments:kickoff_annual_receipts:{tax_year}"
+
+    if not cache.add(lock_key, "1", timeout=7200):  # 2h lock
+        logger.warning(
+            "payments.task.kickoff_annual_receipts.already_running tax_year=%s",
+            tax_year,
+        )
+        return {"tax_year": tax_year, "status": "already_running"}
+
+    try:
+        result = generate_annual_receipts.delay(tax_year)
+        logger.info(
+            "payments.task.kickoff_annual_receipts.dispatched tax_year=%s task_id=%s",
+            tax_year,
+            result.id,
+        )
+        return {"tax_year": tax_year, "task_id": result.id, "status": "dispatched"}
+    except Exception:
+        cache.delete(lock_key)  # release lock so a retry can proceed
+        raise

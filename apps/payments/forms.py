@@ -160,10 +160,13 @@ class RefundForm(forms.Form):
         self.payment = payment
 
         if payment is not None:
+            # C-D: exclude GATEWAY_STATUS_FAILED rows — failed Stripe calls are
+            # not real money movements and must not reduce the max refundable cap.
+            # This mirrors _compute_already_refunded() in views/refund.py.
             already = (
-                Refund.objects.filter(payment=payment).aggregate(
-                    total=Sum("amount")
-                )["total"]
+                Refund.objects.filter(payment=payment)
+                .exclude(gateway_status=Refund.GATEWAY_STATUS_FAILED)
+                .aggregate(total=Sum("amount"))["total"]
                 or Decimal("0.00")
             )
             max_refundable = payment.amount_paid - already

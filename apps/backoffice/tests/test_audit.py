@@ -118,7 +118,14 @@ class AuditLogListTests(TestCase):
         """date_from / date_to filter by timestamp date."""
         # Create an entry and then filter for a date range that includes today.
         _make_entry()
-        today_str = timezone.now().strftime("%Y-%m-%d")
+        # Use localtime() so the date string matches what Django's __date
+        # transform produces.  The view filters with timestamp__date__gte which
+        # converts stored UTC timestamps to TIME_ZONE (America/Toronto) before
+        # extracting the date.  Using timezone.now().strftime() gives the UTC
+        # date, which diverges from the Toronto date between 00:00–05:00 UTC
+        # and causes a spurious failure — a flaky test that only surfaces during
+        # overnight CI runs.
+        today_str = timezone.localtime(timezone.now()).strftime("%Y-%m-%d")
         self.client.login(email="staff@example.com", password="testpass123")
         response = self.client.get(
             AUDIT_LIST_URL,

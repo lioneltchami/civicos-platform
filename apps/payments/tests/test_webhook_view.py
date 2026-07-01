@@ -32,19 +32,27 @@ class StripeWebhookViewTests(TestCase):
         config.save()
 
     def _post(self, payload=None, sig="t=1234,v1=valid", verify_result=True):
-        """Helper: POST to webhook endpoint with mocked gateway and task."""
+        """Helper: POST to webhook endpoint with mocked gateway and task.
+
+        Uses captureOnCommitCallbacks(execute=True) so that transaction.on_commit()
+        callbacks fire immediately within the TestCase transaction, matching
+        production behaviour where the DB transaction commits after the view returns.
+        Without this, the on_commit-wrapped .delay() call would never execute and
+        tests asserting mock_delay.assert_called_once() would always fail.
+        """
         body = json.dumps(payload if payload is not None else self.valid_payload).encode()
         with patch("apps.payments.views.webhook.get_gateway") as mock_get_gw, \
              patch("apps.payments.tasks.process_stripe_webhook.delay") as mock_delay:
             mock_gw = MagicMock()
             mock_gw.verify_webhook_signature.return_value = verify_result
             mock_get_gw.return_value = mock_gw
-            response = self.client.post(
-                self.url,
-                data=body,
-                content_type="application/json",
-                HTTP_STRIPE_SIGNATURE=sig,
-            )
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self.url,
+                    data=body,
+                    content_type="application/json",
+                    HTTP_STRIPE_SIGNATURE=sig,
+                )
             return response, mock_delay
 
     # ── Method enforcement ────────────────────────────────────────────────────

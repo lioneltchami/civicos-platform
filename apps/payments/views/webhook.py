@@ -22,7 +22,7 @@ import copy
 import json
 import logging
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -57,12 +57,20 @@ def _strip_pii_from_payload(payload: dict) -> dict:
                         pm_type["billing_details"] = {"REDACTED": "PII stripped at ingestion"}
     except (KeyError, TypeError):
         pass
-    # Strip customer name/email from customer objects
+    # Strip customer name/email from customer objects (payment_intent events)
     try:
         obj = payload["data"]["object"]
         for field in ("name", "email", "phone", "address"):
             if field in obj:
                 obj[field] = "REDACTED"
+    except (KeyError, TypeError):
+        pass
+    # Strip invoice event customer_details (invoice.payment_succeeded etc.)
+    # Stripe invoices embed customer name, email, address in customer_details.
+    try:
+        obj = payload["data"]["object"]
+        if "customer_details" in obj:
+            obj["customer_details"] = {"REDACTED": "PII stripped at ingestion"}
     except (KeyError, TypeError):
         pass
     return payload
@@ -172,7 +180,12 @@ def stripe_webhook(request):
         return JsonResponse({"status": "duplicate"})
 
     # ── 4. Dispatch to Celery ─────────────────────────────────────────────────
+    # CRITICAL: wrap in on_commit() so the task is only queued AFTER the
+    # HTTP transaction commits. With ATOMIC_REQUESTS=True, calling .delay()
+    # inline risks a fast Celery worker dequeuing the task before the
+    # WebhookEvent row is visible → DoesNotExist → silent data loss.
     from apps.payments.tasks import process_stripe_webhook
-    process_stripe_webhook.delay(str(webhook_event.pk))
+    _pk = str(webhook_event.pk)
+    transaction.on_commit(lambda: process_stripe_webhook.delay(_pk))
 
     return JsonResponse({"status": "queued"})

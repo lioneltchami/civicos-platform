@@ -374,13 +374,16 @@ CSP_SCRIPT_SRC  = ("'self'", "https://js.stripe.com")
 CSP_CONNECT_SRC = ("'self'", "https://api.stripe.com")
 CSP_FRAME_SRC   = ("https://js.stripe.com",)
 CSP_IMG_SRC     = ("'self'", "data:")
-CSP_STYLE_SRC   = ("'self'", "'unsafe-inline'")  # Bootstrap/inline styles
+CSP_STYLE_SRC   = ("'self'",)  # H-G: unsafe-inline removed; nonces used for inline styles
 CSP_FONT_SRC    = ("'self'",)
 CSP_FRAME_ANCESTORS = ("'none'",)
-# NOTE: Inline <script> blocks in fee_payment_confirm.html use a nonce.
-# django-csp adds the nonce automatically when CSP_INCLUDE_NONCE_IN is set.
-# The {% script %}...{% endscript %} template tag injects the nonce automatically.
-CSP_INCLUDE_NONCE_IN = ["script-src"]
+# Wagtail CMS admin requires inline styles (JS-driven rich-text editor).
+# Exempt /cms/ from the global CSP rather than re-adding unsafe-inline globally.
+# Staff-only path; does not affect public payment or donation pages.
+CSP_EXCLUDE_URL_PREFIXES = ("/cms/",)
+# Nonces for inline <script> and <style> blocks in templates.
+# django-csp injects {{ request.csp_nonce }} automatically.
+CSP_INCLUDE_NONCE_IN = ["script-src", "style-src"]
 
 # ---------------------------------------------------------------------------
 # Logging

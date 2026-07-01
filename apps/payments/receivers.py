@@ -37,10 +37,24 @@ def on_donation_completed(sender, donation, payment, **kwargs):
     """
     from decimal import Decimal
 
-    from apps.payments.models import CharitySettings, OfficialDonationReceipt
+    from apps.payments.models import (
+        CharitySettings,
+        DONATION_STATUS_COMPLETED,
+        OfficialDonationReceipt,
+    )
     from apps.payments.tasks_receipts import generate_and_send_receipt
 
     try:
+        # Guard 0: only issue receipts for completed donations.
+        # pending/failed/refunded donations must never receive a CRA receipt.
+        if donation.status != DONATION_STATUS_COMPLETED:
+            logger.info(
+                "payments.receiver.receipt_skipped_not_completed donation_pk=%s status=%s",
+                str(donation.pk),
+                donation.status,
+            )
+            return
+
         # Guard 1: must have an eligible gift amount
         if donation.eligible_amount <= Decimal("0.00"):
             logger.info(

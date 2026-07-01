@@ -528,6 +528,44 @@ class Refund(TimestampedModel):
         verbose_name=_("Notes"),
     )
 
+    def clean(self) -> None:
+        """
+        M-D: Enforce cross-row refund cap at the ORM level.
+
+        A CheckConstraint can enforce amount > 0 per row, but cannot enforce
+        the cross-row invariant (sum of refunds ≤ payment.amount_paid). We do
+        that here via clean(), which is called by ModelForm validation and
+        admin. The view layer also enforces this via _compute_already_refunded().
+        """
+        super().clean()
+        from django.core.exceptions import ValidationError
+
+        if self.amount is not None and self.amount <= Decimal("0.00"):
+            raise ValidationError({"amount": _("Refund amount must be greater than zero.")})
+
+        if self.amount is not None and self.payment_id is not None:
+            already_refunded = (
+                Refund.objects.filter(payment_id=self.payment_id)
+                .exclude(pk=self.pk)
+                .exclude(gateway_status=self.GATEWAY_STATUS_FAILED)
+                .aggregate(total=models.Sum("amount"))["total"]
+                or Decimal("0.00")
+            )
+            try:
+                max_refundable = self.payment.amount_paid - already_refunded
+            except Exception:
+                max_refundable = None
+
+            if max_refundable is not None and self.amount > max_refundable:
+                raise ValidationError(
+                    {
+                        "amount": _(
+                            f"Refund amount ({self.amount}) exceeds maximum "
+                            f"refundable ({max_refundable})."
+                        )
+                    }
+                )
+
     class Meta:
         ordering = ["-refunded_at"]
         verbose_name = _("Refund")
@@ -1212,6 +1250,17 @@ class ServiceFeePayment(TimestampedModel):
     class Meta:
         verbose_name = _("Service Fee Payment")
         verbose_name_plural = _("Service Fee Payments")
+        constraints = [
+            # M-E: base_amount and tax_amount must be non-negative
+            models.CheckConstraint(
+                check=models.Q(base_amount__gte=Decimal("0.00")),
+                name="payments_servicefeepayment_base_amount_nonneg",
+            ),
+            models.CheckConstraint(
+                check=models.Q(tax_amount__gte=Decimal("0.00")),
+                name="payments_servicefeepayment_tax_amount_nonneg",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"ServiceFee {self.fee_code} for request {self.service_request_id}"

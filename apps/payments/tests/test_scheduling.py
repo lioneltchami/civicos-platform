@@ -17,6 +17,14 @@ from django.utils.timezone import now
 class KickoffAnnualReceiptsTests(TestCase):
     """kickoff_annual_receipts dispatches generate_annual_receipts with correct year."""
 
+    def setUp(self):
+        # Clear the Django cache between tests so the M-B idempotency lock
+        # (cache.add key "payments:kickoff_annual_receipts:{year}") does not
+        # bleed from one test into another and cause "already_running" responses
+        # in tests that expect a fresh dispatch.
+        from django.core.cache import cache
+        cache.clear()
+
     @patch("apps.payments.tasks_receipts.generate_annual_receipts.delay")
     def test_dispatches_with_previous_year(self, mock_delay):
         """

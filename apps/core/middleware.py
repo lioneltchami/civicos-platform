@@ -59,14 +59,22 @@ class WagtailMFAMiddleware:
     This middleware ensures every CMS request has completed the OTP challenge.
     """
 
-    _EXEMPT_PATHS = ("/cms/login/", "/cms/password_reset/")
+    # Prefix-based exemptions: any path that starts with one of these strings is
+    # exempt from the MFA gate.  Prefix matching (rather than exact equality) is
+    # required so that multi-segment paths like
+    #   /cms/password_reset/confirm/<uidb64>/<token>/
+    # are also exempt.  Exact matching would block the confirmation step and
+    # force the user to complete MFA before finishing a password reset, which is
+    # impossible because their password is not yet set.
+    _EXEMPT_PREFIXES = ("/cms/login/", "/cms/password_reset/")
 
     def __init__(self, get_response: Callable) -> None:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         path = request.path_info
-        if path.startswith("/cms/") and path not in self._EXEMPT_PATHS:
+        is_exempt = any(path.startswith(prefix) for prefix in self._EXEMPT_PREFIXES)
+        if path.startswith("/cms/") and not is_exempt:
             if request.user.is_authenticated and not user_is_verified(request.user):
                 from django.shortcuts import redirect
                 return redirect(f"/account/login/?next={path}")
