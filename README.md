@@ -34,7 +34,7 @@ The result is a platform that municipal IT teams can own, extend, and maintain �
 - **Government-grade compliance** — WCAG 2.1 AA, PIPEDA/Quebec Law 25, bilingual (EN/FR), full audit trails
 - **Editor-friendly** — Wagtail's best-in-class CMS with structured content via StreamField
 - **Security by default** — role-based access, MFA support, encrypted at rest and in transit
-- **CivicOS-inspired** — architecture aligned with the [CivicOS initiative](https://civicos.global/) building block specifications
+- **GovStack-inspired** — architecture aligned with the [GovStack initiative](https://govstack.global/) building block specifications
 - **Open source** — no vendor lock-in; deployable on any infrastructure (cloud, on-prem, hybrid)
 
 ---

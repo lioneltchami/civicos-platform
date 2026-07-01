@@ -2,7 +2,7 @@
 
 ## Philosophy: Modular Building Blocks
 
-CivicOS is designed around the principle of **composable, independently deployable building blocks** — inspired by the [CivicOS initiative](https://civicos.global/), which defines a standard set of reusable digital government capabilities.
+CivicOS is designed around the principle of **composable, independently deployable building blocks** — inspired by the [GovStack initiative](https://govstack.global/), which defines a standard set of reusable digital government capabilities.
 
 Each building block:
 - Has a **single, well-defined responsibility**
