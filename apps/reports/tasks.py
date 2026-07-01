@@ -130,17 +130,37 @@ def _compute_all_snapshots(year: int, month: int) -> int:
 
     Implemented in Wave 2/3/4 as each service module is completed.
     """
-    # Wave 2: financial
-    # Wave 3: donations
-    # Wave 4: operational
-    # Placeholder until service modules are implemented.
-    logger.warning(
-        "reports.tasks._compute_all_snapshots: service modules not yet implemented "
-        "year=%s month=%s — skipping snapshot computation",
-        year,
-        month,
-    )
-    return 0
+    from apps.reports.models import ReportSnapshot
+    from apps.reports.services.financial import compute_financial_snapshot
+
+    written = 0
+
+    # ── Wave 2: financial ─────────────────────────────────────────────────────
+    try:
+        data = compute_financial_snapshot(year, month)
+        ReportSnapshot.objects.update_or_create(
+            report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
+            period_year=year,
+            period_month=month,
+            defaults={"data": data, "row_count": data.get("row_count", 0)},
+        )
+        written += 1
+        logger.info(
+            "reports.tasks._compute_all_snapshots.financial_ok year=%s month=%s",
+            year,
+            month,
+        )
+    except Exception:
+        logger.exception(
+            "reports.tasks._compute_all_snapshots.financial_failed year=%s month=%s",
+            year,
+            month,
+        )
+
+    # Wave 3: donations  — implemented in Wave 3
+    # Wave 4: operational — implemented in Wave 4
+
+    return written
 
 
 def _compute_single_snapshot(report_type: str, year: int, month: int) -> tuple[dict, int]:

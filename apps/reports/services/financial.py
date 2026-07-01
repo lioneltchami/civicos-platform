@@ -1,74 +1,340 @@
 """
-Financial report query functions.
+Financial report service — Wave 2.
 
-All functions return plain dicts suitable for template context or JSON serialisation.
-No personal information is ever included in return values — amounts, counts, and
-fee codes only.
+Provides aggregated financial metrics for the Analytics & Reporting BB.
+All queries operate on the Payments BB models (Payment, Refund, PaymentIntent,
+ServiceFeePayment). No PII is returned — amounts, counts, and fee codes only.
 
-Implemented in Wave 2.
+PIPEDA invariants:
+- No payer name, email, or address is ever returned.
+- Amounts are Decimal (CAD dollars); DecimalField values are already in dollar
+  units with 2 d.p. (no cents-to-dollars conversion needed).
+- Logs include year/month/count only — never individual payment references.
+
+Currency: CAD only.
 """
 from __future__ import annotations
 
+import calendar
 import logging
-from datetime import date
+from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal
+
+from django.db.models import Count, DecimalField, F, Q, Sum
+from django.db.models.functions import Coalesce
 
 logger = logging.getLogger("apps.reports.services.financial")
 
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _month_utc_range(year: int, month: int) -> tuple[datetime, datetime]:
+    """
+    Return a half-open UTC datetime interval [start, end) for the given calendar
+    month — suitable for ``__gte`` / ``__lt`` filtering on DateTimeField columns.
+
+    Using an exclusive upper bound avoids microsecond / leap-second edge-cases
+    that affect ``__lte`` datetime filtering.
+    """
+    month_start = datetime(year, month, 1, tzinfo=dt_timezone.utc)
+    if month == 12:
+        month_end = datetime(year + 1, 1, 1, tzinfo=dt_timezone.utc)
+    else:
+        month_end = datetime(year, month + 1, 1, tzinfo=dt_timezone.utc)
+    return month_start, month_end
+
+
+# ---------------------------------------------------------------------------
+# Public service functions
+# ---------------------------------------------------------------------------
+
 def get_monthly_revenue(year: int, month: int) -> dict:
     """
-    Return fee payment revenue aggregates for a given calendar month.
+    Aggregate captured payment revenue for the given calendar month.
 
-    Keys:
-        gross_revenue, processor_fees, net_revenue, tax_collected,
-        fee_payment_count, rows (list of per-fee_code breakdown dicts)
+    Filters on ``Payment.paid_at`` UTC timestamps. Includes all payment
+    purposes (service fees, donations, fines) — each is identified in the
+    ``by_fee_code`` breakdown by its fee_code or purpose label.
 
-    PIPEDA: no payer names, emails, or addresses in any returned value.
+    Returns:
+    {
+        "total_gross":          Decimal,  # sum of amount_paid
+        "total_net":            Decimal,  # sum of net_amount (gross - processor_fee)
+        "total_tax":            Decimal,  # sum of intent.tax_amount
+        "total_processor_fees": Decimal,  # sum of processor_fee
+        "payment_count":        int,
+        "by_fee_code": {
+            label: {
+                "gross":          Decimal,
+                "net":            Decimal,
+                "tax":            Decimal,
+                "processor_fees": Decimal,
+                "count":          int,
+            }
+        }
+    }
     """
-    raise NotImplementedError("Implemented in Wave 2")
+    from apps.payments.models import Payment
+
+    month_start, month_end = _month_utc_range(year, month)
+
+    # ── Total aggregates ─────────────────────────────────────────────────────
+    agg = Payment.objects.filter(
+        paid_at__gte=month_start,
+        paid_at__lt=month_end,
+    ).aggregate(
+        total_gross=Sum("amount_paid", default=Decimal("0.00")),
+        total_net=Sum("net_amount", default=Decimal("0.00")),
+        total_tax=Sum("intent__tax_amount", default=Decimal("0.00")),
+        total_processor_fees=Sum("processor_fee", default=Decimal("0.00")),
+        payment_count=Count("id"),
+    )
+
+    # ── Per-label breakdown ───────────────────────────────────────────────────
+    # Use service_fee_payment.fee_code when present; fall back to intent.purpose
+    # so donations / fines appear as "donation" / "fine" rows.
+    by_fee_code_qs = (
+        Payment.objects.filter(
+            paid_at__gte=month_start,
+            paid_at__lt=month_end,
+        )
+        .annotate(
+            label=Coalesce(
+                "intent__service_fee_payment__fee_code",
+                "intent__purpose",
+            )
+        )
+        .values("label")
+        .annotate(
+            gross=Sum("amount_paid"),
+            net=Sum("net_amount"),
+            tax=Sum("intent__tax_amount"),
+            processor_fees=Sum("processor_fee"),
+            count=Count("id"),
+        )
+        .order_by("label")
+    )
+
+    by_fee_code: dict[str, dict] = {}
+    for row in by_fee_code_qs:
+        label = row["label"] or "other"
+        by_fee_code[label] = {
+            "gross": row["gross"] or Decimal("0.00"),
+            "net": row["net"] or Decimal("0.00"),
+            "tax": row["tax"] or Decimal("0.00"),
+            "processor_fees": row["processor_fees"] or Decimal("0.00"),
+            "count": row["count"],
+        }
+
+    logger.debug(
+        "reports.services.financial.get_monthly_revenue year=%s month=%s "
+        "payment_count=%s total_gross=%s",
+        year,
+        month,
+        agg["payment_count"],
+        agg["total_gross"],
+    )
+
+    return {
+        "total_gross": agg["total_gross"],
+        "total_net": agg["total_net"],
+        "total_tax": agg["total_tax"],
+        "total_processor_fees": agg["total_processor_fees"],
+        "payment_count": agg["payment_count"],
+        "by_fee_code": by_fee_code,
+    }
 
 
 def get_refund_summary(year: int, month: int) -> dict:
     """
-    Return refund aggregates for a given calendar month.
+    Aggregate completed refunds processed during the given calendar month.
 
-    Keys:
-        refund_total, refund_count, refund_rate_pct, by_reason (list of dicts)
+    Filters on ``Refund.refunded_at`` UTC timestamps and
+    ``gateway_status == 'succeeded'`` to exclude pending / failed refunds.
 
-    Only rows with gateway_status != GATEWAY_STATUS_FAILED are counted
-    (mirrors RefundForm and Refund.clean() logic).
+    Returns:
+    {
+        "total_refunded": Decimal,
+        "refund_count":   int,
+        "by_reason": {
+            reason_code: {"amount": Decimal, "count": int}
+        }
+    }
     """
-    raise NotImplementedError("Implemented in Wave 2")
+    from apps.payments.models import Refund
+
+    month_start, month_end = _month_utc_range(year, month)
+
+    agg = Refund.objects.filter(
+        refunded_at__gte=month_start,
+        refunded_at__lt=month_end,
+        gateway_status=Refund.GATEWAY_STATUS_SUCCEEDED,
+    ).aggregate(
+        total_refunded=Sum("amount", default=Decimal("0.00")),
+        refund_count=Count("id"),
+    )
+
+    by_reason_qs = (
+        Refund.objects.filter(
+            refunded_at__gte=month_start,
+            refunded_at__lt=month_end,
+            gateway_status=Refund.GATEWAY_STATUS_SUCCEEDED,
+        )
+        .values("reason")
+        .annotate(amount=Sum("amount"), count=Count("id"))
+        .order_by("reason")
+    )
+
+    by_reason: dict[str, dict] = {}
+    for row in by_reason_qs:
+        reason = row["reason"] or "other"
+        by_reason[reason] = {
+            "amount": row["amount"] or Decimal("0.00"),
+            "count": row["count"],
+        }
+
+    return {
+        "total_refunded": agg["total_refunded"],
+        "refund_count": agg["refund_count"],
+        "by_reason": by_reason,
+    }
 
 
-def get_failed_payments(year: int, month: int) -> dict:
+def get_failed_payments(year: int, month: int):
     """
-    Return failed PaymentIntent counts and attempted values for a calendar month.
+    Return a QuerySet of failed PaymentIntents for the given month.
 
-    Keys:
-        failed_count, failed_value, by_error_code (list of dicts)
+    Scoped to service-fee payments (PURPOSE_SERVICE_FEE). Donation failures
+    are covered in the Wave 3 donations service.
 
-    No payer PII — counts and amounts only.
+    Returns a QuerySet (unevaluated) so callers can chain ``.count()``
+    cheaply or iterate without loading all rows.
     """
-    raise NotImplementedError("Implemented in Wave 2")
+    from apps.payments.models import PaymentIntent
+
+    month_start, month_end = _month_utc_range(year, month)
+
+    return (
+        PaymentIntent.objects.filter(
+            status=PaymentIntent.STATUS_FAILED,
+            created_at__gte=month_start,
+            created_at__lt=month_end,
+            purpose=PaymentIntent.PURPOSE_SERVICE_FEE,
+        )
+        .select_related("service_fee_payment")
+        .order_by("-created_at")
+    )
 
 
-def get_reconciliation_queryset(start: date, end: date):
+def get_reconciliation_queryset(start, end):
     """
-    Return a QuerySet of PaymentIntents in [start, end] for streaming export.
+    Return an annotated Payment QuerySet for the inclusive date range [start, end].
 
-    Max range: 92 days (enforced by the view) to prevent unbounded queries.
-    Columns: reference, status, amount_paid, refund_total, net, fee_code, created_at.
-    No payer name/email — reference + amounts only.
+    Dates are interpreted as Toronto local calendar dates and converted to UTC
+    for the ``paid_at`` filter so DST is handled correctly.
+
+    Annotations added to each Payment object:
+    - ``refund_total``: sum of succeeded Refund amounts for that payment
+    - ``fee_code``:     service_fee_payment.fee_code when present,
+                        else intent.purpose as a fallback label
+
+    Net (amount_paid - refund_total) is intentionally computed in Python by the
+    caller to avoid Django's dependent-annotation ordering ambiguity.
     """
-    raise NotImplementedError("Implemented in Wave 2")
+    from datetime import date as date_type, datetime as dt, timedelta
+
+    import pytz
+    from django.utils.timezone import make_aware
+
+    from apps.payments.models import Payment, Refund
+
+    toronto = pytz.timezone("America/Toronto")
+    dt_start = make_aware(dt.combine(start, dt.min.time()), toronto)
+    # Exclusive upper bound: midnight at start of the day AFTER end in Toronto.
+    dt_end = make_aware(
+        dt.combine(end + timedelta(days=1), dt.min.time()), toronto
+    )
+
+    return (
+        Payment.objects.filter(
+            paid_at__gte=dt_start,
+            paid_at__lt=dt_end,
+        )
+        .select_related("intent__service_fee_payment")
+        .annotate(
+            refund_total=Sum(
+                "refunds__amount",
+                filter=Q(refunds__gateway_status=Refund.GATEWAY_STATUS_SUCCEEDED),
+                default=Decimal("0.00"),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            ),
+            fee_code=Coalesce(
+                "intent__service_fee_payment__fee_code",
+                "intent__purpose",
+            ),
+        )
+        .order_by("paid_at")
+    )
 
 
 def compute_financial_snapshot(year: int, month: int) -> dict:
     """
-    Compute the full financial aggregate dict for storage in ReportSnapshot.data.
+    Compute the full financial snapshot dict for (year, month).
 
-    Called by the Celery Beat task. Must be idempotent.
+    Combines revenue and refund summaries into the JSON structure stored in
+    ``ReportSnapshot.data``. Decimal values are serialised to strings so the
+    JSONField can store them without type loss.
+
+    Called by:
+    - ``apps.reports.tasks._compute_all_snapshots`` (Celery Beat, nightly)
+    - ``apps.reports.tasks.recompute_snapshot`` (on-demand admin action)
+
+    Raises on error — the Celery task wraps this in try/except.
     """
-    raise NotImplementedError("Implemented in Wave 3 (Celery task completion)")
+    revenue = get_monthly_revenue(year, month)
+    refunds = get_refund_summary(year, month)
+
+    def _str_decimals(d: dict) -> dict:
+        """Recursively convert Decimal → str for JSON storage."""
+        out = {}
+        for k, v in d.items():
+            if isinstance(v, Decimal):
+                out[k] = str(v)
+            elif isinstance(v, dict):
+                out[k] = _str_decimals(v)
+            else:
+                out[k] = v
+        return out
+
+    snapshot = {
+        "year": year,
+        "month": month,
+        "revenue": _str_decimals({
+            "total_gross": revenue["total_gross"],
+            "total_net": revenue["total_net"],
+            "total_tax": revenue["total_tax"],
+            "total_processor_fees": revenue["total_processor_fees"],
+            "payment_count": revenue["payment_count"],
+            "by_fee_code": revenue["by_fee_code"],
+        }),
+        "refunds": _str_decimals({
+            "total_refunded": refunds["total_refunded"],
+            "refund_count": refunds["refund_count"],
+            "by_reason": refunds["by_reason"],
+        }),
+        # row_count is used by the Celery task for monitoring
+        "row_count": revenue["payment_count"],
+    }
+
+    logger.info(
+        "reports.services.financial.compute_financial_snapshot year=%s month=%s "
+        "payment_count=%s total_gross=%s",
+        year,
+        month,
+        revenue["payment_count"],
+        revenue["total_gross"],
+    )
+
+    return snapshot

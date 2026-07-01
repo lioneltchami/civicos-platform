@@ -1,14 +1,273 @@
 {% extends "reports/base.html" %}
-{% load i18n %}
-{# Financial dashboard — monthly revenue overview.
-   Implemented in Wave 2.
-   Context keys (Wave 2): year, month, revenue, refunds, failed_payments, is_current_month #}
+{% load i18n humanize %}
 
 {% block reports_title %}{% trans "Financial Dashboard" %}{% endblock %}
 
 {% block reports_content %}
-<h1 class="h3 mb-4">{% trans "Financial Dashboard" %}</h1>
+{# ── Header row ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-0">{% trans "Financial Dashboard" %}</h1>
+    <p class="text-muted mb-0">
+      {{ month_label }}
+      {% if is_current_month %}
+        <span class="badge bg-info ms-2">{% trans "Live" %}</span>
+      {% elif data_source == "snapshot" %}
+        <span class="badge bg-secondary ms-2">{% trans "Snapshot" %}</span>
+      {% else %}
+        <span class="badge bg-warning text-dark ms-2">{% trans "Computed" %}</span>
+      {% endif %}
+    </p>
+  </div>
 
-{# Wave 2: period selector, stat cards, revenue breakdown table, refund summary #}
-<p class="text-muted">{% trans "Financial reports — implemented in Wave 2." %}</p>
+  {# ── Month picker ──────────────────────────────────────────────────────── #}
+  <form method="get" class="d-flex gap-2 align-items-end"
+        aria-label="{% trans 'Select reporting month' %}">
+    <div>
+      <label for="id_year" class="form-label visually-hidden">{% trans "Year" %}</label>
+      <input type="number" id="id_year" name="year" class="form-control form-control-sm"
+             value="{{ year }}" min="2020" max="2100" style="width:90px"
+             aria-label="{% trans 'Year' %}">
+    </div>
+    <div>
+      <label for="id_month" class="form-label visually-hidden">{% trans "Month (1-12)" %}</label>
+      <input type="number" id="id_month" name="month" class="form-control form-control-sm"
+             value="{{ month }}" min="1" max="12" style="width:75px"
+             aria-label="{% trans 'Month 1 to 12' %}">
+    </div>
+    <button type="submit" class="btn btn-sm btn-outline-primary">
+      {% trans "Go" %}
+    </button>
+  </form>
+</div>
+
+{# ── Primary KPI cards ──────────────────────────────────────────────────── #}
+<div class="row g-3 mb-3" role="region" aria-label="{% trans 'Key financial metrics' %}">
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Gross Revenue" %}</p>
+        <p class="card-title h4 mb-0">
+          ${{ revenue.total_gross|floatformat:2|intcomma }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Net Revenue" %}</p>
+        <p class="card-title h4 mb-0">
+          ${{ revenue.total_net|floatformat:2|intcomma }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Payments Captured" %}</p>
+        <p class="card-title h4 mb-0">
+          {{ revenue.payment_count|intcomma }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100{% if refunds.refund_count > 0 %} border-warning{% endif %}">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Total Refunded" %}</p>
+        <p class="card-title h4 mb-0{% if refunds.refund_count > 0 %} text-warning{% endif %}">
+          ${{ refunds.total_refunded|floatformat:2|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {{ refunds.refund_count|intcomma }}&nbsp;{% trans "refund(s)" %}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Secondary KPIs ─────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Tax Collected" %}</p>
+        <p class="card-title h5 mb-0">${{ revenue.total_tax|floatformat:2|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Processor Fees" %}</p>
+        <p class="card-title h5 mb-0">${{ revenue.total_processor_fees|floatformat:2|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+
+  {% if failed_count > 0 %}
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100 border-danger">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Failed Payments" %}</p>
+        <p class="card-title h5 mb-0 text-danger">{{ failed_count|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Revenue by fee code breakdown ──────────────────────────────────────── #}
+{% if revenue.by_fee_code %}
+<section aria-labelledby="by-fee-code-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="by-fee-code-heading">{% trans "Revenue by Fee Code" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle"
+           aria-label="{% trans 'Revenue breakdown by fee code' %}">
+      <caption class="visually-hidden">
+        {% trans "Revenue breakdown by fee code for" %} {{ month_label }}
+      </caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Fee / Type" %}</th>
+          <th scope="col" class="text-end">{% trans "Gross" %}</th>
+          <th scope="col" class="text-end">{% trans "Tax" %}</th>
+          <th scope="col" class="text-end">{% trans "Processor Fees" %}</th>
+          <th scope="col" class="text-end">{% trans "Net" %}</th>
+          <th scope="col" class="text-end">{% trans "Count" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for label, data in revenue.by_fee_code.items %}
+        <tr>
+          <td><code>{{ label }}</code></td>
+          <td class="text-end">${{ data.gross|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ data.tax|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ data.processor_fees|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ data.net|floatformat:2|intcomma }}</td>
+          <td class="text-end">{{ data.count|intcomma }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-semibold">
+        <tr>
+          <td>{% trans "Total" %}</td>
+          <td class="text-end">${{ revenue.total_gross|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ revenue.total_tax|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ revenue.total_processor_fees|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ revenue.total_net|floatformat:2|intcomma }}</td>
+          <td class="text-end">{{ revenue.payment_count|intcomma }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% else %}
+<div class="alert alert-secondary mb-4" role="alert">
+  {% trans "No captured payments in this period." %}
+</div>
+{% endif %}
+
+{# ── Refund breakdown by reason ──────────────────────────────────────────── #}
+{% if refunds.by_reason %}
+<section aria-labelledby="refund-reason-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="refund-reason-heading">{% trans "Refunds by Reason" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle"
+           aria-label="{% trans 'Refund breakdown by reason' %}">
+      <caption class="visually-hidden">{% trans "Refund breakdown by reason" %}</caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Reason" %}</th>
+          <th scope="col" class="text-end">{% trans "Amount" %}</th>
+          <th scope="col" class="text-end">{% trans "Count" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for reason, data in refunds.by_reason.items %}
+        <tr>
+          <td><code>{{ reason }}</code></td>
+          <td class="text-end">${{ data.amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">{{ data.count|intcomma }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-semibold">
+        <tr>
+          <td>{% trans "Total" %}</td>
+          <td class="text-end">${{ refunds.total_refunded|floatformat:2|intcomma }}</td>
+          <td class="text-end">{{ refunds.refund_count|intcomma }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ── Quick action buttons ─────────────────────────────────────────────────── #}
+{% if perms.payments.export_financialreport %}
+<div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Export actions' %}">
+  <a href="{% url 'reports:revenue-export' %}?year={{ year }}&month={{ month }}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Export Revenue CSV" %}
+  </a>
+  <a href="{% url 'reports:reconciliation' %}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Open Reconciliation" %}
+  </a>
+</div>
+{% endif %}
+
+{# ── Recent monthly snapshots ─────────────────────────────────────────────── #}
+{% if recent_snapshots %}
+<section aria-labelledby="recent-snapshots-heading" class="mb-4">
+  <h2 class="h5 mb-3" id="recent-snapshots-heading">{% trans "Recent Months" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm"
+           aria-label="{% trans 'Recent financial snapshots' %}">
+      <caption class="visually-hidden">{% trans "Last 6 months of financial snapshots" %}</caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Period" %}</th>
+          <th scope="col" class="text-end">{% trans "Gross Revenue" %}</th>
+          <th scope="col" class="text-end">{% trans "Payments" %}</th>
+          <th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for snap in recent_snapshots %}
+        <tr>
+          <td>{{ snap.period_label }}</td>
+          <td class="text-end">
+            {% with rev=snap.data.revenue %}
+              {% if rev %}${{ rev.total_gross|floatformat:2 }}{% else %}&mdash;{% endif %}
+            {% endwith %}
+          </td>
+          <td class="text-end">
+            {% with rev=snap.data.revenue %}
+              {% if rev %}{{ rev.payment_count }}{% else %}&mdash;{% endif %}
+            {% endwith %}
+          </td>
+          <td class="text-end">
+            <a href="{% url 'reports:financial-dashboard' %}?year={{ snap.period_year }}&month={{ snap.period_month }}"
+               class="btn btn-sm btn-link p-0 small"
+               aria-label="{% trans 'View' %} {{ snap.period_label }}">
+              {% trans "View" %}
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endblock reports_content %}

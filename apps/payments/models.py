@@ -285,6 +285,17 @@ class PaymentIntent(TimestampedModel):
                 name="payments_intent_tax_nonneg",
             ),
         ]
+        # Custom permissions used by the Analytics & Reporting BB.
+        # Defined here (payments app) so that permission_required strings
+        # "payments.view_financialreport" etc. resolve correctly.
+        permissions = [
+            ("view_financialreport",  "Can view financial reports"),
+            ("export_financialreport", "Can export financial reports"),
+            ("view_donationreport",   "Can view donation & CRA reports"),
+            ("export_donationreport", "Can export donation & CRA reports"),
+            ("view_operationalreport",  "Can view operational reports"),
+            ("export_operationalreport", "Can export operational reports"),
+        ]
 
     def __str__(self) -> str:
         return self.reference or str(self.id)

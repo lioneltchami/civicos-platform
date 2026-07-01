@@ -22,39 +22,51 @@
 
     {% if perms.payments.view_financialreport %}
     {# Financial tab — active on dashboard, reconciliation, and both export views #}
-    {% with fin_active=request.resolver_match.url_name == 'financial-dashboard' or request.resolver_match.url_name == 'reconciliation' or request.resolver_match.url_name == 'reconciliation-export' or request.resolver_match.url_name == 'revenue-export' or request.resolver_match.url_name == 'monthly-summary-pdf' %}
+    {% with url_name=request.resolver_match.url_name %}
     <li class="nav-item" role="none">
-      <a class="nav-link{% if fin_active %} active{% endif %}"
-         {% if fin_active %}aria-current="page"{% endif %}
-         href="{% url 'reports:financial-dashboard' %}">
+      {% if url_name == 'financial-dashboard' or url_name == 'reconciliation' or url_name == 'reconciliation-export' or url_name == 'revenue-export' or url_name == 'monthly-summary-pdf' %}
+      <a class="nav-link active" aria-current="page" href="{% url 'reports:financial-dashboard' %}">
         {% trans "Financial" %}
       </a>
+      {% else %}
+      <a class="nav-link" href="{% url 'reports:financial-dashboard' %}">
+        {% trans "Financial" %}
+      </a>
+      {% endif %}
     </li>
     {% endwith %}
     {% endif %}
 
     {% if perms.payments.view_donationreport %}
     {# Donations tab — active on dashboard, annual, T3010 prep, and both export views #}
-    {% with don_active=request.resolver_match.url_name == 'donations-dashboard' or request.resolver_match.url_name == 'donations-annual' or request.resolver_match.url_name == 't3010-prep' or request.resolver_match.url_name == 'receipts-export' or request.resolver_match.url_name == 't3010-prep-export' %}
+    {% with url_name=request.resolver_match.url_name %}
     <li class="nav-item" role="none">
-      <a class="nav-link{% if don_active %} active{% endif %}"
-         {% if don_active %}aria-current="page"{% endif %}
-         href="{% url 'reports:donations-dashboard' %}">
+      {% if url_name == 'donations-dashboard' or url_name == 'donations-annual' or url_name == 't3010-prep' or url_name == 'receipts-export' or url_name == 't3010-prep-export' %}
+      <a class="nav-link active" aria-current="page" href="{% url 'reports:donations-dashboard' %}">
         {% trans "Donations & CRA" %}
       </a>
+      {% else %}
+      <a class="nav-link" href="{% url 'reports:donations-dashboard' %}">
+        {% trans "Donations & CRA" %}
+      </a>
+      {% endif %}
     </li>
     {% endwith %}
     {% endif %}
 
     {% if perms.payments.view_operationalreport %}
     {# Operational tab — active on dashboard and task-failures drill-down #}
-    {% with ops_active=request.resolver_match.url_name == 'operational-dashboard' or request.resolver_match.url_name == 'task-failures' %}
+    {% with url_name=request.resolver_match.url_name %}
     <li class="nav-item" role="none">
-      <a class="nav-link{% if ops_active %} active{% endif %}"
-         {% if ops_active %}aria-current="page"{% endif %}
-         href="{% url 'reports:operational-dashboard' %}">
+      {% if url_name == 'operational-dashboard' or url_name == 'task-failures' %}
+      <a class="nav-link active" aria-current="page" href="{% url 'reports:operational-dashboard' %}">
         {% trans "Operational" %}
       </a>
+      {% else %}
+      <a class="nav-link" href="{% url 'reports:operational-dashboard' %}">
+        {% trans "Operational" %}
+      </a>
+      {% endif %}
     </li>
     {% endwith %}
     {% endif %}

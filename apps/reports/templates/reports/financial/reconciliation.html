@@ -1,14 +1,195 @@
 {% extends "reports/base.html" %}
-{% load i18n %}
-{# Payment reconciliation table — date-range picker + results table.
-   Implemented in Wave 2.
-   Context keys (Wave 2): start, end, rows, total_rows, max_range_days #}
+{% load i18n humanize %}
 
 {% block reports_title %}{% trans "Payment Reconciliation" %}{% endblock %}
 
 {% block reports_content %}
-<h1 class="h3 mb-4">{% trans "Payment Reconciliation" %}</h1>
+<div class="mb-4">
+  <h1 class="h3 mb-0">{% trans "Payment Reconciliation" %}</h1>
+  <p class="text-muted mb-0">
+    {% trans "Search payments by calendar date range (Toronto local time). Max 92 days." %}
+  </p>
+</div>
 
-{# Wave 2: date-range form, paginated table, export button #}
-<p class="text-muted">{% trans "Reconciliation report — implemented in Wave 2." %}</p>
+{# ── Date range form ─────────────────────────────────────────────────────── #}
+<form method="get" novalidate aria-label="{% trans 'Date range filter' %}" class="mb-4">
+  <div class="row g-3 align-items-end">
+    <div class="col-sm-5 col-md-4">
+      <label for="{{ form.start.id_for_label }}" class="form-label fw-semibold">
+        {{ form.start.label }}
+      </label>
+      {{ form.start }}
+      {% if form.start.help_text %}
+      <div id="start-help" class="form-text">{{ form.start.help_text }}</div>
+      {% endif %}
+      {% for error in form.start.errors %}
+      <div class="invalid-feedback d-block" role="alert">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+    <div class="col-sm-5 col-md-4">
+      <label for="{{ form.end.id_for_label }}" class="form-label fw-semibold">
+        {{ form.end.label }}
+      </label>
+      {{ form.end }}
+      {% if form.end.help_text %}
+      <div id="end-help" class="form-text">{{ form.end.help_text }}</div>
+      {% endif %}
+      {% for error in form.end.errors %}
+      <div class="invalid-feedback d-block" role="alert">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+    <div class="col-sm-2 col-md-2">
+      <button type="submit" class="btn btn-primary w-100">
+        {% trans "Search" %}
+      </button>
+    </div>
+  </div>
+
+  {# Cross-field validation errors (end_before_start, range_too_large) #}
+  {% if form.non_field_errors %}
+  <div class="alert alert-danger mt-3" role="alert">
+    {% for error in form.non_field_errors %}
+    <p class="mb-0">{{ error }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+</form>
+
+{# ── Results (only shown after a valid form submission) ──────────────────── #}
+{% if payments is not None %}
+
+{# Summary totals cards #}
+<div class="row g-3 mb-4" role="region" aria-label="{% trans 'Reconciliation totals' %}">
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Period" %}</p>
+        <p class="card-title mb-0 small fw-semibold">
+          {{ period_start|date:"Y-m-d" }}&nbsp;&ndash;&nbsp;{{ period_end|date:"Y-m-d" }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Total Paid" %}</p>
+        <p class="card-title h5 mb-0">${{ total_paid|floatformat:2|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card h-100{% if total_refunded > 0 %} border-warning{% endif %}">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Total Refunded" %}</p>
+        <p class="card-title h5 mb-0{% if total_refunded > 0 %} text-warning{% endif %}">
+          ${{ total_refunded|floatformat:2|intcomma }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Net" %}</p>
+        <p class="card-title h5 mb-0">${{ net|floatformat:2|intcomma }}</p>
+        <p class="card-text small text-muted mb-0">
+          {{ count|intcomma }}&nbsp;{% trans "payment(s)" %}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Export link + row count notice #}
+{% if payments %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <p class="mb-0 small text-muted">
+    {% if truncated %}
+    {% blocktrans with displayed=max_display_rows total=count %}
+      Showing first {{ displayed }} of {{ total }} payments. Use the CSV export for the full dataset.
+    {% endblocktrans %}
+    {% else %}
+    {% blocktrans with total=count %}{{ total }} payment(s){% endblocktrans %}
+    {% endif %}
+  </p>
+  {% if perms.payments.export_financialreport %}
+  <a href="{% url 'reports:reconciliation-export' %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}"
+     class="btn btn-sm btn-outline-secondary"
+     aria-label="{% trans 'Download reconciliation as CSV file' %}">
+    {% trans "Export CSV" %}
+  </a>
+  {% endif %}
+</div>
+
+{# Results table — payment dicts (no PII: reference/fee_code/amounts/timestamp only) #}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle"
+         aria-label="{% trans 'Reconciliation payments table' %}">
+    <caption class="visually-hidden">
+      {% trans "Payment reconciliation results for" %}
+      {{ period_start|date:"Y-m-d" }} {% trans "to" %} {{ period_end|date:"Y-m-d" }}
+    </caption>
+    <thead class="table-light">
+      <tr>
+        <th scope="col">{% trans "Reference" %}</th>
+        <th scope="col">{% trans "Fee Code" %}</th>
+        <th scope="col" class="text-end">{% trans "Paid" %}</th>
+        <th scope="col" class="text-end">{% trans "Refunded" %}</th>
+        <th scope="col" class="text-end">{% trans "Net" %}</th>
+        <th scope="col">{% trans "Paid At (UTC)" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in payments %}
+      <tr>
+        <td><code>{{ row.reference }}</code></td>
+        <td>
+          {% if row.fee_code %}
+          <code>{{ row.fee_code }}</code>
+          {% else %}
+          <span class="text-muted">&mdash;</span>
+          {% endif %}
+        </td>
+        <td class="text-end">${{ row.amount_paid|floatformat:2 }}</td>
+        <td class="text-end{% if row.refund_total > 0 %} text-warning{% endif %}">
+          {% if row.refund_total > 0 %}
+          ${{ row.refund_total|floatformat:2 }}
+          {% else %}
+          &mdash;
+          {% endif %}
+        </td>
+        <td class="text-end">${{ row.net|floatformat:2 }}</td>
+        <td>
+          <time datetime="{{ row.paid_at|date:'c' }}">
+            {{ row.paid_at|date:"Y-m-d H:i" }}&nbsp;UTC
+          </time>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if truncated %}
+<div class="alert alert-info mt-2" role="alert">
+  {% blocktrans with displayed=max_display_rows %}
+    Table limited to {{ displayed }} rows. Use the CSV export above for the full dataset.
+  {% endblocktrans %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="alert alert-secondary" role="alert">
+  {% trans "No payments found for the selected date range." %}
+</div>
+{% endif %}{# /payments #}
+
+{% endif %}{# /payments is not None #}
 {% endblock reports_content %}

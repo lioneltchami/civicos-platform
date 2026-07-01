@@ -81,10 +81,14 @@ def export_reconciliation_csv(start: date, end: date) -> StreamingHttpResponse:
     Stream payment reconciliation export as CSV.
 
     PIPEDA column whitelist — no payer PII:
-        reference, status, fee_code, amount_paid, refund_total, net, created_at
+        reference, status, fee_code, amount_paid, refund_total, net, paid_at
 
-    Implemented in Wave 2.
+    Uses Django's streaming response so 50K+ rows never buffer in memory.
+    Rows are fetched via queryset.iterator(chunk_size=500) and piped directly
+    into the CSV writer.
     """
+    from apps.reports.services.financial import get_reconciliation_queryset
+
     COLUMNS = [
         "reference",
         "status",
@@ -92,20 +96,38 @@ def export_reconciliation_csv(start: date, end: date) -> StreamingHttpResponse:
         "amount_paid",
         "refund_total",
         "net",
-        "created_at",
+        "paid_at",
     ]
-    raise NotImplementedError("Implemented in Wave 2")
+
+    qs = get_reconciliation_queryset(start, end)
+
+    def _rows():
+        for payment in qs.iterator(chunk_size=500):
+            net = payment.amount_paid - payment.refund_total
+            yield {
+                "reference": payment.intent.reference,
+                "status": payment.intent.status,
+                "fee_code": payment.fee_code or "",
+                "amount_paid": str(payment.amount_paid),
+                "refund_total": str(payment.refund_total),
+                "net": str(net),
+                "paid_at": payment.paid_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            }
+
+    return streaming_csv_response(_rows(), COLUMNS, "reconciliation", start, end)
 
 
 def export_revenue_csv(year: int, month: int) -> StreamingHttpResponse:
     """
-    Stream monthly revenue breakdown as CSV.
+    Stream monthly revenue breakdown as CSV (one row per fee_code / purpose label).
 
-    PIPEDA column whitelist:
+    PIPEDA column whitelist — no payer PII:
         fee_code, gross_revenue, processor_fees, net_revenue, tax_collected, count
-
-    Implemented in Wave 2.
     """
+    import calendar as _cal
+
+    from apps.reports.services.financial import get_monthly_revenue
+
     COLUMNS = [
         "fee_code",
         "gross_revenue",
@@ -114,7 +136,33 @@ def export_revenue_csv(year: int, month: int) -> StreamingHttpResponse:
         "tax_collected",
         "count",
     ]
-    raise NotImplementedError("Implemented in Wave 2")
+
+    revenue = get_monthly_revenue(year, month)
+
+    def _fmt(v) -> str:
+        """Format a Decimal (or numeric) to exactly 2 d.p."""
+        from decimal import Decimal as _D, ROUND_HALF_UP
+        try:
+            return str(_D(str(v)).quantize(_D("0.01"), rounding=ROUND_HALF_UP))
+        except Exception:
+            return str(v)
+
+    def _rows():
+        for label, data in revenue["by_fee_code"].items():
+            yield {
+                "fee_code": label,
+                "gross_revenue": _fmt(data["gross"]),
+                "processor_fees": _fmt(data["processor_fees"]),
+                "net_revenue": _fmt(data["net"]),
+                "tax_collected": _fmt(data["tax"]),
+                "count": data["count"],
+            }
+
+    last_day = _cal.monthrange(year, month)[1]
+    period_start = date(year, month, 1)
+    period_end = date(year, month, last_day)
+
+    return streaming_csv_response(_rows(), COLUMNS, "revenue", period_start, period_end)
 
 
 def export_receipts_csv(start: date, end: date) -> StreamingHttpResponse:
