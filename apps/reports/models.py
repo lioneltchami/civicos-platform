@@ -16,6 +16,7 @@ during an export response.
 """
 from __future__ import annotations
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -56,6 +57,7 @@ class ReportSnapshot(models.Model):
     period_month = models.PositiveSmallIntegerField(
         verbose_name=_("Period month"),
         help_text=_("Calendar month 1–12."),
+        validators=[MinValueValidator(1), MaxValueValidator(12)],
     )
     data = models.JSONField(
         verbose_name=_("Aggregated data"),
@@ -78,12 +80,10 @@ class ReportSnapshot(models.Model):
         verbose_name = _("Report snapshot")
         verbose_name_plural = _("Report snapshots")
         unique_together = [("report_type", "period_year", "period_month")]
-        indexes = [
-            models.Index(
-                fields=["report_type", "period_year", "period_month"],
-                name="rpt_snap_type_period_idx",
-            ),
-        ]
+        # No additional index on (report_type, period_year, period_month) —
+        # the unique_together constraint above already creates an implicit B-tree
+        # index on these three columns. A second explicit index would be redundant
+        # and waste write overhead on every snapshot upsert.
         ordering = ["-period_year", "-period_month", "report_type"]
 
     def __str__(self) -> str:

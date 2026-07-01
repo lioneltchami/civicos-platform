@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, View
 
 logger = logging.getLogger("apps.reports.views.financial")
 
@@ -62,7 +62,7 @@ class ReconciliationView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
         raise NotImplementedError("Implemented in Wave 2")
 
 
-class ReconciliationExportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
+class ReconciliationExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
     Streaming CSV/Excel export of payment reconciliation data.
 
@@ -78,7 +78,7 @@ class ReconciliationExportView(LoginRequiredMixin, PermissionRequiredMixin, Temp
         raise NotImplementedError("Implemented in Wave 2")
 
 
-class RevenueExportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
+class RevenueExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
     Monthly revenue CSV/Excel export.
 
@@ -92,7 +92,7 @@ class RevenueExportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVie
         raise NotImplementedError("Implemented in Wave 2")
 
 
-class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
+class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
     Monthly financial summary PDF (WeasyPrint).
 

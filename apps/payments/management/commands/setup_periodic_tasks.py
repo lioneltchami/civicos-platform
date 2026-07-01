@@ -16,14 +16,22 @@ Tasks registered:
     If you prefer to store the year statically (and update it yearly), run:
         python manage.py setup_periodic_tasks --static-year=2025
 
+  - compute_monthly_snapshots: runs at 02:00 on the 2nd of each month
+    (America/Toronto).  Computes Analytics & Reporting BB ReportSnapshot
+    rows for the previous calendar month.  Idempotent — re-runs are safe.
+
 Why January 2nd and not January 1st?
   - January 1st is a national statutory holiday in Canada.  Donors who
     receive CRA tax receipts that day face delivery issues and confusion.
     January 2nd is the first business-adjacent day of the new year.
 
-Why 08:00 America/Toronto?
+Why 08:00 America/Toronto for annual receipts?
   - Donors receive their receipts at the start of the business day in the
     charity's home timezone.
+
+Why 02:00 America/Toronto for monthly snapshots?
+  - By 02:00 all midnight Celery tasks from the previous day have completed,
+    so the previous month's source data is fully settled before aggregation.
 """
 from __future__ import annotations
 
@@ -133,7 +141,6 @@ class Command(BaseCommand):
         description: str,
     ) -> None:
         """Register a single Celery Beat PeriodicTask (idempotent)."""
-        import json as _json
         from django_celery_beat.models import CrontabSchedule, PeriodicTask
 
         self.stdout.write(

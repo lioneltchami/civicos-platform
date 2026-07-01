@@ -2,10 +2,10 @@
 Analytics & Reporting BB — Celery Tasks.
 
 Tasks:
-  compute_monthly_snapshots — Celery Beat task. Runs nightly at 02:00
-    America/Toronto. Computes ReportSnapshot rows for the previous calendar
-    month (and optionally backfills earlier months if missing). Idempotent:
-    uses update_or_create so re-runs are safe.
+  compute_monthly_snapshots — Celery Beat task. Runs at 02:00 on the 2nd of
+    each month (America/Toronto). Computes ReportSnapshot rows for the previous
+    calendar month (and optionally backfills earlier months if missing).
+    Idempotent: uses update_or_create so re-runs are safe.
 
   recompute_snapshot — On-demand recomputation for a single (report_type,
     year, month). Used by admin actions and manual recovery.
@@ -15,7 +15,7 @@ Queue: "reports" (see CELERY_TASK_ROUTES in config/settings/base.py).
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import timedelta
 
 from celery import shared_task
 from django.utils import timezone
@@ -34,11 +34,12 @@ logger = logging.getLogger("apps.reports.tasks")
 )
 def compute_monthly_snapshots(self) -> dict:
     """
-    Nightly Celery Beat task — computes ReportSnapshot rows for the previous
-    calendar month (America/Toronto time).
+    Celery Beat task — computes ReportSnapshot rows for the previous calendar
+    month (America/Toronto time).
 
-    Runs at 02:00 Toronto. By that time all midnight-triggered tasks from the
-    previous day have completed, ensuring a complete month of source data.
+    Runs at 02:00 on the 2nd of each month (Toronto time). By that time all
+    midnight-triggered tasks from the previous day have completed, ensuring a
+    complete month of source data.
 
     Returns a summary dict with keys: year, month, snapshots_written.
 
@@ -129,8 +130,6 @@ def _compute_all_snapshots(year: int, month: int) -> int:
 
     Implemented in Wave 2/3/4 as each service module is completed.
     """
-    from apps.reports.models import ReportSnapshot
-
     # Wave 2: financial
     # Wave 3: donations
     # Wave 4: operational

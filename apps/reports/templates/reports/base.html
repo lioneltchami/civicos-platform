@@ -2,7 +2,14 @@
 {% load i18n %}
 {# Base template for the Analytics & Reporting BB.
    Extends the back-office base (sidebar nav, Bootstrap, WCAG layout).
-   Adds a reports-specific sub-navigation within the main content area.
+   Adds a reports-specific tab navigation within the main content area.
+
+   Permission checks use the built-in ``perms`` context variable (not
+   request.user.has_perm — that syntax is invalid in Django templates).
+
+   Active-tab detection uses request.resolver_match.url_name. All URL names
+   belonging to a section are listed explicitly so the tab highlights correctly
+   on both the dashboard view and any child views (export, drill-down, etc.).
 
    Blocks: reports_title, reports_content #}
 
@@ -12,30 +19,46 @@
 {# ── Reports sub-navigation ─────────────────────────────────────────────── #}
 <nav aria-label="{% trans 'Reports navigation' %}" class="mb-4">
   <ul class="nav nav-tabs" role="list">
-    {% if request.user.has_perm "payments.view_financialreport" %}
+
+    {% if perms.payments.view_financialreport %}
+    {# Financial tab — active on dashboard, reconciliation, and both export views #}
+    {% with fin_active=request.resolver_match.url_name == 'financial-dashboard' or request.resolver_match.url_name == 'reconciliation' or request.resolver_match.url_name == 'reconciliation-export' or request.resolver_match.url_name == 'revenue-export' or request.resolver_match.url_name == 'monthly-summary-pdf' %}
     <li class="nav-item" role="none">
-      <a class="nav-link {% if request.resolver_match.url_name == 'financial-dashboard' or request.resolver_match.url_name == 'reconciliation' %}active" aria-current="page{% endif %}"
+      <a class="nav-link{% if fin_active %} active{% endif %}"
+         {% if fin_active %}aria-current="page"{% endif %}
          href="{% url 'reports:financial-dashboard' %}">
         {% trans "Financial" %}
       </a>
     </li>
+    {% endwith %}
     {% endif %}
-    {% if request.user.has_perm "payments.view_donationreport" %}
+
+    {% if perms.payments.view_donationreport %}
+    {# Donations tab — active on dashboard, annual, T3010 prep, and both export views #}
+    {% with don_active=request.resolver_match.url_name == 'donations-dashboard' or request.resolver_match.url_name == 'donations-annual' or request.resolver_match.url_name == 't3010-prep' or request.resolver_match.url_name == 'receipts-export' or request.resolver_match.url_name == 't3010-prep-export' %}
     <li class="nav-item" role="none">
-      <a class="nav-link {% if request.resolver_match.url_name == 'donations-dashboard' or request.resolver_match.url_name == 'donations-annual' or request.resolver_match.url_name == 't3010-prep' %}active" aria-current="page{% endif %}"
+      <a class="nav-link{% if don_active %} active{% endif %}"
+         {% if don_active %}aria-current="page"{% endif %}
          href="{% url 'reports:donations-dashboard' %}">
         {% trans "Donations & CRA" %}
       </a>
     </li>
+    {% endwith %}
     {% endif %}
-    {% if request.user.has_perm "payments.view_operationalreport" %}
+
+    {% if perms.payments.view_operationalreport %}
+    {# Operational tab — active on dashboard and task-failures drill-down #}
+    {% with ops_active=request.resolver_match.url_name == 'operational-dashboard' or request.resolver_match.url_name == 'task-failures' %}
     <li class="nav-item" role="none">
-      <a class="nav-link {% if request.resolver_match.url_name == 'operational-dashboard' or request.resolver_match.url_name == 'task-failures' %}active" aria-current="page{% endif %}"
+      <a class="nav-link{% if ops_active %} active{% endif %}"
+         {% if ops_active %}aria-current="page"{% endif %}
          href="{% url 'reports:operational-dashboard' %}">
         {% trans "Operational" %}
       </a>
     </li>
+    {% endwith %}
     {% endif %}
+
   </ul>
 </nav>
 

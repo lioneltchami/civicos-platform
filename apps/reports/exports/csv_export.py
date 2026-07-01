@@ -13,7 +13,6 @@ Implemented in Wave 2 (financial) and Wave 3 (donations).
 from __future__ import annotations
 
 import csv
-import io
 import logging
 from datetime import date
 from typing import Generator, Iterable
@@ -58,6 +57,10 @@ def streaming_csv_response(
     writer = csv.writer(buffer)
 
     def _stream() -> Generator[str, None, None]:
+        # UTF-8 BOM — required so Excel (on Windows and macOS) correctly renders
+        # non-ASCII characters such as French campaign names (PIPEDA-compliant
+        # bilingual export).
+        yield "﻿"
         yield writer.writerow(columns)
         for row in rows:
             if isinstance(row, dict):

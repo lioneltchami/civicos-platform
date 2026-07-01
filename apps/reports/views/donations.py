@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, View
 
 logger = logging.getLogger("apps.reports.views.donations")
 
@@ -80,7 +80,7 @@ class T3010PrepView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
         raise NotImplementedError("Implemented in Wave 3")
 
 
-class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
+class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
     Streaming CSV/Excel export of donation receipts list.
 
@@ -97,7 +97,7 @@ class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
         raise NotImplementedError("Implemented in Wave 3")
 
 
-class T3010PrepExportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
+class T3010PrepExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
     Streaming CSV export of T3010 preparatory data.
 
