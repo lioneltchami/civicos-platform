@@ -1,15 +1,330 @@
 {% extends "reports/base.html" %}
-{% load i18n %}
-{# Operational health dashboard — Celery + webhook metrics.
-   Implemented in Wave 4.
-   Context keys (Wave 4): task_summary, webhook_summary, beat_status, days #}
+{% load i18n humanize %}
+{# Operational health dashboard — Wave 4.
+   Context keys: days (int), task_summary (dict), webhook_summary (dict),
+                 beat_status (dict).
+   PIPEDA: no payer/donor PII — task names, counts, error types only.
+   Tracebacks are never rendered in this template. #}
 
 {% block reports_title %}{% trans "Operational Dashboard" %}{% endblock %}
 
 {% block reports_content %}
-<h1 class="h3 mb-4">{% trans "Operational Dashboard" %}</h1>
 
-{# Wave 4: task success/failure rate cards, webhook processing cards,
-           Celery Beat task status table #}
-<p class="text-muted">{% trans "Operational report — implemented in Wave 4." %}</p>
+{# ── Header ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-start justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-0">{% trans "Operational Dashboard" %}</h1>
+    <p class="text-muted mb-0">
+      {% blocktrans with d=days %}Past {{ d }} days{% endblocktrans %}
+    </p>
+  </div>
+
+  {# ── Days picker ────────────────────────────────────────────────────── #}
+  <form method="get" class="d-flex gap-2 align-items-end"
+        aria-label="{% trans 'Select time window' %}">
+    <div>
+      <label for="id_days" class="form-label visually-hidden">{% trans "Days" %}</label>
+      <select id="id_days" name="days" class="form-select form-select-sm"
+              aria-label="{% trans 'Time window in days' %}"
+              onchange="this.form.submit()">
+        <option value="7"  {% if days == 7  %}selected{% endif %}>7 {% trans "days" %}</option>
+        <option value="14" {% if days == 14 %}selected{% endif %}>14 {% trans "days" %}</option>
+        <option value="30" {% if days == 30 %}selected{% endif %}>30 {% trans "days" %}</option>
+        <option value="60" {% if days == 60 %}selected{% endif %}>60 {% trans "days" %}</option>
+        <option value="90" {% if days == 90 %}selected{% endif %}>90 {% trans "days" %}</option>
+      </select>
+    </div>
+    <noscript>
+      <button type="submit" class="btn btn-sm btn-outline-primary">{% trans "Go" %}</button>
+    </noscript>
+  </form>
+</div>
+
+{# ─────────────────────────────────────────────────────────────────────
+   SECTION 1 — Celery Task Health
+   ───────────────────────────────────────────────────────────────────── #}
+<section aria-labelledby="tasks-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="tasks-heading">{% trans "Celery Task Health" %}</h2>
+
+  {# KPI cards #}
+  <div class="row g-3 mb-3" role="region" aria-label="{% trans 'Celery task metrics' %}">
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="card-text text-muted small mb-1">{% trans "Total Tasks" %}</p>
+          <p class="card-title h4 mb-0">{{ task_summary.total_tasks|intcomma }}</p>
+          <p class="card-text small text-muted mb-0">
+            {{ task_summary.succeeded|intcomma }}&nbsp;{% trans "succeeded" %}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100 {% if task_summary.failure_rate_pct > 5 %}border-danger{% elif task_summary.failure_rate_pct > 1 %}border-warning{% endif %}">
+        <div class="card-body">
+          <p class="card-text text-muted small mb-1">{% trans "Failure Rate" %}</p>
+          <p class="card-title h4 mb-0 {% if task_summary.failure_rate_pct > 5 %}text-danger{% elif task_summary.failure_rate_pct > 1 %}text-warning{% endif %}">
+            {{ task_summary.failure_rate_pct }}%
+          </p>
+          <p class="card-text small text-muted mb-0">
+            {{ task_summary.failed|intcomma }}&nbsp;{% trans "failed" %}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="card-text text-muted small mb-1">{% trans "Retried" %}</p>
+          <p class="card-title h4 mb-0">{{ task_summary.retried|intcomma }}</p>
+          <p class="card-text small text-muted mb-0">{% trans "Auto-retried tasks" %}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="card-text text-muted small mb-1">{% trans "Distinct Task Types" %}</p>
+          <p class="card-title h4 mb-0">{{ task_summary.by_task_name|length|intcomma }}</p>
+          <p class="card-text small text-muted mb-0">{% trans "Unique task names" %}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Per-task breakdown table #}
+  {% if task_summary.by_task_name %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle"
+           aria-label="{% trans 'Celery task breakdown by task name' %}">
+      <caption class="visually-hidden">
+        {% blocktrans with d=days %}Celery task breakdown for the past {{ d }} days{% endblocktrans %}
+      </caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Task Name" %}</th>
+          <th scope="col" class="text-end">{% trans "Executions" %}</th>
+          <th scope="col" class="text-end">{% trans "Failures" %}</th>
+          <th scope="col" class="text-end">{% trans "Failure Rate" %}</th>
+          <th scope="col"><span class="visually-hidden">{% trans "Actions" %}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in task_summary.by_task_name %}
+        <tr>
+          <td>
+            <code class="small">{{ row.task_name }}</code>
+          </td>
+          <td class="text-end">{{ row.count|intcomma }}</td>
+          <td class="text-end {% if row.failure_count > 0 %}text-danger{% endif %}">
+            {{ row.failure_count|intcomma }}
+          </td>
+          <td class="text-end">
+            {% if row.count > 0 %}
+              {% widthratio row.failure_count row.count 100 %}%
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if row.failure_count > 0 %}
+            <a href="{% url 'reports:task-failures' %}?task_name={{ row.task_name|urlencode }}"
+               class="btn btn-sm btn-link p-0 small text-danger"
+               aria-label="{% trans 'View failures for' %} {{ row.task_name }}">
+              {% trans "Failures →" %}
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="alert alert-secondary" role="alert">
+    {% trans "No task history in this period." %}
+  </div>
+  {% endif %}
+
+  {% if task_summary.failed > 0 %}
+  <div class="d-flex">
+    <a href="{% url 'reports:task-failures' %}"
+       class="btn btn-sm btn-outline-danger">
+      {% trans "View all recent failures →" %}
+    </a>
+  </div>
+  {% endif %}
+</section>
+
+{# ─────────────────────────────────────────────────────────────────────
+   SECTION 2 — Webhook Processing
+   ───────────────────────────────────────────────────────────────────── #}
+<section aria-labelledby="webhooks-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="webhooks-heading">{% trans "Webhook Processing" %}</h2>
+
+  <div class="row g-3 mb-3" role="region" aria-label="{% trans 'Webhook processing metrics' %}">
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <p class="card-text text-muted small mb-1">{% trans "Total Events" %}</p>
+          <p class="card-title h4 mb-0">{{ webhook_summary.total_events|intcomma }}</p>
+          <p class="card-text small text-muted mb-0">{% trans "Received from gateway(s)" %}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100 border-success">
+        <div class="card-body">
+          <p class="card-text text-muted small mb-1">{% trans "Processed" %}</p>
+          <p class="card-title h4 mb-0 text-success">
+            {{ webhook_summary.processed|intcomma }}
+          </p>
+          <p class="card-text small text-muted mb-0">{% trans "Successfully handled" %}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100 {% if webhook_summary.pending > 0 %}border-warning{% endif %}">
+        <div class="card-body">
+          <p class="card-text text-muted small mb-1">{% trans "Pending" %}</p>
+          <p class="card-title h4 mb-0 {% if webhook_summary.pending > 0 %}text-warning{% endif %}">
+            {{ webhook_summary.pending|intcomma }}
+          </p>
+          <p class="card-text small text-muted mb-0">{% trans "Queued / unprocessed" %}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100 {% if webhook_summary.failure_rate_pct > 5 %}border-danger{% endif %}">
+        <div class="card-body">
+          <p class="card-text text-muted small mb-1">{% trans "Failed" %}</p>
+          <p class="card-title h4 mb-0 {% if webhook_summary.failed > 0 %}text-danger{% endif %}">
+            {{ webhook_summary.failed|intcomma }}
+          </p>
+          <p class="card-text small text-muted mb-0">
+            {{ webhook_summary.failure_rate_pct }}%&nbsp;{% trans "failure rate" %}
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if webhook_summary.by_event_type %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle"
+           aria-label="{% trans 'Webhook event breakdown by type' %}">
+      <caption class="visually-hidden">
+        {% blocktrans with d=days %}Webhook event breakdown for the past {{ d }} days{% endblocktrans %}
+      </caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Event Type" %}</th>
+          <th scope="col" class="text-end">{% trans "Total" %}</th>
+          <th scope="col" class="text-end">{% trans "Processed" %}</th>
+          <th scope="col" class="text-end">{% trans "Pending / Failed" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in webhook_summary.by_event_type %}
+        <tr>
+          <td><code class="small">{{ row.event_type }}</code></td>
+          <td class="text-end">{{ row.count|intcomma }}</td>
+          <td class="text-end text-success">{{ row.processed_count|intcomma }}</td>
+          <td class="text-end {% if row.count > row.processed_count %}text-warning{% endif %}">
+            {{ row.count|add:"-"|add:row.processed_count }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="alert alert-secondary" role="alert">
+    {% trans "No webhook events in this period." %}
+  </div>
+  {% endif %}
+</section>
+
+{# ─────────────────────────────────────────────────────────────────────
+   SECTION 3 — Celery Beat Schedule
+   ───────────────────────────────────────────────────────────────────── #}
+<section aria-labelledby="beat-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="beat-heading">{% trans "Celery Beat Scheduled Tasks" %}</h2>
+
+  {% if beat_status.tasks %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle"
+           aria-label="{% trans 'Celery Beat periodic task schedule' %}">
+      <caption class="visually-hidden">
+        {% trans "Current Celery Beat periodic task schedule and last run times" %}
+      </caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Name" %}</th>
+          <th scope="col">{% trans "Schedule" %}</th>
+          <th scope="col" class="text-center">{% trans "Enabled" %}</th>
+          <th scope="col">{% trans "Last Run" %}</th>
+          <th scope="col" class="text-end">{% trans "Total Runs" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in beat_status.tasks %}
+        <tr>
+          <td>
+            <span class="small fw-semibold">{{ task.name }}</span>
+            <br>
+            <code class="text-muted" style="font-size:0.75rem">{{ task.task }}</code>
+          </td>
+          <td class="small">{{ task.schedule }}</td>
+          <td class="text-center">
+            {% if task.enabled %}
+            <span class="badge bg-success" aria-label="{% trans 'Enabled' %}">
+              {% trans "Yes" %}
+            </span>
+            {% else %}
+            <span class="badge bg-secondary" aria-label="{% trans 'Disabled' %}">
+              {% trans "No" %}
+            </span>
+            {% endif %}
+          </td>
+          <td class="small">
+            {% if task.last_run_at %}
+              {{ task.last_run_at|date:"Y-m-d H:i" }}&nbsp;UTC
+            {% else %}
+              <span class="text-muted">{% trans "Never" %}</span>
+            {% endif %}
+          </td>
+          <td class="text-end">{{ task.total_run_count|intcomma }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="alert alert-secondary" role="alert">
+    {% trans "No scheduled tasks configured." %}
+  </div>
+  {% endif %}
+</section>
+
+{# ── Navigation ──────────────────────────────────────────────────────── #}
+<div class="d-flex gap-2 flex-wrap">
+  <a href="{% url 'reports:task-failures' %}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Task Failure Detail →" %}
+  </a>
+  <a href="{% url 'reports:financial-dashboard' %}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Financial Dashboard →" %}
+  </a>
+</div>
+
 {% endblock reports_content %}

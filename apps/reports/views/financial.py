@@ -382,14 +382,43 @@ class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
     Monthly financial summary PDF (WeasyPrint).
 
-    Creates an ExportRecord before streaming. PDF is never stored on disk or
-    in S3 — generated in-process and streamed directly (PIPEDA cross-border
-    risk of cloud storage).
+    URL pattern: /reports/financial/<year>/<month>/pdf/
+    URL kwargs:  year (int), month (int)
 
-    Implemented in Wave 4.
+    Creates an ExportRecord (audit trail) before generating the PDF. PDF bytes
+    are generated in-process and streamed directly in the response — never
+    stored on disk or in S3 (PIPEDA cross-border risk).
+
+    Permission: payments.export_financialreport
     """
 
     permission_required = "payments.export_financialreport"
 
     def get(self, request, *args, **kwargs):
-        raise NotImplementedError("Implemented in Wave 4")
+        year = kwargs.get("year")
+        month = kwargs.get("month")
+
+        if not year or not month or not (2000 <= year <= 2100) or not (1 <= month <= 12):
+            from django.http import HttpResponseBadRequest
+            return HttpResponseBadRequest("Invalid year or month.")
+
+        # ── Audit record ──────────────────────────────────────────────────────
+        last_day = calendar.monthrange(year, month)[1]
+        masked_ip = _mask_ip(request.META.get("REMOTE_ADDR") or "")
+        ExportRecord.objects.create(
+            export_type=ExportRecord.EXPORT_TYPE_REVENUE,
+            format=ExportRecord.FORMAT_PDF,
+            period_start=date(year, month, 1),
+            period_end=date(year, month, last_day),
+            actor_pk=request.user.pk,
+            actor_ip=masked_ip or None,
+            row_count=0,  # aggregated PDF — row count not meaningful
+        )
+
+        logger.info(
+            "reports.views.financial.monthly_summary_pdf actor_pk=%s year=%s month=%s",
+            request.user.pk, year, month,
+        )
+
+        from apps.reports.exports.pdf_export import export_monthly_summary_pdf
+        return export_monthly_summary_pdf(year, month)

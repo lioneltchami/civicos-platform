@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monthly Financial Summary — {{ month_label }}</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "DejaVu Sans", "Helvetica Neue", Arial, sans-serif;
+      font-size: 10pt;
+      color: #1a1a1a;
+      background: #fff;
+      padding: 2cm 2.5cm;
+    }
+
+    /* ── Page breaks (WeasyPrint) ─────────────────────────────────────── */
+    @page {
+      size: Letter;
+      margin: 2cm 2.5cm;
+      @top-center {
+        content: "CONFIDENTIAL — Municipal Financial Report — {{ month_label }}";
+        font-size: 8pt;
+        color: #666;
+      }
+      @bottom-center {
+        content: "Page " counter(page) " of " counter(pages);
+        font-size: 8pt;
+        color: #666;
+      }
+    }
+
+    /* ── Typography ──────────────────────────────────────────────────── */
+    h1 { font-size: 18pt; margin-bottom: 0.25cm; color: #1a1a1a; }
+    h2 { font-size: 12pt; margin: 0.6cm 0 0.2cm; color: #1a1a1a; border-bottom: 1px solid #ccc; padding-bottom: 2pt; }
+    h3 { font-size: 10pt; margin: 0.4cm 0 0.1cm; color: #333; }
+    p  { margin-bottom: 0.2cm; line-height: 1.5; }
+
+    /* ── Header block ─────────────────────────────────────────────────── */
+    .report-header { margin-bottom: 0.8cm; }
+    .report-header .org-name { font-size: 11pt; color: #555; margin-bottom: 0.1cm; }
+    .report-header .sub { font-size: 9pt; color: #888; }
+    .report-header .generated { font-size: 8pt; color: #999; margin-top: 0.15cm; }
+
+    /* ── Horizontal rule ─────────────────────────────────────────────── */
+    hr { border: none; border-top: 2px solid #1a1a1a; margin: 0.3cm 0 0.5cm; }
+
+    /* ── KPI summary row ─────────────────────────────────────────────── */
+    .kpi-grid {
+      display: table;
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0.15cm;
+      margin-bottom: 0.5cm;
+    }
+    .kpi-row { display: table-row; }
+    .kpi-cell {
+      display: table-cell;
+      width: 25%;
+      border: 1px solid #ddd;
+      padding: 0.2cm 0.25cm;
+      vertical-align: top;
+    }
+    .kpi-label { font-size: 8pt; color: #555; margin-bottom: 2pt; }
+    .kpi-value { font-size: 14pt; font-weight: bold; }
+    .kpi-sub   { font-size: 8pt; color: #888; margin-top: 2pt; }
+
+    /* ── Tables ──────────────────────────────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 0.4cm;
+      font-size: 9pt;
+    }
+    thead { background: #f0f0f0; }
+    th {
+      text-align: left;
+      padding: 0.15cm 0.2cm;
+      border-bottom: 1.5px solid #aaa;
+      font-size: 8.5pt;
+      white-space: nowrap;
+    }
+    th.num { text-align: right; }
+    td {
+      padding: 0.12cm 0.2cm;
+      border-bottom: 0.5px solid #e0e0e0;
+      vertical-align: top;
+    }
+    td.num { text-align: right; white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    tfoot { background: #f5f5f5; font-weight: bold; }
+    tfoot td { border-top: 1.5px solid #aaa; border-bottom: none; }
+
+    /* ── PIPEDA notice ───────────────────────────────────────────────── */
+    .pipeda-notice {
+      border: 1px solid #ccc;
+      background: #fafafa;
+      padding: 0.2cm 0.3cm;
+      margin-top: 1cm;
+      font-size: 7.5pt;
+      color: #555;
+    }
+    .pipeda-notice strong { color: #333; }
+
+    /* ── Confidential banner ─────────────────────────────────────────── */
+    .confidential {
+      background: #1a1a1a;
+      color: #fff;
+      text-align: center;
+      padding: 0.15cm;
+      font-size: 8pt;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.5cm;
+    }
+
+    /* ── Alert box ───────────────────────────────────────────────────── */
+    .alert {
+      border-left: 3px solid #e0a800;
+      background: #fffbf0;
+      padding: 0.2cm 0.3cm;
+      margin: 0.3cm 0;
+      font-size: 9pt;
+    }
+
+    /* ── Empty state ─────────────────────────────────────────────────── */
+    .empty { color: #888; font-style: italic; font-size: 9pt; padding: 0.2cm 0; }
+  </style>
+</head>
+<body>
+
+<div class="confidential">CONFIDENTIAL — INTERNAL USE ONLY — DO NOT DISTRIBUTE</div>
+
+{# ── Report header ──────────────────────────────────────────────────── #}
+<div class="report-header">
+  <p class="org-name">Municipal Government — Finance Department</p>
+  <h1>Monthly Financial Summary</h1>
+  <p class="sub">Period: {{ month_label }} ({{ period_start }} – {{ period_end }})</p>
+  <p class="generated">Generated: {{ generated_at }} (UTC) &nbsp;|&nbsp; Prepared by: Automated Report System</p>
+</div>
+<hr>
+
+{# ── Key performance indicators ─────────────────────────────────────── #}
+<h2>Revenue Overview</h2>
+<div class="kpi-grid">
+  <div class="kpi-row">
+    <div class="kpi-cell">
+      <p class="kpi-label">Gross Revenue (CAD)</p>
+      <p class="kpi-value">${{ revenue.total_gross|floatformat:2 }}</p>
+      <p class="kpi-sub">{{ revenue.payment_count }} payment(s)</p>
+    </div>
+    <div class="kpi-cell">
+      <p class="kpi-label">Net Revenue (CAD)</p>
+      <p class="kpi-value">${{ revenue.total_net|floatformat:2 }}</p>
+      <p class="kpi-sub">After processor fees</p>
+    </div>
+    <div class="kpi-cell">
+      <p class="kpi-label">Tax Collected (CAD)</p>
+      <p class="kpi-value">${{ revenue.total_tax|floatformat:2 }}</p>
+      <p class="kpi-sub">HST / GST / PST</p>
+    </div>
+    <div class="kpi-cell">
+      <p class="kpi-label">Processor Fees (CAD)</p>
+      <p class="kpi-value">${{ revenue.total_processor_fees|floatformat:2 }}</p>
+      <p class="kpi-sub">Gateway fees deducted</p>
+    </div>
+  </div>
+</div>
+
+{# ── Revenue by fee code ─────────────────────────────────────────────── #}
+{% if revenue.by_fee_code %}
+<h3>Revenue by Fee Code</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Fee Code</th>
+      <th class="num">Transactions</th>
+      <th class="num">Gross (CAD)</th>
+      <th class="num">Tax (CAD)</th>
+      <th class="num">Fees (CAD)</th>
+      <th class="num">Net (CAD)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for label, d in revenue.by_fee_code.items %}
+    <tr>
+      <td>{{ label }}</td>
+      <td class="num">{{ d.count }}</td>
+      <td class="num">${{ d.gross|floatformat:2 }}</td>
+      <td class="num">${{ d.tax|floatformat:2 }}</td>
+      <td class="num">${{ d.processor_fees|floatformat:2 }}</td>
+      <td class="num">${{ d.net|floatformat:2 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td>Total</td>
+      <td class="num">{{ revenue.payment_count }}</td>
+      <td class="num">${{ revenue.total_gross|floatformat:2 }}</td>
+      <td class="num">${{ revenue.total_tax|floatformat:2 }}</td>
+      <td class="num">${{ revenue.total_processor_fees|floatformat:2 }}</td>
+      <td class="num">${{ revenue.total_net|floatformat:2 }}</td>
+    </tr>
+  </tfoot>
+</table>
+{% else %}
+<p class="empty">No completed payments in this period.</p>
+{% endif %}
+
+{# ── Refund summary ──────────────────────────────────────────────────── #}
+<h2>Refunds</h2>
+<div class="kpi-grid">
+  <div class="kpi-row">
+    <div class="kpi-cell">
+      <p class="kpi-label">Total Refunded (CAD)</p>
+      <p class="kpi-value">${{ refunds.total_refunded|floatformat:2 }}</p>
+      <p class="kpi-sub">{{ refunds.refund_count }} refund(s)</p>
+    </div>
+    <div class="kpi-cell">
+      <p class="kpi-label">Failed Payments</p>
+      <p class="kpi-value">{{ failed_count }}</p>
+      <p class="kpi-sub">Requires follow-up</p>
+    </div>
+    <div class="kpi-cell">
+      <p class="kpi-label">Net Revenue After Refunds</p>
+      <p class="kpi-value">${{ net_after_refunds|floatformat:2 }}</p>
+      <p class="kpi-sub">Gross minus total refunded</p>
+    </div>
+    <div class="kpi-cell">
+      <p class="kpi-label">&nbsp;</p>
+      <p class="kpi-value">&nbsp;</p>
+    </div>
+  </div>
+</div>
+
+{% if refunds.by_reason %}
+<h3>Refunds by Reason</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Reason</th>
+      <th class="num">Count</th>
+      <th class="num">Amount (CAD)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for reason, d in refunds.by_reason.items %}
+    <tr>
+      <td>{{ reason }}</td>
+      <td class="num">{{ d.count }}</td>
+      <td class="num">${{ d.amount|floatformat:2 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td>Total</td>
+      <td class="num">{{ refunds.refund_count }}</td>
+      <td class="num">${{ refunds.total_refunded|floatformat:2 }}</td>
+    </tr>
+  </tfoot>
+</table>
+{% endif %}
+
+{% if failed_count > 0 %}
+<div class="alert">
+  <strong>Action Required:</strong>
+  {{ failed_count }} payment(s) failed during this period. Review in the Financial Dashboard
+  and follow up with affected payers per your internal collections procedure.
+</div>
+{% endif %}
+
+{# ── PIPEDA notice ──────────────────────────────────────────────────── #}
+<div class="pipeda-notice">
+  <strong>Privacy Notice (PIPEDA):</strong>
+  This report contains aggregated financial figures only. No payer name, address,
+  email address, or other personal information is included. This document is
+  classified CONFIDENTIAL and must be handled in accordance with your organization's
+  data classification policy. Retain for a minimum of 7 years per CRA requirements.
+  Generated by the GovStack Analytics &amp; Reporting module — automated report,
+  no manual adjustment.
+</div>
+
+</body>
+</html>

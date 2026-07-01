@@ -1,16 +1,162 @@
 {% extends "reports/base.html" %}
-{% load i18n %}
-{# Celery task failure drill-down for SRE investigation.
-   Implemented in Wave 4.
-   Context keys (Wave 4): failures (list of dicts: task_id, task_name,
-     date_done, error_summary), task_name_filter #}
+{% load i18n humanize %}
+{# Celery task failure drill-down for SRE investigation — Wave 4.
+   Context keys: failures (list of dicts: task_id, task_name, date_done,
+                           error_summary),
+                 task_name_filter (str), limit (int).
+   PIPEDA: error_summary is the first line of traceback ONLY.
+   Full tracebacks are NEVER rendered here — they may contain PII. #}
 
 {% block reports_title %}{% trans "Task Failures" %}{% endblock %}
 
 {% block reports_content %}
-<h1 class="h3 mb-4">{% trans "Recent Task Failures" %}</h1>
 
-{# Wave 4: task name filter, failures table (task_id, name, date_done, error_summary).
-           Full tracebacks are never rendered here — error_summary is first line only. #}
-<p class="text-muted">{% trans "Task failure detail — implemented in Wave 4." %}</p>
+{# ── Header ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-start justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-0">{% trans "Recent Task Failures" %}</h1>
+    <p class="text-muted mb-0">
+      {% if task_name_filter %}
+        {% blocktrans with tn=task_name_filter %}Filtered to task: {{ tn }}{% endblocktrans %}
+      {% else %}
+        {% trans "All task types" %}
+      {% endif %}
+    </p>
+  </div>
+
+  <a href="{% url 'reports:operational-dashboard' %}"
+     class="btn btn-sm btn-outline-secondary align-self-start">
+    ← {% trans "Operational Dashboard" %}
+  </a>
+</div>
+
+{# ── Filter form ─────────────────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="get" class="row g-3 align-items-end"
+          aria-label="{% trans 'Filter task failures' %}">
+      <div class="col-sm-6 col-md-5">
+        <label for="id_task_name" class="form-label fw-semibold">
+          {% trans "Task Name" %}
+        </label>
+        <input type="text"
+               id="id_task_name"
+               name="task_name"
+               value="{{ task_name_filter }}"
+               class="form-control form-control-sm"
+               placeholder="{% trans 'e.g. apps.payments.tasks.process_webhook' %}"
+               aria-describedby="id_task_name-help">
+        <div id="id_task_name-help" class="form-text text-muted">
+          {% trans "Leave blank to show failures for all task types." %}
+        </div>
+      </div>
+      <div class="col-sm-3 col-md-2">
+        <label for="id_limit" class="form-label fw-semibold">{% trans "Limit" %}</label>
+        <select id="id_limit" name="limit" class="form-select form-select-sm">
+          <option value="25"  {% if limit == 25  %}selected{% endif %}>25</option>
+          <option value="50"  {% if limit == 50  %}selected{% endif %}>50</option>
+          <option value="100" {% if limit == 100 %}selected{% endif %}>100</option>
+          <option value="200" {% if limit == 200 %}selected{% endif %}>200</option>
+        </select>
+      </div>
+      <div class="col-sm-auto">
+        <button type="submit" class="btn btn-sm btn-primary">
+          {% trans "Filter" %}
+        </button>
+        {% if task_name_filter %}
+        <a href="{% url 'reports:task-failures' %}" class="btn btn-sm btn-outline-secondary ms-1">
+          {% trans "Clear" %}
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Privacy notice ──────────────────────────────────────────────────── #}
+<div class="alert alert-info alert-sm mb-3" role="note">
+  <small>
+    <strong>{% trans "Privacy:" %}</strong>
+    {% trans "Error summaries show the first line of the traceback only. Full tracebacks are not displayed — they may contain request data with personal information (PIPEDA)." %}
+  </small>
+</div>
+
+{# ── Failures table ──────────────────────────────────────────────────── #}
+{% if failures %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm table-hover align-middle"
+         aria-label="{% trans 'Recent Celery task failures' %}">
+    <caption class="visually-hidden">
+      {% trans "Recent Celery task failures — error_summary is first traceback line only" %}
+    </caption>
+    <thead class="table-light">
+      <tr>
+        <th scope="col">{% trans "Task Name" %}</th>
+        <th scope="col">{% trans "Failed At" %}</th>
+        <th scope="col">{% trans "Error Summary" %}</th>
+        <th scope="col">{% trans "Task ID" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for failure in failures %}
+      <tr>
+        <td>
+          <code class="small">{{ failure.task_name }}</code>
+        </td>
+        <td class="small text-nowrap">
+          {% if failure.date_done %}
+            {{ failure.date_done|date:"Y-m-d H:i" }}&nbsp;UTC
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if failure.error_summary %}
+          <span class="text-danger small font-monospace"
+                title="{{ failure.error_summary }}">
+            {{ failure.error_summary|truncatechars:120 }}
+          </span>
+          {% else %}
+          <span class="text-muted small">{% trans "(no traceback recorded)" %}</span>
+          {% endif %}
+        </td>
+        <td>
+          <code class="text-muted" style="font-size:0.7rem">
+            {{ failure.task_id|truncatechars:16 }}&hellip;
+          </code>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="text-muted small">
+  {% blocktrans with c=failures|length lim=limit %}
+  Showing {{ c }} of up to {{ lim }} most-recent failures.
+  {% endblocktrans %}
+  {% if failures|length == limit %}
+  {% trans "Increase the limit or filter by task name to narrow results." %}
+  {% endif %}
+</p>
+
+{% else %}
+<div class="alert alert-success" role="alert">
+  <strong>{% trans "No failures found." %}</strong>
+  {% if task_name_filter %}
+    {% trans "No failures recorded for this task in the database." %}
+  {% else %}
+    {% trans "No Celery task failures recorded in the database." %}
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Navigation ──────────────────────────────────────────────────────── #}
+<div class="d-flex gap-2 flex-wrap mt-4">
+  <a href="{% url 'reports:operational-dashboard' %}"
+     class="btn btn-sm btn-outline-secondary">
+    ← {% trans "Operational Dashboard" %}
+  </a>
+</div>
+
 {% endblock reports_content %}

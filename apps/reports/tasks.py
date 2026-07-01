@@ -178,7 +178,26 @@ def _compute_all_snapshots(year: int, month: int) -> int:
             year, month,
         )
 
-    # Wave 4: operational — implemented in Wave 4
+    # ── Wave 4: operational ───────────────────────────────────────────────────
+    try:
+        from apps.reports.services.operational import compute_operational_snapshot
+        op_data = compute_operational_snapshot(year, month)
+        ReportSnapshot.objects.update_or_create(
+            report_type=ReportSnapshot.REPORT_TYPE_OPERATIONAL,
+            period_year=year,
+            period_month=month,
+            defaults={"data": op_data, "row_count": op_data.get("row_count", 0)},
+        )
+        written += 1
+        logger.info(
+            "reports.tasks._compute_all_snapshots.operational_ok year=%s month=%s",
+            year, month,
+        )
+    except Exception:
+        logger.exception(
+            "reports.tasks._compute_all_snapshots.operational_failed year=%s month=%s",
+            year, month,
+        )
 
     return written
 
