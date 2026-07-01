@@ -56,43 +56,85 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        from django_celery_beat.models import CrontabSchedule, PeriodicTask
-
         dry_run = options["dry_run"]
         static_year = options["static_year"]
 
         # ── Annual receipt task ────────────────────────────────────────────
-        # Crontab: 08:00 on January 2nd each year (America/Toronto)
-        schedule_kwargs = {
-            "minute": "0",
-            "hour": "8",
-            "day_of_week": "*",
-            "day_of_month": "2",
-            "month_of_year": "1",
-            "timezone": "America/Toronto",
-        }
-
-        task_name = "payments.generate_annual_receipts"
-
+        # Crontab: 08:00 on January 2nd each year (America/Toronto).
         if static_year is not None:
-            # Use the real task directly with a fixed year arg
             task_path = "apps.payments.tasks_receipts.generate_annual_receipts"
             task_args = json.dumps([static_year])
-            task_kwargs_str = json.dumps({})
             description = (
                 f"Issue annual consolidated CRA donation tax receipts for tax year "
                 f"{static_year}.  Runs 08:00 EST on January 2nd."
             )
         else:
-            # Use the kickoff wrapper that auto-resolves tax_year = now().year - 1
             task_path = "apps.payments.tasks_receipts.kickoff_annual_receipts"
             task_args = json.dumps([])
-            task_kwargs_str = json.dumps({})
             description = (
                 "Issue annual consolidated CRA donation tax receipts for the previous "
                 "calendar year.  Runs 08:00 EST on January 2nd each year.  "
                 "Resolves tax_year = (current_year - 1) at runtime."
             )
+
+        self._register_task(
+            dry_run=dry_run,
+            task_name="payments.generate_annual_receipts",
+            task_path=task_path,
+            schedule_kwargs={
+                "minute": "0",
+                "hour": "8",
+                "day_of_week": "*",
+                "day_of_month": "2",
+                "month_of_year": "1",
+                "timezone": "America/Toronto",
+            },
+            task_args=task_args,
+            task_kwargs_str=json.dumps({}),
+            description=description,
+        )
+
+        # ── Reports BB: compute_monthly_snapshots ──────────────────────────
+        # Crontab: 02:00 on the 2nd of each month (America/Toronto).
+        # Runs after midnight when the previous month's data is fully settled.
+        # January 2nd is intentional: gives the annual receipt task (Jan 2, 08:00)
+        # time to complete before the snapshot overwrites the December data.
+        self._register_task(
+            dry_run=dry_run,
+            task_name="reports.compute_monthly_snapshots",
+            task_path="apps.reports.tasks.compute_monthly_snapshots",
+            schedule_kwargs={
+                "minute": "0",
+                "hour": "2",
+                "day_of_week": "*",
+                "day_of_month": "2",
+                "month_of_year": "*",
+                "timezone": "America/Toronto",
+            },
+            task_args="[]",
+            task_kwargs_str="{}",
+            description=(
+                "Compute Analytics & Reporting BB monthly snapshots for the previous "
+                "calendar month.  Runs at 02:00 Toronto time on the 2nd of each month."
+            ),
+        )
+
+        self.stdout.write(self.style.SUCCESS("\nsetup_periodic_tasks complete.\n"))
+
+    def _register_task(
+        self,
+        *,
+        dry_run: bool,
+        task_name: str,
+        task_path: str,
+        schedule_kwargs: dict,
+        task_args: str,
+        task_kwargs_str: str,
+        description: str,
+    ) -> None:
+        """Register a single Celery Beat PeriodicTask (idempotent)."""
+        import json as _json
+        from django_celery_beat.models import CrontabSchedule, PeriodicTask
 
         self.stdout.write(
             f"\nPeriodic task : {task_name!r}\n"
@@ -105,12 +147,10 @@ class Command(BaseCommand):
         )
 
         if dry_run:
-            self.stdout.write(self.style.WARNING("Dry run — no changes written.\n"))
+            self.stdout.write(self.style.WARNING("  Dry run — skipping.\n"))
             return
 
-        crontab, crontab_created = CrontabSchedule.objects.get_or_create(
-            **schedule_kwargs
-        )
+        crontab, crontab_created = CrontabSchedule.objects.get_or_create(**schedule_kwargs)
         status_str = "Created" if crontab_created else "Reusing"
         self.stdout.write(f"  {status_str} crontab schedule pk={crontab.pk}")
 
@@ -129,7 +169,6 @@ class Command(BaseCommand):
         if task_created:
             self.stdout.write(self.style.SUCCESS(f"  Created PeriodicTask pk={task.pk}"))
         else:
-            # Idempotent update: sync crontab, task path, and enabled state
             changed_fields = []
             if task.crontab_id != crontab.pk:
                 task.crontab = crontab
@@ -154,9 +193,8 @@ class Command(BaseCommand):
                 self.stdout.write(f"  PeriodicTask pk={task.pk} is already up-to-date")
 
         logger.info(
-            "payments.setup_periodic_tasks.done task=%s crontab_pk=%s task_pk=%s",
+            "setup_periodic_tasks.registered task=%s crontab_pk=%s task_pk=%s",
             task_name,
             crontab.pk,
             task.pk,
         )
-        self.stdout.write(self.style.SUCCESS("\nsetup_periodic_tasks complete.\n"))

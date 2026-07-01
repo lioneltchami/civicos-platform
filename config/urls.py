@@ -96,6 +96,8 @@ urlpatterns += i18n_patterns(
     path("account/", include("apps.auth_extension.urls", namespace="auth_extension")),
     # Consent & Privacy building block
     path("consent/", include("apps.consent.urls", namespace="consent")),
+    # Analytics & Reporting BB — staff-only report views
+    path("reports/", include("apps.reports.urls", namespace="reports")),
     # Public-facing pages (Wagtail CMS) — must be last
     path("", include(wagtail_urls)),
     prefix_default_language=False,  # /en/ not required; /fr/ prefix for French

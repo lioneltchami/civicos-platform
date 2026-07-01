@@ -1,0 +1,16 @@
+{% extends "reports/base.html" %}
+{% load i18n %}
+{# Celery task failure drill-down for SRE investigation.
+   Implemented in Wave 4.
+   Context keys (Wave 4): failures (list of dicts: task_id, task_name,
+     date_done, error_summary), task_name_filter #}
+
+{% block reports_title %}{% trans "Task Failures" %}{% endblock %}
+
+{% block reports_content %}
+<h1 class="h3 mb-4">{% trans "Recent Task Failures" %}</h1>
+
+{# Wave 4: task name filter, failures table (task_id, name, date_done, error_summary).
+           Full tracebacks are never rendered here — error_summary is first line only. #}
+<p class="text-muted">{% trans "Task failure detail — implemented in Wave 4." %}</p>
+{% endblock reports_content %}

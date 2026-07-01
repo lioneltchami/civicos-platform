@@ -1,0 +1,14 @@
+{% extends "reports/base.html" %}
+{% load i18n %}
+{# Donations dashboard — monthly summary.
+   Implemented in Wave 3.
+   Context keys (Wave 3): year, month, summary, by_campaign, is_current_month #}
+
+{% block reports_title %}{% trans "Donations Dashboard" %}{% endblock %}
+
+{% block reports_content %}
+<h1 class="h3 mb-4">{% trans "Donations Dashboard" %}</h1>
+
+{# Wave 3: period selector, stat cards, by-campaign breakdown #}
+<p class="text-muted">{% trans "Donations report — implemented in Wave 3." %}</p>
+{% endblock reports_content %}

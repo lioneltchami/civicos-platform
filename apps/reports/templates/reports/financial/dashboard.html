@@ -1,0 +1,14 @@
+{% extends "reports/base.html" %}
+{% load i18n %}
+{# Financial dashboard — monthly revenue overview.
+   Implemented in Wave 2.
+   Context keys (Wave 2): year, month, revenue, refunds, failed_payments, is_current_month #}
+
+{% block reports_title %}{% trans "Financial Dashboard" %}{% endblock %}
+
+{% block reports_content %}
+<h1 class="h3 mb-4">{% trans "Financial Dashboard" %}</h1>
+
+{# Wave 2: period selector, stat cards, revenue breakdown table, refund summary #}
+<p class="text-muted">{% trans "Financial reports — implemented in Wave 2." %}</p>
+{% endblock reports_content %}

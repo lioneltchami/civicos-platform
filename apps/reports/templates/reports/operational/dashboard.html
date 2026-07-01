@@ -1,0 +1,15 @@
+{% extends "reports/base.html" %}
+{% load i18n %}
+{# Operational health dashboard — Celery + webhook metrics.
+   Implemented in Wave 4.
+   Context keys (Wave 4): task_summary, webhook_summary, beat_status, days #}
+
+{% block reports_title %}{% trans "Operational Dashboard" %}{% endblock %}
+
+{% block reports_content %}
+<h1 class="h3 mb-4">{% trans "Operational Dashboard" %}</h1>
+
+{# Wave 4: task success/failure rate cards, webhook processing cards,
+           Celery Beat task status table #}
+<p class="text-muted">{% trans "Operational report — implemented in Wave 4." %}</p>
+{% endblock reports_content %}

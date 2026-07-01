@@ -1,0 +1,24 @@
+{% extends "reports/base.html" %}
+{% load i18n %}
+{# CRA T3010 preparatory data report.
+   Implemented in Wave 3.
+   Context keys (Wave 3): fiscal_year_start, fiscal_year_end, filing_deadline,
+     total_receipted_donations, total_eligible_amount, receipt_count,
+     large_donations, by_campaign #}
+
+{% block reports_title %}{% trans "T3010 Preparatory Data" %}{% endblock %}
+
+{% block reports_content %}
+<h1 class="h3 mb-4">{% trans "CRA T3010 Preparatory Data" %}</h1>
+
+<p class="text-muted">
+  {% blocktrans %}
+  This report provides the aggregated figures needed to complete your charity's
+  annual T3010 information return. No individual donor personal information is
+  included.
+  {% endblocktrans %}
+</p>
+
+{# Wave 3: fiscal year selector, T3010 line items, filing deadline, by-campaign table, export links #}
+<p class="text-muted">{% trans "T3010 prep report — implemented in Wave 3." %}</p>
+{% endblock reports_content %}

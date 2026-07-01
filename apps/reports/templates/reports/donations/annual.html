@@ -1,0 +1,14 @@
+{% extends "reports/base.html" %}
+{% load i18n %}
+{# Annual donation summary — full year totals.
+   Implemented in Wave 3.
+   Context keys (Wave 3): year, annual_summary, by_month #}
+
+{% block reports_title %}{% trans "Annual Donation Summary" %}{% endblock %}
+
+{% block reports_content %}
+<h1 class="h3 mb-4">{% trans "Annual Donation Summary" %}</h1>
+
+{# Wave 3: year selector, annual totals, by-month table, export link #}
+<p class="text-muted">{% trans "Annual donation report — implemented in Wave 3." %}</p>
+{% endblock reports_content %}

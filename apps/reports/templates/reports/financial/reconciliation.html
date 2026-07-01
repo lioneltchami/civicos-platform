@@ -1,0 +1,14 @@
+{% extends "reports/base.html" %}
+{% load i18n %}
+{# Payment reconciliation table — date-range picker + results table.
+   Implemented in Wave 2.
+   Context keys (Wave 2): start, end, rows, total_rows, max_range_days #}
+
+{% block reports_title %}{% trans "Payment Reconciliation" %}{% endblock %}
+
+{% block reports_content %}
+<h1 class="h3 mb-4">{% trans "Payment Reconciliation" %}</h1>
+
+{# Wave 2: date-range form, paginated table, export button #}
+<p class="text-muted">{% trans "Reconciliation report — implemented in Wave 2." %}</p>
+{% endblock reports_content %}

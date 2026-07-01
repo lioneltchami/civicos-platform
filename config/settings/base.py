@@ -112,6 +112,7 @@ LOCAL_APPS = [
     "apps.audit",
     "apps.api",
     "apps.payments",
+    "apps.reports",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -328,6 +329,17 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_TRACK_STARTED = True  # Expose STARTED state for monitoring / long-running tasks
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
+# Route tasks to named queues so payments and reports workers can scale independently.
+# Consumers: celery -A config worker -Q payments
+#            celery -A config worker -Q reports
+# Default queue ("celery") handles everything else (notifications, portal, etc.)
+CELERY_TASK_ROUTES = {
+    # Payments BB — stripe webhooks, receipt generation, subscription management
+    "apps.payments.*": {"queue": "payments"},
+    # Analytics & Reporting BB — nightly snapshot computation
+    "apps.reports.*": {"queue": "reports"},
+}
 
 # Task time limits — prevent runaway workers
 CELERY_TASK_SOFT_TIME_LIMIT = 300   # 5 min — SoftTimeLimitExceeded is raised
