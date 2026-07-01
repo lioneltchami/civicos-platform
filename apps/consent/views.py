@@ -245,5 +245,5 @@ class ExportDownloadView(LoginRequiredMixin, View):
         return FileResponse(
             file_handle,
             as_attachment=True,
-            filename=f"govstack-data-export-{export_pk}.json",
+            filename=f"civicos-data-export-{export_pk}.json",
         )

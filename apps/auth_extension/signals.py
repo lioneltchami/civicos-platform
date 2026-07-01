@@ -1,7 +1,7 @@
 """
 Signal handlers for authentication events.
 
-Bridges Django auth signals → Govstack core signals (for audit/notifications),
+Bridges Django auth signals → CivicOS core signals (for audit/notifications),
 and adds allauth-specific signal handling for signup and password reset.
 
 All handlers write to the audit log via AuditLogEntry directly (no .log()
@@ -104,14 +104,14 @@ def on_login_success(sender, request, user, **kwargs) -> None:
     ip = _get_client_ip(request)
     if ip:
         type(user).objects.filter(pk=user.pk).update(last_login_ip=_mask_ip(ip))
-    # Fire Govstack core signal for audit/notifications listeners
+    # Fire CivicOS core signal for audit/notifications listeners
     # (audit/handlers.py:audit_login_success writes the entry via the signal)
     gs_login_succeeded.send(sender=sender, request=request, user=user)
 
 
 @receiver(user_logged_out)
 def on_logout(sender, request, user, **kwargs) -> None:
-    # Fire Govstack core signal; audit/handlers.py:audit_logout writes the entry
+    # Fire CivicOS core signal; audit/handlers.py:audit_logout writes the entry
     gs_logged_out.send(sender=sender, request=request, user=user)
 
 

@@ -1,13 +1,13 @@
 # =============================================================================
-# Govstack — Dockerfile
+# CivicOS — Dockerfile
 # =============================================================================
 # Multi-stage build:
 #   builder  → install Python dependencies
 #   final    → lean runtime image
 #
 # Build:
-#   docker build --target development -t govstack:dev .
-#   docker build --target production  -t govstack:prod .
+#   docker build --target development -t civicos:dev .
+#   docker build --target production  -t civicos:prod .
 # =============================================================================
 
 # ---------------------------------------------------------------------------

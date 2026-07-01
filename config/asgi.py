@@ -1,5 +1,5 @@
 """
-ASGI config for Govstack.
+ASGI config for CivicOS.
 
 Used by uvicorn or Daphne for async support (WebSockets, long-polling).
 """

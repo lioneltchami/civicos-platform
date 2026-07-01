@@ -1,5 +1,5 @@
 """
-WSGI config for Govstack.
+WSGI config for CivicOS.
 
 Used by gunicorn in production.
 """

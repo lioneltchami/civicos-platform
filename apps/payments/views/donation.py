@@ -1,6 +1,6 @@
 """
 Donation views — Wave 4, Track A.
-GovStack Payments Building Block — Canadian charitable donation flow.
+CivicOS Payments Building Block — Canadian charitable donation flow.
 
 Flow:
   1. DonationSelectView   GET/POST  /donate/

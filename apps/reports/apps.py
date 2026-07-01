@@ -1,9 +1,9 @@
 """
 Analytics & Reporting Building Block — AppConfig.
 
-Custom BB: no dedicated GovStack Analytics spec exists (GovStack 2.0 treats
+Custom BB: no dedicated CivicOS Analytics spec exists (CivicOS 2.0 treats
 analytics as an optional layer within the Security BB). This BB follows
-GovStack cross-cutting principles: audit trail, multi-tenancy, PIPEDA
+CivicOS cross-cutting principles: audit trail, multi-tenancy, PIPEDA
 data minimization.
 
 Spec: docs/analytics-reporting-bb-spec.md

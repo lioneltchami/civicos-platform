@@ -1,8 +1,8 @@
-# Govstack
+# CivicOS
 
 **Modular, production-grade digital government services platform for municipal and public sector clients.**
 
-Built on [Wagtail](https://wagtail.org/) + [Django](https://www.djangoproject.com/), Govstack gives municipalities a composable set of building blocks to deliver citizen-facing digital services — without rebuilding from scratch every time.
+Built on [Wagtail](https://wagtail.org/) + [Django](https://www.djangoproject.com/), CivicOS gives municipalities a composable set of building blocks to deliver citizen-facing digital services — without rebuilding from scratch every time.
 
 ---
 
@@ -10,7 +10,7 @@ Built on [Wagtail](https://wagtail.org/) + [Django](https://www.djangoproject.co
 
 Governments at every level are under pressure to modernize service delivery while meeting strict requirements around accessibility, privacy, security, and accountability. Most off-the-shelf solutions either lock clients into rigid workflows or require expensive customization.
 
-Govstack takes a different approach: a **modular building-block architecture** where each capability (CMS, forms, citizen portal, workflow engine, notifications, audit logging) is a self-contained, reusable module that can be deployed independently or combined into a full platform.
+CivicOS takes a different approach: a **modular building-block architecture** where each capability (CMS, forms, citizen portal, workflow engine, notifications, audit logging) is a self-contained, reusable module that can be deployed independently or combined into a full platform.
 
 The result is a platform that municipal IT teams can own, extend, and maintain — and that editors and service designers can operate without developer support.
 
@@ -34,7 +34,7 @@ The result is a platform that municipal IT teams can own, extend, and maintain �
 - **Government-grade compliance** — WCAG 2.1 AA, PIPEDA/Quebec Law 25, bilingual (EN/FR), full audit trails
 - **Editor-friendly** — Wagtail's best-in-class CMS with structured content via StreamField
 - **Security by default** — role-based access, MFA support, encrypted at rest and in transit
-- **GovStack-inspired** — architecture aligned with the [GovStack initiative](https://govstack.global/) building block specifications
+- **CivicOS-inspired** — architecture aligned with the [CivicOS initiative](https://civicos.global/) building block specifications
 - **Open source** — no vendor lock-in; deployable on any infrastructure (cloud, on-prem, hybrid)
 
 ---
@@ -72,8 +72,8 @@ See [`context/tech-stack.md`](context/tech-stack.md) for detailed decisions.
 > Full setup instructions coming in `docs/setup.md` once the project is initialized.
 
 ```bash
-git clone https://github.com/your-org/govstack.git
-cd govstack
+git clone https://github.com/your-org/civicos.git
+cd civicos
 cp .env.example .env
 docker compose up
 ```

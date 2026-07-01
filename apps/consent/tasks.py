@@ -293,7 +293,7 @@ def _notify_export_ready(export_request) -> None:
     from apps.consent.signals import export_ready as export_ready_signal
 
     citizen = export_request.citizen
-    subject = "Your data export is ready — GovStack"
+    subject = "Your data export is ready — CivicOS"
 
     portal_url = getattr(settings, "SITE_URL", "").rstrip("/") or ""
     if not portal_url:

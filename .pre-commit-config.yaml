@@ -1,5 +1,5 @@
 ---
-# Pre-commit hooks for Govstack
+# Pre-commit hooks for CivicOS
 # Install: pre-commit install
 # Run manually: pre-commit run --all-files
 

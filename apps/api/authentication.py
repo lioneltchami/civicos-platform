@@ -1,5 +1,5 @@
 """
-Custom authentication backends for the Govstack API.
+Custom authentication backends for the CivicOS API.
 
 Security:
 - Logs only user PKs (no PII such as email addresses).
@@ -17,7 +17,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication  # noqa: F
 logger = logging.getLogger(__name__)
 
 
-class GovstackTokenAuthentication(TokenAuthentication):
+class CivicOSTokenAuthentication(TokenAuthentication):
     """
     DRF TokenAuthentication extended with:
     - Active-user guard: deactivated accounts are rejected even with a valid token.

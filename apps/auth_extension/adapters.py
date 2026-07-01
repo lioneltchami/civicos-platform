@@ -1,7 +1,7 @@
 """
-Custom allauth adapters for Govstack.
+Custom allauth adapters for CivicOS.
 
-GovstackAccountAdapter overrides key allauth hooks to:
+CivicOSAccountAdapter overrides key allauth hooks to:
 - Route post-login redirects (citizens → portal, staff → CMS)
 - Capture preferred_language on signup
 - Log auth events without PII in application logs
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class GovstackAccountAdapter(DefaultAccountAdapter):
+class CivicOSAccountAdapter(DefaultAccountAdapter):
     def get_login_redirect_url(self, request: HttpRequest) -> str:
         user = request.user
         if user.is_staff or user.is_superuser:
@@ -38,6 +38,6 @@ class GovstackAccountAdapter(DefaultAccountAdapter):
         super().send_mail(template_prefix, email, context)
 
 
-class GovstackSocialAccountAdapter(DefaultSocialAccountAdapter):
+class CivicOSSocialAccountAdapter(DefaultSocialAccountAdapter):
     def is_open_for_signup(self, request: HttpRequest, sociallogin) -> bool:
         return True

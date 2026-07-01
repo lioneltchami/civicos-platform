@@ -1,6 +1,6 @@
 # Technology Stack
 
-Documented technology decisions for Govstack. Each decision includes a rationale. Revisit this file when a major version upgrade or architectural change is considered.
+Documented technology decisions for CivicOS. Each decision includes a rationale. Revisit this file when a major version upgrade or architectural change is considered.
 
 ---
 
@@ -14,7 +14,7 @@ Documented technology decisions for Govstack. Each decision includes a rationale
 ### Django 5.x (currently 5.2 LTS)
 - Django 5.2 is an LTS release supported until April 2028 — appropriate for government clients who need stability
 - Use `django-environ` for 12-factor environment configuration
-- `INSTALLED_APPS` ordered: Django internals → third-party → Wagtail → govstack apps
+- `INSTALLED_APPS` ordered: Django internals → third-party → Wagtail → civicos apps
 - Split settings: `config/settings/base.py`, `development.py`, `production.py`, `test.py`
 
 ### Wagtail 6.x (currently 6.3+)

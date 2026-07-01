@@ -1,5 +1,5 @@
 """
-Development settings for Govstack.
+Development settings for CivicOS.
 
 Extends base.py with developer-friendly defaults:
 - DEBUG on

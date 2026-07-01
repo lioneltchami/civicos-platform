@@ -1,5 +1,5 @@
 """
-Production settings for Govstack.
+Production settings for CivicOS.
 
 Extends base.py with hardened security, S3 storage, and Sentry error tracking.
 All sensitive values must be provided via environment variables — no defaults.
@@ -36,7 +36,7 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 
 # ALLOWED_HOSTS is read from DJANGO_ALLOWED_HOSTS env var (set in base.py).
 # Default is [] which causes Django to reject all requests — set the env var in deployment.
-# Example: DJANGO_ALLOWED_HOSTS=govstack.ca,www.govstack.ca
+# Example: DJANGO_ALLOWED_HOSTS=civicos.ca,www.civicos.ca
 if not ALLOWED_HOSTS:
     raise ImproperlyConfigured(
         "DJANGO_ALLOWED_HOSTS env var must be set in production. "
@@ -44,7 +44,7 @@ if not ALLOWED_HOSTS:
     )
 
 # Wagtail email links (password reset, notification emails) must use HTTPS in production.
-# WAGTAILADMIN_BASE_URL must be set as an env var (e.g., https://cms.govstack.ca).
+# WAGTAILADMIN_BASE_URL must be set as an env var (e.g., https://cms.civicos.ca).
 # The base.py default of http://localhost:8000 is deliberately not overridden here
 # so a missing env var fails loudly rather than silently emitting http:// links.
 WAGTAILADMIN_BASE_URL = env("WAGTAILADMIN_BASE_URL")  # No default — required in production
@@ -188,7 +188,7 @@ CACHES = {
 #     "default": {
 #         "BACKEND": "wagtail.search.backends.elasticsearch8",
 #         "URLS": env.list("ELASTICSEARCH_URLS", default=["http://localhost:9200"]),
-#         "INDEX": "govstack",
+#         "INDEX": "civicos",
 #         "TIMEOUT": 5,
 #     }
 # }

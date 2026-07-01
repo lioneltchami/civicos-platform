@@ -1,5 +1,5 @@
 """
-Stripe webhook endpoint for the GovStack Payments BB.
+Stripe webhook endpoint for the CivicOS Payments BB.
 
 Security design:
 - CSRF exempt: Stripe cannot send CSRF tokens. This is intentional and safe

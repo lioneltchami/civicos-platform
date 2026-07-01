@@ -40,7 +40,7 @@ class Migration(migrations.Migration):
                 'ordering': ['email'],
             },
             managers=[
-                ('objects', apps.auth_extension.models.GovstackUserManager()),
+                ('objects', apps.auth_extension.models.CivicOSUserManager()),
             ],
         ),
     ]

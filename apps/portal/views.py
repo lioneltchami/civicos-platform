@@ -1,5 +1,5 @@
 """
-Citizen portal views for Govstack.
+Citizen portal views for CivicOS.
 
 All citizen-facing views enforce LoginRequiredMixin.
 Business logic is delegated to apps.portal.services — views stay thin.

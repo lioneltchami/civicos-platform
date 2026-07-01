@@ -1,5 +1,5 @@
 """
-Gunicorn configuration for govstack production deployment.
+Gunicorn configuration for civicos production deployment.
 
 Worker tuning:
 - WEB_CONCURRENCY env var overrides automatic worker count

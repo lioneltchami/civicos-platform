@@ -1,5 +1,5 @@
 """
-Form builder models for Govstack.
+Form builder models for CivicOS.
 
 Extends Wagtail's built-in form builder (wagtail.contrib.forms) with:
 - Consent checkbox tracking (PIPEDA requirement)
@@ -61,7 +61,7 @@ class FormSubmission(AbstractFormSubmission):
     page = models.ForeignKey(
         "forms.FormPage",
         on_delete=models.CASCADE,
-        related_name="govstack_form_submissions",
+        related_name="civicos_form_submissions",
     )
 
     consent_given = models.BooleanField(

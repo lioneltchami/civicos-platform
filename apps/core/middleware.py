@@ -1,5 +1,5 @@
 """
-Core middleware for Govstack.
+Core middleware for CivicOS.
 
 Middleware order in settings:
   RequestIDMiddleware  → assigns a unique ID to every request

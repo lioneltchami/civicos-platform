@@ -1,5 +1,5 @@
 """
-Refund views for the GovStack Payments BB.
+Refund views for the CivicOS Payments BB.
 
 Access: staff users only (is_active=True AND is_staff=True). Citizens cannot initiate refunds.
 All refund actions are audit-logged. Partial refunds are supported.

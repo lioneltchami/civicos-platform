@@ -1,5 +1,5 @@
 """
-Custom allauth forms for Govstack citizen authentication.
+Custom allauth forms for CivicOS citizen authentication.
 """
 from __future__ import annotations
 from django import forms

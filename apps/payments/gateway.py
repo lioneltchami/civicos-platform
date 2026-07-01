@@ -1,5 +1,5 @@
 """
-Abstract payment gateway interface for the GovStack Payments BB.
+Abstract payment gateway interface for the CivicOS Payments BB.
 
 All concrete gateway implementations (StripeGateway, MonerisGateway) must
 implement this interface. Application code imports only this interface and

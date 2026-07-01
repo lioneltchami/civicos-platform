@@ -1,5 +1,5 @@
 # =============================================================================
-# Govstack — Makefile
+# CivicOS — Makefile
 # =============================================================================
 # Provides shorthand commands for common development tasks.
 # Run `make help` to see all available commands.
@@ -17,7 +17,7 @@ RESET  := \033[0m
 
 .PHONY: help
 help: ## Show this help message
-	@echo "$(GREEN)Govstack — available commands$(RESET)"
+	@echo "$(GREEN)CivicOS — available commands$(RESET)"
 	@echo ""
 	@awk 'BEGIN {FS = ":.*##"; printf "%-20s %s\n", "Command", "Description"} \
 	      /^[a-zA-Z_-]+:.*?##/ { printf "  $(YELLOW)%-18s$(RESET) %s\n", $$1, $$2 }' $(MAKEFILE_LIST)

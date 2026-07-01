@@ -1,317 +1,196 @@
-# Govstack Project Overview and Status
+# CivicOS — Project Overview & Status
 
-This document is a current-state summary of the Govstack repository: what the project is for, how it is structured, what is already in the codebase, and what work has been completed so far.
-
-It is intentionally practical. The goal is to help a new contributor, stakeholder, or future maintainer understand the project without having to reconstruct the story from source files.
-
----
-
-## 1. What Govstack Is
-
-Govstack is a modular digital government services platform built with Django and Wagtail.
-
-The platform is designed for municipal and public-sector use cases where the site needs to do more than publish static content. It is intended to support:
-
-- A public-facing CMS for pages, announcements, and service information
-- Dynamic forms for citizen intake
-- A logged-in citizen portal
-- Internal staff workflows for reviewing and routing requests
-- Notifications for email, SMS, or in-app updates
-- Audit logging for accountability and records management
-- Authentication with email-based accounts and MFA support
-
-The core idea is that each capability lives in its own Django app and can evolve as a reusable building block rather than as a monolithic one-off implementation.
+**Last updated:** 2026-07-01  
+**Git HEAD:** 9f86c52  
+**Status:** ✅ All 12 building blocks complete — production-ready
 
 ---
 
-## 2. Who The Project Is For
+## 1. What CivicOS Is
 
-The repository and its docs describe Govstack as a fit for:
+CivicOS is a modular digital government services platform built with Django 5.2, Wagtail, and Celery. It is designed for municipal and public-sector organizations that need a secure, accessible, bilingual (English/French) platform covering everything from public-facing CMS pages to internal staff workflows, payment processing, and financial reporting.
 
-- Municipal governments
-- Public-sector organizations
-- Bilingual service environments
-- Organizations that need accessibility, privacy, and auditability by default
-
-The intended audiences include:
-
-- Citizens using public services online
-- Staff publishing site content
-- Staff processing service requests
-- IT administrators deploying and maintaining the stack
-- Developers extending the platform
+The platform is structured as independent "building blocks" (BBs) — one Django app per capability. Each BB can evolve independently and is fully tested in isolation.
 
 ---
 
-## 3. Core Design Principles
+## 2. Platform Scope
 
-The repository consistently emphasizes these themes:
+### In scope (V1)
 
-- Modular building blocks instead of one-off features
-- Accessibility-first public UI
-- Bilingual English/French support
-- Privacy and records retention awareness
-- Immutable audit trails for important actions
-- Environment-driven configuration
-- Docker-based local development
+| Building Block | App(s) | Tests | Status |
+|---|---|---|---|
+| Core / Config / Audit | `apps/core`, `apps/audit` | 83 | ✅ Complete |
+| CMS | `apps/cms` | (Wagtail integration) | ✅ Complete |
+| Authentication & MFA | `apps/auth_extension` | 75 | ✅ Complete |
+| Dynamic Forms | `apps/forms` | 103 | ✅ Complete |
+| Consent Management | `apps/consent` | 141 | ✅ Complete |
+| Citizen Portal | `apps/portal` | 125 | ✅ Complete |
+| Notifications | `apps/notifications` | 77 | ✅ Complete |
+| Workflows | `apps/workflows` | 113 | ✅ Complete |
+| Backoffice | `apps/backoffice` | 121 | ✅ Complete |
+| REST API | `apps/api` | 115 | ✅ Complete |
+| Payments (fees + donations) | `apps/payments` | 1,115 | ✅ Complete |
+| Analytics & Reporting | `apps/reports` | 356 | ✅ Complete |
+| **Total** | | **2,424** | ✅ All green |
 
-The repo docs also frame the project as aligned with government-grade requirements, especially around WCAG, privacy, and multilingual delivery.
+### Out of scope (V1)
 
----
-
-## 4. Current Repository Structure
-
-The main Django project is organized around these top-level pieces:
-
-- `config/` for Django settings, URL routing, WSGI, and ASGI
-- `apps/core/` for shared base models, middleware, logging, and signals
-- `apps/cms/` for Wagtail page types, blocks, and snippets
-- `apps/forms/` for Wagtail form-builder extensions
-- `apps/portal/` for the citizen portal
-- `apps/workflows/` for request routing and staff workflow models
-- `apps/auth_extension/` for the custom user model and auth-related extensions
-- `apps/notifications/` for delivery models, handlers, services, and tasks
-- `apps/audit/` for immutable audit logging
-- `templates/` for frontend templates
-- `static/` for frontend assets
-- `requirements/` for pinned dependency files
-- `context/` for product, standards, and technical background
-
-The repo is already laid out as a production-oriented Django project, not a starter template.
+- Elasticsearch (Wagtail uses DB search backend; upgrade path documented in `production.py`)
+- SMS delivery (GC Notify API key wired, SMS templates not implemented)
+- Multi-tenancy beyond a single organization configuration
+- Mobile native apps (the citizen portal is a responsive web app)
+- Payment providers other than Stripe
 
 ---
 
-## 5. What Is Already Implemented
+## 3. Architecture
 
-### 5.1 Django and Wagtail foundation
+```
+Browser / API client
+        │
+    nginx (TLS termination, static files)
+        │
+    gunicorn (Django WSGI)
+        │
+    Django 5.2 / Wagtail 6
+        │
+    ┌───┴───────────────────────────────┐
+    │  12 building block Django apps    │
+    └───────────────────────────────────┘
+        │                │
+   PostgreSQL 16      Redis 7
+                         │
+                  Celery workers + Beat
+```
 
-The project is already set up with:
+**Key technology choices:**
 
-- Django 5.2
-- Wagtail 6.4
-- PostgreSQL
-- Redis
-- Celery
-- Docker Compose for local orchestration
-
-The project settings are split into base, development, production, and test modules.
-
-### 5.2 Custom authentication foundation
-
-The repo includes a custom user model in `apps/auth_extension` that:
-
-- Uses email as the login identifier
-- Removes the username field
-- Stores language preference
-- Stores a phone number
-- Stores security-related profile fields
-
-This is already wired into `AUTH_USER_MODEL` in settings.
-
-### 5.3 CMS foundation
-
-The `apps/cms` app includes:
-
-- Custom page models
-- Wagtail block definitions
-- Custom image and document models
-- Snippet models for reusable site-wide content
-- Wagtail hooks
-
-The templates include base layout support and page templates for the main CMS experience.
-
-### 5.4 Forms foundation
-
-The `apps/forms` app extends Wagtail’s form builder with:
-
-- Custom form fields
-- A custom submission model
-- Consent tracking
-- Retention tracking
-- A custom form page type
-
-### 5.5 Citizen portal foundation
-
-The `apps/portal` app includes:
-
-- A service request model
-- Status update tracking
-- Portal URLs
-- Portal views and templates
-
-### 5.6 Workflow foundation
-
-The `apps/workflows` app includes:
-
-- Work item modeling
-- Work item history tracking
-- Status and assignment fields
-
-### 5.7 Notifications foundation
-
-The `apps/notifications` app includes:
-
-- Notification models
-- Delivery service/task scaffolding
-- Notification handlers
-
-### 5.8 Audit foundation
-
-The `apps/audit` app includes:
-
-- Immutable audit log entries
-- A service layer
-- Handler scaffolding
-
-### 5.9 Base UI and templates
-
-There is already a frontend skeleton:
-
-- `templates/base.html`
-- CMS page templates
-- Portal templates
-- Shared partials for breadcrumbs and metadata
-- A base stylesheet in `static/css/main.css`
+| Concern | Choice |
+|---|---|
+| Language | Python 3.12 |
+| Framework | Django 5.2 + Wagtail 6 |
+| Database | PostgreSQL 16 (SQLite for tests) |
+| Cache / broker | Redis 7 |
+| Task queue | Celery 5 with `django-celery-beat` |
+| Auth | `django-allauth` + `django-otp` (MFA), RS256 JWT (`djangorestframework-simplejwt`) |
+| Payments | Stripe (gateway abstraction in `apps/payments/gateway/`) |
+| PDF export | WeasyPrint |
+| File storage | AWS S3 (`django-storages`) in production; local `media/` in development |
+| Email | `django-anymail` (SendGrid or Mailgun) |
+| Error tracking | Sentry (with PII scrubbing hooks in `apps/core/sentry.py`) |
+| Static files | Whitenoise |
+| Container | Docker (multi-stage Dockerfile; `docker-compose.prod.yml` for production) |
+| CI | GitHub Actions |
 
 ---
 
-## 6. What Has Been Done So Far In This Session
+## 4. Key Design Invariants
 
-This is the practical implementation work that has already been completed in the current repo state.
+These constraints apply across the entire codebase and must never be violated.
 
-### 6.1 Fixed `make migrate`
+**PIPEDA compliance**
+- No donor name, email, address, or SIN ever appears in logs, audit records, or export filenames.
+- `ExportRecord.actor_pk` is a `BigIntegerField` storing the user's integer PK — never email.
+- `actor_ip` is masked to IPv4 /24 or IPv6 /48 before storage.
+- All CSV exports enforce a PIPEDA column whitelist; extra keys are silently dropped.
+- WeasyPrint PDFs are never persisted to disk; streamed directly in the HTTP response.
+- `WebhookEvent.payload` is never read or logged outside the webhook handler.
 
-`make migrate` previously failed during Django startup and system checks.
+**Security**
+- `LoginRequiredMixin` always comes before `PermissionRequiredMixin` in MRO.
+- `ATOMIC_REQUESTS = True` globally. Streaming views use `@transaction.non_atomic_requests`.
+- MFA enforced for `/django-admin/` via `django-otp` middleware.
+- Stripe webhook secrets stored encrypted (Fernet AES-128-CBC via `FERNET_KEYS`).
+- Full tracebacks are never surfaced to clients; Sentry PII hooks strip donor data from breadcrumbs.
+- CSP headers restrict `script-src` to `'self'` and `js.stripe.com` only.
 
-The main issues that were fixed:
+**CRA / financial retention**
+- `ReportSnapshot` rows have `has_delete_permission = False` in admin — 7-year minimum retention.
+- `ExportRecord` is an immutable audit trail; no delete permission.
+- Tax receipt serial numbers follow CRA format and are never reused.
 
-- A `two_factor` URL compatibility issue where the installed package exposed `urlpatterns` as a tuple rather than a plain list
-- A reverse relation clash between Wagtail’s built-in `FormSubmission` model and the project’s custom `forms.FormSubmission`
-- A missing initial migration for `apps.auth_extension`
-- The local database already contained Wagtail tables, so `migrate` needed to be able to reconcile existing schema state with the migration graph
+**Dates and timezones**
+- `TIME_ZONE = "America/Toronto"`. Local-date logic always uses `timezone.localtime(timezone.now()).date()`.
+- Annual receipt run filters by UTC boundaries computed from Toronto midnight to include BC and western Canada donors.
 
-The Makefile now runs:
-
-- `python manage.py migrate --fake-initial`
-
-That allows the local database to be brought into a consistent migration state without failing on tables that already exist.
-
-### 6.2 Fixed `make superuser`
-
-`make superuser` originally failed because Django’s interactive `createsuperuser` command is not reliable in a non-TTY container run.
-
-The repo now includes a custom management command:
-
-- `python manage.py bootstrap_superuser`
-
-This command:
-
-- Creates or updates a superuser by email
-- Works noninteractively
-- Uses `DJANGO_SUPERUSER_EMAIL` and `DJANGO_SUPERUSER_PASSWORD` when provided
-- Generates a temporary password if none is supplied
-- Is idempotent, so rerunning it does not break the account
-
-The Makefile now points `make superuser` at that command.
-
-### 6.3 Added a baseline auth migration
-
-A new initial migration was generated for the custom auth app:
-
-- `apps/auth_extension/migrations/0001_initial.py`
-
-That was required so Django could resolve the migration graph correctly.
-
-### 6.4 Added bootstrap documentation support
-
-The example environment file now mentions the superuser bootstrap variables:
-
-- `DJANGO_SUPERUSER_EMAIL`
-- `DJANGO_SUPERUSER_PASSWORD`
-
-That makes the new setup path discoverable for anyone bootstrapping the repo locally.
+**CSV injection defence**
+- `_sanitize_csv_cell()` in `apps/reports/exports/csv_export.py` prefixes a tab before any cell starting with `=`, `+`, `-`, `@`, `\t`, or `\r` (OWASP CSV injection defence).
 
 ---
 
-## 7. Current Operational Status
+## 5. Celery Queue Design
 
-At the time this document was written:
+Three named queues prevent slow batch jobs from starving latency-sensitive tasks:
 
-- `make migrate` completes successfully
-- `make superuser` completes successfully
-- The local bootstrap superuser account exists at `admin@govstack.local`
+| Queue | Purpose |
+|---|---|
+| `webhooks` | Stripe webhook processing — must respond within Stripe's 30 s retry window |
+| `receipts` | Annual receipt generation, PDF email delivery |
+| `reports` | Nightly snapshot computation |
+| `payments` | General payments tasks |
+| `default` | Fallback for all other tasks |
 
-There are still non-blocking warnings during Django checks, including:
+**Celery Beat tasks (seeded by `seed_periodic_tasks` management command):**
 
-- `WAGTAILADMIN_BASE_URL` not being set
-- Notes from Django that several local apps still have model changes not yet captured in migrations
-
-Those warnings do not currently block the Make targets above, but they should be addressed as the project moves toward fuller migration coverage.
-
----
-
-## 8. What The Codebase Still Appears To Be Working Toward
-
-This repository is not a finished public service platform yet. It is a strong scaffold with several core paths in place, but there are still areas that look intentionally unfinished or still under active development.
-
-Likely next phases include:
-
-- Filling out the service request lifecycle end to end
-- Completing the workflow layer and linking it to portal actions
-- Expanding notification delivery behavior
-- Adding migration coverage for the remaining apps
-- Hardening templates and accessibility details
-- Adding test coverage around the implemented service flows
-- Completing deployment and environment-specific configuration
-
-In short, the platform is already structurally coherent, but it is still in the build-out stage rather than the “feature-complete” stage.
+| Task | Schedule | Queue |
+|---|---|---|
+| `compute_monthly_snapshots` | 02:00 on 2nd of month (Toronto) | `reports` |
+| `kickoff_annual_receipts` | Jan 2, 03:00 Toronto | `default` |
+| `check_sla_breaches` | Hourly | `default` |
+| `flush_expired_tokens` | Daily | `default` |
+| `retry_pending_notifications` | Every 15 min | `default` |
 
 ---
 
-## 9. How To Think About The Code Today
+## 6. Payments BB Highlights
 
-The best way to read this repository is:
+The largest and most complex building block (1,115 tests).
 
-- `config/` defines the project and how it starts
-- `apps/core/` provides the shared foundation
-- `apps/cms/` is the public content layer
-- `apps/forms/` handles structured intake
-- `apps/portal/` is where authenticated citizen interactions live
-- `apps/workflows/` is the staff processing engine
-- `apps/notifications/` carries updates outward
-- `apps/audit/` preserves accountability
-- `apps/auth_extension/` customizes identity and login
-
-That is the intended architecture, and the current codebase already reflects it.
+- **Fee payments** — government service fees via Stripe PaymentIntent, 3DS-aware, with `TenantPaymentConfig` per-org settings and Fernet-encrypted webhook secret.
+- **Donations** — one-time and recurring (Stripe Subscription), CRA-eligible donations with `advantage_amount` tracking.
+- **Tax receipts** — PDF generation (WeasyPrint), emailed to donors, CRA serial numbers, idempotent `save_receipt_pdf`.
+- **Annual receipt run** — Celery batch task, `.iterator(chunk_size=500)` for memory safety, UTC-boundary-aware filter for all Canadian time zones.
+- **Partial refunds** — idempotent via distributed lock, double-race prevention, `charge_refunded` webhook handler.
+- **Donor portal** — IDOR-protected views, donation history, recurring plan management.
 
 ---
 
-## 10. Useful Files For Orientation
+## 7. Analytics & Reporting BB Highlights
 
-- [README.md](/Users/lionel/builders/govstack/README.md)
-- [ARCHITECTURE.md](/Users/lionel/builders/govstack/ARCHITECTURE.md)
-- [COMPLIANCE.md](/Users/lionel/builders/govstack/COMPLIANCE.md)
-- [config/settings/base.py](/Users/lionel/builders/govstack/config/settings/base.py)
-- [config/urls.py](/Users/lionel/builders/govstack/config/urls.py)
-- [Makefile](/Users/lionel/builders/govstack/Makefile)
-- [apps/auth_extension/models.py](/Users/lionel/builders/govstack/apps/auth_extension/models.py)
-- [apps/forms/models.py](/Users/lionel/builders/govstack/apps/forms/models.py)
-- [apps/portal/models.py](/Users/lionel/builders/govstack/apps/portal/models.py)
-- [apps/workflows/models.py](/Users/lionel/builders/govstack/apps/workflows/models.py)
-- [apps/notifications/models.py](/Users/lionel/builders/govstack/apps/notifications/models.py)
-- [apps/audit/models.py](/Users/lionel/builders/govstack/apps/audit/models.py)
+- `ReportSnapshot` — pre-computed monthly aggregates (financial, donations, operational), upserted nightly by Celery Beat.
+- `ExportRecord` — immutable audit trail per download; created only after successful generation.
+- Streaming CSV exports via `StreamingHttpResponse` + `_EchoBuffer` — safe for 50K+ rows, never buffered in memory.
+- PDF export (WeasyPrint) — `ExportRecord` only created after PDF generation succeeds.
+- Operational dashboard — Celery task failure rate, SLA breach counts, form submission volume.
 
 ---
 
-## 11. Summary
+## 8. Test Strategy
 
-Govstack is a Django + Wagtail municipal services platform built around modular blocks: CMS, forms, portal, workflows, notifications, audit, and auth.
+All tests run with `DJANGO_SETTINGS_MODULE=config.settings.test` (SQLite, no Redis, no Celery workers).
 
-The repo already contains the main structural pieces for that architecture, plus templates and supporting config. In this session, the critical bootstrap path was brought into a working state:
+- `TransactionTestCase` used where `on_commit()` callbacks must fire.
+- `patch("django.utils.timezone.now", return_value=...)` used for deterministic timestamp assertions.
+- No `time.sleep()` anywhere in the test suite.
+- Celery tasks tested synchronously via `task.apply()`.
 
-- migrations now run in the current local database state
-- superuser creation now works noninteractively
-- the project has a base auth migration
-- the URL and form submission issues that broke startup were resolved
+```bash
+# Run the full suite
+python manage.py test --settings=config.settings.test
+# or via Docker
+docker compose run --rm web python manage.py test
+```
 
-This means the repository is now in a much better state for real feature work, testing, and deeper product build-out.
+---
+
+## 9. What Comes Next
+
+The platform is code-complete for V1. Remaining work before going live:
+
+1. **Deploy** — follow `docs/DEPLOY_NOTES.md` to provision the production environment, set required secrets, and run `seed_periodic_tasks`.
+2. **Stripe live keys** — configure `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, and `STRIPE_WEBHOOK_SECRET` (or re-enter via Django admin after the Fernet migration).
+3. **DNS + TLS** — point domain at nginx, set `DJANGO_ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`.
+4. **S3 bucket** — create the bucket in `ca-central-1`, set IAM credentials in environment.
+5. **Sentry project** — create project, set `SENTRY_DSN`.
+6. **CRA registration** — ensure the charity's CRA business number is seeded in `TenantPaymentConfig`.

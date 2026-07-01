@@ -9,7 +9,7 @@ Security invariants:
 - Citizens only ever see/cancel their own service requests (IDOR guard).
 - Non-owner lookups return 404, not 403, to prevent reference-number enumeration.
 - Unauthenticated requests return 401.
-- Error responses always use the govstack error envelope:
+- Error responses always use the civicos error envelope:
   {"error": {"code": ..., "detail": ..., "status": ...}}
 """
 
@@ -441,7 +441,7 @@ class CancelServiceRequestTests(TestCase):
 
     def test_cancel_already_approved_request_returns_400_with_envelope(self):
         # A terminal (approved) request cannot be cancelled.
-        # The error response must use the govstack error envelope.
+        # The error response must use the civicos error envelope.
         self.sr.status = ServiceRequestStatus.APPROVED
         self.sr.save(update_fields=["status"])
 
@@ -519,7 +519,7 @@ class CancelServiceRequestTests(TestCase):
 
 class ErrorEnvelopeTests(TestCase):
     """
-    Verifies the govstack error envelope shape on representative error responses.
+    Verifies the civicos error envelope shape on representative error responses.
 
     All error responses from the API must follow:
     {"error": {"code": str, "detail": str|dict, "status": int}}
@@ -530,7 +530,7 @@ class ErrorEnvelopeTests(TestCase):
         self.citizen = _make_citizen()
 
     def test_401_response_has_error_envelope(self):
-        # Unauthenticated access must use the govstack error envelope format.
+        # Unauthenticated access must use the civicos error envelope format.
         resp = self.client.get(LIST_URL)
 
         self.assertEqual(resp.status_code, 401)
@@ -543,7 +543,7 @@ class ErrorEnvelopeTests(TestCase):
         self.assertEqual(error["code"], "unauthorized")
 
     def test_400_validation_error_has_error_envelope(self):
-        # Validation errors on POST must use the govstack envelope.
+        # Validation errors on POST must use the civicos envelope.
         resp = self.client.post(
             LIST_URL,
             {"submission_data": {}},  # missing service_name
@@ -560,7 +560,7 @@ class ErrorEnvelopeTests(TestCase):
         self.assertEqual(error["status"], 400)
 
     def test_404_response_has_error_envelope(self):
-        # A missing reference number must return the govstack error envelope.
+        # A missing reference number must return the civicos error envelope.
         resp = self.client.get(
             _detail_url("GS-0000-XXXXXX"),
             **_bearer(self.client, self.citizen),

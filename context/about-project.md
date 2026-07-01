@@ -2,7 +2,7 @@
 
 ## What We Are Building
 
-Govstack is a **modular digital government services platform** — a production-grade, open-source foundation that enables municipalities and public sector organizations to deliver citizen-facing digital services.
+CivicOS is a **modular digital government services platform** — a production-grade, open-source foundation that enables municipalities and public sector organizations to deliver citizen-facing digital services.
 
 At its core it is a Django + Wagtail application structured as a set of composable "building blocks". Each block is a Django app with a well-defined scope: content management, dynamic forms, citizen portal, workflow routing, audit logging. Blocks can be deployed individually or assembled into a full platform.
 
@@ -44,21 +44,21 @@ Karim receives service requests assigned to him, reviews attachments, adds notes
 
 3. **Off-the-shelf SaaS is too expensive or too generic.** Platforms like Salesforce Government Cloud or ServiceNow are priced for large governments and require expensive implementation partners.
 
-4. **Custom builds don't share learnings.** Every municipality rebuilds the same things (forms, portals, workflows) from scratch. Govstack gives them a shared foundation to build on.
+4. **Custom builds don't share learnings.** Every municipality rebuilds the same things (forms, portals, workflows) from scratch. CivicOS gives them a shared foundation to build on.
 
-5. **Compliance is treated as an afterthought.** Accessibility, bilingual support, privacy, and audit logging are hard to retrofit. Govstack bakes them in.
+5. **Compliance is treated as an afterthought.** Accessibility, bilingual support, privacy, and audit logging are hard to retrofit. CivicOS bakes them in.
 
 ---
 
 ## Long-Term Vision
 
-Govstack becomes the **go-to open-source platform for Canadian municipal digital services** — with a library of pre-built, reusable building blocks (permit applications, council agendas, public consultations, service request tracking) that municipalities can install like plugins.
+CivicOS becomes the **go-to open-source platform for Canadian municipal digital services** — with a library of pre-built, reusable building blocks (permit applications, council agendas, public consultations, service request tracking) that municipalities can install like plugins.
 
 Over time we want to:
 - Build a **marketplace of civic building blocks** — vetted, compliant, drop-in modules for common municipal use cases
 - Establish a **shared components library** so municipalities can contribute and benefit from each other's work
-- Align with the **GovStack global initiative** to enable knowledge transfer across jurisdictions
-- Support **multi-tenancy** so a regional shared-services organization can run one Govstack instance for multiple municipalities
+- Align with the **CivicOS global initiative** to enable knowledge transfer across jurisdictions
+- Support **multi-tenancy** so a regional shared-services organization can run one CivicOS instance for multiple municipalities
 
 ---
 

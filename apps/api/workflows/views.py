@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from apps.api.authentication import GovstackTokenAuthentication
+from apps.api.authentication import CivicOSTokenAuthentication
 from apps.api.pagination import StandardPagination
 from apps.api.permissions import IsStaff
 from apps.api.throttling import StaffRateThrottle
@@ -47,7 +47,7 @@ from apps.workflows.services import (
 logger = logging.getLogger(__name__)
 
 # Shared constants — avoids repeating the same lists on every class.
-_AUTH = [GovstackTokenAuthentication, JWTAuthentication]
+_AUTH = [CivicOSTokenAuthentication, JWTAuthentication]
 _STAFF_PERMS = [IsStaff]
 _STAFF_THROTTLE = [StaffRateThrottle]
 
@@ -154,7 +154,7 @@ class _WorkItemActionView(APIView):
 
     def _service_error(self, exc: Exception) -> Response:
         """
-        Translate service-layer exceptions to HTTP responses using the govstack
+        Translate service-layer exceptions to HTTP responses using the civicos
         error envelope so all API error shapes are consistent.
         """
         if isinstance(exc, PermissionError):

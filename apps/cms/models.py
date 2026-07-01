@@ -1,5 +1,5 @@
 """
-CMS page models and media models for Govstack.
+CMS page models and media models for CivicOS.
 
 Page hierarchy:
   RootPage (Wagtail root)
@@ -149,7 +149,7 @@ class NavigationMenu(models.Model):
 
 class HomePage(Page):
     """
-    The root content page for a Govstack site.
+    The root content page for a CivicOS site.
 
     One HomePage per locale (EN/FR) sits directly below the Wagtail root.
     The hero section is always visible; the body stream is optional.

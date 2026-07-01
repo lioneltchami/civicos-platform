@@ -1,6 +1,6 @@
 """
 Donor portal views — Wave 5.
-GovStack Payments Building Block — Canadian charitable donation system.
+CivicOS Payments Building Block — Canadian charitable donation system.
 
 Provides authenticated donors with:
   - Dashboard summary of giving history

@@ -1,6 +1,6 @@
 # Government & Accessibility Standards
 
-This document details the specific standards, laws, and guidelines that govern how Govstack must be built for Canadian municipal and public sector clients.
+This document details the specific standards, laws, and guidelines that govern how CivicOS must be built for Canadian municipal and public sector clients.
 
 ---
 
@@ -36,7 +36,7 @@ Key success criteria we must satisfy (non-exhaustive):
 | 4.1.3 Status Messages | AA | Status messages can be determined programmatically |
 
 ### AODA (Ontario)
-The *Accessibility for Ontarians with Disabilities Act* (AODA) requires WCAG 2.0 Level AA compliance for public sector organizations. Govstack targets WCAG 2.1 AA, which is a superset of this requirement.
+The *Accessibility for Ontarians with Disabilities Act* (AODA) requires WCAG 2.0 Level AA compliance for public sector organizations. CivicOS targets WCAG 2.1 AA, which is a superset of this requirement.
 
 ### Accessible Canada Act
 Federal legislation requiring the identification and removal of barriers to accessibility. For digital services, this means WCAG 2.1 AA compliance and ongoing accessibility monitoring.
@@ -84,7 +84,7 @@ Governs how Ontario municipalities collect, use, and disclose personal informati
 ### Official Languages Act (Federal)
 Requires federal institutions to communicate with the public in both English and French. While municipalities are not federally subject, francophone municipalities and those in bilingual regions (e.g., eastern Ontario, New Brunswick) have equivalent requirements under provincial law.
 
-### Implementation Requirements for Govstack
+### Implementation Requirements for CivicOS
 - All UI strings: translated via Django i18n (`gettext_lazy`)
 - All page content: managed as separate EN/FR Wagtail page trees
 - All email templates: available in both languages; language selected by recipient preference
@@ -108,7 +108,7 @@ Municipal records are subject to retention schedules set by the municipality and
 | Audit logs | 7 years minimum |
 | Security logs | 1–2 years |
 
-Govstack must allow per-deployment configuration of retention periods and must enforce automated expiry.
+CivicOS must allow per-deployment configuration of retention periods and must enforce automated expiry.
 
 ### Legal Holds
 Records subject to litigation, ATIP requests, or regulatory investigation must not be altered or destroyed. A legal hold mechanism must prevent automated purge from deleting held records.

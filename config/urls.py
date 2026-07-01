@@ -1,5 +1,5 @@
 """
-URL configuration for Govstack.
+URL configuration for CivicOS.
 
 Structure:
   /                     → Wagtail CMS (public pages)

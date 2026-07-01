@@ -1,5 +1,5 @@
 """
-Custom User model for Govstack.
+Custom User model for CivicOS.
 
 Extends Django's AbstractUser to:
 - Use email as the login identifier (no username)
@@ -16,7 +16,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 
-class GovstackUserManager(UserManager):
+class CivicOSUserManager(UserManager):
     """Custom manager that uses email as the unique identifier."""
 
     def _create_user(self, email: str, password: str | None, **extra_fields):
@@ -41,7 +41,7 @@ class GovstackUserManager(UserManager):
 
 class User(AbstractUser):
     """
-    Govstack user model.
+    CivicOS user model.
 
     Replaces username with email as the primary identifier.
     Add profile fields here rather than in a separate Profile model
@@ -99,7 +99,7 @@ class User(AbstractUser):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []  # email + password only for createsuperuser
 
-    objects = GovstackUserManager()
+    objects = CivicOSUserManager()
 
     class Meta:
         verbose_name = _("User")

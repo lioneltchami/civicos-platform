@@ -383,8 +383,8 @@ class MarkNotificationReadTests(TestCase):
 
         self.assertEqual(resp.status_code, 404)
 
-    def test_post_read_nonexistent_returns_govstack_error_envelope(self):
-        # The 404 from /read/ must use the govstack error envelope (not a flat {"detail": "Not found."}).
+    def test_post_read_nonexistent_returns_civicos_error_envelope(self):
+        # The 404 from /read/ must use the civicos error envelope (not a flat {"detail": "Not found."}).
         resp = self.client.post(
             _read_url(uuid.uuid4()),
             {},
@@ -393,7 +393,7 @@ class MarkNotificationReadTests(TestCase):
         )
 
         self.assertEqual(resp.status_code, 404)
-        self.assertIn("error", resp.data, "404 must use govstack error envelope, not flat {'detail': ...}")
+        self.assertIn("error", resp.data, "404 must use civicos error envelope, not flat {'detail': ...}")
         error = resp.data["error"]
         self.assertEqual(error["code"], "not_found")
         self.assertEqual(error["status"], 404)

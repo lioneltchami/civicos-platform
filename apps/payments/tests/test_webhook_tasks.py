@@ -1534,7 +1534,7 @@ class ChargeRefundedAlreadyRecordedTests(TestCase):
         payment = self._make_payment_with_charge(charge_id)
         staff_user = _make_user()
 
-        # Create the pre-existing Refund row (GovStack-initiated)
+        # Create the pre-existing Refund row (CivicOS-initiated)
         Refund.objects.create(
             payment=payment,
             amount=Decimal("50.00"),

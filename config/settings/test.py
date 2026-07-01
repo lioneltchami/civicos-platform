@@ -1,5 +1,5 @@
 """
-Test settings for Govstack.
+Test settings for CivicOS.
 
 Optimized for speed and isolation:
 - In-memory SQLite (fast, no real DB needed for unit tests)

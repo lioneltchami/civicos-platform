@@ -25,4 +25,4 @@ téléchargement.
 If you did not submit this request, please contact support immediately.
 Si vous n'avez pas soumis cette demande, veuillez contacter le support immédiatement.
 
-GovStack Support / Soutien GovStack
+CivicOS Support / Soutien CivicOS

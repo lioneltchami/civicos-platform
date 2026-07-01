@@ -1,5 +1,5 @@
 """
-Workflow engine models for Govstack.
+Workflow engine models for CivicOS.
 
 Provides a lightweight, configurable workflow system for routing service
 requests through staff review, approval, and resolution.

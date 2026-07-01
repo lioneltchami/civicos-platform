@@ -20,7 +20,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--email",
-            default=os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@govstack.local"),
+            default=os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@civicos.local"),
             help="Email address for the superuser.",
         )
         parser.add_argument(

@@ -1,5 +1,5 @@
 """
-Core signal definitions for Govstack.
+Core signal definitions for CivicOS.
 
 Other modules fire these signals; the audit app and notifications app listen
 to them. This decouples modules: e.g., the portal app doesn't need to import

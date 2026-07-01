@@ -1,6 +1,6 @@
 """
 URL configuration for the public donation flow.
-Wave 4, Track A — GovStack Payments Building Block.
+Wave 4, Track A — CivicOS Payments Building Block.
 
 Namespace: donate
 Mount point: /donate/ (configured in config/urls.py)

@@ -2,14 +2,14 @@
 
 **Status:** In progress  
 **Last updated:** 2026-06-30  
-**Author:** GovStack Payments team  
-**Conformance:** Custom BB — no dedicated GovStack Analytics spec exists (GovStack 2.0 treats analytics as an optional layer within the Security BB). This BB follows GovStack cross-cutting principles: audit trail, multi-tenancy, PIPEDA data minimization.
+**Author:** CivicOS Payments team  
+**Conformance:** Custom BB — no dedicated CivicOS Analytics spec exists (CivicOS 2.0 treats analytics as an optional layer within the Security BB). This BB follows CivicOS cross-cutting principles: audit trail, multi-tenancy, PIPEDA data minimization.
 
 ---
 
 ## 1. Purpose
 
-Provide finance staff, charity administrators, and municipal SRE teams with accurate, PIPEDA-compliant financial and operational reports across the GovStack Payments BB. Supports CRA T3010 annual return preparation, month-end reconciliation, campaign performance tracking, and system health monitoring.
+Provide finance staff, charity administrators, and municipal SRE teams with accurate, PIPEDA-compliant financial and operational reports across the CivicOS Payments BB. Supports CRA T3010 annual return preparation, month-end reconciliation, campaign performance tracking, and system health monitoring.
 
 ---
 
@@ -333,7 +333,7 @@ No async job queue for V1. All exports use `StreamingHttpResponse` (CSV/Excel) o
 - Allowed: PKs (UUIDs), reference numbers, serial numbers, amounts, dates, status codes
 - Every export logged to `ExportRecord` (actor_pk, export_type, period, row_count, actor_ip)
 - No server-side file storage — response is streamed directly
-- Filename never contains PII: `govstack-reconciliation-2025-03.csv`, not `john-smith-2025.csv`
+- Filename never contains PII: `civicos-reconciliation-2025-03.csv`, not `john-smith-2025.csv`
 
 ### CSV/Excel (StreamingHttpResponse)
 

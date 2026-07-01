@@ -1,5 +1,5 @@
 """
-Base settings for Govstack.
+Base settings for CivicOS.
 
 All settings shared across development, production, and test environments.
 Environment-specific overrides live in development.py, production.py, test.py.
@@ -17,10 +17,10 @@ import environ
 # Path helpers
 # ---------------------------------------------------------------------------
 
-# Repo root: govstack/
+# Repo root: civicos/
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Django project root: govstack/ (same as repo root in this layout)
+# Django project root: civicos/ (same as repo root in this layout)
 APPS_DIR = ROOT_DIR / "apps"
 
 env = environ.Env()
@@ -167,7 +167,7 @@ ASGI_APPLICATION = "config.asgi.application"
 DATABASES = {
     "default": env.db(
         "DATABASE_URL",
-        default="postgres://govstack:govstack@localhost:5432/govstack",
+        default="postgres://civicos:civicos@localhost:5432/civicos",
     )
 }
 DATABASES["default"]["ATOMIC_REQUESTS"] = True  # Wrap every request in a transaction
@@ -242,14 +242,14 @@ ACCOUNT_RATE_LIMITS = {
     "login_failed": "5/5m",  # 5 attempts per 5 minutes
 }
 
-ACCOUNT_ADAPTER = "apps.auth_extension.adapters.GovstackAccountAdapter"
+ACCOUNT_ADAPTER = "apps.auth_extension.adapters.CivicOSAccountAdapter"
 ACCOUNT_SIGNUP_FORM_CLASS = "apps.auth_extension.forms.CitizenSignupForm"
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 3
 ACCOUNT_MAX_EMAIL_ADDRESSES = 1
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_LOGOUT_ON_PASSWORD_CHANGE = True
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = "https"
-SOCIALACCOUNT_ADAPTER = "apps.auth_extension.adapters.GovstackSocialAccountAdapter"
+SOCIALACCOUNT_ADAPTER = "apps.auth_extension.adapters.CivicOSSocialAccountAdapter"
 
 LOGIN_URL = "two_factor:login"
 LOGIN_REDIRECT_URL = "/"
@@ -304,9 +304,9 @@ STORAGES = {
 # Email
 # ---------------------------------------------------------------------------
 
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@govstack.ca")
-SERVER_EMAIL = env("SERVER_EMAIL", default="errors@govstack.ca")
-EMAIL_SUBJECT_PREFIX = "[Govstack] "
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@civicos.ca")
+SERVER_EMAIL = env("SERVER_EMAIL", default="errors@civicos.ca")
+EMAIL_SUBJECT_PREFIX = "[CivicOS] "
 
 # Admins receive 500 error emails via AdminEmailHandler (requires LOGGING config)
 # Format: comma-separated "Name:email@example.ca" pairs
@@ -349,7 +349,7 @@ CELERY_TASK_TIME_LIMIT = 360        # 6 min — worker SIGKILL after this
 # Wagtail
 # ---------------------------------------------------------------------------
 
-WAGTAIL_SITE_NAME = env("WAGTAIL_SITE_NAME", default="Govstack")
+WAGTAIL_SITE_NAME = env("WAGTAIL_SITE_NAME", default="CivicOS")
 WAGTAILADMIN_BASE_URL = env("WAGTAILADMIN_BASE_URL", default="http://localhost:8000")  # Override to https:// in production env
 
 WAGTAILIMAGES_IMAGE_MODEL = "cms.CustomImage"
@@ -438,10 +438,10 @@ LOGGING = {
 }
 
 # ---------------------------------------------------------------------------
-# Govstack-specific settings
+# CivicOS-specific settings
 # ---------------------------------------------------------------------------
 
-GOVSTACK = {
+CIVICOS = {
     # Minimum retention period in days for audit logs
     "AUDIT_LOG_RETENTION_DAYS": env.int("AUDIT_LOG_RETENTION_DAYS", default=2555),  # 7 years
     # Maximum file upload size in bytes (default 10 MB)
@@ -468,7 +468,7 @@ GOVSTACK = {
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "apps.api.authentication.GovstackTokenAuthentication",
+        "apps.api.authentication.CivicOSTokenAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
@@ -492,7 +492,7 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "EXCEPTION_HANDLER": "apps.api.exceptions.govstack_exception_handler",
+    "EXCEPTION_HANDLER": "apps.api.exceptions.civicos_exception_handler",
     # NOTE: do NOT set UNAUTHENTICATED_USER: None — doing so causes DRF to raise
     # PermissionDenied (403) for unauthenticated requests instead of NotAuthenticated
     # (401), breaking RFC 7235 / government API contracts.  The default AnonymousUser
@@ -541,7 +541,7 @@ CONSENT_CURRENT_VERSION = "1.0"
 # ---------------------------------------------------------------------------
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Govstack API",
+    "TITLE": "CivicOS API",
     "DESCRIPTION": (
         "Government service delivery platform REST API. "
         "All endpoints require Bearer token authentication unless stated otherwise."

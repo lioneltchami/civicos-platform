@@ -1,5 +1,5 @@
 """
-Wagtail StreamField blocks for the Govstack CMS.
+Wagtail StreamField blocks for the CivicOS CMS.
 
 All blocks are accessibility-first:
 - RichText blocks restrict formatting to a safe subset

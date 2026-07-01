@@ -23,7 +23,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from apps.api.authentication import GovstackTokenAuthentication
+from apps.api.authentication import CivicOSTokenAuthentication
 from apps.api.notifications.serializers import MarkReadSerializer, NotificationSerializer
 from apps.api.pagination import StandardPagination
 from apps.api.throttling import CitizenRateThrottle
@@ -32,7 +32,7 @@ from apps.notifications.models import Notification, NotificationChannel
 logger = logging.getLogger(__name__)
 
 # Shared authentication stack for all notification views
-_AUTH = [GovstackTokenAuthentication, JWTAuthentication]
+_AUTH = [CivicOSTokenAuthentication, JWTAuthentication]
 
 
 class NotificationListView(generics.ListAPIView):
@@ -142,7 +142,7 @@ class MarkNotificationReadView(APIView):
                 channel=NotificationChannel.IN_APP,
             )
         except Notification.DoesNotExist:
-            # Raise Http404 so govstack_exception_handler wraps it in the standard
+            # Raise Http404 so civicos_exception_handler wraps it in the standard
             # error envelope {"error": {"code": "not_found", ...}}.
             raise Http404
 

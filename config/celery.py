@@ -1,5 +1,5 @@
 """
-Celery application configuration for Govstack.
+Celery application configuration for CivicOS.
 
 Workers are started with:
   celery -A config.celery worker -l info
@@ -26,7 +26,7 @@ from celery import Celery
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.production")
 
-app = Celery("govstack")
+app = Celery("civicos")
 
 # Read celery config from Django settings (CELERY_* keys)
 app.config_from_object("django.conf:settings", namespace="CELERY")

@@ -28,7 +28,7 @@ def send_withdrawal_confirmation_email(sender, consent_record, request=None, **k
     """
     citizen = consent_record.citizen
     category = consent_record.category
-    subject = f"Consent Withdrawn: {category.name_en} — GovStack"
+    subject = f"Consent Withdrawn: {category.name_en} — CivicOS"
     try:
         body = render_to_string(
             "email/consent/withdrawal_confirmation.txt",
@@ -60,7 +60,7 @@ def send_export_request_received_email(sender, export_request, request=None, **k
     Informs the citizen of the 30-day processing SLA.
     """
     citizen = export_request.citizen
-    subject = "Your Data Export Request — GovStack"
+    subject = "Your Data Export Request — CivicOS"
     try:
         body = render_to_string(
             "email/consent/export_request_received.txt",

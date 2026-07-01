@@ -1,5 +1,5 @@
 """
-Workflow service layer for Govstack.
+Workflow service layer for CivicOS.
 
 All WorkItem mutations pass through this module.  Views and signal
 handlers import from here; they never call model.save() directly.

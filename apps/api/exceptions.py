@@ -1,5 +1,5 @@
 """
-Custom exception handler for the Govstack API.
+Custom exception handler for the CivicOS API.
 
 Wraps all DRF errors in a consistent JSON envelope so API consumers
 always get the same shape regardless of what went wrong:
@@ -14,7 +14,7 @@ always get the same shape regardless of what went wrong:
 
 Register in settings.py:
     REST_FRAMEWORK = {
-        "EXCEPTION_HANDLER": "apps.api.exceptions.govstack_exception_handler",
+        "EXCEPTION_HANDLER": "apps.api.exceptions.civicos_exception_handler",
         ...
     }
 """
@@ -38,13 +38,13 @@ _STATUS_CODE_MAP: dict[int, str] = {
 }
 
 
-def govstack_exception_handler(exc, context):
+def civicos_exception_handler(exc, context):
     """
     DRF exception handler that normalises all error responses.
 
     Falls back to the DRF default handler first so that authentication,
     throttling, and permission classes all work as expected. Then the
-    response is reshaped into the Govstack envelope format.
+    response is reshaped into the CivicOS envelope format.
 
     Args:
         exc: The exception instance.

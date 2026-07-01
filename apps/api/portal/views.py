@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from apps.api.authentication import GovstackTokenAuthentication
+from apps.api.authentication import CivicOSTokenAuthentication
 from apps.api.pagination import StandardPagination
 from apps.api.throttling import CitizenRateThrottle
 from apps.portal.models import ServiceRequest
@@ -47,7 +47,7 @@ class ServiceRequestListCreateView(generics.ListCreateAPIView):
     (get_citizen_requests), so no additional filtering is required here.
     """
 
-    authentication_classes = [GovstackTokenAuthentication, JWTAuthentication]
+    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]
     permission_classes = [IsAuthenticated]
     pagination_class = StandardPagination
     throttle_classes = [CitizenRateThrottle]
@@ -110,7 +110,7 @@ class ServiceRequestDetailView(generics.RetrieveAPIView):
     The queryset is scoped to request.user to prevent IDOR.
     """
 
-    authentication_classes = [GovstackTokenAuthentication, JWTAuthentication]
+    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [CitizenRateThrottle]
     serializer_class = ServiceRequestDetailSerializer
@@ -142,7 +142,7 @@ class CancelServiceRequestView(APIView):
         404 — reference number not found or belongs to another citizen
     """
 
-    authentication_classes = [GovstackTokenAuthentication, JWTAuthentication]
+    authentication_classes = [CivicOSTokenAuthentication, JWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [CitizenRateThrottle]
 

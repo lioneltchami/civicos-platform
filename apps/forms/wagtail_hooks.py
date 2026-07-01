@@ -35,7 +35,7 @@ def _csv_safe(value) -> str:
     return s
 
 
-class GovstackSubmissionsListView(SubmissionsListView):
+class CivicOSSubmissionsListView(SubmissionsListView):
     """
     Extended submissions list view with:
     - CSV export

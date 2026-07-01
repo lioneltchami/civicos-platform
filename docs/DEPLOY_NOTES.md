@@ -1,47 +1,318 @@
 # Deployment Notes
 
-Pre-deploy actions that must be completed manually before or after specific migrations run.
-Check each item off as you go. Remove entries once confirmed done in production.
+Production deployment guide for CivicOS. Follow this top-to-bottom for a first deploy. Items marked **⚠️** require manual action that cannot be scripted.
 
 ---
 
-## Wave 9 — `0004_wave9_fixes` migration
+## Pre-flight: Required Secrets
 
-### ⚠️ Re-enter webhook secrets after migrating (required)
+Every item below must be set in `.env.prod` (or your secrets manager) before `docker-compose.prod.yml` will start without errors.
 
-**Why**: `TenantPaymentConfig.webhook_endpoint_secret` was changed from a plaintext
-`CharField` to a Fernet-encrypted `EncryptedCharField` (AES-128-CBC). Existing rows
-stored as plaintext cannot be decrypted by the new field — they will silently return
-an empty string until re-entered.
+### Django core
 
-**Steps (do this during the deploy window):**
-
-1. **Before `migrate`** — retrieve all current webhook secrets. Either:
-   - Django admin → TenantPaymentConfig → note the `webhook_endpoint_secret` for each row, or
-   - Stripe Dashboard → Developers → Webhooks → [your endpoint] → "Signing secret" (click Reveal)
-
-2. **Set `FERNET_KEYS`** in your production environment (`.env` / secrets manager):
-   ```bash
-   # Generate a proper Fernet key (one-time, store securely):
-   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-   # Add to environment:
-   FERNET_KEYS=<the-generated-key>
-   ```
-   > If `FERNET_KEYS` is not set, the field falls back to `SECRET_KEY`. That works but
-   > is not recommended for production — use a dedicated key.
-
-3. **Run `python manage.py migrate`** — the column changes from `VARCHAR` to `BYTEA`.
-
-4. **Re-enter each webhook secret** in Django admin → TenantPaymentConfig → save each row.
-   The field encrypts transparently on save.
-
-5. **Verify** the Stripe webhook endpoint receives and processes a test event successfully.
-
-**Key rotation (future):** Prepend the new key to `FERNET_KEYS`:
+```bash
+DJANGO_SETTINGS_MODULE=config.settings.production
+DJANGO_SECRET_KEY=<generate: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())">
+DJANGO_ALLOWED_HOSTS=yourdomain.ca,www.yourdomain.ca
+DJANGO_DEBUG=False
 ```
-FERNET_KEYS=new_key,old_key
+
+### Database
+
+```bash
+DATABASE_URL=postgres://civicos:<password>@db:5432/civicos
+POSTGRES_DB=civicos
+POSTGRES_USER=civicos
+POSTGRES_PASSWORD=<strong-password>
+CONN_MAX_AGE=60
 ```
-`MultiFernet` tries keys in order — old ciphertexts still decrypt during the transition.
-Once all rows have been re-saved under the new key, remove the old key from the list.
+
+### Redis
+
+```bash
+REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+REDIS_PASSWORD=<strong-password>
+```
+
+### JWT RS256 key pair
+
+```bash
+# Generate a 4096-bit RSA key pair (one-time):
+openssl genrsa -out jwt_private.pem 4096
+openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
+
+# Paste content with literal \n replacing actual newlines:
+JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+```
+
+### Stripe
+
+```bash
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_PUBLISHABLE_KEY=pk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...   # from Stripe Dashboard → Webhooks → Signing secret
+```
+
+### Fernet encryption (webhook secret at rest)
+
+```bash
+# Generate a Fernet key (one-time):
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+FERNET_KEYS=<the-generated-key>
+```
+
+> **Key rotation:** prepend the new key: `FERNET_KEYS=new_key,old_key`. `MultiFernet` tries keys in order. Once all rows are re-saved under the new key, remove the old one.
+
+### Email
+
+```bash
+EMAIL_BACKEND=anymail.backends.sendgrid.EmailBackend
+SENDGRID_API_KEY=SG....
+
+# Or for Mailgun:
+# EMAIL_BACKEND=anymail.backends.mailgun.EmailBackend
+# MAILGUN_API_KEY=key-...
+# MAILGUN_SENDER_DOMAIN=mg.yourdomain.ca
+
+DEFAULT_FROM_EMAIL=noreply@yourdomain.ca
+SERVER_EMAIL=errors@yourdomain.ca
+```
+
+### AWS S3 (media files)
+
+```bash
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_STORAGE_BUCKET_NAME=civicos-media-prod
+AWS_S3_REGION_NAME=ca-central-1    # required for Canadian data residency
+```
+
+### Wagtail
+
+```bash
+WAGTAIL_SITE_NAME=CivicOS
+WAGTAILADMIN_BASE_URL=https://yourdomain.ca
+```
+
+### Sentry
+
+```bash
+SENTRY_DSN=https://...@sentry.io/...
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1
+SENTRY_PROFILES_SAMPLE_RATE=0.1
+```
+
+### CSRF
+
+```bash
+CSRF_TRUSTED_ORIGINS=https://yourdomain.ca,https://www.yourdomain.ca
+```
+
+### Optional
+
+```bash
+GC_NOTIFY_API_KEY=...              # GC Notify (SMS — not yet implemented)
+AUDIT_LOG_RETENTION_DAYS=2555      # 7 years (default)
+MAX_UPLOAD_SIZE=10485760           # 10 MB (default)
+DJANGO_ADMINS=Admin:admin@yourdomain.ca
+```
 
 ---
+
+## Deploy Steps
+
+### 1. Build and start
+
+```bash
+cp .env.example .env.prod
+# Fill in all required values above, then:
+
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d
+```
+
+The `migrate` service runs automatically before `web` starts:
+
+```bash
+python manage.py migrate --noinput
+python manage.py seed_periodic_tasks
+```
+
+`seed_periodic_tasks` is idempotent — safe to re-run on every deploy.
+
+### 2. Collect static files
+
+Static files are collected during the Docker build (`RUN python manage.py collectstatic --noinput`). Served by Whitenoise from the `staticfiles/` volume. nginx serves them directly via the `static_data` volume mount.
+
+### 3. Create a superuser
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm web \
+    python manage.py createsuperuser
+```
+
+### 4. ⚠️ Register an OTP device for the superuser
+
+The Django admin (`/django-admin/`) requires MFA. After creating the superuser:
+
+1. Log in at `/account/login/`
+2. Go to `/account/two_factor/setup/` and register a TOTP app
+3. Verify the device works before closing the session
+
+Staff who access the admin must each register a TOTP device before their first admin login.
+
+### 5. Configure Wagtail site
+
+1. Go to `/django-admin/wagtailcore/site/`
+2. Set the hostname and root page to match your domain
+
+### 6. Set up Stripe webhook
+
+1. Stripe Dashboard → Developers → Webhooks → Add endpoint
+2. URL: `https://yourdomain.ca/payments/webhook/stripe/`
+3. Events to send: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `customer.subscription.deleted`, `customer.subscription.updated`
+4. Copy the **Signing secret** (`whsec_...`) → set as `STRIPE_WEBHOOK_SECRET` in `.env.prod`
+
+### 7. ⚠️ Enter webhook secret in Django admin (Wave 9 migration)
+
+`TenantPaymentConfig.webhook_endpoint_secret` is stored Fernet-encrypted. After first migrate:
+
+1. Go to `/django-admin/payments/tenantpaymentconfig/`
+2. Open each row and enter the webhook secret in the `Webhook endpoint secret` field
+3. Save — the field encrypts transparently on save
+4. Verify: send a test event from the Stripe dashboard and confirm it processes
+
+### 8. Seed tax rates
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm web \
+    python manage.py seed_tax_rates
+```
+
+---
+
+## Docker Compose Production Architecture
+
+```
+internet
+    │
+  nginx :80 → static files (Whitenoise volume)
+             → reverse proxy to gunicorn :8000
+    │
+  web (gunicorn)
+    │
+  ┌─┴────────────────────────┐
+  db (postgres:16)    redis:7  (password-protected, not exposed to host)
+  └──────────────────────────┘
+    │
+  worker (celery, concurrency=4, all queues)
+  beat   (django-celery-beat DatabaseScheduler)
+  migrate (one-shot: migrate + seed_periodic_tasks)
+```
+
+PostgreSQL and Redis ports are **not** exposed to the host in production. All inter-service communication uses the `civicos_net` bridge network.
+
+### Celery queues in production
+
+The default `docker-compose.prod.yml` runs a single `worker` service consuming all queues. For higher throughput, split into dedicated workers:
+
+```bash
+# Webhook worker — latency-sensitive
+celery -A config.celery worker -Q webhooks,default --concurrency=4 --loglevel=info
+
+# Receipt worker — slow batch tasks
+celery -A config.celery worker -Q receipts --concurrency=2 --loglevel=info
+
+# Reports worker — nightly snapshots
+celery -A config.celery worker -Q reports --concurrency=2 --loglevel=info
+```
+
+---
+
+## Celery Beat Periodic Tasks
+
+Seeded by `seed_periodic_tasks` (run automatically on deploy). Uses `DatabaseScheduler` — all schedules live in the database and can be edited in `/django-admin/django_celery_beat/`.
+
+| Task | Crontab | Queue | Purpose |
+|---|---|---|---|
+| `compute_monthly_snapshots` | 2nd of month, 02:00 Toronto | `reports` | Upsert prior-month `ReportSnapshot` rows |
+| `kickoff_annual_receipts` | Jan 2, 03:00 Toronto | `default` | Trigger annual CRA tax receipt run |
+| `check_sla_breaches` | Hourly | `default` | Flag overdue `WorkItem` rows |
+| `flush_expired_tokens` | Daily 00:00 | `default` | Purge expired JWT blacklist entries |
+| `retry_pending_notifications` | Every 15 min | `default` | Re-attempt failed notification sends |
+
+---
+
+## Health Check
+
+```
+GET /health/live/   → 200 OK  (liveness — is the process up?)
+GET /health/ready/  → 200 OK  (readiness — DB + Redis reachable?)
+```
+
+nginx upstream checks `/health/live/` every 30 s. Docker healthcheck also uses this endpoint (`curl -sf http://localhost:8000/health/live/`).
+
+---
+
+## Logging
+
+Production uses JSON-formatted logs (via `apps/core/logging.JSONFormatter`). Logs go to stdout and are collected by Docker's `json-file` driver (10 MB per file, 3–5 rotations). Ship to your log aggregator (Datadog, CloudWatch, etc.) via the Docker logging driver or a sidecar.
+
+The `apps.audit` logger is silenced at `CRITICAL` in production to prevent audit log PII from leaking into Sentry via `LoggingIntegration`. Audit data lives exclusively in `AuditLogEntry` database records.
+
+---
+
+## Sentry PII Filtering
+
+`before_send` and `before_breadcrumb` hooks in `apps/core/sentry.py` strip donor-identifying fields from all Sentry events before transmission. `send_default_pii=False` is set at SDK init. Do not change these settings.
+
+---
+
+## Migration Notes by Wave
+
+### Wave 9 — `0004_wave9_fixes`
+
+**Action required after migrate:** `TenantPaymentConfig.webhook_endpoint_secret` changed from plaintext to Fernet-encrypted. Existing rows will return an empty string on decrypt until re-saved.
+
+Steps:
+1. Before migrating: note each webhook secret from Stripe Dashboard → Webhooks → Signing secret
+2. Set `FERNET_KEYS` in environment
+3. Run `migrate`
+4. Re-enter each webhook secret in Django admin → TenantPaymentConfig → save
+5. Verify Stripe test event processes successfully
+
+---
+
+## Rollback
+
+```bash
+# Roll back to previous image tag
+docker compose -f docker-compose.prod.yml down
+# edit docker-compose.prod.yml to pin previous image tag
+docker compose -f docker-compose.prod.yml up -d
+
+# Roll back a specific migration
+docker compose -f docker-compose.prod.yml run --rm web \
+    python manage.py migrate <app> <previous_migration>
+```
+
+Stripe webhooks will queue and retry (up to Stripe's retry window) while the service is down during rollback. No events are lost for short outages (<24 h).
+
+---
+
+## Post-Deploy Verification Checklist
+
+- [ ] `/health/live/` returns 200
+- [ ] `/health/ready/` returns 200
+- [ ] `/django-admin/` login works and requires OTP
+- [ ] Wagtail CMS accessible at `/cms/`
+- [ ] Static files load (no 404s for CSS/JS)
+- [ ] Stripe test webhook event processes successfully
+- [ ] `ReportSnapshot` rows appear after the first nightly Beat run (or trigger manually: `compute_monthly_snapshots.delay()`)
+- [ ] Sentry receives a test error (use `python manage.py shell` → `raise Exception("sentry test")`)
+- [ ] An S3 media upload succeeds (upload a file via Wagtail CMS)
+- [ ] Email sends correctly (send a test notification from the backoffice)
+- [ ] MFA setup works for a new staff user

@@ -24,7 +24,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from apps.api.authentication import GovstackTokenAuthentication
+from apps.api.authentication import CivicOSTokenAuthentication
 
 from .models import DataExportRequest
 from .serializers import (
@@ -37,7 +37,7 @@ from .services import ConsentService
 
 logger = logging.getLogger(__name__)
 
-_AUTH = [GovstackTokenAuthentication, JWTAuthentication]
+_AUTH = [CivicOSTokenAuthentication, JWTAuthentication]
 
 
 class ConsentCategoryListView(ListAPIView):

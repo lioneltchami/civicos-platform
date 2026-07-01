@@ -65,7 +65,7 @@ class Migration(migrations.Migration):
                 ('consent_text_shown', models.TextField(blank=True, help_text='The exact consent text displayed to the user at time of submission.', verbose_name='Consent text shown')),
                 ('submitter_ip', models.GenericIPAddressField(blank=True, null=True, verbose_name='Submitter IP')),
                 ('expires_at', models.DateTimeField(blank=True, db_index=True, help_text='After this date, the submission will be purged per retention policy.', null=True, verbose_name='Expires at')),
-                ('page', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='govstack_form_submissions', to='forms.formpage')),
+                ('page', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='civicos_form_submissions', to='forms.formpage')),
             ],
             options={
                 'verbose_name': 'Form submission',

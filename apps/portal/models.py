@@ -1,5 +1,5 @@
 """
-Citizen portal models for Govstack.
+Citizen portal models for CivicOS.
 
 Provides authenticated self-service: submit requests, track status, receive updates.
 """
@@ -106,7 +106,7 @@ class ServiceRequest(BaseModel):
     def generate_reference_number(cls) -> str:
         """
         Generate a unique reference number in format GS-YYYY-XXXXXX.
-        GS = Govstack, YYYY = current year, XXXXXX = 6 random uppercase alphanumeric chars.
+        GS = CivicOS, YYYY = current year, XXXXXX = 6 random uppercase alphanumeric chars.
         Retries up to 10 times to avoid collision.
         Example: GS-2026-A3F9K2
         """

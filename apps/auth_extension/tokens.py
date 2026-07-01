@@ -7,7 +7,7 @@ The token is a random string stored in the Django session — no PII, no DB reco
 from __future__ import annotations
 import secrets
 
-GUEST_SESSION_KEY = "govstack_guest_token"
+GUEST_SESSION_KEY = "civicos_guest_token"
 GUEST_TOKEN_BYTES = 32
 
 

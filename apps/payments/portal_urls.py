@@ -1,6 +1,6 @@
 """
 URL configuration for the donor payments portal.
-Wave 5 — GovStack Payments Building Block.
+Wave 5 — CivicOS Payments Building Block.
 
 Namespace: donor_portal
 Mount point: /donate/portal/ (configured in config/urls.py)

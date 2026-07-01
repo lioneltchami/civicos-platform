@@ -20,4 +20,4 @@ Ce retrait a été enregistré de façon permanente conformément à la LPRPDE.
 If you did not make this change, please contact support immediately.
 Si vous n'avez pas effectué ce changement, veuillez contacter le support immédiatement.
 
-GovStack Support / Soutien GovStack
+CivicOS Support / Soutien CivicOS

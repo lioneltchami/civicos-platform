@@ -1,5 +1,5 @@
 """
-Template context processors for Govstack.
+Template context processors for CivicOS.
 """
 
 from django.conf import settings
@@ -12,7 +12,7 @@ def site_settings(request: HttpRequest) -> dict:
     Keep this lean — only values templates genuinely need everywhere.
     """
     return {
-        "SITE_NAME": getattr(settings, "WAGTAIL_SITE_NAME", "Govstack"),
+        "SITE_NAME": getattr(settings, "WAGTAIL_SITE_NAME", "CivicOS"),
         "DEBUG": settings.DEBUG,
         "LANGUAGES": settings.LANGUAGES,
         "CURRENT_LANGUAGE": getattr(request, "LANGUAGE_CODE", settings.LANGUAGE_CODE),

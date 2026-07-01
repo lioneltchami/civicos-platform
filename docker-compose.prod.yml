@@ -1,4 +1,4 @@
-# Production Docker Compose — govstack
+# Production Docker Compose — civicos
 # Usage:
 #   cp .env.example .env.prod  && fill in real values
 #   docker-compose -f docker-compose.prod.yml up -d
@@ -28,7 +28,7 @@ services:
       web:
         condition: service_healthy
     networks:
-      - govstack_net
+      - civicos_net
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -62,7 +62,7 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - govstack_net
+      - civicos_net
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
@@ -85,7 +85,7 @@ services:
       db:
         condition: service_healthy
     networks:
-      - govstack_net
+      - civicos_net
 
   # ----------------------------------------------------------------
   # Celery worker
@@ -109,7 +109,7 @@ services:
       migrate:
         condition: service_completed_successfully
     networks:
-      - govstack_net
+      - civicos_net
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -137,7 +137,7 @@ services:
       migrate:
         condition: service_completed_successfully
     networks:
-      - govstack_net
+      - civicos_net
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -157,7 +157,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - govstack_net
+      - civicos_net
     # Port NOT exposed to host in production
     logging:
       driver: json-file
@@ -182,7 +182,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - govstack_net
+      - civicos_net
     # Port NOT exposed to host in production
     logging:
       driver: json-file
@@ -195,5 +195,5 @@ volumes:
   media_data:
 
 networks:
-  govstack_net:
+  civicos_net:
     driver: bridge

@@ -1,7 +1,7 @@
 """
 Notification signal handlers.
 
-Listens to govstack signals and queues notification tasks.
+Listens to civicos signals and queues notification tasks.
 
 All handlers must catch exceptions from .delay() so that a Celery broker
 outage or serialisation failure never propagates through the signal dispatch

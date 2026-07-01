@@ -6,7 +6,7 @@ Request ID: {{ export_request.pk }}
 Processed at: {{ export_request.processed_at|date:"N j, Y" }}
 Expires at: {{ export_request.expires_at|date:"N j, Y" }}
 
-To download your data, sign in to your GovStack portal account and go to:
+To download your data, sign in to your CivicOS portal account and go to:
 Privacy & Your Data > Data Export History
 
 {% if portal_url %}Portal: {{ portal_url }}{% endif %}
@@ -17,7 +17,7 @@ The download link will expire in 7 days.
 If you did not request this export, please contact us immediately.
 
 —
-GovStack Government Services
+CivicOS Government Services
 
 ---
 
@@ -31,7 +31,7 @@ Numéro de demande : {{ export_request.pk }}
 Traitée le : {{ export_request.processed_at|date:"N j, Y" }}
 Expire le : {{ export_request.expires_at|date:"N j, Y" }}
 
-Connectez-vous à votre compte du portail GovStack pour télécharger vos données :
+Connectez-vous à votre compte du portail CivicOS pour télécharger vos données :
 Confidentialité et vos données > Historique des exportations
 
 {% if portal_url %}Portail : {{ portal_url }}{% endif %}
@@ -43,4 +43,4 @@ protection des renseignements personnels et les documents électroniques (LPRPDE
 
 Si vous n'avez pas effectué cette demande, veuillez contacter le soutien immédiatement.
 
-Support GovStack / Soutien GovStack
+Support CivicOS / Soutien CivicOS

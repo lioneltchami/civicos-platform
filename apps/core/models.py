@@ -1,5 +1,5 @@
 """
-Abstract base models for Govstack.
+Abstract base models for CivicOS.
 
 All concrete models should extend one or more of these base classes to ensure
 consistent behaviour across the platform: UUIDs, timestamps, soft deletion,
@@ -123,7 +123,7 @@ class SoftDeleteModel(models.Model):
 class BaseModel(UUIDModel, TimestampedModel):
     """
     Convenience base combining UUID primary key and timestamps.
-    Most Govstack models should extend this.
+    Most CivicOS models should extend this.
     """
 
     class Meta:

@@ -1,5 +1,5 @@
 """
-Notification models for Govstack.
+Notification models for CivicOS.
 
 Tracks outbound notifications (email, SMS, in-app) sent to citizens and staff.
 Provides delivery status tracking and a citizen-facing notification inbox.

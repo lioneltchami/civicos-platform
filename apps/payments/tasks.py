@@ -1,5 +1,5 @@
 """
-Celery tasks for the GovStack Payments BB.
+Celery tasks for the CivicOS Payments BB.
 
 Idempotency contract:
 - process_stripe_webhook checks WebhookEvent.processed before processing.
@@ -574,10 +574,10 @@ def _handle_payment_intent_failed(event_data: dict, webhook_event) -> None:
 
 def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
     """
-    Handle charge.refunded — covers both GovStack-initiated refunds (already have
+    Handle charge.refunded — covers both CivicOS-initiated refunds (already have
     a Refund row) and Stripe-dashboard-initiated refunds (no Refund row yet).
 
-    For GovStack-initiated refunds: the Refund row was created by the staff
+    For CivicOS-initiated refunds: the Refund row was created by the staff
     refund view before the gateway call, so we just confirm and audit.
 
     For Stripe-dashboard-initiated refunds: Refund.authorized_by is a required
@@ -624,7 +624,7 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
         return
 
     # Check if we already have a Refund row for this gateway_refund_id.
-    # GovStack-initiated refunds: Refund row exists → already recorded, just audit.
+    # CivicOS-initiated refunds: Refund row exists → already recorded, just audit.
     if Refund.objects.filter(gateway_refund_id=gateway_refund_id).exists():
         logger.info(
             "payments.handler.charge_refunded.already_recorded "
@@ -671,7 +671,7 @@ def _handle_charge_refunded(event_data: dict, webhook_event) -> None:
     )
     logger.warning(
         "payments.handler.charge_refunded.stripe_dashboard_refund "
-        "gateway_event_id=%s refund_id=%s — refund initiated outside GovStack; "
+        "gateway_event_id=%s refund_id=%s — refund initiated outside CivicOS; "
         "ops must create Refund row manually with authorized_by staff member",
         webhook_event.gateway_event_id,
         gateway_refund_id,

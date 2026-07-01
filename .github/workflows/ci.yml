@@ -55,8 +55,8 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: govstack_test
-          POSTGRES_USER: govstack
+          POSTGRES_DB: civicos_test
+          POSTGRES_USER: civicos
           POSTGRES_PASSWORD: ci_test_password
         ports: ["5432:5432"]
         options: >-
@@ -86,7 +86,7 @@ jobs:
         run: pip install -r requirements/test.txt
       - name: Run migrations
         env:
-          DATABASE_URL: postgres://govstack:ci_test_password@localhost:5432/govstack_test
+          DATABASE_URL: postgres://civicos:ci_test_password@localhost:5432/civicos_test
           REDIS_URL: redis://localhost:6379/1
           DJANGO_SECRET_KEY: ci-not-for-production
           GC_NOTIFY_API_KEY: ""
@@ -94,7 +94,7 @@ jobs:
         run: python manage.py migrate --noinput
       - name: Run tests
         env:
-          DATABASE_URL: postgres://govstack:ci_test_password@localhost:5432/govstack_test
+          DATABASE_URL: postgres://civicos:ci_test_password@localhost:5432/civicos_test
           REDIS_URL: redis://localhost:6379/1
           DJANGO_SECRET_KEY: ci-not-for-production
           GC_NOTIFY_API_KEY: ""

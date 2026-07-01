@@ -1,5 +1,5 @@
 """
-Custom views for Govstack citizen authentication.
+Custom views for CivicOS citizen authentication.
 
 Covers: account dashboard, profile management, MFA status,
 backup code generation, language switching, and guest sessions.

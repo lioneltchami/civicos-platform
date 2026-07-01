@@ -1,5 +1,5 @@
 """
-Top-level URL configuration for the Govstack API (v1).
+Top-level URL configuration for the CivicOS API (v1).
 
 Include this module in the project's root urls.py under the "api/v1/" prefix:
 

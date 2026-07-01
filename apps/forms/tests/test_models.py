@@ -118,7 +118,7 @@ class FormSubmissionTest(TestCase):
     def test_submission_ordering_newest_first(self):
         sub1 = make_submission(self.page, form_data={"name": "A"})
         sub2 = make_submission(self.page, form_data={"name": "B"})
-        subs = list(self.page.govstack_form_submissions.all())
+        subs = list(self.page.civicos_form_submissions.all())
         # Newest first: sub2 was created after sub1
         self.assertEqual(subs[0].pk, sub2.pk)
 
@@ -178,10 +178,10 @@ class FormSubmissionTest(TestCase):
         sub.refresh_from_db()
         self.assertEqual(sub.form_data["full_name"], "[REDACTED]")
 
-    def test_submission_related_name_govstack_form_submissions(self):
+    def test_submission_related_name_civicos_form_submissions(self):
         """Custom related_name avoids clash with Wagtail's built-in accessor."""
         sub = make_submission(self.page)
-        self.assertIn(sub, self.page.govstack_form_submissions.all())
+        self.assertIn(sub, self.page.civicos_form_submissions.all())
 
     def test_submission_deleted_with_page(self):
         """FormSubmission is CASCADE-deleted when its FormPage is deleted."""

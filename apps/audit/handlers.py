@@ -1,7 +1,7 @@
 """
 Signal handlers that write to the audit log.
 
-Connected in AuditConfig.ready(). All govstack signals from apps.core.signals
+Connected in AuditConfig.ready(). All civicos signals from apps.core.signals
 are subscribed here and converted into AuditLogEntry records.
 """
 

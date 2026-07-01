@@ -1,10 +1,10 @@
 """
-Stripe payment gateway adapter for GovStack Payments BB.
+Stripe payment gateway adapter for CivicOS Payments BB.
 
 Uses Stripe Connect Standard accounts (OQ-1 resolution).
 Stripe is always the primary gateway (Phase 1). Moneris is Phase 2.
 
-PCI DSS: Raw card numbers never touch GovStack servers. Stripe Elements
+PCI DSS: Raw card numbers never touch CivicOS servers. Stripe Elements
 tokenizes card data in a Stripe-owned iframe. This adapter receives only
 payment method tokens and PaymentIntent client_secrets.
 

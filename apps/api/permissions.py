@@ -1,5 +1,5 @@
 """
-Reusable DRF permission classes for the Govstack API.
+Reusable DRF permission classes for the CivicOS API.
 
 All permission classes follow the principle of least privilege and are
 deliberately composable so views can mix them as needed.

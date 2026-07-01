@@ -1,614 +1,357 @@
-# Govstack Code Handoff for AI
+# CivicOS — Codebase Handoff for AI
 
-This document is a technical snapshot of the code that exists in the repository right now.
+**Last updated:** 2026-07-01  
+**Git HEAD:** 9f86c52  
+**Test count:** 2,424 (all green)
 
-It is written for another AI tool or developer that needs to understand the codebase quickly and continue working without first reconstructing the repo from scratch.
-
----
-
-## 1. What This Repository Contains
-
-Govstack is a Django + Wagtail application structured as a set of modular apps for public-sector digital services.
-
-The codebase currently includes:
-
-- Core Django/Wagtail configuration
-- A custom user model and auth extension
-- CMS page and snippet scaffolding
-- Wagtail form builder extensions
-- A citizen portal model layer and views
-- Workflow models for internal staff processing
-- Notification models and delivery scaffolding
-- Audit logging models and handlers
-- Docker Compose and Makefile-based developer workflow
-
-The code is already beyond a scaffold. There are concrete models, templates, and operational commands in place.
+This document is a complete technical reference for an AI agent or developer picking up this codebase. Read this before touching anything.
 
 ---
 
-## 2. Top-Level Project Wiring
+## 1. Project Layout
 
-### 2.1 Django startup
-
-`manage.py` sets the default settings module to:
-
-- `config.settings.development`
-
-That means local commands run against the development settings unless overridden.
-
-### 2.2 Settings layout
-
-The settings package is split into:
-
-- `config/settings/base.py`
-- `config/settings/development.py`
-- `config/settings/production.py`
-- `config/settings/test.py`
-
-The base settings file already defines the major app composition:
-
-- Django built-ins
-- Wagtail apps
-- Third-party auth / OTP / Celery / storage apps
-- Local Govstack apps
-
-The configured custom user model is:
-
-- `AUTH_USER_MODEL = "auth_extension.User"`
-
-### 2.3 URL configuration
-
-The main URL router is `config/urls.py`.
-
-It currently maps:
-
-- `/cms/` to Wagtail admin
-- `/django-admin/` to Django admin
-- `/documents/` to Wagtail documents
-- `/account/login/` to two-factor auth views via the root-mounted `two_factor` include
-- `/account/` to django-allauth
-- `/health/` to health check URLs
-- `/portal/` to the citizen portal
-- `/` to Wagtail public pages
-- `__debug__/` to debug toolbar in development
-
-There is also a compatibility shim in `config/urls.py` for `two_factor.urls`, because the installed package exposes `urlpatterns` as a tuple instead of a plain list.
+```
+civicos/
+├── config/
+│   ├── celery.py               # Celery app + queue routing
+│   ├── settings/
+│   │   ├── base.py             # Shared settings
+│   │   ├── development.py
+│   │   ├── production.py       # Hardened; extends base
+│   │   └── test.py             # SQLite, no Celery workers
+│   ├── urls.py                 # Root URL conf
+│   └── wsgi.py
+├── apps/
+│   ├── api/                    # REST API BB
+│   ├── audit/                  # Audit log
+│   ├── auth/                   # (unused stub — real auth is auth_extension)
+│   ├── auth_extension/         # Custom User model + MFA + allauth adapter
+│   ├── backoffice/             # Staff dashboard BB
+│   ├── cms/                    # Wagtail CMS BB
+│   ├── consent/                # Consent management BB
+│   ├── core/                   # Health checks, logging, Sentry hooks, middleware
+│   ├── forms/                  # Dynamic forms BB
+│   ├── notifications/          # Notifications BB
+│   ├── payments/               # Payments BB (fees + donations + receipts)
+│   ├── portal/                 # Citizen portal BB
+│   ├── reports/                # Analytics & Reporting BB
+│   └── workflows/              # Staff workflows BB
+├── docs/
+├── nginx/                      # nginx config for production
+├── docker-compose.yml          # Development
+├── docker-compose.prod.yml     # Production
+├── Dockerfile                  # Multi-stage: builder / development / production
+├── gunicorn.conf.py
+├── .env.example
+└── manage.py
+```
 
 ---
 
-## 3. Implemented Apps
+## 2. Global Invariants
 
-## 3.1 `apps/core`
+These rules apply everywhere. Violating them is a bug.
 
-This app provides shared primitives.
+### 2.1 View mixin ordering
+```python
+# ALWAYS this order — LoginRequired must fire before PermissionRequired
+class MyView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    ...
+```
 
-Files present include:
+### 2.2 Transaction handling
+- `ATOMIC_REQUESTS = True` globally.
+- Streaming views must be decorated with `@transaction.non_atomic_requests`.
+- All `task.delay()` calls inside views/services must be wrapped in `transaction.on_commit(lambda: task.delay(...))`.
+- `on_commit()` itself must be called inside an atomic block.
 
-- `models.py`
-- `middleware.py`
-- `signals.py`
-- `logging.py`
-- `context_processors.py`
+### 2.3 PIPEDA invariants
+- `actor_pk` in any audit model = integer user PK (`BigIntegerField`), never email.
+- `actor_ip` = masked IP (IPv4 /24, IPv6 /48) — use `mask_ip()` from `apps/core/`.
+- No donor name, email, address, or SIN in logs, filenames, or audit records.
+- `WebhookEvent.payload` never logged or accessed outside the webhook handler.
+- PDF files never written to disk — WeasyPrint → `BytesIO` → `StreamingHttpResponse`.
 
-The important model classes are:
+### 2.4 Dates
+- `TIME_ZONE = "America/Toronto"`.
+- Local date: `timezone.localtime(timezone.now()).date()`.
+- Filtering by date range: compute UTC boundaries from Toronto midnight, not naive dates.
 
-- `UUIDModel`
-- `TimestampedModel`
-- `SoftDeleteModel`
-- `BaseModel`
-
-These are the shared base classes used by the portal, notifications, workflows, and audit apps.
-
-### Notable behavior
-
-- `UUIDModel` gives models a UUID primary key
-- `TimestampedModel` adds `created_at` and `updated_at`
-- `SoftDeleteModel` adds a `deleted_at` marker
-- `BaseModel` combines UUID + timestamps
-
-This is the project’s shared data foundation.
-
----
-
-## 3.2 `apps/auth_extension`
-
-This app customizes Django authentication.
-
-### Main model
-
-`apps/auth_extension/models.py` defines:
-
-- `GovstackUserManager`
-- `User`
-
-### User model details
-
-The custom `User` model:
-
-- Removes `username`
-- Uses `email` as the login field
-- Adds `preferred_language`
-- Adds `last_login_ip`
-- Adds `terms_accepted_at`
-- Adds `phone_number`
-- Sets `USERNAME_FIELD = "email"`
-- Leaves `REQUIRED_FIELDS = []`
-
-### Manager details
-
-`GovstackUserManager` implements:
-
-- `_create_user`
-- `create_user`
-- `create_superuser`
-
-This keeps auth compatible with email-based login.
-
-### Migration status
-
-There is now an initial migration:
-
-- `apps/auth_extension/migrations/0001_initial.py`
-
-This migration is required for Django to build the migration graph correctly.
-
-### Bootstrap command
-
-A custom management command exists at:
-
-- `apps/auth_extension/management/commands/bootstrap_superuser.py`
-
-This command:
-
-- Creates or updates a superuser by email
-- Uses `DJANGO_SUPERUSER_EMAIL` and `DJANGO_SUPERUSER_PASSWORD` when present
-- Generates a temporary password when one is not supplied
-- Is idempotent
-- Works in non-TTY Docker runs
-
-The Makefile now points `make superuser` at this command.
+### 2.5 CSV injection
+- Any cell value that starts with `=`, `+`, `-`, `@`, `\t`, or `\r` must be prefixed with `\t`.
+- Use `_sanitize_csv_cell()` from `apps/reports/exports/csv_export.py` — never roll your own.
 
 ---
 
-## 3.3 `apps/cms`
+## 3. Settings
 
-This is the Wagtail CMS layer.
+`config/settings/base.py` — all shared config.  
+`config/settings/production.py` — extends base; raises `ImproperlyConfigured` if required env vars are missing.  
+`config/settings/test.py` — SQLite, `CELERY_TASK_ALWAYS_EAGER`, Argon2 hasher override for speed.
 
-Files currently present include:
+Key settings to know:
 
-- `models.py`
-- `blocks.py`
-- `wagtail_hooks.py`
-
-The codebase includes custom media models and page/snippet scaffolding.
-
-### Notable implemented pieces
-
-- `CustomImage`
-- `CustomRendition`
-- `CustomDocument`
-- `SiteAlert`
-- `NavigationMenu`
-- `HomePage`
-
-The CMS models are already structured around Wagtail conventions:
-
-- `Page` subclasses for page types
-- snippet-style reusable models
-- image/document extensions
-
-The templates directory also includes CMS templates, including a base page layout.
+| Setting | Value |
+|---|---|
+| `AUTH_USER_MODEL` | `"auth_extension.User"` |
+| `ATOMIC_REQUESTS` | `True` |
+| `TIME_ZONE` | `"America/Toronto"` |
+| `CELERY_BEAT_SCHEDULER` | `"django_celery_beat.schedulers:DatabaseScheduler"` |
+| `SIMPLE_JWT["ALGORITHM"]` | `"RS256"` |
+| `STRIPE_SECRET_KEY` | `env("STRIPE_SECRET_KEY")` |
+| `FERNET_KEYS` | `env("FERNET_KEYS")` — comma-separated; first key is active |
 
 ---
 
-## 3.4 `apps/forms`
+## 4. URL Namespaces
 
-This app extends Wagtail forms.
-
-### Main classes
-
-`apps/forms/models.py` currently defines:
-
-- `FormField`
-- `FormSubmission`
-- `FormPage`
-
-### FormField
-
-`FormField` extends Wagtail’s `AbstractFormField` and adds:
-
-- `help_text_long`
-- `is_pii`
-- a `ParentalKey` to `forms.FormPage`
-
-### FormSubmission
-
-`FormSubmission` extends Wagtail’s `AbstractFormSubmission` and adds:
-
-- `consent_given`
-- `consent_text_shown`
-- `submitter_ip`
-- `expires_at`
-
-It also overrides the inherited `page` relation with:
-
-- `related_name="govstack_form_submissions"`
-
-That avoids a reverse accessor clash with Wagtail’s built-in form submission model.
-
-### FormPage
-
-`FormPage` extends `AbstractEmailForm` and adds:
-
-- `intro`
-- `thank_you_text`
-- `consent_text`
-- `retention_days`
-
-It binds:
-
-- `form_field = FormField`
-- `submission_class = FormSubmission`
-
-The page also defines admin panels and templates:
-
-- `forms/form_page.html`
-- `forms/form_page_landing.html`
-
-### Important implementation note
-
-The recent runtime fix in this app was to prevent `Page.formsubmission_set` from colliding with Wagtail’s built-in model relation.
+| Prefix | Namespace | App |
+|---|---|---|
+| `/account/` (two-factor) | (two_factor) | `two_factor` |
+| `/account/` | `auth_extension` | `apps.auth_extension` |
+| `/portal/` | `portal` | `apps.portal` |
+| `/notifications/` | `notifications` | `apps.notifications` |
+| `/forms/` | `forms` | `apps.forms` |
+| `/workflows/` | `workflows` | `apps.workflows` |
+| `/consent/` | `consent` | `apps.consent` |
+| `/payments/` | `payments` | `apps.payments` |
+| `/donate/` | `donate` | `apps.payments.donation_urls` |
+| `/donate/portal/` | `donor_portal` | `apps.payments.portal_urls` |
+| `/reports/` | `reports` | `apps.reports` |
+| `/backoffice/` | `backoffice` | `apps.backoffice` |
+| `/api/v1/` | `api-v1` | `apps.api` |
+| `/health/` | (none) | `apps.core.urls.health` |
+| `/` (catch-all) | (wagtail) | Wagtail CMS |
 
 ---
 
-## 3.5 `apps/portal`
+## 5. App-by-App Reference
 
-This app represents the authenticated citizen portal.
+### 5.1 `apps/core`
+Health check endpoints at `/health/live/` and `/health/ready/`. JSON logging formatter. Sentry PII hooks in `sentry.py` (`before_send`, `before_breadcrumb` — strip donor fields). `mask_ip()` utility. Custom middleware.
 
-### Models
+### 5.2 `apps/audit`
+`AuditLogEntry` model — immutable event log. Fields: `event_type`, `actor_pk` (BigInt), `actor_ip` (masked), `object_pk`, `data` (JSONField), `created_at`. Written via `log_event()` helper. 7-year retention; admin `has_delete_permission=False`.
 
-`apps/portal/models.py` defines:
+### 5.3 `apps/auth_extension`
+Custom `User` model (extends `AbstractUser`). Email-based login, `django-allauth` adapter, `django-otp` MFA. MFA enforced on `/django-admin/` via `OTPAdminSite`. `backup_codes` field is a list stored as JSON — the `_` loop variable bug (shadowing `gettext`) was fixed; do not reintroduce.
 
-- `ServiceRequestStatus`
-- `ServiceRequest`
-- `StatusUpdate`
+IP-based rate limiting on login. `get_full_name()` returns `""` (not email) when name fields are blank.
 
-### ServiceRequest
+### 5.4 `apps/cms`
+Wagtail page types: `HomePage`, `ContentPage`, `NewsIndexPage`, `NewsPage`. All use `TranslatableMixin` for i18n. Custom `CustomImage` and `CustomDocument` models. SVG upload blocked (no sanitizer). File extensions whitelist: images `gif jpg jpeg png webp`; docs `pdf docx xlsx csv txt`.
 
-`ServiceRequest` stores:
+### 5.5 `apps/forms`
+Dynamic form builder extending Wagtail's `AbstractForm`. `FormPage` stores field definitions as JSON. `FormSubmission` stores `submission_data` (JSONField with size + depth validation). On submit, fires `form_submission_received` signal via `send_robust()`, which triggers `notify_on_form_submission` Celery task inside `transaction.on_commit()`.
 
-- `citizen`
-- `service_page_id`
-- `service_name`
-- `status`
-- `reference_number`
-- `submission_data`
-- `internal_notes`
-- `expires_at`
+### 5.6 `apps/consent`
+`ConsentRecord` model — tracks what a citizen consented to, when, and what version. `ConsentVersion` — versioned consent text (bilingual). Download endpoint streams a consent record as PDF; download is atomic (creates `ConsentDownloadRecord` in the same transaction). `ConsentRecord` is PROTECT-protected; deleting related objects requires explicit consent revocation.
 
-It uses `BaseModel`, so it gets UUID + timestamps.
+### 5.7 `apps/portal`
+Citizen-facing service request portal. `ServiceRequest` model with `reference_number` (auto-generated, human-readable slug). `StatusUpdate` model — immutable (save guard on `pk`; do not remove). Fires `portal_status_updated` signal on status change, which is handled by `apps/workflows` to create/update `WorkItem` rows.
 
-### StatusUpdate
+Views: `DashboardView`, `ServiceRequestDetailView`, `ServiceRequestCreateView`, `ServiceRequestCancelView`. All require `LoginRequiredMixin`.
 
-`StatusUpdate` stores the history of changes to a request:
+URL filter: `?status=` query param on dashboard — supported and tested.
 
-- `service_request`
-- `old_status`
-- `new_status`
-- `changed_by`
-- `public_note`
+### 5.8 `apps/notifications`
+`Notification` model — `recipient` (FK to User), `channel` (in-app/email), `read_at` (nullable). Composite index on `(recipient, channel, read_at)`. `NotificationConfig` — per-user preferences. Delivery via `send_notification()` service. Retry task (`retry_pending_notifications`) runs every 15 minutes via Beat.
 
-### Routing and templates
+### 5.9 `apps/workflows`
+`WorkItem` — internal staff task linked to a `ServiceRequest`. `WorkItemHistory` — immutable event log per work item. `WorkItemComment` — staff notes. SLA tracking via `due_at`; `check_sla_breaches` Beat task flags overdue items.
 
-Portal routes live in:
+Signal handler in `apps/portal/receivers.py` creates `WorkItem` on `portal_status_updated`. `on_commit()` wrapping ensures the work item is created only after the portal transaction commits.
 
-- `apps/portal/urls.py`
+### 5.10 `apps/backoffice`
+Staff-only views for: service request queue, work item queue, citizen management, audit log viewer, basic reports, staff notifications. All views require `is_staff=True` or explicit permissions. Uses `LoginRequiredMixin` + `PermissionRequiredMixin`.
 
-Portal templates currently include:
+### 5.11 `apps/api`
+DRF REST API at `/api/v1/`. JWT authentication (RS256, 15-min access token). Token endpoint throttled at 5 req/min (anonymous). Standard CivicOS error envelope: `{"error": {"code": "...", "message": "...", "details": {}}}`. OpenAPI schema at `/api/v1/schema/`.
 
-- `templates/portal/dashboard.html`
-- `templates/portal/request_list.html`
-- `templates/portal/request_detail.html`
+Endpoints: portal (service requests), notifications, workflows, consent.
 
-The portal is present, but likely still thin compared to the overall product vision.
+`UNAUTHENTICATED_USER` is NOT set to `None` — this would cause 403 instead of 401; leave as default.
 
----
+### 5.12 `apps/payments`
 
-## 3.6 `apps/workflows`
+#### Models (`models.py`)
+- `TenantPaymentConfig` — per-org Stripe keys, `webhook_endpoint_secret` (Fernet-encrypted `EncryptedCharField`), tax rate refs.
+- `FeePayment` — government fee payment. Links to `PaymentIntent` via `stripe_payment_intent_id`.
+- `Payment` — Stripe PaymentIntent result. `CheckConstraint` enforces non-negative amounts.
+- `Refund` — partial or full refund. Distributed lock prevents concurrent double-refund.
+- `Donation` — charitable donation. `eligible_amount` and `advantage_amount` (CRA).
+- `RecurringGiftPlan` — Stripe Subscription wrapper.
+- `TaxReceipt` — CRA-compliant tax receipt. `serial_number` follows CRA format, validated by regex. `has_pdf` property (no file stored). Immutable once `issued_at` is set.
+- `WebhookEvent` — raw Stripe webhook log. `payload` never accessed outside webhook handler.
 
-This app models internal staff work.
+#### Gateway (`gateway.py`, `gateways/`)
+`StripeGateway` implements `AbstractGateway`. Per-call `StripeClient` (never cached globally — avoids stale API version). Always passes explicit `stripe_version`. Charge lookup uses `latest_charge` from PaymentIntent, not a phantom `charges` key.
 
-### Models
+#### Tasks (`tasks.py`, `tasks_receipts.py`)
+- `process_stripe_webhook` — queue `webhooks`; `acks_late=True`, `reject_on_worker_lost=True`.
+- `generate_and_send_receipt` — queue `receipts`; idempotent (checks `email_sent` flag inside atomic block before sending).
+- `generate_annual_receipts` — queue `receipts`; uses `.iterator(chunk_size=500)`; filter uses UTC boundaries derived from Toronto midnight for both eastern and western Canada donors.
+- `kickoff_annual_receipts` — lightweight Beat trigger; delegates to `generate_annual_receipts.delay()`.
 
-`apps/workflows/models.py` defines:
+#### Views (`views/`)
+- `fee_payment.py` — `FeePaymentCreateView`, `FeePaymentSuccessView`.
+- `donation.py` — `DonationCreateView`, `DonationSuccessView` (IDOR-protected: checks `donation.user == request.user`).
+- `refund.py` — `RefundDetailView` (tenant-scoped: checks payment belongs to requesting org).
+- `portal.py` — `DonorHistoryView`, `RecurringGiftPlanDetailView`, `RecurringGiftPlanCancelView`.
+- `webhook.py` — `StripeWebhookView` (`@csrf_exempt`, signature verified before any processing).
 
-- `WorkItemStatus`
-- `WorkItem`
-- `WorkItemHistory`
+#### Receivers (`receivers.py`)
+Signal handlers for Stripe events dispatched by the webhook task. `receipt_issued` signal fires after `TaxReceipt.issued_at` is set; triggers `generate_and_send_receipt.delay()` inside `transaction.on_commit()`.
 
-### WorkItem
+Fernet key: `MultiFernet` via `lru_cache` on a stable function — not on the class. Supports key rotation by prepending new key to `FERNET_KEYS`.
 
-Stores:
+#### Permissions
+All payments views require `payments.view_*` or `payments.change_*` permissions. Donor portal requires `LoginRequiredMixin` only (no staff perm; scoped by `request.user`).
 
-- `content_type`
-- `object_id`
-- `title`
-- `status`
-- `assigned_to`
-- `due_at`
-- `priority`
+### 5.13 `apps/reports`
 
-This is generic enough to attach to portal requests or form submissions.
+#### Models (`models.py`)
+- `ReportSnapshot` — pre-computed monthly aggregate. Fields: `report_type` (financial/donations/operational), `period_year`, `period_month`, `data` (JSONField), `row_count`, `computed_at` (auto_now). `unique_together = [("report_type", "period_year", "period_month")]`. `ordering = ["-period_year", "-period_month", "report_type"]`. Admin: `has_delete_permission=False`.
+- `ExportRecord` — audit trail per download. `actor_pk` = `BigIntegerField`, `actor_ip` = masked, `created_at` = auto. `ordering = ["-created_at"]`. Admin: no delete. Indexes on `(export_type, created_at)` and `(actor_pk, created_at)`.
 
-### WorkItemHistory
+#### Services (`services/`)
+- `financial.py` — `compute_financial_snapshot(year, month)`, `get_reconciliation_queryset()`, `get_monthly_revenue()`.
+- `donations.py` — `compute_donations_snapshot(year, month)`, `get_receipt_list_queryset()`, `get_t3010_preparatory_data()`.
+- `operational.py` — `compute_operational_snapshot(year, month)`.
 
-Stores the history of actions on a work item:
+#### Tasks (`tasks.py`)
+- `compute_monthly_snapshots` — Beat task; queue `reports`; computes previous calendar month in Toronto time; calls `_compute_all_snapshots()`.
+- `recompute_snapshot(report_type, year, month)` — on-demand; used by admin actions.
+- `_compute_all_snapshots(year, month)` — internal helper; writes all 3 snapshot types; idempotent via `update_or_create`.
+- `_compute_single_snapshot(report_type, year, month)` — dispatches to correct service; raises `ValueError` for unknown types.
 
-- `work_item`
-- `action`
-- `old_status`
-- `new_status`
-- `actor`
-- `notes`
+#### Exports (`exports/`)
+- `csv_export.py` — `streaming_csv_response()`, `_EchoBuffer`, `_sanitize_csv_cell()`, `_FORMULA_TRIGGERS` (frozenset). Individual export functions: `export_reconciliation_csv`, `export_revenue_csv`, `export_receipts_csv`, `export_t3010_prep_csv`.
+- `pdf_export.py` — `export_monthly_summary_pdf()`. WeasyPrint renders to `BytesIO`. **Patch target: `apps.reports.exports.pdf_export.export_monthly_summary_pdf`** (lazy import in view body — patch the source module, not the view module).
 
-The workflow layer is currently modeled, but the more advanced service/action logic still appears to be in progress.
+#### Views (`views/`)
+- `financial.py` — `FinancialDashboardView`, `RevenueDetailView`, `ReconciliationExportView`, `RevenueExportView`, `MonthlySummaryPdfView`.
+- `donations.py` — `DonationsDashboardView`, `T3010PrepView`, `ReceiptListExportView`, `T3010ExportView`.
+- `operational.py` — `OperationalDashboardView`, `TaskFailureListView`.
 
----
-
-## 3.7 `apps/notifications`
-
-This app is the outbound messaging layer.
-
-### Models
-
-`apps/notifications/models.py` defines:
-
-- `NotificationChannel`
-- `NotificationStatus`
-- `Notification`
-
-### Notification
-
-Stores:
-
-- `recipient`
-- `channel`
-- `subject`
-- `body`
-- `language`
-- `status`
-- `sent_at`
-- `external_id`
-- `read_at`
-
-The app also includes:
-
-- `handlers.py`
-- `services.py`
-- `tasks.py`
-
-This suggests a separation between model storage, business logic, and background delivery.
+Permissions (all defined on `payments.Permission`):
+- `payments.view_financialreport`, `payments.export_financialreport`
+- `payments.view_donationreport`, `payments.export_donationreport`
+- `payments.view_operationalreport`
 
 ---
 
-## 3.8 `apps/audit`
+## 6. Cross-Cutting Patterns
 
-This app is for immutable audit logging.
+### Streaming CSV
+```python
+# Always use this — never buffer CSVs in memory
+from apps.reports.exports.csv_export import streaming_csv_response
 
-### Main model
+response = streaming_csv_response(
+    rows,           # Iterable of dicts or sequences
+    columns,        # PIPEDA whitelist — extra keys silently dropped
+    "my_export",    # filename prefix — no PII
+    period_start,
+    period_end,
+)
+```
 
-`apps/audit/models.py` defines:
+### Celery task + on_commit
+```python
+# Correct pattern — task fires only after DB commit
+def some_service_function(...):
+    with transaction.atomic():
+        obj = MyModel.objects.create(...)
+        transaction.on_commit(lambda: my_task.delay(obj.pk))
+```
 
-- `AuditEventType`
-- `AuditLogEntry`
+### Frozen-time testing (preferred over time.sleep)
+```python
+from datetime import datetime, timezone as dt_timezone
+from unittest.mock import patch
 
-### AuditLogEntry fields
+t1 = datetime(2025, 6, 1, 10, 0, 0, tzinfo=dt_timezone.utc)
+with patch("django.utils.timezone.now", return_value=t1):
+    obj = MyModel.objects.create(...)
+```
 
-Stores:
+### Patching lazy imports
+```python
+# If a view does `from apps.X import func` inside a method body,
+# patch the SOURCE module, not the view module:
+with patch("apps.X.func") as mock_func:
+    ...
+```
 
-- timestamp
-- event type
-- outcome
-- actor metadata
-- resource metadata
-- state snapshots
-- request/session correlation
-- hash chain fields
-
-### Immutable behavior
-
-The model overrides:
-
-- `save()` to prevent updates after creation
-- `delete()` to prevent deletion
-
-It also computes a SHA-256 hash over the event payload.
-
-This is a strong starting point for tamper-evident logging.
-
-The app also contains:
-
-- `handlers.py`
-- `services.py`
-
----
-
-## 4. Developer Workflow Code
-
-### 4.1 Makefile
-
-The `Makefile` is already a central command surface for the repo.
-
-Important commands include:
-
-- `make up`
-- `make down`
-- `make build`
-- `make logs`
-- `make migrate`
-- `make migrations`
-- `make superuser`
-- `make check`
-- `make test`
-- `make lint`
-- `make format`
-
-### Current key changes
-
-`make migrate` now runs:
-
-- `docker compose run --rm web python manage.py migrate --fake-initial`
-
-`make superuser` now runs:
-
-- `docker compose run --rm web python manage.py bootstrap_superuser`
-
-This was necessary to make the repo usable in the current local database/container setup.
-
-### 4.2 Environment example
-
-`.env.example` documents the common settings and now also mentions:
-
-- `DJANGO_SUPERUSER_EMAIL`
-- `DJANGO_SUPERUSER_PASSWORD`
-
-Those variables are optional inputs to the bootstrap command.
+### ExportRecord creation
+```python
+# ALWAYS create ExportRecord AFTER the export succeeds, never before
+pdf_bytes = export_monthly_summary_pdf(...)   # raises on failure
+ExportRecord.objects.create(...)              # only if above didn't raise
+```
 
 ---
 
-## 5. Templates And Static Assets
+## 7. Running Tests
 
-The current template set includes:
+```bash
+# Full suite (SQLite — fast)
+python manage.py test --settings=config.settings.test
 
-- `templates/base.html`
-- `templates/includes/meta.html`
-- `templates/includes/breadcrumb.html`
-- `templates/forms/form_page.html`
-- `templates/forms/form_page_landing.html`
-- `templates/portal/dashboard.html`
-- `templates/portal/request_list.html`
-- `templates/portal/request_detail.html`
+# Single app
+python manage.py test apps.reports --settings=config.settings.test
 
-Static assets currently include:
+# Single test class
+python manage.py test apps.reports.tests.test_wave5_suite.SanitizeCsvCellTest \
+    --settings=config.settings.test
 
-- `static/css/main.css`
+# Via Docker
+docker compose run --rm web python manage.py test
+```
 
-This means the public UI is present, but the design system and final content polish may still be evolving.
+Test files live at `apps/<appname>/tests/test_*.py`.
 
----
-
-## 6. What Was Fixed Recently
-
-These are the concrete fixes already applied to the repo.
-
-### 6.1 two_factor URL compatibility
-
-The installed `django-two-factor-auth` package exposes `urlpatterns` as a tuple in this environment.
-
-That caused Django URL resolution to fail during system checks.
-
-The fix in `config/urls.py` normalizes that tuple into:
-
-- a list of URL patterns
-- a namespace value
-
-This prevents the URL resolver from crashing at startup.
-
-### 6.2 FormSubmission reverse relation clash
-
-The custom `forms.FormSubmission` model originally inherited the default reverse relation name from Wagtail’s `AbstractFormSubmission`.
-
-That clashed with Wagtail’s own `Page.formsubmission_set` relation.
-
-The fix was to override the `page` field in `FormSubmission` with:
-
-- `related_name="govstack_form_submissions"`
-
-### 6.3 Missing auth migration
-
-The `auth_extension` app had no migration history even though it is part of `INSTALLED_APPS` and provides the custom `AUTH_USER_MODEL`.
-
-That prevented Django from building the migration graph.
-
-The fix was to add:
-
-- `apps/auth_extension/migrations/0001_initial.py`
-
-### 6.4 Bootstrap superuser flow
-
-The normal interactive `createsuperuser` command is not reliable in this repo’s Dockerized, non-TTY execution flow.
-
-The fix was to add a dedicated management command:
-
-- `bootstrap_superuser`
-
-This is now the canonical `make superuser` path.
-
-### 6.5 Local DB reconciliation
-
-The current development database already contains Wagtail tables and a partial migration history.
-
-To avoid failing on existing schema objects, the Makefile migration target now uses:
-
-- `--fake-initial`
-
-That makes the migration path idempotent for the current local setup.
+Reports BB test files:
+- `tests/test_wave2_financial.py` — financial service + views
+- `tests/test_wave3_donations.py` — donations service + views
+- `tests/test_wave4_operational.py` — operational service + PDF + Celery
+- `tests/test_wave5_suite.py` — model tests, CSV utilities, task dispatch, regression (65 tests)
 
 ---
 
-## 7. Current State of the Codebase
+## 8. Migrations
 
-### Working now
+```bash
+# Apply all migrations
+python manage.py migrate
 
-- Django app startup in the dev container
-- Database migration command
-- Superuser bootstrap command
-- Custom auth model and migration graph
-- Core CMS / portal / workflow / notifications / audit model scaffolding
+# Create a new migration for an app
+python manage.py makemigrations <app>
 
-### Still in-progress or scaffolded
+# Seed Celery Beat periodic tasks (run once per deployment)
+python manage.py seed_periodic_tasks
+```
 
-- Full form submission workflow
-- Portal service request lifecycle completion
-- End-to-end workflow actions and assignment flows
-- Notification delivery implementation depth
-- Migration coverage for all local apps
-- Test coverage across the implemented models/services
-- Final UI polishing and accessibility validation
+**Wave 9 migration note:** `TenantPaymentConfig.webhook_endpoint_secret` changed from plaintext `CharField` to Fernet-encrypted `EncryptedCharField`. After migrating, existing rows must be re-saved in Django admin to re-encrypt. See `docs/DEPLOY_NOTES.md`.
 
 ---
 
-## 8. Practical Reading Order For Another AI Tool
+## 9. Admin
 
-If another AI needs to continue work here, the best order is:
+`/django-admin/` — MFA-enforced via `OTPAdminSite`. All staff must have a TOTP device registered before admin access is granted.
 
-1. `config/settings/base.py`
-2. `config/urls.py`
-3. `apps/auth_extension/models.py`
-4. `apps/auth_extension/management/commands/bootstrap_superuser.py`
-5. `apps/forms/models.py`
-6. `apps/portal/models.py`
-7. `apps/workflows/models.py`
-8. `apps/notifications/models.py`
-9. `apps/audit/models.py`
-10. `Makefile`
-
-That sequence covers startup, identity, intake, portal, work routing, messaging, audit, and developer commands.
+Key admin registrations:
+- `ReportSnapshot` — read-only; no delete.
+- `ExportRecord` — read-only; no delete.
+- `TaxReceipt` — no delete once `issued_at` is set.
+- `AuditLogEntry` — read-only; no delete.
+- `TenantPaymentConfig` — edit restricted; webhook secret re-entry required post-Wave-9 migration.
 
 ---
 
-## 9. Short Summary
+## 10. Known Gaps / Future Work
 
-Govstack already has real code in place for:
-
-- the platform foundation
-- the custom user model
-- CMS scaffolding
-- form handling
-- citizen portal models
-- workflow models
-- notifications
-- audit logging
-- developer bootstrap commands
-
-The repo is not just a plan. It is a functioning Django/Wagtail codebase with a modular design, and the recent fixes brought the local bootstrap path into a working state.
+- SMS delivery via GC Notify is wired (`GC_NOTIFY_API_KEY`) but notification templates for SMS are not implemented.
+- Wagtail search uses the DB backend; Elasticsearch config is commented out in `production.py` for when search volume warrants it.
+- No automated smoke test suite for the live production environment (would need a staging Stripe key).

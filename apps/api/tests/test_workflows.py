@@ -282,8 +282,8 @@ class ClaimWorkItemTests(TestCase):
 
         self.assertEqual(resp.status_code, 400)
 
-    def test_claim_error_response_uses_govstack_envelope(self):
-        # Service-layer errors from workflow action views must use the govstack envelope.
+    def test_claim_error_response_uses_civicos_envelope(self):
+        # Service-layer errors from workflow action views must use the civicos envelope.
         # Regression guard against flat {"detail": ...} responses.
         other_staff = _make_staff()
         work_item = _make_work_item(
@@ -299,7 +299,7 @@ class ClaimWorkItemTests(TestCase):
         )
 
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("error", resp.data, "Workflow action errors must use govstack error envelope")
+        self.assertIn("error", resp.data, "Workflow action errors must use civicos error envelope")
         error = resp.data["error"]
         self.assertIn("code", error)
         self.assertIn("detail", error)

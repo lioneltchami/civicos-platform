@@ -1,5 +1,5 @@
 """
-Rate-throttle classes for the Govstack API.
+Rate-throttle classes for the CivicOS API.
 
 Scopes are configured in settings.py under REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]:
 

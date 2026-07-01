@@ -1,6 +1,6 @@
 # Compliance Requirements
 
-This document defines the non-negotiable compliance requirements for all Govstack deployments serving Canadian municipal and public sector clients. All features must be built to satisfy these requirements by default — compliance is not optional and must not be bolted on after the fact.
+This document defines the non-negotiable compliance requirements for all CivicOS deployments serving Canadian municipal and public sector clients. All features must be built to satisfy these requirements by default — compliance is not optional and must not be bolted on after the fact.
 
 ---
 

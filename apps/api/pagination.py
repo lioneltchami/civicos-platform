@@ -1,5 +1,5 @@
 """
-Standard pagination for the Govstack API.
+Standard pagination for the CivicOS API.
 
 All list endpoints use StandardPagination by default (configured in
 DEFAULT_PAGINATION_CLASS in settings). Consumers can control page size

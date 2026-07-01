@@ -10,7 +10,7 @@ Design principles:
   tampering with the log sequence.
 - No PII in log messages: PII lives in resource_id references, not in the
   event_detail JSON. Investigators query the referenced record for details.
-- Retention: minimum 7 years (configurable in GOVSTACK settings).
+- Retention: minimum 7 years (configurable in CIVICOS settings).
 """
 
 import hashlib
