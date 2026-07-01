@@ -26,7 +26,7 @@
     <div>
       <label for="id_year" class="form-label visually-hidden">{% trans "Year" %}</label>
       <input type="number" id="id_year" name="year" class="form-control form-control-sm"
-             value="{{ year }}" min="2020" max="2100" style="width:90px"
+             value="{{ year }}" min="2000" max="2100" style="width:90px"
              aria-label="{% trans 'Year' %}">
     </div>
     <div>
@@ -249,12 +249,12 @@
           <td>{{ snap.period_label }}</td>
           <td class="text-end">
             {% with rev=snap.data.revenue %}
-              {% if rev %}${{ rev.total_gross|floatformat:2 }}{% else %}&mdash;{% endif %}
+              {% if rev %}${{ rev.total_gross|floatformat:2|intcomma }}{% else %}&mdash;{% endif %}
             {% endwith %}
           </td>
           <td class="text-end">
             {% with rev=snap.data.revenue %}
-              {% if rev %}{{ rev.payment_count }}{% else %}&mdash;{% endif %}
+              {% if rev %}{{ rev.payment_count|intcomma }}{% else %}&mdash;{% endif %}
             {% endwith %}
           </td>
           <td class="text-end">

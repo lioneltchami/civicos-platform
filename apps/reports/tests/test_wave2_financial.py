@@ -114,6 +114,14 @@ def _make_intent(
         amount=amount,
         payer=payer,
     )
+    # fee_code is intentionally ignored when purpose != PURPOSE_SERVICE_FEE
+    # because only service-fee intents have a ServiceFeePayment row.
+    # Passing fee_code with a non-service-fee purpose is a caller bug — guard it.
+    if fee_code and purpose != PaymentIntent.PURPOSE_SERVICE_FEE:
+        raise ValueError(
+            f"_make_intent: fee_code={fee_code!r} has no effect when "
+            f"purpose={purpose!r}. Pass purpose=PURPOSE_SERVICE_FEE or omit fee_code."
+        )
     if fee_code and purpose == PaymentIntent.PURPOSE_SERVICE_FEE:
         ServiceFeePayment.objects.create(
             payment_intent=intent,

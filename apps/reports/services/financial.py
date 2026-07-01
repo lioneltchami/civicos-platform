@@ -37,6 +37,18 @@ def _month_utc_range(year: int, month: int) -> tuple[datetime, datetime]:
 
     Using an exclusive upper bound avoids microsecond / leap-second edge-cases
     that affect ``__lte`` datetime filtering.
+
+    ⚠️  UTC vs. Toronto asymmetry:
+    This function uses UTC midnight boundaries, so a payment captured at
+    23:30 Toronto time (= 03:30 UTC next day) falls in the *following* UTC
+    month.  This is intentional for revenue aggregation — the gateway
+    settles in UTC.
+
+    ``get_reconciliation_queryset()`` deliberately uses the *opposite*
+    convention: it converts ``start``/``end`` calendar dates to
+    America/Toronto local midnight, so operators see payments by the local
+    business date their customers paid.  Never mix the two for the same
+    report without documenting the boundary choice.
     """
     month_start = datetime(year, month, 1, tzinfo=dt_timezone.utc)
     if month == 12:
@@ -80,21 +92,10 @@ def get_monthly_revenue(year: int, month: int) -> dict:
 
     month_start, month_end = _month_utc_range(year, month)
 
-    # ── Total aggregates ─────────────────────────────────────────────────────
-    agg = Payment.objects.filter(
-        paid_at__gte=month_start,
-        paid_at__lt=month_end,
-    ).aggregate(
-        total_gross=Sum("amount_paid", default=Decimal("0.00")),
-        total_net=Sum("net_amount", default=Decimal("0.00")),
-        total_tax=Sum("intent__tax_amount", default=Decimal("0.00")),
-        total_processor_fees=Sum("processor_fee", default=Decimal("0.00")),
-        payment_count=Count("id"),
-    )
-
-    # ── Per-label breakdown ───────────────────────────────────────────────────
+    # ── Per-label breakdown (single query) ───────────────────────────────────
     # Use service_fee_payment.fee_code when present; fall back to intent.purpose
     # so donations / fines appear as "donation" / "fine" rows.
+    # Totals are derived in Python from the breakdown to avoid a second DB hit.
     by_fee_code_qs = (
         Payment.objects.filter(
             paid_at__gte=month_start,
@@ -118,31 +119,40 @@ def get_monthly_revenue(year: int, month: int) -> dict:
     )
 
     by_fee_code: dict[str, dict] = {}
+    total_gross = Decimal("0.00")
+    total_net = Decimal("0.00")
+    total_tax = Decimal("0.00")
+    total_processor_fees = Decimal("0.00")
+    payment_count = 0
     for row in by_fee_code_qs:
         label = row["label"] or "other"
-        by_fee_code[label] = {
-            "gross": row["gross"] or Decimal("0.00"),
-            "net": row["net"] or Decimal("0.00"),
-            "tax": row["tax"] or Decimal("0.00"),
-            "processor_fees": row["processor_fees"] or Decimal("0.00"),
-            "count": row["count"],
-        }
+        g = row["gross"] or Decimal("0.00")
+        n = row["net"] or Decimal("0.00")
+        t = row["tax"] or Decimal("0.00")
+        pf = row["processor_fees"] or Decimal("0.00")
+        cnt = row["count"]
+        by_fee_code[label] = {"gross": g, "net": n, "tax": t, "processor_fees": pf, "count": cnt}
+        total_gross += g
+        total_net += n
+        total_tax += t
+        total_processor_fees += pf
+        payment_count += cnt
 
     logger.debug(
         "reports.services.financial.get_monthly_revenue year=%s month=%s "
         "payment_count=%s total_gross=%s",
         year,
         month,
-        agg["payment_count"],
-        agg["total_gross"],
+        payment_count,
+        total_gross,
     )
 
     return {
-        "total_gross": agg["total_gross"],
-        "total_net": agg["total_net"],
-        "total_tax": agg["total_tax"],
-        "total_processor_fees": agg["total_processor_fees"],
-        "payment_count": agg["payment_count"],
+        "total_gross": total_gross,
+        "total_net": total_net,
+        "total_tax": total_tax,
+        "total_processor_fees": total_processor_fees,
+        "payment_count": payment_count,
         "by_fee_code": by_fee_code,
     }
 
@@ -167,15 +177,8 @@ def get_refund_summary(year: int, month: int) -> dict:
 
     month_start, month_end = _month_utc_range(year, month)
 
-    agg = Refund.objects.filter(
-        refunded_at__gte=month_start,
-        refunded_at__lt=month_end,
-        gateway_status=Refund.GATEWAY_STATUS_SUCCEEDED,
-    ).aggregate(
-        total_refunded=Sum("amount", default=Decimal("0.00")),
-        refund_count=Count("id"),
-    )
-
+    # ── Per-reason breakdown (single query) ───────────────────────────────────
+    # Totals are derived in Python from the breakdown to avoid a second DB hit.
     by_reason_qs = (
         Refund.objects.filter(
             refunded_at__gte=month_start,
@@ -188,16 +191,19 @@ def get_refund_summary(year: int, month: int) -> dict:
     )
 
     by_reason: dict[str, dict] = {}
+    total_refunded = Decimal("0.00")
+    refund_count = 0
     for row in by_reason_qs:
         reason = row["reason"] or "other"
-        by_reason[reason] = {
-            "amount": row["amount"] or Decimal("0.00"),
-            "count": row["count"],
-        }
+        a = row["amount"] or Decimal("0.00")
+        cnt = row["count"]
+        by_reason[reason] = {"amount": a, "count": cnt}
+        total_refunded += a
+        refund_count += cnt
 
     return {
-        "total_refunded": agg["total_refunded"],
-        "refund_count": agg["refund_count"],
+        "total_refunded": total_refunded,
+        "refund_count": refund_count,
         "by_reason": by_reason,
     }
 

@@ -294,23 +294,16 @@ class ReconciliationExportView(LoginRequiredMixin, PermissionRequiredMixin, View
     permission_required = "payments.export_financialreport"
 
     def get(self, request, *args, **kwargs):
-        # ── Parse and validate inputs ─────────────────────────────────────────
-        try:
-            start = date.fromisoformat(request.GET["start"])
-            end = date.fromisoformat(request.GET["end"])
-        except (KeyError, ValueError):
-            return HttpResponseBadRequest(
-                "Missing or invalid 'start'/'end' parameters (ISO date required)."
+        # ── Parse and validate inputs via DateRangeForm (single source of truth) ──
+        # DateRangeForm validates start/end presence, ISO format, end≥start, and
+        # the MAX_RANGE_DAYS cap — no need to duplicate that logic here.
+        form = DateRangeForm(request.GET)
+        if not form.is_valid():
+            errors = "; ".join(
+                str(e) for field_errors in form.errors.values() for e in field_errors
             )
-
-        if end < start:
-            return HttpResponseBadRequest("end must be on or after start.")
-
-        delta_days = (end - start).days + 1
-        if delta_days > MAX_RANGE_DAYS:
-            return HttpResponseBadRequest(
-                f"Date range exceeds maximum of {MAX_RANGE_DAYS} days."
-            )
+            return HttpResponseBadRequest(f"Invalid parameters: {errors}")
+        start, end = form.cleaned_data["start"], form.cleaned_data["end"]
 
         # ── Audit record ──────────────────────────────────────────────────────
         # COUNT(*) is cheap (index scan on paid_at); do it before streaming so

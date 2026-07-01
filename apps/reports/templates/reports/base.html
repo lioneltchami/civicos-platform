@@ -17,12 +17,13 @@
 
 {% block backoffice_content %}
 {# ── Reports sub-navigation ─────────────────────────────────────────────── #}
+{# url_name is resolved once here and shared by all three tab items below.    #}
+{% with url_name=request.resolver_match.url_name %}
 <nav aria-label="{% trans 'Reports navigation' %}" class="mb-4">
   <ul class="nav nav-tabs" role="list">
 
     {% if perms.payments.view_financialreport %}
     {# Financial tab — active on dashboard, reconciliation, and both export views #}
-    {% with url_name=request.resolver_match.url_name %}
     <li class="nav-item" role="none">
       {% if url_name == 'financial-dashboard' or url_name == 'reconciliation' or url_name == 'reconciliation-export' or url_name == 'revenue-export' or url_name == 'monthly-summary-pdf' %}
       <a class="nav-link active" aria-current="page" href="{% url 'reports:financial-dashboard' %}">
@@ -34,12 +35,10 @@
       </a>
       {% endif %}
     </li>
-    {% endwith %}
     {% endif %}
 
     {% if perms.payments.view_donationreport %}
     {# Donations tab — active on dashboard, annual, T3010 prep, and both export views #}
-    {% with url_name=request.resolver_match.url_name %}
     <li class="nav-item" role="none">
       {% if url_name == 'donations-dashboard' or url_name == 'donations-annual' or url_name == 't3010-prep' or url_name == 'receipts-export' or url_name == 't3010-prep-export' %}
       <a class="nav-link active" aria-current="page" href="{% url 'reports:donations-dashboard' %}">
@@ -51,12 +50,10 @@
       </a>
       {% endif %}
     </li>
-    {% endwith %}
     {% endif %}
 
     {% if perms.payments.view_operationalreport %}
     {# Operational tab — active on dashboard and task-failures drill-down #}
-    {% with url_name=request.resolver_match.url_name %}
     <li class="nav-item" role="none">
       {% if url_name == 'operational-dashboard' or url_name == 'task-failures' %}
       <a class="nav-link active" aria-current="page" href="{% url 'reports:operational-dashboard' %}">
@@ -68,11 +65,11 @@
       </a>
       {% endif %}
     </li>
-    {% endwith %}
     {% endif %}
 
   </ul>
 </nav>
+{% endwith %}
 
 {# ── Page content ───────────────────────────────────────────────────────── #}
 {% block reports_content %}{% endblock %}
