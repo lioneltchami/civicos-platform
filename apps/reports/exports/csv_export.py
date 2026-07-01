@@ -29,6 +29,26 @@ class _EchoBuffer:
         return value
 
 
+# Characters that cause spreadsheet applications (Excel, LibreOffice) to
+# interpret a cell as a formula. Prefixing with a tab neutralises the trigger
+# without altering the displayed value (leading whitespace is trimmed).
+_FORMULA_TRIGGERS: frozenset[str] = frozenset({"=", "+", "-", "@", "\t", "\r"})
+
+
+def _sanitize_csv_cell(value: object) -> str:
+    """
+    Neutralise CSV formula-injection for a single cell value.
+
+    Any string whose first character could trigger formula evaluation in a
+    spreadsheet is prefixed with a tab character (OWASP CSV injection defence).
+    Non-string values are coerced to str first.
+    """
+    s = str(value) if not isinstance(value, str) else value
+    if s and s[0] in _FORMULA_TRIGGERS:
+        return "\t" + s
+    return s
+
+
 def streaming_csv_response(
     rows: Iterable,
     columns: list[str],
@@ -64,9 +84,11 @@ def streaming_csv_response(
         yield writer.writerow(columns)
         for row in rows:
             if isinstance(row, dict):
-                yield writer.writerow([row.get(col, "") for col in columns])
+                yield writer.writerow(
+                    [_sanitize_csv_cell(row.get(col, "")) for col in columns]
+                )
             else:
-                yield writer.writerow(row)
+                yield writer.writerow([_sanitize_csv_cell(v) for v in row])
 
     # Filename: no PII, no internal IDs — period dates only.
     filename = f"{filename_prefix}_{period_start.isoformat()}_{period_end.isoformat()}.csv"
@@ -217,7 +239,10 @@ def export_receipts_csv(start: date, end: date) -> StreamingHttpResponse:
     return streaming_csv_response(_rows(), COLUMNS, "receipts", start, end)
 
 
-def export_t3010_prep_csv(fiscal_year_end: date) -> StreamingHttpResponse:
+def export_t3010_prep_csv(
+    fiscal_year_end: date,
+    data: dict | None = None,
+) -> StreamingHttpResponse:
     """
     Stream T3010 preparatory data as CSV.
 
@@ -229,10 +254,16 @@ def export_t3010_prep_csv(fiscal_year_end: date) -> StreamingHttpResponse:
     PIPEDA column whitelist — aggregates only, no individual donor PII:
         section, period, donation_count, total_donated, eligible_amount,
         advantage_amount, receipts_issued
-    """
-    from apps.reports.services.donations import get_t3010_preparatory_data
 
-    data = get_t3010_preparatory_data(fiscal_year_end)
+    Args:
+        fiscal_year_end: Last day of the fiscal year.
+        data: Optional pre-computed dict from get_t3010_preparatory_data().
+              Pass this from the calling view to avoid a second DB round-trip.
+              If None, the data is fetched here.
+    """
+    if data is None:
+        from apps.reports.services.donations import get_t3010_preparatory_data
+        data = get_t3010_preparatory_data(fiscal_year_end)
 
     COLUMNS = [
         "section",

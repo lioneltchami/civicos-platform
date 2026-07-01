@@ -21,6 +21,7 @@ import logging
 from datetime import date, timedelta
 
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.db import transaction
 from django.http import HttpResponseBadRequest
 from django.utils import timezone
 from django.views.generic import TemplateView, View
@@ -180,6 +181,9 @@ class DonationDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Templat
             "year": year,
             "month": month,
             "month_label": f"{calendar.month_name[month]} {year}",
+            # Last day of the current month — used by the receipts export URL
+            # in the template. calendar.monthrange() is leap-year-safe.
+            "month_last_day": calendar.monthrange(year, month)[1],
             "is_current_month": is_current_month,
             "data_source": source,
             "donations": donations,
@@ -302,6 +306,12 @@ class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
     PIPEDA column whitelist enforced in csv_export.export_receipts_csv:
     no donor name, address, or email in output.
 
+    Registered in urls.py with transaction.non_atomic_requests() so that the
+    streaming response does not hold the DB connection open for the full
+    download duration (ATOMIC_REQUESTS=True would otherwise keep the
+    transaction open until the last chunk reaches the client). The ExportRecord
+    is created atomically inside get() before streaming begins.
+
     Validates via ReceiptExportForm (MAX_RECEIPT_EXPORT_DAYS = 366) so a full
     tax year can be exported in one request.
 
@@ -324,15 +334,18 @@ class ReceiptsExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
         row_count = get_receipt_list_queryset(start, end).count()
 
         masked_ip = _mask_ip(request.META.get("REMOTE_ADDR") or "")
-        ExportRecord.objects.create(
-            export_type=ExportRecord.EXPORT_TYPE_RECEIPTS,
-            format=ExportRecord.FORMAT_CSV,
-            period_start=start,
-            period_end=end,
-            actor_pk=request.user.pk,
-            actor_ip=masked_ip or None,
-            row_count=row_count,
-        )
+        # Explicit atomic block: non_atomic_requests removed the outer
+        # transaction, so the ExportRecord must be committed before streaming.
+        with transaction.atomic():
+            ExportRecord.objects.create(
+                export_type=ExportRecord.EXPORT_TYPE_RECEIPTS,
+                format=ExportRecord.FORMAT_CSV,
+                period_start=start,
+                period_end=end,
+                actor_pk=request.user.pk,
+                actor_ip=masked_ip or None,
+                row_count=row_count,
+            )
 
         logger.info(
             "reports.views.donations.receipts_export actor_pk=%s start=%s end=%s row_count=%s",
@@ -347,6 +360,8 @@ class T3010PrepExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
     Streaming CSV export of T3010 preparatory data.
 
     Aggregates only — no donor PII. Creates ExportRecord before streaming.
+    Registered in urls.py with transaction.non_atomic_requests() (same reason
+    as ReceiptsExportView — avoids holding the DB transaction for the stream).
     Permission: payments.export_donationreport
     """
 
@@ -362,24 +377,29 @@ class T3010PrepExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
         fiscal_year_end: date = form.cleaned_data["fiscal_year_end"]
 
         # row_count = monthly rows + campaign rows + summary rows
+        # Computed once here; passed into export_t3010_prep_csv to avoid a
+        # second DB round-trip (previously get_t3010_preparatory_data was
+        # called twice — once here and once inside the export function).
         from apps.reports.services.donations import get_t3010_preparatory_data
         data = get_t3010_preparatory_data(fiscal_year_end)
         row_count = len(data["by_month"]) + len(data["by_campaign"]) + 4  # 4 summary rows
 
         masked_ip = _mask_ip(request.META.get("REMOTE_ADDR") or "")
-        ExportRecord.objects.create(
-            export_type=ExportRecord.EXPORT_TYPE_T3010,
-            format=ExportRecord.FORMAT_CSV,
-            period_start=data["fiscal_year_start"],
-            period_end=data["fiscal_year_end"],
-            actor_pk=request.user.pk,
-            actor_ip=masked_ip or None,
-            row_count=row_count,
-        )
+        with transaction.atomic():
+            ExportRecord.objects.create(
+                export_type=ExportRecord.EXPORT_TYPE_T3010,
+                format=ExportRecord.FORMAT_CSV,
+                period_start=data["fiscal_year_start"],
+                period_end=data["fiscal_year_end"],
+                actor_pk=request.user.pk,
+                actor_ip=masked_ip or None,
+                row_count=row_count,
+            )
 
         logger.info(
             "reports.views.donations.t3010_prep_export actor_pk=%s fiscal_year_end=%s",
             request.user.pk, fiscal_year_end,
         )
 
-        return export_t3010_prep_csv(fiscal_year_end)
+        # Pass pre-computed data to avoid a second DB call inside the exporter.
+        return export_t3010_prep_csv(fiscal_year_end, data=data)

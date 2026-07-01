@@ -22,6 +22,7 @@ URL layout:
 
 Views are imported lazily inside urlpatterns to keep startup imports minimal.
 """
+from django.db import transaction
 from django.urls import path
 
 from apps.reports.views.financial import (
@@ -90,12 +91,15 @@ urlpatterns = [
     ),
     path(
         "donations/receipts/export/",
-        ReceiptsExportView.as_view(),
+        # non_atomic_requests: streaming responses must not hold the DB connection
+        # open for the full download. The ExportRecord is committed atomically
+        # inside the view before streaming begins.
+        transaction.non_atomic_requests(ReceiptsExportView.as_view()),
         name="receipts-export",
     ),
     path(
         "donations/t3010/export/",
-        T3010PrepExportView.as_view(),
+        transaction.non_atomic_requests(T3010PrepExportView.as_view()),
         name="t3010-prep-export",
     ),
     # ── Operational ──────────────────────────────────────────────────────────

@@ -200,7 +200,7 @@
 {# ── Quick actions ────────────────────────────────────────────────────────── #}
 {% if perms.payments.export_donationreport %}
 <div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Export and navigation actions' %}">
-  <a href="{% url 'reports:receipts-export' %}?start={{ year }}-{{ month|stringformat:'02d' }}-01&end={{ year }}-{{ month|stringformat:'02d' }}-28"
+  <a href="{% url 'reports:receipts-export' %}?start={{ year }}-{{ month|stringformat:'02d' }}-01&end={{ year }}-{{ month|stringformat:'02d' }}-{{ month_last_day|stringformat:'02d' }}"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Export Receipts CSV" %}
   </a>
@@ -239,7 +239,7 @@
           <th scope="col">{% trans "Period" %}</th>
           <th scope="col" class="text-end">{% trans "Total Donations" %}</th>
           <th scope="col" class="text-end">{% trans "Gifts" %}</th>
-          <th scope="col"></th>
+          <th scope="col"><span class="visually-hidden">{% trans "Actions" %}</span></th>
         </tr>
       </thead>
       <tbody>

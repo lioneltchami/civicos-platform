@@ -514,6 +514,32 @@ class GetT3010PreparatoryDataTests(TestCase):
         self.assertEqual(result["total_receipted_donations"], Decimal("200.00"))
         self.assertEqual(result["total_eligible_amount"], Decimal("300.00"))
 
+    def test_no_double_count_when_donation_has_issued_and_cancelled_receipt(self):
+        """
+        Regression: a donation that has both an issued and a cancelled receipt
+        must NOT inflate donation_count, total_eligible_amount, or
+        total_receipted_donations.
+
+        Before the fix, the T3010 aggregate used
+        filter=Q(receipts__status="issued") in a shared .aggregate() call,
+        which caused a LEFT JOIN fan-out doubling all unfiltered aggregates for
+        any donation with more than one receipt row.
+        """
+        d = _make_donation(amount=Decimal("150.00"), created_at=self._ts(2024, 4))
+        # Simulate a receipt correction cycle: original cancelled, replacement issued.
+        _make_receipt(d, status="cancelled", issued_at=self._ts(2024, 4))
+        _make_receipt(d, status="issued", issued_at=self._ts(2024, 4))
+
+        result = get_t3010_preparatory_data(date(2024, 12, 31))
+
+        # Counts must not be inflated — one donation, not two.
+        self.assertEqual(result["donation_count"], 1,
+                         "donation_count must be 1, not 2 (JOIN inflation bug)")
+        self.assertEqual(result["total_eligible_amount"], Decimal("150.00"),
+                         "total_eligible_amount must not be doubled")
+        self.assertEqual(result["total_receipted_donations"], Decimal("150.00"),
+                         "total_receipted_donations must be 150, not doubled")
+
     def test_large_donation_count_flag(self):
         _make_donation(amount=Decimal("10000.00"), created_at=self._ts(2024, 5))
         _make_donation(amount=Decimal("5000.00"), created_at=self._ts(2024, 5))
@@ -947,6 +973,23 @@ class ReceiptsExportViewTests(TestCase):
         self.assertEqual(record.actor_pk, self.export_perm_user.pk)
         self.assertIsInstance(record.actor_pk, int)
 
+    def test_export_record_actor_ip_is_masked(self):
+        """PIPEDA: actor_ip must be masked (last octet zeroed), not the raw IP."""
+        self.client.force_login(self.export_perm_user)
+        self.client.get(
+            self.url + "?start=2024-01-01&end=2024-12-31",
+            REMOTE_ADDR="203.0.113.45",
+        )
+        record = ExportRecord.objects.latest("created_at")
+        # Raw IP must not be stored.
+        self.assertNotEqual(record.actor_ip, "203.0.113.45")
+        # Masked value: last octet zeroed → "203.0.113.0"
+        if record.actor_ip is not None:
+            self.assertTrue(
+                record.actor_ip.endswith(".0") or ":" in record.actor_ip,
+                msg=f"actor_ip '{record.actor_ip}' does not look masked",
+            )
+
     def test_row_count_in_export_record(self):
         d = _make_donation(amount=Decimal("100.00"))
         issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
@@ -957,7 +1000,7 @@ class ReceiptsExportViewTests(TestCase):
         self.assertEqual(record.row_count, 1)
 
     def test_csv_pipeda_no_donor_pii_columns(self):
-        """Exported CSV must not contain donor PII column headers."""
+        """Exported CSV must not contain donor PII column headers anywhere."""
         d = _make_donation(amount=Decimal("100.00"))
         issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
         _make_receipt(d, issued_at=issued_at)
@@ -969,9 +1012,11 @@ class ReceiptsExportViewTests(TestCase):
             "donor_province", "donor_postal_code", "donor_name",
             "email",
         ]
+        # assertNotIn on the full content string — not on a sliced list of tokens
+        # (the list-element check would miss substrings in the middle of a cell).
         for col in pii_columns:
-            self.assertNotIn(col, content.lower().split(",")[0:10],
-                             msg=f"PII column '{col}' found in CSV header")
+            self.assertNotIn(col, content.lower(),
+                             msg=f"PII column '{col}' found in CSV output")
 
     def test_csv_whitelisted_columns_present(self):
         """Exported CSV must contain CRA-required non-PII fields."""

@@ -36,7 +36,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Exists, OuterRef, Q, Sum
 
 logger = logging.getLogger("apps.reports.services.donations")
 
@@ -449,25 +449,39 @@ def get_t3010_preparatory_data(fiscal_year_end: date) -> dict:
         created_at__lt=fy_end_dt,
     )
 
-    # ── Aggregate totals (1 query) ────────────────────────────────────────────
-    # total_receipted_donations = eligible_amount for donations that have at
-    # least one issued receipt. Approach: use a subquery annotation or just
-    # sum all eligible_amounts (simpler and correct because every completed
-    # donation in a normal workflow results in a receipt; if a receipt was
-    # cancelled, the replacement receipt's eligible_amount is what matters).
-    # For strict accuracy we filter on donations that HAVE an issued receipt.
+    # ── Aggregate totals (2 queries) ─────────────────────────────────────────
+    # IMPORTANT: total_receipted must be computed in a SEPARATE query.
+    #
+    # If total_receipted used filter=Q(receipts__status="issued") inside the
+    # same .aggregate() call as the unfiltered sums, Django would emit a LEFT
+    # JOIN on OfficialDonationReceipt for the whole query. Any donation that
+    # has gone through a receipt correction cycle (one issued + one cancelled)
+    # would appear twice in the JOIN result, doubling donation_count,
+    # total_eligible, and total_advantage — corrupting CRA T3010 line 4500.
+    #
+    # Fix: run unfiltered aggregates first (no JOIN), then compute
+    # total_receipted via an Exists subquery (correlated, no fan-out).
+    from apps.payments.models import OfficialDonationReceipt as _Receipt  # local to avoid circular
+
     totals = base_qs.aggregate(
         total_eligible=Sum("eligible_amount", default=Decimal("0.00")),
         total_advantage=Sum("advantage_amount", default=Decimal("0.00")),
         donation_count=Count("id"),
         large_donation_count=Count("id", filter=Q(amount__gte=Decimal("10000.00"))),
-        # Total receipted = eligible sum only for donations with an issued receipt
-        total_receipted=Sum(
-            "eligible_amount",
-            filter=Q(receipts__status="issued"),
-            default=Decimal("0.00"),
-        ),
     )
+
+    # Separate query: sum eligible_amount only for donations that have an
+    # issued receipt, using EXISTS (subquery) to avoid JOIN-based inflation.
+    _has_issued = _Receipt.objects.filter(
+        donation=OuterRef("pk"),
+        status="issued",
+    )
+    total_receipted = (
+        base_qs.filter(Exists(_has_issued))
+        .aggregate(v=Sum("eligible_amount", default=Decimal("0.00")))["v"]
+        or Decimal("0.00")
+    )
+    totals["total_receipted"] = total_receipted
 
     # ── By-campaign breakdown (1 query) ───────────────────────────────────────
     by_campaign_qs = (
@@ -545,6 +559,8 @@ def get_t3010_preparatory_data(fiscal_year_end: date) -> dict:
         "total_receipted_donations": totals["total_receipted"],
         "total_eligible_amount": totals["total_eligible"],
         "total_advantage_amount": totals["total_advantage"],
+        # total_donated = eligible + advantage (gross donation amount for all receipted gifts)
+        "total_donated": totals["total_eligible"] + totals["total_advantage"],
         "donation_count": totals["donation_count"],
         "large_donation_count": totals["large_donation_count"],
         "receipts_issued_in_year": receipt_counts["issued"],

@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from django import forms
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 # Reconciliation HTML table and receipts list view: one quarter.
@@ -162,7 +163,11 @@ class FiscalYearEndForm(forms.Form):
 
     def clean_fiscal_year_end(self) -> date:
         d: date = self.cleaned_data["fiscal_year_end"]
-        if d > date.today():
+        # Use Toronto-local date, not server UTC date. A Dec 31 submission
+        # from Toronto after ~7 PM EST would be rejected as "future" if we
+        # used date.today() on a UTC server.
+        today_toronto = timezone.localtime(timezone.now()).date()
+        if d > today_toronto:
             raise forms.ValidationError(
                 _("Fiscal year end cannot be in the future."),
                 code="future_fiscal_year",
