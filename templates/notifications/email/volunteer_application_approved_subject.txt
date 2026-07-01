@@ -1,0 +1,1 @@
+Your volunteer application for {{ opportunity_title }} has been approved

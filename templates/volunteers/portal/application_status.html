@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{#
+  SECURITY NOTE (coordinator-internal data):
+  rejection_reason MUST NEVER be rendered in this template.
+  Rejected applications show only a generic message.
+  This invariant must be preserved in all future edits to this file.
+#}
+
+{% block title %}{% trans "My Applications" %}{% endblock %}
+{% block meta_description %}{% trans "Track the status of your volunteer applications." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li aria-current="page">{% trans "My Applications" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  {# ============================================================
+     Page heading
+     ============================================================ #}
+  <h1 class="page-title">{% trans "My Applications" %}</h1>
+
+  {% if applications %}
+    {# ============================================================
+       Applications table
+       ============================================================ #}
+    <div class="table-wrapper"
+         role="region"
+         aria-label="{% trans 'Your volunteer applications' %}"
+         tabindex="0">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Opportunity" %}</th>
+            <th scope="col">{% trans "Date Applied" %}</th>
+            <th scope="col">{% trans "Status" %}</th>
+            <th scope="col">
+              <span class="visually-hidden">{% trans "Actions" %}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for app in applications %}
+            <tr>
+              <th scope="row">
+                <a href="{% url 'volunteers:opportunity_detail' app.opportunity.pk %}"
+                   aria-label="{% blocktrans with title=app.opportunity.get_title %}View opportunity: {{ title }}{% endblocktrans %}">
+                  {{ app.opportunity.get_title }}
+                </a>
+              </th>
+              <td>
+                <time datetime="{{ app.created_at|date:'c' }}">
+                  {{ app.created_at|date:"Y-m-d" }}
+                </time>
+              </td>
+              <td>
+                {#
+                  STATUS BADGES
+                  pending  = yellow
+                  approved = green
+                  rejected = grey  (generic message only — no rejection_reason)
+                  withdrawn = grey
+                #}
+                {% if app.status == "pending" %}
+                  <span class="status-badge status-badge--pending"
+                        style="background-color: #f0c000; color: #1a1a1a;"
+                        aria-label="{% trans 'Application pending review' %}">
+                    {% trans "Pending" %}
+                  </span>
+                {% elif app.status == "approved" %}
+                  <span class="status-badge status-badge--approved"
+                        style="background-color: #1d7540; color: #ffffff;"
+                        aria-label="{% trans 'Application approved' %}">
+                    {% trans "Approved" %}
+                  </span>
+                {% elif app.status == "rejected" %}
+                  <span class="status-badge status-badge--rejected"
+                        style="background-color: #6c757d; color: #ffffff;"
+                        aria-label="{% trans 'Application unsuccessful' %}">
+                    {% trans "Unsuccessful" %}
+                  </span>
+                {% elif app.status == "withdrawn" %}
+                  <span class="status-badge status-badge--withdrawn"
+                        style="background-color: #6c757d; color: #ffffff;"
+                        aria-label="{% trans 'Application withdrawn' %}">
+                    {% trans "Withdrawn" %}
+                  </span>
+                {% else %}
+                  <span class="status-badge"
+                        aria-label="{{ app.get_status_display }}">
+                    {{ app.get_status_display }}
+                  </span>
+                {% endif %}
+
+                {#
+                  For rejected applications: generic message only.
+                  DO NOT render rejection_reason here.
+                  rejection_reason is coordinator-internal data only.
+                #}
+                {% if app.status == "rejected" %}
+                  <p class="status-note">
+                    {% trans "Your application was not successful." %}
+                  </p>
+                {% endif %}
+              </td>
+              <td>
+                {# Withdraw button — only for pending applications #}
+                {% if app.status == "pending" %}
+                  <form method="post"
+                        action="{% url 'volunteers:withdraw' app.pk %}"
+                        class="inline-form">
+                    {% csrf_token %}
+                    <button type="submit"
+                            class="btn btn--danger btn--small"
+                            aria-label="{% blocktrans with title=app.opportunity.get_title %}Withdraw application for {{ title }}{% endblocktrans %}"
+                            onclick="return confirm('{% trans "Are you sure you want to withdraw this application?" %}')">
+                      {% trans "Withdraw" %}
+                    </button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  {% else %}
+    {# ============================================================
+       Empty state
+       ============================================================ #}
+    <div class="empty-state">
+      <p class="empty-state__message">
+        {% trans "You have not submitted any applications yet." %}
+      </p>
+      <a href="{% url 'volunteers:opportunity_list' %}" class="btn btn--primary">
+        {% trans "Browse Volunteer Opportunities" %}
+      </a>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

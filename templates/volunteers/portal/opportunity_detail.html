@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{{ opportunity.get_title }}{% endblock %}
+{% block meta_description %}{% blocktrans with title=opportunity.get_title %}Details for the volunteer opportunity: {{ title }}{% endblocktrans %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li><a href="{% url 'volunteers:opportunity_list' %}">{% trans "Volunteer Opportunities" %}</a></li>
+      <li aria-current="page">{{ opportunity.get_title }}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  {# Back link #}
+  <p class="back-link">
+    <a href="{% url 'volunteers:opportunity_list' %}"
+       aria-label="{% trans 'Back to Volunteer Opportunities list' %}">
+      &larr; {% trans "Back to Opportunities" %}
+    </a>
+  </p>
+
+  {# ============================================================
+     Page heading
+     ============================================================ #}
+  <h1 class="page-title">{{ opportunity.get_title }}</h1>
+
+  {# ============================================================
+     Opportunity meta
+     ============================================================ #}
+  <dl class="detail-list">
+    <div class="detail-list__item">
+      <dt>{% trans "Coordinator" %}</dt>
+      <dd>{{ opportunity.program.coordinator.get_full_name }}</dd>
+    </div>
+    <div class="detail-list__item">
+      <dt>{% trans "Start Date" %}</dt>
+      <dd>
+        <time datetime="{{ opportunity.published_at|date:'c' }}">
+          {{ opportunity.published_at|date:"Y-m-d" }}
+        </time>
+      </dd>
+    </div>
+    {% if opportunity.closes_at %}
+      <div class="detail-list__item">
+        <dt>{% trans "End Date" %}</dt>
+        <dd>
+          <time datetime="{{ opportunity.closes_at|date:'c' }}">
+            {{ opportunity.closes_at|date:"Y-m-d" }}
+          </time>
+        </dd>
+      </div>
+    {% endif %}
+  </dl>
+
+  {# ============================================================
+     Description
+     ============================================================ #}
+  <section aria-labelledby="description-heading" class="detail-section">
+    <h2 id="description-heading">{% trans "Description" %}</h2>
+    <div class="rich-text">
+      {{ opportunity.description|safe }}
+    </div>
+  </section>
+
+  {# ============================================================
+     Required skills
+     ============================================================ #}
+  {% if opportunity.required_skills.exists %}
+    <section aria-labelledby="skills-heading" class="detail-section">
+      <h2 id="skills-heading">{% trans "Required Skills" %}</h2>
+      <ul class="skills-list" role="list">
+        {% for skill in opportunity.required_skills.all %}
+          <li>{{ skill }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {# ============================================================
+     Screening requirement info box
+     ============================================================ #}
+  {% if opportunity.required_screening %}
+    <section aria-labelledby="screening-heading"
+             class="detail-section info-box info-box--notice"
+             role="note">
+      <h2 id="screening-heading" class="info-box__title">
+        {% trans "Background Screening Required" %}
+      </h2>
+      <p>
+        {% blocktrans with check=opportunity.get_requires_vulnerable_sector_check_display %}
+          This opportunity requires a <strong>{{ check }}</strong> before you can begin volunteering.
+          This is a standard government screening process to ensure the safety of the people we serve.
+          You will be provided with further instructions after your application is approved.
+        {% endblocktrans %}
+      </p>
+    </section>
+  {% endif %}
+
+  {# ============================================================
+     Application action area
+     ============================================================ #}
+  <div class="application-action">
+    {% if existing_application %}
+      {# Volunteer already applied — show status badge #}
+      <p>
+        {% trans "You have already applied for this opportunity." %}
+        <span class="status-badge status-badge--{{ existing_application.status }}"
+              aria-label="{% blocktrans with s=existing_application.get_status_display %}Your application status: {{ s }}{% endblocktrans %}">
+          {{ existing_application.get_status_display }}
+        </span>
+      </p>
+    {% elif opportunity.is_accepting_applications and has_volunteer_profile %}
+      {# Eligible to apply #}
+      <a href="{% url 'volunteers:apply' opportunity.pk %}"
+         class="btn btn--primary"
+         aria-label="{% blocktrans with title=opportunity.get_title %}Apply now for {{ title }}{% endblocktrans %}">
+        {% trans "Apply Now" %}
+      </a>
+    {% elif not has_volunteer_profile %}
+      <div class="notification-banner notification-banner--warning" role="status">
+        <p>
+          {% trans "You need a volunteer profile before you can apply. Please contact the coordinator." %}
+        </p>
+      </div>
+    {% elif not opportunity.is_accepting_applications %}
+      <p class="status-notice">
+        {% trans "This opportunity is no longer accepting applications." %}
+      </p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

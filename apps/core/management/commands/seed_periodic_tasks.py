@@ -118,6 +118,14 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
     # Volunteer Management BB
     # ------------------------------------------------------------------
+    # IMPORTANT: Task names use short form ("volunteers.task_name") which requires
+    # tasks in apps/volunteers/tasks.py to be registered with explicit name= args:
+    #   @shared_task(name="volunteers.check_expiring_screenings")
+    #   @shared_task(name="volunteers.check_expiring_certifications")
+    #   @shared_task(name="volunteers.send_monthly_hours_summary")
+    #   @shared_task(name="volunteers.compute_volunteer_impact_snapshot")
+    # This matches the project-wide naming convention used by all other BBs.
+    # ------------------------------------------------------------------
 
     def _seed_check_expiring_screenings(self):
         """Alert coordinators of VSC / PRC records expiring within 30 days — daily 08:00 Toronto."""

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% load i18n volunteer_tags %}
+
+{% block title %}{% trans "Volunteer Opportunities" %}{% endblock %}
+{% block meta_description %}{% trans "Browse and apply for volunteer opportunities." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li aria-current="page">{% trans "Volunteer Opportunities" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  {# ============================================================
+     Page heading
+     ============================================================ #}
+  <h1 class="page-title">{% trans "Volunteer Opportunities" %}</h1>
+
+  {# ============================================================
+     No volunteer profile warning
+     Volunteers need a profile before they can apply.
+     Note: no profile_create URL yet — Wave 3 will add this.
+     ============================================================ #}
+  {% if not has_volunteer_profile %}
+    <div class="notification-banner notification-banner--warning" role="status" aria-live="polite">
+      <p>
+        {% blocktrans %}
+          You do not have a volunteer profile yet. Please contact the coordinator to set one up before applying.
+        {% endblocktrans %}
+      </p>
+    </div>
+  {% endif %}
+
+  {# ============================================================
+     Opportunities list
+     ============================================================ #}
+  {% if page_obj.object_list %}
+    <ul class="opportunity-list" role="list">
+      {% for opp in page_obj.object_list %}
+        <li class="opportunity-card">
+          <h2 class="opportunity-card__title">
+            <a href="{% url 'volunteers:opportunity_detail' opp.pk %}"
+               class="opportunity-card__link">
+              {{ opp.get_title }}
+            </a>
+          </h2>
+
+          <dl class="opportunity-card__meta">
+            <div class="opportunity-card__meta-item">
+              <dt>{% trans "Program" %}</dt>
+              <dd>{{ opp.program.get_name }}</dd>
+            </div>
+            {% if opp.closes_at %}
+              <div class="opportunity-card__meta-item">
+                <dt>{% trans "Applications close" %}</dt>
+                <dd>
+                  <time datetime="{{ opp.closes_at|date:'c' }}">
+                    {{ opp.closes_at|date:"Y-m-d" }}
+                  </time>
+                </dd>
+              </div>
+            {% endif %}
+          </dl>
+
+          {# Application status badge if the volunteer has already applied.
+             user_applications is a dict: {opportunity_pk: status_string}
+             Passed from OpportunityListView.get_context_data(). #}
+          {% if opp.pk in user_applications %}
+            <p class="opportunity-card__status">
+              <span class="status-badge status-badge--{{ user_applications|get_item:opp.pk }}"
+                    aria-label="{% blocktrans with s=user_applications|get_item:opp.pk %}Application status: {{ s }}{% endblocktrans %}">
+                {{ user_applications|get_item:opp.pk }}
+              </span>
+            </p>
+          {% elif has_volunteer_profile %}
+            <a href="{% url 'volunteers:apply' opp.pk %}"
+               class="btn btn--primary btn--small"
+               aria-label="{% blocktrans with title=opp.get_title %}Apply for {{ title }}{% endblocktrans %}">
+              {% trans "Apply" %}
+            </a>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+
+    {# ============================================================
+       Pagination
+       ============================================================ #}
+    {% if page_obj.has_other_pages %}
+      <nav aria-label="{% trans 'Opportunities pagination' %}" class="pagination">
+        <ul class="pagination__list" role="list">
+          {% if page_obj.has_previous %}
+            <li>
+              <a href="?page={{ page_obj.previous_page_number }}"
+                 class="pagination__link"
+                 aria-label="{% trans 'Previous page' %}">
+                &laquo; {% trans "Previous" %}
+              </a>
+            </li>
+          {% endif %}
+
+          {% for num in page_obj.paginator.page_range %}
+            <li>
+              {% if page_obj.number == num %}
+                <span class="pagination__link pagination__link--current"
+                      aria-current="page"
+                      aria-label="{% blocktrans with n=num %}Page {{ n }}, current{% endblocktrans %}">
+                  {{ num }}
+                </span>
+              {% else %}
+                <a href="?page={{ num }}"
+                   class="pagination__link"
+                   aria-label="{% blocktrans with n=num %}Go to page {{ n }}{% endblocktrans %}">
+                  {{ num }}
+                </a>
+              {% endif %}
+            </li>
+          {% endfor %}
+
+          {% if page_obj.has_next %}
+            <li>
+              <a href="?page={{ page_obj.next_page_number }}"
+                 class="pagination__link"
+                 aria-label="{% trans 'Next page' %}">
+                {% trans "Next" %} &raquo;
+              </a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+
+  {% else %}
+    {# ============================================================
+       Empty state
+       ============================================================ #}
+    <div class="empty-state">
+      <p class="empty-state__message">
+        {% trans "There are no active volunteer opportunities at this time. Please check back later." %}
+      </p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

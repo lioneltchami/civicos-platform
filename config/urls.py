@@ -98,7 +98,10 @@ urlpatterns += i18n_patterns(
     path("consent/", include("apps.consent.urls", namespace="consent")),
     # Analytics & Reporting BB — staff-only report views
     path("reports/", include("apps.reports.urls", namespace="reports")),
-    # Volunteer Management BB — volunteer portal, coordinator, and admin views
+    # Volunteer Management BB — volunteer portal, coordinator, and admin views.
+    # NOTE for Wave 5: REST API endpoints must be mounted OUTSIDE i18n_patterns
+    # (alongside /api/v1/) so they resolve as /volunteers/api/... not /en/volunteers/api/...
+    # Split this include into two: one inside i18n_patterns (HTML views), one outside (API).
     path("volunteers/", include("apps.volunteers.urls", namespace="volunteers")),
     # Public-facing pages (Wagtail CMS) — must be last
     path("", include(wagtail_urls)),

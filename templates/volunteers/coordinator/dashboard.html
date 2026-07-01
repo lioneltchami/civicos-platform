@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Coordinator Dashboard" %}{% endblock %}
+{% block meta_description %}{% trans "Manage volunteer applications and opportunities." %}{% endblock %}
+{% block body_class %}coordinator-layout{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li aria-current="page">{% trans "Coordinator Dashboard" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="coordinator-layout__inner">
+
+    {# ============================================================
+       Coordinator sidebar navigation
+       ============================================================ #}
+    <aside class="coordinator-sidebar">
+      <nav aria-label="{% trans 'Coordinator navigation' %}">
+        <ul class="coordinator-nav" role="list">
+          <li>
+            <a href="{% url 'volunteers:coordinator_dashboard' %}"
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
+              {% trans "Dashboard" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:opportunity_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Opportunities" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:coordinator_application_list' %}"
+               class="coordinator-nav__link">
+              {% trans "All Applications" %}
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    {# ============================================================
+       Main dashboard area
+       ============================================================ #}
+    <main class="coordinator-main" id="coordinator-main-content">
+
+      <h1 class="page-title">{% trans "Coordinator Dashboard" %}</h1>
+
+      {# ============================================================
+         Summary statistics cards
+         ============================================================ #}
+      <section aria-labelledby="summary-heading" class="stats-section">
+        <h2 id="summary-heading" class="visually-hidden">{% trans "Application summary" %}</h2>
+        <ul class="stats-row" role="list">
+          <li class="stats-card stats-card--pending">
+            <span class="stats-card__number">{{ pending_count|default:"0" }}</span>
+            <span class="stats-card__label">{% trans "Pending Applications" %}</span>
+          </li>
+          <li class="stats-card stats-card--approved">
+            <span class="stats-card__number">{{ approved_count|default:"0" }}</span>
+            <span class="stats-card__label">{% trans "Approved Applications" %}</span>
+          </li>
+        </ul>
+      </section>
+
+      {# ============================================================
+         Pending applications table
+         ============================================================ #}
+      <section aria-labelledby="pending-heading" class="dashboard-section">
+        <div class="dashboard-section__header">
+          <h2 id="pending-heading">{% trans "Pending Applications" %}</h2>
+        </div>
+
+        {% if applications %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Pending volunteer applications' %}"
+               tabindex="0">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Applicant" %}</th>
+                  <th scope="col">{% trans "Opportunity" %}</th>
+                  <th scope="col">{% trans "Date Applied" %}</th>
+                  <th scope="col">
+                    <span class="visually-hidden">{% trans "Actions" %}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for app in applications %}
+                  <tr>
+                    <th scope="row">
+                      {#
+                        PIPEDA compliance: display applicant as "Applicant #<volunteer_id>"
+                        The volunteer FK id is used — never name, email, or other PII.
+                      #}
+                      {% blocktrans with pk=app.volunteer_id %}Applicant #{{ pk }}{% endblocktrans %}
+                    </th>
+                    <td>{{ app.opportunity.get_title }}</td>
+                    <td>
+                      <time datetime="{{ app.created_at|date:'c' }}">
+                        {{ app.created_at|date:"Y-m-d" }}
+                      </time>
+                    </td>
+                    <td>
+                      <a href="{% url 'volunteers:application_review' app.pk %}"
+                         class="link-action"
+                         aria-label="{% blocktrans with pk=app.volunteer_id title=app.opportunity.get_title %}Review application from Applicant #{{ pk }} for {{ title }}{% endblocktrans %}">
+                        {% trans "Review" %}
+                      </a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">
+              {% trans "There are no pending applications at this time." %}
+            </p>
+          </div>
+        {% endif %}
+      </section>
+
+    </main>
+  </div>
+</div>
+{% endblock %}

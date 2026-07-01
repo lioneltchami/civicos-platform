@@ -17,17 +17,24 @@ PIPEDA design rules (enforced here, not just in views):
 
 CRA compliance:
   - Honorarium.calendar_year derived from payment_date on save.
-  - Hard block at $1,000 cumulative honoraria per volunteer per calendar year
-    (enforced in services/honoraria.py, not here — model stores the record).
-  - t4a_required flag set by service layer when cumulative > $500.
+  - CRA PC-025 thresholds enforced in Honorarium.clean() (called by save()):
+      $450 alert threshold — non-blocking, coordinator must be notified.
+      $500 T4A threshold — auto-sets t4a_required = True, non-blocking.
+      $1,000 hard block — ValidationError raised, honorarium rejected.
+  - Thresholds are cumulative YTD per volunteer per calendar year.
+  - .update() and bulk_create() bypass clean(); callers must validate explicitly.
 
 Spec: docs/volunteer-management-bb-spec.md
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import GeneratedField
+from django.db.models.functions import ExtractYear
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -329,6 +336,13 @@ class Opportunity(TimestampedModel):
 
     @property
     def is_accepting_applications(self) -> bool:
+        """
+        True if this Opportunity is published and has not passed its closing datetime.
+
+        NOTE: Does NOT check volunteer_capacity — a fully-booked opportunity still
+        returns True. Callers that need capacity awareness must also check
+        application count vs volunteer_capacity separately.
+        """
         if self.status != self.STATUS_PUBLISHED:
             return False
         if self.closes_at and timezone.now() > self.closes_at:
@@ -452,6 +466,19 @@ class VolunteerProfile(TimestampedModel):
             "Never logged or displayed — use sin_last4 for confirmation."
         ),
     )
+
+    @property
+    def get_sin_bytes(self) -> bytes | None:
+        """
+        Return the encrypted SIN as bytes (not memoryview).
+        Django's BinaryField returns memoryview in Python 3;
+        Fernet.decrypt() requires bytes. Always use this property,
+        never access sin_encrypted directly.
+        """
+        if self.sin_encrypted is None:
+            return None
+        return bytes(self.sin_encrypted)
+
     sin_last4 = models.CharField(
         max_length=4,
         blank=True,
@@ -532,6 +559,12 @@ class VolunteerProfile(TimestampedModel):
                 "Can view volunteer accommodation notes, emergency contacts, and SIN last4",
             ),
         ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(total_hours_approved__gte=0),
+                name="vol_profile_total_hours_non_negative",
+            ),
+        ]
 
     def __str__(self) -> str:
         # PIPEDA: no PII (name, email) in __str__.
@@ -544,6 +577,54 @@ class VolunteerProfile(TimestampedModel):
             return self.preferred_name
         first = self.user.first_name
         return first if first else f"Volunteer #{self.pk}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.photo and not self.photo_consent_id:
+            raise ValidationError(
+                {"photo": _("A photo consent record is required before uploading a photo (PIPEDA).")}
+            )
+
+    def __setattr__(self, name: str, value) -> None:
+        """
+        Guard against accidental plaintext SIN storage.
+
+        PIPEDA s.7 / security requirement: SIN is a sensitive personal identifier
+        and must never be stored unencrypted. This guard fires at Python
+        attribute-assignment time — before save() — so bugs are caught in tests,
+        not in production.
+
+        Only bytes that decode to a valid Fernet token (base64url, version byte
+        0x80, minimum 9 raw bytes) are accepted. None clears the field.
+
+        The service layer (apps.volunteers.services.sin) is responsible for
+        encrypting the SIN before assignment. Do NOT bypass this guard by
+        accessing the underlying DB field directly.
+        """
+        if name == "sin_encrypted" and value is not None:
+            if isinstance(value, memoryview):
+                value = bytes(value)
+            if not isinstance(value, bytes):
+                raise TypeError(
+                    "sin_encrypted must be bytes (a Fernet token) or None, "
+                    f"got {type(value).__name__}. "
+                    "Use apps.volunteers.services.sin.encrypt_sin() to produce the token."
+                )
+            import base64 as _base64
+            _raw = None
+            try:
+                _padded = value + b"=" * (-len(value) % 4)
+                _raw = _base64.urlsafe_b64decode(_padded)
+            except Exception:
+                pass
+            if _raw is None or len(_raw) < 73 or _raw[0] != 0x80:
+                raise ValueError(
+                    "sin_encrypted must be a valid Fernet token (base64url-encoded, "
+                    "starting with version byte 0x80). "
+                    "Use apps.volunteers.services.sin.encrypt_sin() to produce one. "
+                    "Do NOT assign raw SIN digits or arbitrary bytes."
+                )
+        super().__setattr__(name, value)
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +678,9 @@ class VolunteerApplication(TimestampedModel):
     )
 
     # Consent BB — signed volunteer agreement
+    # PROTECT: ConsentRecords must never be hard-deleted (PIPEDA erasure anonymizes
+    # their content in-place via the Consent BB). Changing to SET_NULL would silently
+    # destroy proof of which agreement version was signed at application time.
     consent_record = models.ForeignKey(
         "consent.ConsentRecord",
         null=True,
@@ -693,7 +777,7 @@ class Shift(TimestampedModel):
 
     opportunity = models.ForeignKey(
         Opportunity,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="shifts",
         verbose_name=_("Opportunity"),
     )
@@ -853,7 +937,7 @@ class ShiftBooking(TimestampedModel):
     )
     volunteer = models.ForeignKey(
         VolunteerProfile,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="bookings",
         verbose_name=_("Volunteer"),
     )
@@ -965,6 +1049,7 @@ class HoursLog(TimestampedModel):
     hours = models.DecimalField(
         max_digits=6,
         decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01")), MaxValueValidator(Decimal("24"))],
         verbose_name=_("Hours"),
         help_text=_("Hours volunteered (0.01 – 24.00)."),
     )
@@ -1020,6 +1105,11 @@ class HoursLog(TimestampedModel):
             models.CheckConstraint(
                 check=models.Q(hours__gt=0, hours__lte=24),
                 name="vol_hourslog_range",
+            ),
+            models.UniqueConstraint(
+                fields=["volunteer", "shift"],
+                condition=models.Q(shift__isnull=False),
+                name="vol_hourslog_unique_vol_shift",
             ),
         ]
 
@@ -1111,6 +1201,7 @@ class ScreeningRecord(TimestampedModel):
     )
     verified_clear = models.BooleanField(
         null=True,
+        blank=True,  # None = pending (not yet verified by coordinator)
         verbose_name=_("Result: verified clear"),
         help_text=_(
             "True = coordinator confirmed the result is clear. "
@@ -1124,7 +1215,11 @@ class ScreeningRecord(TimestampedModel):
         blank=True,
         verbose_name=_("Admin notes"),
         help_text=_(
-            "Coordinator admin notes. Must not contain criminal record details."
+            "⚠ PIPEDA / CRA constraint: record only the screening outcome date, "
+            "check-type, and logistical notes (e.g. 'submitted to RCMP 2024-03-01'). "
+            "Do NOT record criminal record details, offence descriptions, charge history, "
+            "or any result beyond the verified_clear flag. "
+            "Access to this field is audit-logged. Maximum 300 characters."
         ),
     )
 
@@ -1145,6 +1240,18 @@ class ScreeningRecord(TimestampedModel):
                 name="vol_screen_cleared_idx",
             ),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["volunteer", "check_type"],
+                condition=models.Q(opportunity__isnull=True),
+                name="vol_screen_unique_vol_type_no_opp",
+            ),
+            models.UniqueConstraint(
+                fields=["volunteer", "check_type", "opportunity"],
+                condition=models.Q(opportunity__isnull=False),
+                name="vol_screen_unique_vol_type_with_opp",
+            ),
+        ]
 
     def __str__(self) -> str:
         return (
@@ -1152,6 +1259,66 @@ class ScreeningRecord(TimestampedModel):
             f"{self.get_check_type_display()} "
             f"(Vol #{self.volunteer_id})"
         )
+
+    # Keyword fragments that suggest criminal-record detail rather than
+    # logistical notes.  Checked only for VSC records with a recorded result.
+    _PROHIBITED_NOTE_FRAGMENTS = (
+        "charge",
+        "offence",
+        "offense",
+        "conviction",
+        "criminal record",
+        "finding of guilt",
+        "absolute discharge",
+        "conditional discharge",
+        "record suspension",
+        "pardon",
+        "acquit",
+        "indictable",
+        "summary conviction",
+        "guilty",
+    )
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if not self.notes:
+            return
+
+        # For VSC records where a result has been recorded, enforce strict
+        # data-minimisation: notes must be logistical only (PIPEDA / Criminal
+        # Records Act Canada).  A 150-char cap forces brevity; prohibited
+        # keywords detect outcome language that must never appear here.
+        if (
+            self.check_type == self.CHECK_TYPE_VSC
+            and self.verified_clear is not None
+        ):
+            if len(self.notes) > 150:
+                raise ValidationError(
+                    {
+                        "notes": _(
+                            "Notes on a verified VSC record must be logistical only "
+                            "(e.g. submission date, agency reference). "
+                            "Maximum 150 characters — current entry has %(count)d."
+                        )
+                        % {"count": len(self.notes)}
+                    }
+                )
+
+            lower = self.notes.lower()
+            found = [kw for kw in self._PROHIBITED_NOTE_FRAGMENTS if kw in lower]
+            if found:
+                raise ValidationError(
+                    {
+                        "notes": _(
+                            "Notes must not contain criminal-record detail. "
+                            "Remove terms related to: %(terms)s. "
+                            "Record only the submission date and agency reference — "
+                            "the result is captured by the verified_clear flag."
+                        )
+                        % {"terms": ", ".join(f'"{t}"' for t in found)}
+                    }
+                )
 
     @property
     def is_expired(self) -> bool:
@@ -1196,9 +1363,12 @@ class Certification(TimestampedModel):
         (CERT_TYPE_OTHER,        _("Other")),
     ]
 
+    # PROTECT: Certifications are compliance records (First Aid, CPR, VSC) and must
+    # survive profile deletion. Erasure workflows must explicitly archive or redact
+    # certifications before deleting the profile.
     volunteer = models.ForeignKey(
         VolunteerProfile,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="certifications",
         verbose_name=_("Volunteer"),
     )
@@ -1292,11 +1462,12 @@ class Honorarium(TimestampedModel):
     """
     Records a payment to a volunteer — expense reimbursement or nominal honorarium.
 
-    CRA compliance rules (enforced in services/honoraria.py):
+    CRA compliance rules (enforced in clean() / save()):
     - EXPENSE_REIMBURSEMENT: no threshold tracking; not taxable.
     - HONORARIUM: cumulative tracking per volunteer per calendar year.
-      Alert at $450 YTD (near threshold). Hard block at $1,000 YTD (service layer).
-      T4A required when cumulative > $500 in a calendar year.
+      Alert at $450 YTD (near threshold) — non-blocking.
+      T4A required ($500+ YTD) — auto-sets t4a_required = True; non-blocking.
+      Hard block at $1,000 YTD — raises ValidationError; honorarium rejected.
 
     This model is an immutable financial record: has_delete_permission = False
     in admin. Amounts in CAD.
@@ -1325,24 +1496,27 @@ class Honorarium(TimestampedModel):
     amount = models.DecimalField(
         max_digits=8,
         decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
         verbose_name=_("Amount (CAD)"),
     )
     currency = models.CharField(
         max_length=3,
         default="CAD",
+        choices=[("CAD", "Canadian Dollar")],
         verbose_name=_("Currency"),
+        help_text=_("Only CAD supported. CRA thresholds are denominated in CAD."),
     )
     description = models.CharField(
         max_length=300,
         verbose_name=_("Description"),
     )
     payment_date = models.DateField(verbose_name=_("Payment date"))
-    calendar_year = models.PositiveSmallIntegerField(
+    calendar_year = GeneratedField(
+        expression=ExtractYear("payment_date"),
+        output_field=models.PositiveSmallIntegerField(),
+        db_persist=True,   # STORED generated column — persisted to disk, indexable
         verbose_name=_("Calendar year"),
-        help_text=_(
-            "CRA calendar year for threshold tracking. "
-            "Derived from payment_date on save — do not set manually."
-        ),
+        help_text=_("Automatically derived from payment_date. Used for CRA threshold tracking."),
     )
 
     # T4A tracking
@@ -1401,12 +1575,98 @@ class Honorarium(TimestampedModel):
         return (
             f"Honorarium #{self.pk}: "
             f"${self.amount} ({self.get_payment_type_display()}) "
-            f"Vol #{self.volunteer_id} — {self.calendar_year}"
+            f"Vol #{self.volunteer_id} — {self.payment_date.year if self.payment_date else '?'}"
         )
 
-    def save(self, *args, **kwargs) -> None:
-        # Always derive calendar_year from payment_date — never trust a caller-supplied value.
-        self.calendar_year = self.payment_date.year
+    def clean(self) -> None:
+        """
+        Enforce CRA PC-025 honorarium thresholds (per volunteer, per calendar year).
+
+        Thresholds (from settings):
+          VOLUNTEER_CRA_ALERT_THRESHOLD ($450): non-blocking — triggers coordinator alert.
+              t4a_required is NOT automatically set at this level.
+          VOLUNTEER_CRA_T4A_THRESHOLD  ($500): auto-sets t4a_required = True.
+              A T4A slip must be issued to CRA. Non-blocking.
+          VOLUNTEER_CRA_HARD_BLOCK    ($1000): raises ValidationError.
+              The honorarium is rejected. Finance team must review.
+
+        Thresholds are cumulative YTD (all honoraria for this volunteer in
+        payment_date.year). Current instance is excluded from the YTD sum when
+        self.pk is set (edit path).
+
+        Note: .update() and bulk_create() bypass clean(). Celery tasks that update
+        honoraria must call full_clean() explicitly or use the service layer.
+        """
+        from django.core.exceptions import ValidationError
+        from django.db.models import Sum
+
+        alert_threshold = getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450.00)
+        t4a_threshold = getattr(settings, "VOLUNTEER_CRA_T4A_THRESHOLD", 500.00)
+        hard_block = getattr(settings, "VOLUNTEER_CRA_HARD_BLOCK", 1_000.00)
+
+        if self.payment_type != self.PAYMENT_TYPE_HONORARIUM:
+            return  # CRA PC-025 thresholds apply to honoraria only, not expense reimbursements
+
+        if not self.payment_date or not self.amount:
+            return  # incomplete data — let field validators handle it
+
+        year = self.payment_date.year
+
+        # Calculate YTD total for this volunteer in this calendar year,
+        # excluding self (to allow edits without counting the current amount twice).
+        # Filter to honorarium payment type only — expense reimbursements must not
+        # count against CRA PC-025 thresholds (C-NEW-1 fix).
+        # select_for_update() serializes concurrent honorarium creation for the same
+        # volunteer+year. Without this, two coordinators reading simultaneously could
+        # both pass the $1,000 hard-block, resulting in an undetected CRA violation.
+        # Requires ATOMIC_REQUESTS=True (set globally in base.py).
+        qs = Honorarium.objects.select_for_update().filter(
+            volunteer=self.volunteer,
+            payment_date__year=year,
+            payment_type=self.PAYMENT_TYPE_HONORARIUM,
+        )
+        if self.pk:
+            qs = qs.exclude(pk=self.pk)
+
+        existing_total = qs.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        projected_total = existing_total + self.amount
+
+        # Hard block: reject entirely.
+        if projected_total >= Decimal(str(hard_block)):
+            raise ValidationError(
+                {
+                    "amount": _(
+                        "This honorarium would bring %(volunteer)s's %(year)s total to "
+                        "$%(projected)s, exceeding the CRA hard block of $%(limit)s. "
+                        "Contact your finance team. CRA PC-025."
+                    ) % {
+                        "volunteer": f"VolunteerProfile #{self.volunteer_id}",
+                        "year": year,
+                        "projected": f"{projected_total:.2f}",
+                        "limit": f"{hard_block:.2f}",
+                    }
+                }
+            )
+
+        # T4A threshold: auto-set t4a_required.
+        if projected_total >= Decimal(str(t4a_threshold)):
+            self.t4a_required = True
+
+        # Alert threshold ($450): non-blocking — does not prevent save.
+        # The admin save_model() or service layer should check the YTD total
+        # and emit a coordinator notification when >= $450 but < $500.
+        # No action is taken here beyond setting t4a_required above if applicable.
+
+    def save(self, *args, skip_clean: bool = False, **kwargs) -> None:
+        """
+        Save the Honorarium, running full_clean() (including CRA threshold checks)
+        unless skip_clean=True is explicitly passed.
+
+        Pass skip_clean=True only for bulk-load / fixture scenarios where the
+        caller takes responsibility for running validations itself.
+        """
+        if not skip_clean:
+            self.full_clean()
         super().save(*args, **kwargs)
 
 
@@ -1484,6 +1744,12 @@ class RecognitionMilestone(models.Model):
         verbose_name_plural = _("Recognition milestones")
         unique_together = [("volunteer", "hours_threshold")]
         ordering = ["hours_threshold"]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(hours_threshold__gte=1),
+                name="vol_milestone_threshold_min",
+            ),
+        ]
 
     def __str__(self) -> str:
         return (

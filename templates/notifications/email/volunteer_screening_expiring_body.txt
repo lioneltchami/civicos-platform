@@ -1,0 +1,18 @@
+Hello,
+
+This is a reminder that the following screening check is expiring soon:
+
+  Volunteer:   {{ volunteer_display }}
+  Check type:  {{ check_type_display }}
+  Expiry date: {{ expiry_date }}
+  Days remaining: {{ days_remaining }}
+
+Action required: Please arrange to renew this screening check before it expires to avoid
+any interruption to volunteer activities.
+
+If you have questions about the renewal process, please contact your coordinator.
+
+This is an automated notification. Please do not reply to this email.
+
+---
+This message was sent by the Volunteer Management System.

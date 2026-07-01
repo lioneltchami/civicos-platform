@@ -1,0 +1,16 @@
+Hello,
+
+A new volunteer application has been submitted for the opportunity:
+
+  {{ opportunity_title }}
+
+Applicant reference: {{ volunteer_display }}
+
+Please log in to the coordinator dashboard to review this application:
+
+  {{ review_url }}
+
+This is an automated notification. Please do not reply to this email.
+
+---
+This message was sent by the Volunteer Management System.

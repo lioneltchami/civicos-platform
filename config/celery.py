@@ -44,15 +44,8 @@ app.autodiscover_tasks()
 
 app.conf.task_default_queue = "default"
 
-app.conf.task_routes = {
-    # Webhook-triggered tasks — fast, latency-sensitive.
-    # Must reach workers within Stripe's 30-second retry window.
-    "apps.payments.tasks.process_stripe_webhook": {"queue": "webhooks"},
-    # Receipt / batch tasks — slow, latency-tolerant.
-    # Isolated so a 10,000-donor annual run cannot delay webhook processing.
-    "apps.payments.tasks_receipts.generate_annual_receipts": {"queue": "receipts"},
-    "apps.payments.tasks_receipts.generate_and_send_receipt": {"queue": "receipts"},
-    # kickoff_annual_receipts is a lightweight Beat trigger — runs on default queue;
-    # it immediately delegates to generate_annual_receipts (receipts queue) via .delay().
-}
+# Task routing is configured in CELERY_TASK_ROUTES in config/settings/base.py.
+# Do NOT set app.conf.task_routes here — programmatic assignment via app.conf
+# takes precedence over settings-based CELERY_TASK_ROUTES (loaded via
+# config_from_object) and would silently override all routes defined in base.py.
 

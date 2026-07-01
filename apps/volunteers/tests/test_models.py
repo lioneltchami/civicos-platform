@@ -27,6 +27,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -53,12 +54,7 @@ User = get_user_model()
 # Helpers / factories
 # ---------------------------------------------------------------------------
 
-_user_counter = 0
-
-
 def make_user(email="alice@example.com", is_staff=False):
-    global _user_counter
-    _user_counter += 1
     # Ensure unique email each call when default is reused across test cases
     return User.objects.create_user(
         email=email,
@@ -112,19 +108,22 @@ def make_shift(opportunity, start_offset_hours=24, duration_hours=3):
     )
 
 
-def make_honorarium(volunteer, amount, payment_date=None, created_by=None):
+def make_honorarium(volunteer, amount, payment_date=None, created_by=None, skip_clean=True):
     if payment_date is None:
         payment_date = timezone.localtime(timezone.now()).date()
     if created_by is None:
         created_by = volunteer.user
-    return Honorarium.objects.create(
+    h = Honorarium(
         volunteer=volunteer,
         payment_type="honorarium",
         amount=amount,
         description="Quarterly honorarium",
         payment_date=payment_date,
         created_by=created_by,
+        # calendar_year is a GeneratedField — automatically set by DB from payment_date
     )
+    h.save(skip_clean=skip_clean)
+    return h
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +214,22 @@ class ProgramTests(TestCase):
         p = make_program()
         self.assertTrue(p.is_active)
 
+    def test_get_name_english(self):
+        from django.utils import translation
+        p = make_program()
+        with translation.override("en"):
+            name = p.get_name()
+            self.assertIsInstance(name, str)
+            self.assertTrue(len(name) > 0)
+
+    def test_get_name_french(self):
+        from django.utils import translation
+        p = make_program()
+        with translation.override("fr"):
+            name = p.get_name()
+            self.assertIsInstance(name, str)
+            self.assertTrue(len(name) > 0)
+
 
 # ---------------------------------------------------------------------------
 # Opportunity tests
@@ -270,6 +285,22 @@ class OpportunityTests(TestCase):
         self.assertIn("closed", valid)
         self.assertIn("archived", valid)
 
+    def test_get_title_english(self):
+        from django.utils import translation
+        opp = make_opportunity(self.program)
+        with translation.override("en"):
+            title = opp.get_title()
+            self.assertIsInstance(title, str)
+            self.assertTrue(len(title) > 0)
+
+    def test_get_title_french(self):
+        from django.utils import translation
+        opp = make_opportunity(self.program)
+        with translation.override("fr"):
+            title = opp.get_title()
+            self.assertIsInstance(title, str)
+            self.assertTrue(len(title) > 0)
+
 
 # ---------------------------------------------------------------------------
 # VolunteerProfile tests
@@ -282,10 +313,16 @@ class VolunteerProfileTests(TestCase):
         self.profile = make_profile(self.user)
 
     def test_str_is_pipeda_safe(self):
-        """__str__ must not contain email, username, or full name."""
+        # Verify __str__ does NOT expose name fields
         result = str(self.profile)
-        self.assertNotIn("alice", result)
-        self.assertNotIn("alice@example.com", result)
+        self.assertNotIn("@", result)  # no email
+        self.assertIn(str(self.profile.pk), result)
+        # Set a real name and verify it's still not in __str__
+        self.profile.preferred_name = "Alice Smith"
+        self.profile.save(update_fields=["preferred_name"])
+        result = str(self.profile)
+        self.assertNotIn("Alice", result)
+        self.assertNotIn("Smith", result)
         self.assertIn(str(self.profile.pk), result)
 
     def test_status_default_active(self):
@@ -326,6 +363,75 @@ class VolunteerProfileTests(TestCase):
         tag = SkillTag.objects.create(name_en="CPR", name_fr="RCR", slug="cpr")
         self.profile.skills.add(tag)
         self.assertIn(tag, self.profile.skills.all())
+
+    def test_total_hours_approved_updates_correctly(self):
+        """
+        Verifies that total_hours_approved field reflects approved HoursLog entries.
+        Tests the model-layer field can be set and persists (service layer sets this in Wave 2).
+        """
+        from decimal import Decimal
+        from django.db.models import Sum
+
+        # Create an approved HoursLog
+        program = make_program()
+        opp = make_opportunity(program)
+        HoursLog.objects.create(
+            volunteer=self.profile,
+            opportunity=opp,
+            date=datetime.date.today(),
+            hours=Decimal("3.50"),
+            status="approved",
+        )
+        # Simulate service layer updating denormalized field
+        total = HoursLog.objects.filter(
+            volunteer=self.profile, status="approved"
+        ).aggregate(total=Sum("hours"))["total"] or Decimal("0")
+        VolunteerProfile.objects.filter(pk=self.profile.pk).update(total_hours_approved=total)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.total_hours_approved, Decimal("3.50"))
+
+    # --- __setattr__ guard tests (Fix 5a) ---
+
+    def test_sin_encrypted_rejects_plaintext_bytes(self):
+        """__setattr__ guard: raw bytes that are not a Fernet token must raise ValueError."""
+        with self.assertRaises(ValueError):
+            self.profile.sin_encrypted = b"raw-plaintext-sin"
+
+    def test_sin_encrypted_rejects_string(self):
+        """__setattr__ guard: string assignment must raise TypeError."""
+        with self.assertRaises(TypeError):
+            self.profile.sin_encrypted = "not-bytes"
+
+    def test_sin_encrypted_accepts_none(self):
+        """__setattr__ guard: None must be accepted (no SIN on file)."""
+        self.profile.sin_encrypted = None  # must not raise
+
+    def test_sin_encrypted_accepts_valid_fernet_token(self):
+        """__setattr__ guard: a real Fernet token (>= 73 raw bytes, version 0x80) must be accepted."""
+        import base64
+        import struct
+        import os
+        # Build a minimal syntactically valid Fernet token (not necessarily decryptable)
+        # Structure: version(1) + timestamp(8) + iv(16) + ciphertext(16) + hmac(32) = 73 bytes
+        version = b"\x80"
+        timestamp = struct.pack(">Q", 1_700_000_000)  # 8 bytes
+        iv = os.urandom(16)
+        ciphertext = os.urandom(16)
+        hmac_bytes = os.urandom(32)
+        raw = version + timestamp + iv + ciphertext + hmac_bytes  # 73 bytes
+        token = base64.urlsafe_b64encode(raw)
+        # This token won't decrypt correctly but should pass the structural guard
+        self.profile.sin_encrypted = token  # must not raise
+
+    # --- photo consent test (Fix 5b) ---
+
+    def test_photo_requires_photo_consent(self):
+        """PIPEDA: setting photo without photo_consent_id must raise ValidationError."""
+        from django.core.files.base import ContentFile
+        self.profile.photo = ContentFile(b"fake-image", name="test.jpg")
+        self.profile.photo_consent_id = None
+        with self.assertRaises(ValidationError):
+            self.profile.full_clean()
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +474,16 @@ class VolunteerApplicationTests(TestCase):
 
     def test_protect_on_opportunity_delete(self):
         make_application(self.opp, self.profile)
-        with self.assertRaises(Exception):  # PROTECT raises ProtectedError
+        with self.assertRaises(ProtectedError):
             with transaction.atomic():
                 self.opp.delete()
+
+    def test_protect_on_volunteer_profile_delete(self):
+        """Cannot delete a VolunteerProfile that has applications."""
+        make_application(self.opp, self.profile)
+        with self.assertRaises(ProtectedError):
+            with transaction.atomic():
+                self.profile.delete()
 
 
 # ---------------------------------------------------------------------------
@@ -395,20 +508,22 @@ class ShiftTests(TestCase):
         self.assertAlmostEqual(float(shift.duration_hours), 2.5, places=2)
 
     def test_check_constraint_end_before_start_raises(self):
-        """Database must reject shifts where end <= start."""
-        now = timezone.now()
-        with self.assertRaises(Exception):
+        # NOTE: This CHECK constraint is only enforced at DB level.
+        # On SQLite (CI), this test may not raise. Verify on PostgreSQL in staging.
+        with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 Shift.objects.create(
                     opportunity=self.opp,
-                    start_datetime=now + datetime.timedelta(hours=5),
-                    end_datetime=now + datetime.timedelta(hours=1),  # before start
+                    start_datetime=timezone.now() + datetime.timedelta(hours=5),
+                    end_datetime=timezone.now() + datetime.timedelta(hours=1),  # before start
                 )
 
     def test_check_constraint_equal_start_end_raises(self):
-        now = timezone.now() + datetime.timedelta(hours=5)
-        with self.assertRaises(Exception):
+        # NOTE: This CHECK constraint is only enforced at DB level.
+        # On SQLite (CI), this test may not raise. Verify on PostgreSQL in staging.
+        with self.assertRaises(IntegrityError):
             with transaction.atomic():
+                now = timezone.now() + datetime.timedelta(hours=5)
                 Shift.objects.create(
                     opportunity=self.opp,
                     start_datetime=now,
@@ -515,19 +630,49 @@ class HoursLogTests(TestCase):
         self.assertEqual(log.status, "pending")
 
     def test_hours_zero_raises_check_constraint(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises((ValidationError, IntegrityError)):
             with transaction.atomic():
-                self._create_log(Decimal("0"))
+                log = HoursLog(
+                    volunteer=self.profile,
+                    opportunity=self.opp,
+                    date=datetime.date.today(),
+                    hours=Decimal("0"),
+                )
+                try:
+                    log.full_clean()
+                except ValidationError:
+                    raise
+                log.save()
 
     def test_hours_negative_raises(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises((ValidationError, IntegrityError)):
             with transaction.atomic():
-                self._create_log(Decimal("-1"))
+                log = HoursLog(
+                    volunteer=self.profile,
+                    opportunity=self.opp,
+                    date=datetime.date.today(),
+                    hours=Decimal("-1"),
+                )
+                try:
+                    log.full_clean()
+                except ValidationError:
+                    raise
+                log.save()
 
     def test_hours_above_24_raises(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises((ValidationError, IntegrityError)):
             with transaction.atomic():
-                self._create_log(Decimal("24.01"))
+                log = HoursLog(
+                    volunteer=self.profile,
+                    opportunity=self.opp,
+                    date=datetime.date.today(),
+                    hours=Decimal("24.01"),
+                )
+                try:
+                    log.full_clean()
+                except ValidationError:
+                    raise
+                log.save()
 
     def test_hours_exactly_24_allowed(self):
         log = self._create_log(Decimal("24"))
@@ -536,7 +681,7 @@ class HoursLogTests(TestCase):
     def test_volunteer_protect_on_profile_delete(self):
         """Deleting the profile must be prevented when hours exist."""
         self._create_log(Decimal("3"))
-        with self.assertRaises(Exception):
+        with self.assertRaises(ProtectedError):
             with transaction.atomic():
                 self.profile.delete()
 
@@ -558,6 +703,67 @@ class HoursLogTests(TestCase):
         valid = [c[0] for c in HoursLog.STATUS_CHOICES]
         for s in ("pending", "approved", "rejected"):
             self.assertIn(s, valid)
+
+    def test_unique_hourslog_per_volunteer_per_shift(self):
+        """Two HoursLog entries for the same volunteer+shift must be rejected."""
+        opp = Opportunity.objects.create(
+            title_en="Opp for HoursLog Shift Test",
+            title_fr="Opp pour test de quart",
+            slug="hourslog-shift-test-opp",
+            description_en="Test.",
+            description_fr="Test.",
+            program=self.program,
+            status="published",
+        )
+        shift = Shift.objects.create(
+            opportunity=opp,
+            start_datetime=timezone.now() + datetime.timedelta(hours=24),
+            end_datetime=timezone.now() + datetime.timedelta(hours=26),
+        )
+        HoursLog.objects.create(
+            volunteer=self.profile,
+            shift=shift,
+            opportunity=opp,
+            hours=Decimal("2.00"),
+            date=timezone.now().date(),
+            status=HoursLog.STATUS_PENDING,
+        )
+        with self.assertRaises((ValidationError, IntegrityError)):
+            with transaction.atomic():
+                log2 = HoursLog(
+                    volunteer=self.profile,
+                    shift=shift,
+                    opportunity=opp,
+                    hours=Decimal("2.00"),
+                    date=timezone.now().date(),
+                    status=HoursLog.STATUS_PENDING,
+                )
+                log2.full_clean()
+                log2.save()
+
+    def test_hours_zero_raises_validation_error(self):
+        """MinValueValidator must reject hours=0."""
+        log = HoursLog(
+            volunteer=self.profile,
+            opportunity=self.opp,
+            hours=Decimal("0.00"),
+            date=timezone.now().date(),
+            status=HoursLog.STATUS_PENDING,
+        )
+        with self.assertRaises(ValidationError):
+            log.full_clean()
+
+    def test_hours_above_24_raises_validation_error(self):
+        """MaxValueValidator must reject hours > 24."""
+        log = HoursLog(
+            volunteer=self.profile,
+            opportunity=self.opp,
+            hours=Decimal("24.01"),
+            date=timezone.now().date(),
+            status=HoursLog.STATUS_PENDING,
+        )
+        with self.assertRaises(ValidationError):
+            log.full_clean()
 
 
 # ---------------------------------------------------------------------------
@@ -588,13 +794,30 @@ class ScreeningRecordTests(TestCase):
         )
 
     def test_verified_clear_three_states(self):
-        unverified = self._make_screening()
+        # Use different check_types to avoid the partial unique constraint
+        # (volunteer, check_type) WHERE opportunity IS NULL.
+        unverified = ScreeningRecord.objects.create(
+            volunteer=self.profile,
+            check_type="reference_check",
+            completed_date=self.today,
+            verified_clear=None,
+        )
         self.assertIsNone(unverified.verified_clear)
 
-        cleared = self._make_screening(verified_clear=True)
+        cleared = ScreeningRecord.objects.create(
+            volunteer=self.profile,
+            check_type="police_record_check",
+            completed_date=self.today,
+            verified_clear=True,
+        )
         self.assertTrue(cleared.verified_clear)
 
-        failed = self._make_screening(verified_clear=False)
+        failed = ScreeningRecord.objects.create(
+            volunteer=self.profile,
+            check_type="drivers_abstract",
+            completed_date=self.today,
+            verified_clear=False,
+        )
         self.assertFalse(failed.verified_clear)
 
     def test_is_expired_false_when_no_expires_date(self):
@@ -626,6 +849,21 @@ class ScreeningRecordTests(TestCase):
         s = self._make_screening()
         self.assertFalse(s.expires_within_30_days)
 
+    def test_expires_within_30_days_true_at_exactly_30_days(self):
+        """Record that expires in exactly 30 days should be flagged."""
+        s = self._make_screening(expires_delta_days=30)
+        self.assertTrue(s.expires_within_30_days)
+
+    def test_expires_within_30_days_true_at_zero_days(self):
+        """Record that expires today should be flagged (within 30 days)."""
+        s = self._make_screening(expires_delta_days=0)
+        self.assertTrue(s.expires_within_30_days)
+
+    def test_expires_within_30_days_false_for_already_expired(self):
+        """Already-expired record is past — not within 30 days."""
+        s = self._make_screening(expires_delta_days=-1)
+        self.assertFalse(s.expires_within_30_days)
+
     def test_check_type_choices(self):
         valid = [c[0] for c in ScreeningRecord.CHECK_TYPE_CHOICES]
         self.assertIn("vulnerable_sector_check", valid)
@@ -635,9 +873,39 @@ class ScreeningRecordTests(TestCase):
 
     def test_protect_on_volunteer_delete(self):
         self._make_screening()
-        with self.assertRaises(Exception):
+        with self.assertRaises(ProtectedError):
             with transaction.atomic():
                 self.profile.delete()
+
+    def test_unique_screening_per_volunteer_per_type_with_opportunity(self):
+        """Two VSC records for the same volunteer+opportunity must be rejected."""
+        opp = Opportunity.objects.create(
+            title_en="Opp for Screening Test",
+            title_fr="Opp pour test de vérification",
+            slug="screening-test-opp",
+            description_en="Test.",
+            description_fr="Test.",
+            program=self.program,
+            status="published",
+        )
+        ScreeningRecord.objects.create(
+            volunteer=self.profile,
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,
+            opportunity=opp,
+            completed_date=self.today,
+            verified_clear=None,
+        )
+        with self.assertRaises((ValidationError, IntegrityError)):
+            with transaction.atomic():
+                sr2 = ScreeningRecord(
+                    volunteer=self.profile,
+                    check_type=ScreeningRecord.CHECK_TYPE_VSC,
+                    opportunity=opp,
+                    completed_date=self.today,
+                    verified_clear=None,
+                )
+                sr2.full_clean()
+                sr2.save()
 
 
 # ---------------------------------------------------------------------------
@@ -685,13 +953,36 @@ class CertificationTests(TestCase):
         for t in ("first_aid", "cpr", "whmis", "food_handler", "drivers_licence", "other"):
             self.assertIn(t, valid)
 
-    def test_cascade_on_profile_delete(self):
-        """Certifications cascade-delete when profile is deleted."""
+    def test_protect_blocks_profile_delete_when_certification_exists(self):
+        """PROTECT: deleting a profile with certifications must raise ProtectedError (H-5)."""
+        from django.db.models.deletion import ProtectedError
+        self._make_cert()
+        with self.assertRaises(ProtectedError):
+            self.profile.delete()
+
+    def test_profile_delete_succeeds_after_certifications_removed(self):
+        """Profile can be deleted once certifications are explicitly removed first."""
         c = self._make_cert()
         pk = c.pk
-        # Must delete hours/screenings first to avoid PROTECT on profile
-        self.profile.delete()
+        c.delete()
         self.assertFalse(Certification.objects.filter(pk=pk).exists())
+        # No remaining PROTECT children — profile deletion must now succeed
+        self.profile.delete()
+
+    def test_expires_within_30_days_true_at_exactly_30_days(self):
+        """Certification expiring in exactly 30 days should be flagged."""
+        c = self._make_cert(expires_delta_days=30)
+        self.assertTrue(c.expires_within_30_days)
+
+    def test_expires_within_30_days_true_at_zero_days(self):
+        """Certification expiring today should be flagged (within 30 days)."""
+        c = self._make_cert(expires_delta_days=0)
+        self.assertTrue(c.expires_within_30_days)
+
+    def test_expires_within_30_days_false_for_already_expired(self):
+        """Already-expired certification is past — not within 30 days."""
+        c = self._make_cert(expires_delta_days=-1)
+        self.assertFalse(c.expires_within_30_days)
 
 
 # ---------------------------------------------------------------------------
@@ -706,14 +997,17 @@ class HonorariumTests(TestCase):
 
     def test_calendar_year_auto_derived_from_payment_date(self):
         h = make_honorarium(self.profile, Decimal("100.00"), payment_date=datetime.date(2024, 3, 15))
+        h.refresh_from_db()  # GeneratedField is set by DB on INSERT
         self.assertEqual(h.calendar_year, 2024)
 
     def test_calendar_year_correct_for_december(self):
         h = make_honorarium(self.profile, Decimal("50.00"), payment_date=datetime.date(2023, 12, 31))
+        h.refresh_from_db()  # GeneratedField is set by DB on INSERT
         self.assertEqual(h.calendar_year, 2023)
 
     def test_calendar_year_correct_for_january(self):
         h = make_honorarium(self.profile, Decimal("50.00"), payment_date=datetime.date(2025, 1, 1))
+        h.refresh_from_db()  # GeneratedField is set by DB on INSERT
         self.assertEqual(h.calendar_year, 2025)
 
     def test_t4a_required_default_false(self):
@@ -721,9 +1015,9 @@ class HonorariumTests(TestCase):
         self.assertFalse(h.t4a_required)
 
     def test_amount_zero_raises_check_constraint(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises((ValidationError, IntegrityError)):
             with transaction.atomic():
-                Honorarium.objects.create(
+                h = Honorarium(
                     volunteer=self.profile,
                     payment_type="honorarium",
                     amount=Decimal("0.00"),
@@ -731,11 +1025,16 @@ class HonorariumTests(TestCase):
                     payment_date=datetime.date(2024, 1, 1),
                     created_by=self.user,
                 )
+                try:
+                    h.full_clean()
+                except ValidationError:
+                    raise
+                h.save()
 
     def test_amount_negative_raises_check_constraint(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises((ValidationError, IntegrityError)):
             with transaction.atomic():
-                Honorarium.objects.create(
+                h = Honorarium(
                     volunteer=self.profile,
                     payment_type="honorarium",
                     amount=Decimal("-10.00"),
@@ -743,6 +1042,11 @@ class HonorariumTests(TestCase):
                     payment_date=datetime.date(2024, 1, 1),
                     created_by=self.user,
                 )
+                try:
+                    h.full_clean()
+                except ValidationError:
+                    raise
+                h.save()
 
     def test_payment_type_choices(self):
         valid = [c[0] for c in Honorarium.PAYMENT_TYPE_CHOICES]
@@ -798,7 +1102,7 @@ class VolunteerNoteTests(TestCase):
         VolunteerNote.objects.create(
             volunteer=self.profile, author=self.coordinator, body="Sensitive note."
         )
-        with self.assertRaises(Exception):
+        with self.assertRaises(ProtectedError):
             with transaction.atomic():
                 self.coordinator.delete()
 
@@ -829,6 +1133,7 @@ class RecognitionMilestoneTests(TestCase):
             hours_threshold=Decimal("100.00"),
         )
         self.assertFalse(m.notification_sent)
+        self.assertIsNotNone(m.achieved_at)
 
     def test_unique_together_volunteer_threshold(self):
         RecognitionMilestone.objects.create(
@@ -875,3 +1180,160 @@ class RecognitionMilestoneTests(TestCase):
             volunteer=self.profile, hours_threshold=Decimal("100.00")
         )
         self.assertFalse(m.notification_sent)
+
+
+# ---------------------------------------------------------------------------
+# Honorarium CRA PC-025 threshold tests
+# ---------------------------------------------------------------------------
+
+class HonorariumCRAThresholdTests(TestCase):
+    """Tests for CRA PC-025 honorarium threshold enforcement in Honorarium.clean()."""
+
+    def setUp(self):
+        self.user = make_user("cra@example.com")
+        self.profile = VolunteerProfile.objects.create(
+            user=self.user,
+            status="active",
+            preferred_language="en",
+        )
+        self.program = make_program()
+        self.opp = make_opportunity(self.program)
+
+    def _make_hon(self, amount, payment_date=None):
+        """Create an honorarium bypassing clean() (use skip_clean=True for setup)."""
+        if payment_date is None:
+            payment_date = datetime.date(2024, 3, 1)
+        h = Honorarium(
+            volunteer=self.profile,
+            payment_type="honorarium",
+            amount=Decimal(str(amount)),
+            description="Test honorarium",
+            payment_date=payment_date,
+            created_by=self.user,
+        )
+        h.save(skip_clean=True)
+        return h
+
+    def test_below_alert_threshold_no_restriction(self):
+        """$449 total — no t4a_required, no error."""
+        h = Honorarium(
+            volunteer=self.profile,
+            payment_type="honorarium",
+            amount=Decimal("449.00"),
+            description="Test",
+            payment_date=datetime.date(2024, 6, 1),
+            created_by=self.user,
+        )
+        h.full_clean()  # should not raise
+        self.assertFalse(h.t4a_required)
+
+    def test_at_t4a_threshold_sets_flag(self):
+        """$500 total — t4a_required auto-set to True."""
+        h = Honorarium(
+            volunteer=self.profile,
+            payment_type="honorarium",
+            amount=Decimal("500.00"),
+            description="Test",
+            payment_date=datetime.date(2024, 6, 1),
+            created_by=self.user,
+        )
+        h.full_clean()
+        self.assertTrue(h.t4a_required)
+
+    def test_accumulated_ytd_triggers_t4a(self):
+        """$300 existing + $250 new = $550 — t4a_required set."""
+        self._make_hon(300.00)
+        h = Honorarium(
+            volunteer=self.profile,
+            payment_type="honorarium",
+            amount=Decimal("250.00"),
+            description="Second payment",
+            payment_date=datetime.date(2024, 9, 1),
+            created_by=self.user,
+        )
+        h.full_clean()
+        self.assertTrue(h.t4a_required)
+
+    def test_hard_block_raises_validation_error(self):
+        """$800 existing + $300 new = $1,100 — ValidationError raised."""
+        self._make_hon(800.00)
+        h = Honorarium(
+            volunteer=self.profile,
+            payment_type="honorarium",
+            amount=Decimal("300.00"),
+            description="Over limit",
+            payment_date=datetime.date(2024, 11, 1),
+            created_by=self.user,
+        )
+        with self.assertRaises(ValidationError):
+            h.full_clean()
+
+    def test_hard_block_save_raises(self):
+        """save() should also raise ValidationError at the hard block."""
+        self._make_hon(800.00)
+        h = Honorarium(
+            volunteer=self.profile,
+            payment_type="honorarium",
+            amount=Decimal("300.00"),
+            description="Over limit",
+            payment_date=datetime.date(2024, 11, 1),
+            created_by=self.user,
+        )
+        with self.assertRaises(ValidationError):
+            h.save()
+
+    def test_edit_does_not_double_count_self(self):
+        """Editing an existing honorarium excludes self from YTD sum."""
+        h = self._make_hon(600.00)
+        # Editing: change description — self excluded from YTD so $600 < $1,000
+        h.description = "Updated description"
+        h.full_clean()  # should not raise
+
+    def test_cross_year_amounts_not_accumulated(self):
+        """Honoraria from a different year do not count toward current year total."""
+        self._make_hon(900.00, payment_date=datetime.date(2023, 12, 31))  # prior year
+        h = Honorarium(
+            volunteer=self.profile,
+            payment_type="honorarium",
+            amount=Decimal("600.00"),
+            description="New year payment",
+            payment_date=datetime.date(2024, 1, 15),
+            created_by=self.user,
+        )
+        h.full_clean()  # should not raise — different year
+        # Also verify t4a_required set for 2024 (>= $500)
+        self.assertTrue(h.t4a_required)
+
+    def test_exactly_at_alert_threshold_is_non_blocking(self):
+        """$450.00 exactly should set no flag and raise no error."""
+        h = make_honorarium(self.profile, amount=Decimal("450.00"))
+        h.full_clean()  # must not raise
+        # Note: alert notifications are external; no t4a_required at $450
+        self.assertFalse(h.t4a_required)
+
+    def test_just_below_alert_threshold_is_unrestricted(self):
+        """$449.99 should not set t4a_required or raise."""
+        h = make_honorarium(self.profile, amount=Decimal("449.99"))
+        h.full_clean()  # must not raise
+        self.assertFalse(h.t4a_required)
+
+    def test_exactly_at_hard_block_is_blocked(self):
+        """$1,000.00 exactly should be blocked (>= boundary)."""
+        make_honorarium(self.profile, amount=Decimal("600.00"), skip_clean=True)
+        h = make_honorarium(self.profile, amount=Decimal("400.00"), skip_clean=True)
+        # projected_total = $1,000.00 — should raise ValidationError
+        with self.assertRaises(ValidationError):
+            h.full_clean()
+
+    def test_edit_self_exclusion_meaningful_case(self):
+        """
+        Editing a $600 record when another $300 exists: projected = $300 + $600 = $900.
+        Self-exclusion means the $600 record is excluded from the YTD query when
+        re-validated. Should not raise, and t4a_required should be True.
+        """
+        make_honorarium(self.profile, amount=Decimal("300.00"), skip_clean=True)
+        h = make_honorarium(self.profile, amount=Decimal("600.00"), skip_clean=True)
+        # Now h.pk is set. full_clean() should exclude h from the YTD query.
+        # existing_total = $300, projected = $300 + $600 = $900 < $1,000 — no error
+        h.full_clean()  # must not raise
+        self.assertTrue(h.t4a_required)

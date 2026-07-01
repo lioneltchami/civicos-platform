@@ -1,0 +1,16 @@
+Hello,
+
+Congratulations! Your volunteer application for the following opportunity has been approved:
+
+  {{ opportunity_title }}
+
+You can log in to the volunteer portal to view your application details and next steps:
+
+  {{ portal_url }}
+
+Thank you for your commitment to volunteering. We look forward to working with you.
+
+This is an automated notification. Please do not reply to this email.
+
+---
+This message was sent by the Volunteer Management System.

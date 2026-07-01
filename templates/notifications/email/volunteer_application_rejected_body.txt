@@ -1,0 +1,16 @@
+Hello,
+
+Thank you for your interest in volunteering for:
+
+  {{ opportunity_title }}
+
+After careful consideration, we are unable to proceed with your application at this time.
+
+We appreciate the time you took to apply and encourage you to explore other volunteer opportunities that may be available.
+
+You can browse current opportunities by logging in to the volunteer portal.
+
+This is an automated notification. Please do not reply to this email.
+
+---
+This message was sent by the Volunteer Management System.

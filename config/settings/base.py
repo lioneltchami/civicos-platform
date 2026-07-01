@@ -337,11 +337,20 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # Default queue ("celery") handles everything else (notifications, portal, etc.)
 CELERY_TASK_ROUTES = {
     # Payments BB — stripe webhooks, receipt generation, subscription management
-    "apps.payments.*": {"queue": "payments"},
+    "apps.payments.tasks.*": {"queue": "payments"},
     # Analytics & Reporting BB — nightly snapshot computation
-    "apps.reports.*": {"queue": "reports"},
+    "apps.reports.tasks.*": {"queue": "reports"},
     # Volunteer Management BB — shift reminders, expiry checks, impact snapshots
-    "apps.volunteers.*": {"queue": "volunteers"},
+    "apps.volunteers.tasks.*": {"queue": "volunteers"},
+    # Webhook-triggered tasks — fast, latency-sensitive.
+    # Must reach workers within Stripe's 30-second retry window.
+    "apps.payments.tasks.process_stripe_webhook": {"queue": "webhooks"},
+    # Receipt / batch tasks — slow, latency-tolerant.
+    # Isolated so a 10,000-donor annual run cannot delay webhook processing.
+    "apps.payments.tasks_receipts.generate_annual_receipts": {"queue": "receipts"},
+    "apps.payments.tasks_receipts.generate_and_send_receipt": {"queue": "receipts"},
+    # kickoff_annual_receipts is a lightweight Beat trigger — runs on default queue;
+    # it immediately delegates to generate_annual_receipts (receipts queue) via .delay().
 }
 
 # Task time limits — prevent runaway workers
@@ -381,6 +390,14 @@ VOLUNTEER_MINIMUM_WAGES: dict[str, float] = {
 VOLUNTEER_CRA_ALERT_THRESHOLD: float = 450.00
 VOLUNTEER_CRA_T4A_THRESHOLD: float = 500.00
 VOLUNTEER_CRA_HARD_BLOCK: float = 1_000.00
+
+# Fernet keys for volunteer SIN encryption. MUST be set in production.py.
+# Never use the Django SECRET_KEY for this purpose — key rotation would corrupt all SINs.
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Supports key rotation: list multiple keys; first is current, rest are decryption-only.
+VOLUNTEER_SIN_FERNET_KEYS: list[str] = [
+    k for k in env.list("VOLUNTEER_SIN_FERNET_KEYS", default=[]) if k
+]
 
 # ---------------------------------------------------------------------------
 # Wagtail

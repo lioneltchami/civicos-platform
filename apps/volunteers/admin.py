@@ -52,6 +52,106 @@ def _has_accommodation_perm(request) -> bool:
     return request.user.has_perm("volunteers.view_accommodation_notes")
 
 
+def _mask_ip_for_audit(ip: str | None) -> str | None:
+    """
+    Mask an IP address for privacy-preserving audit storage (PIPEDA compliance).
+
+    Defined locally to avoid a circular import between apps.volunteers and
+    apps.forms (or apps.auth_extension).  Logic mirrors apps/forms/utils.py's
+    _mask_ip() exactly:
+
+    IPv4: keeps first 3 octets, zeroes the last octet.
+          192.168.1.123 → 192.168.1.0
+    IPv6: keeps the first 32 bits (/32 prefix), zeroes the rest.
+          2001:db8::1 → 2001:db8::
+
+    Returns None (not a sentinel string) when input is None so callers can
+    distinguish "no IP captured" from "IP captured but masked".
+    Returns '0.0.0.0' on any parsing error.
+    """
+    import ipaddress as _ipaddress
+
+    if ip is None:
+        return None
+    if not ip:
+        return "0.0.0.0"
+    try:
+        addr = _ipaddress.ip_address(ip.strip())
+        if isinstance(addr, _ipaddress.IPv4Address):
+            parts = str(addr).split(".")
+            return f"{parts[0]}.{parts[1]}.{parts[2]}.0"
+        else:  # IPv6
+            network = _ipaddress.ip_network(f"{addr}/32", strict=False)
+            return str(network.network_address)
+    except ValueError:
+        return "0.0.0.0"
+
+
+def _write_volunteer_audit(
+    event_type: str,
+    request,
+    resource_id: str,
+    detail: dict | None = None,
+    resource_type: str = "volunteers.VolunteerProfile",
+) -> None:
+    """
+    Write an immutable AuditLogEntry for a Volunteer BB admin action.
+
+    Failures are caught and logged as warnings so audit never breaks a view.
+    No PII (names, notes content) is written to event_detail — only PKs and
+    field names, per the PIPEDA minimum-data principle.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        from apps.audit.models import AuditLogEntry
+
+        # select_for_update() serializes concurrent audit writes: each writer
+        # locks the current last row, so the next writer sees the committed entry
+        # as its prev_hash, preventing chain-of-custody forks under concurrent load.
+        last = (
+            AuditLogEntry.objects.select_for_update()
+            .order_by("-timestamp")
+            .values("entry_hash")
+            .first()
+        )
+        prev_hash = last["entry_hash"] if last else ""
+
+        # IP extraction: only trust X-Forwarded-For when behind a known proxy.
+        from django.conf import settings as dj_settings
+        actor_ip = None
+        if getattr(dj_settings, "SECURE_PROXY_SSL_HEADER", None):
+            xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
+            if xff:
+                actor_ip = xff.split(",")[0].strip() or None
+        if actor_ip is None:
+            actor_ip = request.META.get("REMOTE_ADDR") or None
+
+        AuditLogEntry.objects.create(
+            event_type=event_type,
+            outcome="success",
+            actor_id=str(request.user.pk),
+            # PIPEDA minimum-data: staff email is PII; only authentication events
+            # (login/logout/MFA) should snapshot the email.  actor_id is sufficient
+            # to identify the actor for data.viewed / data.updated events.
+            actor_email="",
+            actor_ip=_mask_ip_for_audit(actor_ip),
+            actor_user_agent=request.META.get("HTTP_USER_AGENT", "")[:512],
+            resource_type=resource_type,
+            resource_id=resource_id,
+            event_detail=detail or {},
+            request_id=request.META.get("HTTP_X_REQUEST_ID", ""),
+            session_id=getattr(request.session, "session_key", None) or "",
+            prev_hash=prev_hash,
+        )
+    except Exception:
+        logger.warning(
+            "volunteers admin: audit log failed for event_type=%s resource_id=%s",
+            event_type,
+            resource_id,
+        )
+
+
 # ---------------------------------------------------------------------------
 # SkillTag
 # ---------------------------------------------------------------------------
@@ -153,6 +253,10 @@ class OpportunityAdmin(admin.ModelAdmin):
 
     actions = ["publish_opportunities", "close_opportunities"]
 
+    # NOTE: This action uses QuerySet.update() which bypasses model save() and
+    # Django signals. Wave 2 notification receivers (opportunity published → notify
+    # subscribed volunteers) will NOT fire from this admin action.
+    # If notifications are required, replace with a loop calling obj.save().
     @admin.action(description=_("Publish selected opportunities"))
     def publish_opportunities(self, request, queryset):
         from django.utils import timezone
@@ -162,6 +266,10 @@ class OpportunityAdmin(admin.ModelAdmin):
         )
         self.message_user(request, f"{count} opportunity/ies published.")
 
+    # NOTE: This action uses QuerySet.update() which bypasses model save() and
+    # Django signals. Wave 2 notification receivers (opportunity published → notify
+    # subscribed volunteers) will NOT fire from this admin action.
+    # If notifications are required, replace with a loop calling obj.save().
     @admin.action(description=_("Close selected opportunities"))
     def close_opportunities(self, request, queryset):
         count = queryset.exclude(status=Opportunity.STATUS_CLOSED).update(
@@ -189,7 +297,15 @@ class ScreeningRecordInline(admin.TabularInline):
     fields = ["check_type", "completed_date", "expires_date", "verified_clear", "verified_at"]
     readonly_fields = ["verified_at", "verified_by"]
     ordering = ["-completed_date"]
-    show_change_link = True
+    # SECURITY: show_change_link=False prevents click-through to ScreeningRecordAdmin
+    # change view, which would expose `notes` without the view_accommodation_notes
+    # permission gate that guards the standalone admin.
+    show_change_link = False
+
+    def has_add_permission(self, request, obj=None):
+        # Inline add is blocked to match the standalone ScreeningRecordAdmin policy.
+        # Adding via the inline would bypass coordinator-view validations.
+        return False
 
     def has_delete_permission(self, request, obj=None):
         # Screening records cannot be deleted — PIPEDA audit trail.
@@ -199,20 +315,19 @@ class ScreeningRecordInline(admin.TabularInline):
 @admin.register(VolunteerProfile)
 class VolunteerProfileAdmin(admin.ModelAdmin):
     list_display = [
-        "pk", "preferred_name_display", "status",
-        "total_hours_approved", "preferred_language",
+        "pk", "status",
     ]
     list_filter = ["status", "preferred_language", "available_weekdays",
                    "available_weekends", "available_evenings"]
-    # PIPEDA: do NOT search by email — use pk or preferred_name only.
-    search_fields = ["pk", "preferred_name"]
+    # PIPEDA: search by profile PK only. preferred_name is PII — do not expose in search.
+    search_fields = ["pk"]
     ordering = ["-created_at"]
     raw_id_fields = ["user", "status_changed_by", "photo_consent"]
     inlines = [ScreeningRecordInline, CertificationInline]
+    # sin_encrypted is NEVER in readonly_fields or fieldsets — PIPEDA + security requirement.
     readonly_fields = [
         "pk", "user_pk", "total_hours_approved",
         "status_changed_at", "status_changed_by",
-        "sin_encrypted",   # Never editable in admin; set via service layer only.
     ]
 
     def get_fieldsets(self, request, obj=None):
@@ -269,6 +384,12 @@ class VolunteerProfileAdmin(admin.ModelAdmin):
 
         return base_fieldsets
 
+    def get_fields(self, request, obj=None):
+        fields = super().get_fields(request, obj)
+        # sin_encrypted is NEVER exposed in admin — PIPEDA + security requirement.
+        # Access only via services/volunteers.py decrypt_sin().
+        return [f for f in fields if f != "sin_encrypted"]
+
     @admin.display(description=_("Preferred name"), ordering="preferred_name")
     def preferred_name_display(self, obj):
         # Shows preferred_name if set; masks identity for list display.
@@ -277,6 +398,47 @@ class VolunteerProfileAdmin(admin.ModelAdmin):
     @admin.display(description=_("User PK"))
     def user_pk(self, obj):
         return obj.user_id
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        """
+        Audit-log every admin change-form view of a VolunteerProfile.
+
+        If the viewer holds view_accommodation_notes, they can see SIN last4,
+        emergency contacts, and accommodation notes — those reads are recorded
+        so there is an immutable trail for PIPEDA accountability.
+
+        Writes are captured by Django's built-in LogEntry; this hook captures reads.
+        The audit entry records WHICH sensitive sections were exposed, never the
+        content itself (PIPEDA minimum-data principle).
+        """
+        response = super().change_view(request, object_id, form_url, extra_context)
+
+        # Only write the audit entry on a successful GET (page rendered to user).
+        # POST (save) is audited by Django's own LogEntry + save_model hooks.
+        if request.method == "GET":
+            has_sensitive = _has_accommodation_perm(request)
+            _write_volunteer_audit(
+                event_type="data.viewed",
+                request=request,
+                resource_id=str(object_id),
+                detail={
+                    "action": "profile_change_view",
+                    "sensitive_sections_visible": has_sensitive,
+                    # Sections visible to this user — no field values, just names.
+                    "sections": (
+                        [
+                            "emergency_contact",
+                            "accommodation_notes",
+                            "date_of_birth",
+                            "sin_last4",
+                        ]
+                        if has_sensitive
+                        else []
+                    ),
+                },
+            )
+
+        return response
 
     def has_add_permission(self, request):
         # Profiles are created via the application flow, not directly.
@@ -305,22 +467,22 @@ class VolunteerApplicationAdmin(admin.ModelAdmin):
         "work_item",
     ]
 
-    fieldsets = [
-        (None, {
-            "fields": ["pk", "opportunity", "volunteer_pk", "motivation", "status"],
-        }),
-        (_("Review"), {
-            "fields": [
-                "reviewed_by", "reviewed_at",
-                "rejection_reason",
-                "screening_notes",
-                "declares_no_relevant_criminal_history",
-            ],
-        }),
-        (_("Workflow"), {
-            "fields": ["work_item", "consent_record"],
-        }),
-    ]
+    def get_fieldsets(self, request, obj=None):
+        base = [
+            (None, {"fields": ["opportunity", "volunteer", "status", "reviewed_by", "reviewed_at"]}),
+            (_("Consent"), {"fields": ["consent_record", "work_item"]}),
+        ]
+        if _has_accommodation_perm(request):
+            base.append(
+                (_("Screening (restricted)"), {
+                    "fields": ["motivation", "screening_notes", "rejection_reason"],
+                    "description": _(
+                        "Visible only to users with volunteers.view_accommodation_notes. "
+                        "PIPEDA: never shown to the applicant."
+                    ),
+                })
+            )
+        return base
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
     def volunteer_pk(self, obj):
@@ -434,8 +596,11 @@ class HoursLogAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
-        # Hours records are immutable once approved.
-        return False
+        # Approved hours are immutable financial/audit records — never deletable.
+        # Pending and rejected entries may be deleted by coordinators to correct mistakes.
+        if obj is not None and obj.status == "approved":
+            return False
+        return request.user.has_perm("volunteers.delete_hourslog")
 
     def has_change_permission(self, request, obj=None):
         # Approved records cannot be mutated via admin.
@@ -467,6 +632,37 @@ class ScreeningRecordAdmin(admin.ModelAdmin):
     @admin.display(description=_("Expired?"), boolean=True)
     def is_expired_display(self, obj):
         return obj.is_expired
+
+    def get_readonly_fields(self, request, obj=None):
+        base = list(self.readonly_fields)
+        if obj and obj.verified_clear is not None:
+            # Once VSC is verified (cleared or not), the result is immutable.
+            base += ["verified_clear", "verified_at", "verified_by"]
+        return base
+
+    def save_model(self, request, obj, form, change):
+        """
+        Audit-log every write to a ScreeningRecord.
+
+        Writes a RECORD_UPDATED entry so there is an immutable trail of who
+        changed verification status or notes.  We never store the notes value
+        itself in the audit entry — only field names that changed (non-PII).
+        """
+        changed_fields = list(form.changed_data) if change else ["<new record>"]
+        _write_volunteer_audit(
+            event_type="data.updated",
+            request=request,
+            resource_id=str(obj.volunteer_id),
+            detail={
+                "action": "screening_record_saved",
+                "screening_record_pk": obj.pk,
+                "check_type": obj.check_type,
+                "changed_fields": changed_fields,
+                # Deliberately NOT logging notes content — PIPEDA minimum-data principle.
+            },
+            resource_type="volunteers.ScreeningRecord",
+        )
+        super().save_model(request, obj, form, change)
 
     def has_add_permission(self, request):
         # Screening records created via coordinator view only.
@@ -512,7 +708,7 @@ class CertificationAdmin(admin.ModelAdmin):
 @admin.register(Honorarium)
 class HonorariumAdmin(admin.ModelAdmin):
     list_display = [
-        "pk", "volunteer_pk", "payment_type", "amount", "currency",
+        "pk", "volunteer_pk_display", "payment_type", "amount", "currency",
         "calendar_year", "t4a_required", "t4a_issued", "payment_date",
     ]
     list_filter = ["payment_type", "calendar_year", "t4a_required", "t4a_issued"]
@@ -521,8 +717,9 @@ class HonorariumAdmin(admin.ModelAdmin):
     raw_id_fields = ["volunteer", "created_by", "payment"]
     readonly_fields = [
         "pk", "created_at", "updated_at",
-        "calendar_year",   # Derived from payment_date on save.
-        "t4a_required",    # Set by service layer.
+        "calendar_year",         # Derived from payment_date on save.
+        "t4a_required",          # Set by service layer.
+        "volunteer_pk_display",  # Computed display field — read-only.
     ]
 
     fieldsets = [
@@ -545,10 +742,6 @@ class HonorariumAdmin(admin.ModelAdmin):
             "classes": ["collapse"],
         }),
     ]
-
-    @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk(self, obj):
-        return obj.volunteer_id
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
     def volunteer_pk_display(self, obj):
@@ -582,6 +775,11 @@ class VolunteerNoteAdmin(admin.ModelAdmin):
     @admin.display(description=_("Author PK"), ordering="author_id")
     def author_pk(self, obj):
         return obj.author_id
+
+    def has_add_permission(self, request):
+        # Notes are created via the coordinator portal view, not directly in admin.
+        # This ensures author, timestamp, and audit fields are set by the service layer.
+        return False
 
     def has_delete_permission(self, request, obj=None):
         # Notes are append-only; deletion via admin not permitted.

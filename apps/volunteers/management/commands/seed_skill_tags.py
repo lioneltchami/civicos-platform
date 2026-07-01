@@ -25,7 +25,7 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand
 from django.utils.text import slugify
 
-from apps.volunteers.models import SkillTag
+from apps.volunteers.models import Opportunity, SkillTag, VolunteerProfile
 
 # ---------------------------------------------------------------------------
 # Canonical skill tag fixtures
@@ -117,9 +117,39 @@ class Command(BaseCommand):
             action="store_true",
             help="Delete all existing SkillTag records before seeding.",
         )
+        parser.add_argument(
+            "--confirm",
+            action="store_true",
+            default=False,
+            help="Required with --clear to confirm destructive deletion of all M2M assignments.",
+        )
 
     def handle(self, *args, **options):
         if options["clear"]:
+            # Count M2M rows that will be cascade-deleted and warn the operator.
+            opp_count = 0
+            profile_count = 0
+            try:
+                opp_count = Opportunity.required_skills.through.objects.count()
+            except Exception:
+                pass
+            try:
+                profile_count = VolunteerProfile.skills.through.objects.count()
+            except Exception:
+                pass
+            self.stdout.write(
+                self.style.WARNING(
+                    f"--clear will delete {SkillTag.objects.count()} SkillTag records, "
+                    f"removing {opp_count} opportunity skill assignments and "
+                    f"{profile_count} volunteer profile skill assignments. "
+                    "This cannot be undone."
+                )
+            )
+            if not options.get("confirm"):
+                self.stdout.write(
+                    self.style.ERROR("Aborting. Re-run with --confirm to proceed with --clear.")
+                )
+                return
             count, _ = SkillTag.objects.all().delete()
             self.stdout.write(self.style.WARNING(f"Cleared {count} existing SkillTag records."))
 
