@@ -206,8 +206,12 @@ def get_failed_payments(year: int, month: int):
     """
     Return a QuerySet of failed PaymentIntents for the given month.
 
-    Scoped to service-fee payments (PURPOSE_SERVICE_FEE). Donation failures
-    are covered in the Wave 3 donations service.
+    Scoped to service-fee payments (PURPOSE_SERVICE_FEE) only. Donation
+    failures are covered in the Wave 3 donations service.
+
+    ⚠️  Do NOT use this count as a total "failed payments" figure — it
+    deliberately excludes donation intents. The dashboard KPI card label
+    reflects this scope ("Failed Service-Fee Payments").
 
     Returns a QuerySet (unevaluated) so callers can chain ``.count()``
     cheaply or iterate without loading all rows.

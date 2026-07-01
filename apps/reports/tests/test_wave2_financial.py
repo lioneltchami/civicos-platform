@@ -744,6 +744,13 @@ class ReconciliationExportViewTest(TestCase):
         record = ExportRecord.objects.latest("created_at")
         self.assertEqual(record.export_type, ExportRecord.EXPORT_TYPE_RECONCILIATION)
 
+    def test_audit_record_row_count(self):
+        """ExportRecord.row_count must reflect actual payment count, not zero."""
+        self.client.force_login(self.user)
+        self.client.get(self.url, {"start": "2025-06-01", "end": "2025-06-30"})
+        record = ExportRecord.objects.latest("created_at")
+        self.assertEqual(record.row_count, 1)  # setUp creates one payment in June
+
     def test_missing_start_returns_400(self):
         self.client.force_login(self.user)
         resp = self.client.get(self.url, {"end": "2025-06-30"})
@@ -816,6 +823,14 @@ class RevenueExportViewTest(TestCase):
         self.client.get(self.url, {"year": "2025", "month": "6"})
         record = ExportRecord.objects.latest("created_at")
         self.assertEqual(record.export_type, ExportRecord.EXPORT_TYPE_REVENUE)
+
+    def test_audit_record_row_count_empty_month(self):
+        """row_count = 0 for a month with no payments (not hardcoded zero)."""
+        self.client.force_login(self.user)
+        self.client.get(self.url, {"year": "2020", "month": "1"})
+        record = ExportRecord.objects.latest("created_at")
+        # No payments in Jan 2020 → 0 fee-code rows in CSV
+        self.assertEqual(record.row_count, 0)
 
     def test_missing_year_returns_400(self):
         self.client.force_login(self.user)

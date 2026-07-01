@@ -117,7 +117,8 @@
   <div class="col-sm-6 col-xl-3">
     <div class="card h-100 border-danger">
       <div class="card-body">
-        <p class="card-text text-muted small mb-1">{% trans "Failed Payments" %}</p>
+        {# Scope: service-fee intents only. Donation failures reported in Wave 3. #}
+        <p class="card-text text-muted small mb-1">{% trans "Failed Service-Fee Payments" %}</p>
         <p class="card-title h5 mb-0 text-danger">{{ failed_count|intcomma }}</p>
       </div>
     </div>

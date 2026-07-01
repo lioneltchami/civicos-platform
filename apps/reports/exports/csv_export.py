@@ -117,12 +117,18 @@ def export_reconciliation_csv(start: date, end: date) -> StreamingHttpResponse:
     return streaming_csv_response(_rows(), COLUMNS, "reconciliation", start, end)
 
 
-def export_revenue_csv(year: int, month: int) -> StreamingHttpResponse:
+def export_revenue_csv(year: int, month: int, *, revenue: dict | None = None) -> StreamingHttpResponse:
     """
     Stream monthly revenue breakdown as CSV (one row per fee_code / purpose label).
 
     PIPEDA column whitelist — no payer PII:
         fee_code, gross_revenue, processor_fees, net_revenue, tax_collected, count
+
+    Args:
+        year, month: Calendar period.
+        revenue: Optional pre-fetched result from ``get_monthly_revenue()``. If
+                 supplied, avoids a second identical DB query when the caller
+                 already fetched the data to compute ``row_count``.
     """
     import calendar as _cal
 
@@ -137,7 +143,8 @@ def export_revenue_csv(year: int, month: int) -> StreamingHttpResponse:
         "count",
     ]
 
-    revenue = get_monthly_revenue(year, month)
+    if revenue is None:
+        revenue = get_monthly_revenue(year, month)
 
     def _fmt(v) -> str:
         """Format a Decimal (or numeric) to exactly 2 d.p."""

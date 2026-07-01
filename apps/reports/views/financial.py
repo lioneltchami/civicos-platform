@@ -313,6 +313,9 @@ class ReconciliationExportView(LoginRequiredMixin, PermissionRequiredMixin, View
             )
 
         # ── Audit record ──────────────────────────────────────────────────────
+        # COUNT(*) is cheap (index scan on paid_at); do it before streaming so
+        # the ExportRecord has an accurate row_count for the audit trail.
+        row_count = get_reconciliation_queryset(start, end).count()
         masked_ip = _mask_ip(request.META.get("REMOTE_ADDR") or "")
         ExportRecord.objects.create(
             export_type=ExportRecord.EXPORT_TYPE_RECONCILIATION,
@@ -321,7 +324,7 @@ class ReconciliationExportView(LoginRequiredMixin, PermissionRequiredMixin, View
             period_end=end,
             actor_pk=request.user.pk,
             actor_ip=masked_ip or None,
-            row_count=0,  # updated post-stream would require buffering; omit
+            row_count=row_count,
         )
 
         logger.info(
@@ -357,6 +360,9 @@ class RevenueExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
             )
 
         # ── Audit record ──────────────────────────────────────────────────────
+        # row_count = number of distinct fee-code rows in the CSV (one per label).
+        revenue_data = get_monthly_revenue(year, month)
+        row_count = len(revenue_data["by_fee_code"])
         last_day = calendar.monthrange(year, month)[1]
         masked_ip = _mask_ip(request.META.get("REMOTE_ADDR") or "")
         ExportRecord.objects.create(
@@ -366,7 +372,7 @@ class RevenueExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
             period_end=date(year, month, last_day),
             actor_pk=request.user.pk,
             actor_ip=masked_ip or None,
-            row_count=0,
+            row_count=row_count,
         )
 
         logger.info(
@@ -376,7 +382,7 @@ class RevenueExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
             month,
         )
 
-        return export_revenue_csv(year, month)
+        return export_revenue_csv(year, month, revenue=revenue_data)
 
 
 class MonthlySummaryPdfView(LoginRequiredMixin, PermissionRequiredMixin, View):
