@@ -40,11 +40,18 @@ PIPEDA invariants:
 """
 from __future__ import annotations
 
+import re
+import time
 import uuid
 from datetime import date, datetime, timezone as dt_timezone
+from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.db import IntegrityError
+from django.http import HttpResponse
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from apps.reports.exports.csv_export import (
@@ -203,24 +210,33 @@ class ReportSnapshotUpsertIdempotencyTest(TestCase):
         self.assertEqual(snap.row_count, 3)
 
     def test_computed_at_updated_on_re_save(self):
-        snap, _ = ReportSnapshot.objects.update_or_create(
-            report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            period_year=2025,
-            period_month=5,
-            defaults={"data": {}, "row_count": 0},
-        )
-        first_computed_at = snap.computed_at
+        """
+        computed_at (auto_now=True) is updated to exactly the mocked 'now'
+        on each save.  We freeze time to a known later instant so the assertion
+        is deterministic — no sleep, no timestamp-resolution dependency.
+        """
+        t1 = datetime(2025, 6, 1, 10, 0, 0, tzinfo=dt_timezone.utc)
+        t2 = datetime(2025, 6, 1, 10, 0, 1, tzinfo=dt_timezone.utc)  # strictly later
 
-        # Force a tiny time gap so auto_now picks a later timestamp
-        import time; time.sleep(0.02)
+        with patch("django.utils.timezone.now", return_value=t1):
+            snap, created = ReportSnapshot.objects.update_or_create(
+                report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
+                period_year=2025,
+                period_month=5,
+                defaults={"data": {}, "row_count": 0},
+            )
+        self.assertTrue(created)
 
-        snap2, _ = ReportSnapshot.objects.update_or_create(
-            report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
-            period_year=2025,
-            period_month=5,
-            defaults={"data": {"v": 2}, "row_count": 1},
-        )
-        self.assertGreaterEqual(snap2.computed_at, first_computed_at)
+        with patch("django.utils.timezone.now", return_value=t2):
+            snap2, created2 = ReportSnapshot.objects.update_or_create(
+                report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
+                period_year=2025,
+                period_month=5,
+                defaults={"data": {"v": 2}, "row_count": 1},
+            )
+        self.assertFalse(created2)
+        # Strict greater-than: proves auto_now advanced, not just "didn't go back"
+        self.assertGreater(snap2.computed_at, snap.computed_at)
 
 
 class ReportSnapshotOrderingTest(TestCase):
@@ -357,22 +373,33 @@ class ExportRecordFieldsTest(TestCase):
         self.assertEqual(rec.row_count, 0)
 
     def test_ordering_newest_first(self):
-        ExportRecord.objects.create(
-            export_type=ExportRecord.EXPORT_TYPE_REVENUE,
-            format=ExportRecord.FORMAT_CSV,
-            period_start=date(2025, 1, 1),
-            period_end=date(2025, 1, 31),
-            actor_pk=1,
-        )
-        ExportRecord.objects.create(
-            export_type=ExportRecord.EXPORT_TYPE_RECONCILIATION,
-            format=ExportRecord.FORMAT_CSV,
-            period_start=date(2025, 2, 1),
-            period_end=date(2025, 2, 28),
-            actor_pk=2,
-        )
+        """
+        Default ordering is -created_at (newest first).  We freeze time for
+        each insert so the two records have distinct, known timestamps — avoids
+        flakiness when both rows land in the same DB microsecond on fast CI.
+        """
+        t1 = datetime(2025, 3, 1, 9, 0, 0, tzinfo=dt_timezone.utc)
+        t2 = datetime(2025, 3, 1, 9, 0, 1, tzinfo=dt_timezone.utc)  # strictly later
+
+        with patch("django.utils.timezone.now", return_value=t1):
+            ExportRecord.objects.create(
+                export_type=ExportRecord.EXPORT_TYPE_REVENUE,
+                format=ExportRecord.FORMAT_CSV,
+                period_start=date(2025, 1, 1),
+                period_end=date(2025, 1, 31),
+                actor_pk=1,
+            )
+        with patch("django.utils.timezone.now", return_value=t2):
+            ExportRecord.objects.create(
+                export_type=ExportRecord.EXPORT_TYPE_RECONCILIATION,
+                format=ExportRecord.FORMAT_CSV,
+                period_start=date(2025, 2, 1),
+                period_end=date(2025, 2, 28),
+                actor_pk=2,
+            )
+
         rows = list(ExportRecord.objects.all())
-        # Most recent first
+        # Most recent (t2) first
         self.assertEqual(rows[0].export_type, ExportRecord.EXPORT_TYPE_RECONCILIATION)
         self.assertEqual(rows[1].export_type, ExportRecord.EXPORT_TYPE_REVENUE)
 
@@ -599,7 +626,6 @@ class StreamingCsvResponseHeadersTest(TestCase):
         # "filename=" and would falsely match "name" as a PII substring).
         cd = response["Content-Disposition"]
         # Pull out just the filename parameter value (the part after filename=")
-        import re
         m = re.search(r'filename="([^"]+)"', cd)
         self.assertIsNotNone(m, "No filename in Content-Disposition")
         filename_value = m.group(1).lower()
@@ -660,8 +686,16 @@ class StreamingCsvResponseRowStreamingTest(TestCase):
             rows, ["formula"], "injection_test", date(2025, 1, 1), date(2025, 1, 31)
         )
         content = _consume_streaming_response(response).decode("utf-8-sig")
-        # The '=' must be prefixed with '\t' — raw '=DANGEROUS()' must not appear
-        self.assertNotIn(",=DANGEROUS", content)
+        # Positive assertion: the tab-prefixed form must be present
+        self.assertIn("\t=DANGEROUS()", content)
+        # Negative assertion: no line must start with an unescaped '=' trigger
+        # (catches both first-column and comma-preceded cases)
+        for line in content.splitlines():
+            stripped = line.lstrip(",")  # strip any leading delimiters
+            self.assertFalse(
+                stripped.startswith("=DANGEROUS"),
+                f"Unsanitized formula found at start of field in line: {line!r}",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -784,15 +818,6 @@ class ComputeSingleSnapshotTest(TestCase):
             _compute_single_snapshot("not_a_real_type", 2025, 1)
         self.assertIn("not_a_real_type", str(ctx.exception))
 
-    def test_unknown_type_error_message_includes_type(self):
-        bad_type = "completely_unknown_xyz"
-        try:
-            _compute_single_snapshot(bad_type, 2025, 1)
-        except ValueError as exc:
-            self.assertIn(bad_type, str(exc))
-        else:
-            self.fail("Expected ValueError was not raised")
-
     def test_row_count_non_negative(self):
         """row_count returned by dispatch is always >= 0."""
         for rtype in (
@@ -876,8 +901,6 @@ class MonthlySummaryPdfExportRecordOrderTest(TestCase):
     """
 
     def setUp(self):
-        from django.contrib.auth import get_user_model
-        from django.contrib.auth.models import Permission
         User = get_user_model()
         self.user = User.objects.create_user(
             email=f"pdftest_{uuid.uuid4().hex[:6]}@example.com",
@@ -895,9 +918,6 @@ class MonthlySummaryPdfExportRecordOrderTest(TestCase):
         When export_monthly_summary_pdf() raises, MonthlySummaryPdfView must
         not create an ExportRecord.  Uses patch to simulate WeasyPrint failure.
         """
-        from unittest.mock import patch
-        from django.urls import reverse
-
         initial_count = ExportRecord.objects.count()
 
         self.client.force_login(self.user)
@@ -924,10 +944,6 @@ class MonthlySummaryPdfExportRecordOrderTest(TestCase):
         """
         When export_monthly_summary_pdf() succeeds, ExportRecord is created.
         """
-        from unittest.mock import patch
-        from django.http import HttpResponse
-        from django.urls import reverse
-
         initial_count = ExportRecord.objects.count()
         self.client.force_login(self.user)
 
