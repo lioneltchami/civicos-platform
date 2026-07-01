@@ -98,6 +98,8 @@ urlpatterns += i18n_patterns(
     path("consent/", include("apps.consent.urls", namespace="consent")),
     # Analytics & Reporting BB — staff-only report views
     path("reports/", include("apps.reports.urls", namespace="reports")),
+    # Volunteer Management BB — volunteer portal, coordinator, and admin views
+    path("volunteers/", include("apps.volunteers.urls", namespace="volunteers")),
     # Public-facing pages (Wagtail CMS) — must be last
     path("", include(wagtail_urls)),
     prefix_default_language=False,  # /en/ not required; /fr/ prefix for French

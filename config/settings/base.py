@@ -113,6 +113,7 @@ LOCAL_APPS = [
     "apps.api",
     "apps.payments",
     "apps.reports",
+    "apps.volunteers",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -339,11 +340,47 @@ CELERY_TASK_ROUTES = {
     "apps.payments.*": {"queue": "payments"},
     # Analytics & Reporting BB — nightly snapshot computation
     "apps.reports.*": {"queue": "reports"},
+    # Volunteer Management BB — shift reminders, expiry checks, impact snapshots
+    "apps.volunteers.*": {"queue": "volunteers"},
 }
 
 # Task time limits — prevent runaway workers
 CELERY_TASK_SOFT_TIME_LIMIT = 300   # 5 min — SoftTimeLimitExceeded is raised
 CELERY_TASK_TIME_LIMIT = 360        # 6 min — worker SIGKILL after this
+
+# ---------------------------------------------------------------------------
+# Volunteer Management BB
+# ---------------------------------------------------------------------------
+
+# Provincial minimum hourly wages (CAD) — 2024 effective rates.
+# Used to cross-check that honoraria don't inadvertently classify a volunteer
+# as an employee under CRA guidelines.  Update annually from each province's
+# Employment Standards Act schedule.
+# Source: Government of Canada labour standards table, last updated 2024-10.
+VOLUNTEER_MINIMUM_WAGES: dict[str, float] = {
+    "AB": 15.00,   # Alberta
+    "BC": 17.40,   # British Columbia
+    "MB": 15.80,   # Manitoba
+    "NB": 15.30,   # New Brunswick
+    "NL": 15.60,   # Newfoundland & Labrador
+    "NS": 15.70,   # Nova Scotia
+    "NT": 16.05,   # Northwest Territories
+    "NU": 16.00,   # Nunavut
+    "ON": 17.20,   # Ontario
+    "PE": 16.00,   # Prince Edward Island
+    "QC": 15.75,   # Québec
+    "SK": 14.00,   # Saskatchewan
+    "YT": 17.59,   # Yukon
+    "FED": 17.30,  # Federal (Canada Labour Code)
+}
+
+# CRA honorarium thresholds (CRA PC-025 / IT-334R2).
+# alert_threshold  → coordinator is warned; T4A not yet required.
+# t4a_threshold    → T4A slip must be issued; service layer sets t4a_required=True.
+# hard_block       → service layer refuses to create the honorarium record.
+VOLUNTEER_CRA_ALERT_THRESHOLD: float = 450.00
+VOLUNTEER_CRA_T4A_THRESHOLD: float = 500.00
+VOLUNTEER_CRA_HARD_BLOCK: float = 1_000.00
 
 # ---------------------------------------------------------------------------
 # Wagtail
