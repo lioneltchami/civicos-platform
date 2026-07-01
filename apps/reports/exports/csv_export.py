@@ -176,39 +176,149 @@ def export_receipts_csv(start: date, end: date) -> StreamingHttpResponse:
     """
     Stream donation receipts list as CSV.
 
-    PIPEDA column whitelist — no donor name/address/email:
-        receipt_number, issued_date, amount_receipted, eligible_amount, campaign_name
+    PIPEDA column whitelist — no donor name, address, or email:
+        receipt_number, status, receipt_date, eligible_amount,
+        advantage_amount, campaign_name
 
-    CRA note: receipt_number is included because the donor received this number
-    on their official receipt — it is not PII in itself.
+    CRA note: receipt_number (serial_number) is included because the donor
+    received this number on their official tax receipt — it is a CRA-required
+    administrative identifier, not PII in itself.
 
-    Implemented in Wave 3.
+    Rows are fetched via queryset.iterator(chunk_size=500) — safe for full-year
+    exports of 10 K+ receipts without buffering in memory.
     """
+    from apps.reports.services.donations import get_receipt_list_queryset
+
     COLUMNS = [
         "receipt_number",
-        "issued_date",
-        "amount_receipted",
+        "status",
+        "receipt_date",
         "eligible_amount",
+        "advantage_amount",
         "campaign_name",
     ]
-    raise NotImplementedError("Implemented in Wave 3")
+
+    qs = get_receipt_list_queryset(start, end)
+
+    def _rows():
+        for r in qs.iterator(chunk_size=500):
+            campaign_name = ""
+            if r.donation_id and r.donation.campaign_id:
+                campaign_name = r.donation.campaign.name_en or ""
+            yield {
+                "receipt_number": r.serial_number,
+                "status": r.status,
+                "receipt_date": r.receipt_date.isoformat() if r.receipt_date else "",
+                "eligible_amount": str(r.eligible_amount),
+                "advantage_amount": str(r.advantage_amount),
+                "campaign_name": campaign_name,
+            }
+
+    return streaming_csv_response(_rows(), COLUMNS, "receipts", start, end)
 
 
 def export_t3010_prep_csv(fiscal_year_end: date) -> StreamingHttpResponse:
     """
     Stream T3010 preparatory data as CSV.
 
-    PIPEDA column whitelist — annual aggregates only, no individual donor PII:
-        month, total_receipted_amount, total_eligible_amount, receipt_count,
-        large_donation_count
+    Three sections (distinguished by the ``section`` column):
+    - SUMMARY  — charity-level totals, filing deadline, CRA line references
+    - MONTHLY  — one row per calendar month in the fiscal year
+    - CAMPAIGN — one row per campaign
 
-    Implemented in Wave 3.
+    PIPEDA column whitelist — aggregates only, no individual donor PII:
+        section, period, donation_count, total_donated, eligible_amount,
+        advantage_amount, receipts_issued
     """
+    from apps.reports.services.donations import get_t3010_preparatory_data
+
+    data = get_t3010_preparatory_data(fiscal_year_end)
+
     COLUMNS = [
-        "month",
-        "total_receipted_amount",
-        "total_eligible_amount",
-        "receipt_count",
-        "large_donation_count",
+        "section",
+        "period",
+        "donation_count",
+        "total_donated",
+        "eligible_amount",
+        "advantage_amount",
+        "receipts_issued",
     ]
-    raise NotImplementedError("Implemented in Wave 3")
+
+    def _fmt(v) -> str:
+        from decimal import Decimal as _D, ROUND_HALF_UP
+        try:
+            return str(_D(str(v)).quantize(_D("0.01"), rounding=ROUND_HALF_UP))
+        except Exception:
+            return str(v)
+
+    def _rows():
+        # ── Summary ───────────────────────────────────────────────────────────
+        yield {
+            "section": "SUMMARY",
+            "period": (
+                f"FY {data['fiscal_year_start'].isoformat()} "
+                f"to {data['fiscal_year_end'].isoformat()}"
+            ),
+            "donation_count": str(data["donation_count"]),
+            "total_donated": _fmt(
+                data["total_eligible_amount"] + data["total_advantage_amount"]
+            ),
+            "eligible_amount": _fmt(data["total_eligible_amount"]),
+            "advantage_amount": _fmt(data["total_advantage_amount"]),
+            "receipts_issued": str(data["receipts_issued_in_year"]),
+        }
+        yield {
+            "section": "SUMMARY",
+            "period": "T3010 Line 4500 — Total Receipted Eligible Amount",
+            "donation_count": "",
+            "total_donated": "",
+            "eligible_amount": _fmt(data["total_receipted_donations"]),
+            "advantage_amount": "",
+            "receipts_issued": "",
+        }
+        yield {
+            "section": "SUMMARY",
+            "period": "Filing Deadline (6 months after FY end)",
+            "donation_count": "",
+            "total_donated": "",
+            "eligible_amount": "",
+            "advantage_amount": "",
+            "receipts_issued": data["filing_deadline"].isoformat(),
+        }
+        yield {
+            "section": "SUMMARY",
+            "period": "Large Donations >=10000 (review for Schedule 4)",
+            "donation_count": str(data["large_donation_count"]),
+            "total_donated": "",
+            "eligible_amount": "",
+            "advantage_amount": "",
+            "receipts_issued": "",
+        }
+        # ── Monthly breakdown ─────────────────────────────────────────────────
+        for row in data["by_month"]:
+            adv = row["total_amount"] - row["eligible_amount"]
+            yield {
+                "section": "MONTHLY",
+                "period": row["month_label"],
+                "donation_count": str(row["donation_count"]),
+                "total_donated": _fmt(row["total_amount"]),
+                "eligible_amount": _fmt(row["eligible_amount"]),
+                "advantage_amount": _fmt(adv),
+                "receipts_issued": "",
+            }
+        # ── Campaign breakdown ────────────────────────────────────────────────
+        for row in data["by_campaign"]:
+            adv = row["total_amount"] - row["eligible_amount"]
+            yield {
+                "section": "CAMPAIGN",
+                "period": row["campaign_name"],
+                "donation_count": str(row["count"]),
+                "total_donated": _fmt(row["total_amount"]),
+                "eligible_amount": _fmt(row["eligible_amount"]),
+                "advantage_amount": _fmt(adv),
+                "receipts_issued": "",
+            }
+
+    period_start = data["fiscal_year_start"]
+    period_end = data["fiscal_year_end"]
+    return streaming_csv_response(_rows(), COLUMNS, "t3010_prep", period_start, period_end)

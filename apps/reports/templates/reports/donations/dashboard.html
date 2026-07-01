@@ -1,14 +1,273 @@
 {% extends "reports/base.html" %}
-{% load i18n %}
-{# Donations dashboard — monthly summary.
-   Implemented in Wave 3.
-   Context keys (Wave 3): year, month, summary, by_campaign, is_current_month #}
+{% load i18n humanize %}
+{# Donations & CRA — Monthly dashboard.
+   Context keys: year, month, month_label, is_current_month, data_source,
+                 donations (dict from get_monthly_donation_summary or snapshot),
+                 recent_snapshots (QS of ReportSnapshot).
+   PIPEDA: no donor PII — amounts, counts, campaign names only. #}
 
 {% block reports_title %}{% trans "Donations Dashboard" %}{% endblock %}
 
 {% block reports_content %}
-<h1 class="h3 mb-4">{% trans "Donations Dashboard" %}</h1>
+{# ── Header row ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-0">{% trans "Donations Dashboard" %}</h1>
+    <p class="text-muted mb-0">
+      {{ month_label }}
+      {% if is_current_month %}
+        <span class="badge bg-info ms-2">{% trans "Live" %}</span>
+      {% elif data_source == "snapshot" %}
+        <span class="badge bg-secondary ms-2">{% trans "Snapshot" %}</span>
+      {% else %}
+        <span class="badge bg-warning text-dark ms-2">{% trans "Computed" %}</span>
+      {% endif %}
+    </p>
+  </div>
 
-{# Wave 3: period selector, stat cards, by-campaign breakdown #}
-<p class="text-muted">{% trans "Donations report — implemented in Wave 3." %}</p>
+  {# ── Month picker ──────────────────────────────────────────────────────── #}
+  <form method="get" class="d-flex gap-2 align-items-end"
+        aria-label="{% trans 'Select reporting month' %}">
+    <div>
+      <label for="id_year" class="form-label visually-hidden">{% trans "Year" %}</label>
+      <input type="number" id="id_year" name="year" class="form-control form-control-sm"
+             value="{{ year }}" min="2000" max="2100" style="width:90px"
+             aria-label="{% trans 'Year' %}">
+    </div>
+    <div>
+      <label for="id_month" class="form-label visually-hidden">{% trans "Month (1-12)" %}</label>
+      <input type="number" id="id_month" name="month" class="form-control form-control-sm"
+             value="{{ month }}" min="1" max="12" style="width:75px"
+             aria-label="{% trans 'Month 1 to 12' %}">
+    </div>
+    <button type="submit" class="btn btn-sm btn-outline-primary">
+      {% trans "Go" %}
+    </button>
+  </form>
+</div>
+
+{# ── Primary KPI cards ──────────────────────────────────────────────────── #}
+<div class="row g-3 mb-3" role="region" aria-label="{% trans 'Key donation metrics' %}">
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Total Donations" %}</p>
+        <p class="card-title h4 mb-0">
+          ${{ donations.total_donations|floatformat:2|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {{ donations.donation_count|intcomma }}&nbsp;{% trans "gift(s)" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Total Eligible Amount" %}</p>
+        <p class="card-title h4 mb-0">
+          ${{ donations.total_eligible_amount|floatformat:2|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {% trans "For tax receipting (CRA line 4500)" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Average Gift" %}</p>
+        <p class="card-title h4 mb-0">
+          ${{ donations.average_donation|floatformat:2|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {{ donations.unique_donor_count|intcomma }}&nbsp;{% trans "unique donor(s)" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Receipts Issued" %}</p>
+        <p class="card-title h4 mb-0">
+          {{ donations.receipt_summary.issued|intcomma }}
+        </p>
+        {% if donations.receipt_summary.cancelled > 0 %}
+        <p class="card-text small text-warning mb-0">
+          {{ donations.receipt_summary.cancelled }}&nbsp;{% trans "cancelled" %}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Secondary KPIs ─────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Recurring Gifts" %}</p>
+        <p class="card-title h5 mb-0">{{ donations.recurring_count|intcomma }}</p>
+        <p class="card-text small text-muted mb-0">
+          {{ donations.one_time_count|intcomma }}&nbsp;{% trans "one-time" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  {% if donations.total_advantage_amount > 0 %}
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100 border-warning">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Total Advantage Amount" %}</p>
+        <p class="card-title h5 mb-0 text-warning">
+          ${{ donations.total_advantage_amount|floatformat:2|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">{% trans "OQ-8 disclosure (CRA IT-110R3)" %}</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if donations.receipt_summary.superseded > 0 %}
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Superseded Receipts" %}</p>
+        <p class="card-title h5 mb-0">
+          {{ donations.receipt_summary.superseded|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">{% trans "Re-issued corrections" %}</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Campaign breakdown ──────────────────────────────────────────────────── #}
+{% if donations.by_campaign %}
+<section aria-labelledby="by-campaign-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="by-campaign-heading">{% trans "Donations by Campaign" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle"
+           aria-label="{% trans 'Donation breakdown by campaign' %}">
+      <caption class="visually-hidden">
+        {% trans "Donation breakdown by campaign for" %} {{ month_label }}
+      </caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Campaign" %}</th>
+          <th scope="col" class="text-end">{% trans "Gifts" %}</th>
+          <th scope="col" class="text-end">{% trans "Total Amount" %}</th>
+          <th scope="col" class="text-end">{% trans "Eligible Amount" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in donations.by_campaign %}
+        <tr>
+          <td>{{ row.campaign_name }}</td>
+          <td class="text-end">{{ row.count|intcomma }}</td>
+          <td class="text-end">${{ row.total_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ row.eligible_amount|floatformat:2|intcomma }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-semibold">
+        <tr>
+          <td>{% trans "Total" %}</td>
+          <td class="text-end">{{ donations.donation_count|intcomma }}</td>
+          <td class="text-end">${{ donations.total_donations|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ donations.total_eligible_amount|floatformat:2|intcomma }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% else %}
+<div class="alert alert-secondary mb-4" role="alert">
+  {% trans "No completed donations in this period." %}
+</div>
+{% endif %}
+
+{# ── Quick actions ────────────────────────────────────────────────────────── #}
+{% if perms.payments.export_donationreport %}
+<div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Export and navigation actions' %}">
+  <a href="{% url 'reports:receipts-export' %}?start={{ year }}-{{ month|stringformat:'02d' }}-01&end={{ year }}-{{ month|stringformat:'02d' }}-28"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Export Receipts CSV" %}
+  </a>
+  <a href="{% url 'reports:donations-annual' %}?year={{ year }}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Annual Summary →" %}
+  </a>
+  <a href="{% url 'reports:t3010-prep' %}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "T3010 Prep Report →" %}
+  </a>
+</div>
+{% else %}
+<div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Navigation actions' %}">
+  <a href="{% url 'reports:donations-annual' %}?year={{ year }}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Annual Summary →" %}
+  </a>
+  <a href="{% url 'reports:t3010-prep' %}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "T3010 Prep Report →" %}
+  </a>
+</div>
+{% endif %}
+
+{# ── Recent snapshots ─────────────────────────────────────────────────────── #}
+{% if recent_snapshots %}
+<section aria-labelledby="recent-snapshots-heading" class="mb-4">
+  <h2 class="h5 mb-3" id="recent-snapshots-heading">{% trans "Recent Months" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm"
+           aria-label="{% trans 'Recent donation snapshots' %}">
+      <caption class="visually-hidden">{% trans "Last 6 months of donation snapshots" %}</caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Period" %}</th>
+          <th scope="col" class="text-end">{% trans "Total Donations" %}</th>
+          <th scope="col" class="text-end">{% trans "Gifts" %}</th>
+          <th scope="col"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for snap in recent_snapshots %}
+        <tr>
+          <td>{{ snap.period_label }}</td>
+          <td class="text-end">
+            {% with don=snap.data.donations %}
+              {% if don %}${{ don.total_donations|floatformat:2|intcomma }}{% else %}&mdash;{% endif %}
+            {% endwith %}
+          </td>
+          <td class="text-end">
+            {% with don=snap.data.donations %}
+              {% if don %}{{ don.donation_count|intcomma }}{% else %}&mdash;{% endif %}
+            {% endwith %}
+          </td>
+          <td class="text-end">
+            <a href="{% url 'reports:donations-dashboard' %}?year={{ snap.period_year }}&month={{ snap.period_month }}"
+               class="btn btn-sm btn-link p-0 small"
+               aria-label="{% trans 'View' %} {{ snap.period_label }}">
+              {% trans "View" %}
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
 {% endblock reports_content %}

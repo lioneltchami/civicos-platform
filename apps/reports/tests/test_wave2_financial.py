@@ -998,7 +998,8 @@ class ComputeAllSnapshotsTest(TestCase):
         ).count()
         self.assertEqual(before, 0)
         written = _compute_all_snapshots(2025, 8)
-        self.assertEqual(written, 1)
+        # Wave 3 added donations snapshot — task now writes ≥2 per run.
+        self.assertGreaterEqual(written, 1)
         snap = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
             period_year=2025, period_month=8,
@@ -1027,9 +1028,10 @@ class ComputeAllSnapshotsTest(TestCase):
 
     def test_returns_zero_for_empty_month(self):
         from apps.reports.tasks import _compute_all_snapshots
-        # August 1900 has no data but should still write a zeroed snapshot
+        # 1900-01 has no data but should still write zeroed snapshots for each
+        # report type (financial + donations since Wave 3).
         written = _compute_all_snapshots(1900, 1)
-        self.assertEqual(written, 1)
+        self.assertGreaterEqual(written, 1)
 
     def test_row_count_populated(self):
         from apps.reports.tasks import _compute_all_snapshots

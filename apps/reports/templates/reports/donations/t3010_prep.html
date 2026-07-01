@@ -1,24 +1,294 @@
 {% extends "reports/base.html" %}
-{% load i18n %}
-{# CRA T3010 preparatory data report.
-   Implemented in Wave 3.
-   Context keys (Wave 3): fiscal_year_start, fiscal_year_end, filing_deadline,
-     total_receipted_donations, total_eligible_amount, receipt_count,
-     large_donations, by_campaign #}
+{% load i18n humanize %}
+{# Donations & CRA — T3010 Preparatory Data.
+   Context keys: form (FiscalYearEndForm), t3010 (dict from get_t3010_preparatory_data),
+                 fiscal_year_start, fiscal_year_end, filing_deadline.
+   t3010 keys: fiscal_year_start, fiscal_year_end, filing_deadline,
+               total_receipted_donations, total_eligible_amount, total_advantage_amount,
+               donation_count, large_donation_count, receipts_issued_in_year,
+               receipts_cancelled_in_year, receipts_superseded_in_year,
+               by_month (list), by_campaign (list).
+   PIPEDA: aggregates only — no individual donor PII. #}
 
 {% block reports_title %}{% trans "T3010 Preparatory Data" %}{% endblock %}
 
 {% block reports_content %}
-<h1 class="h3 mb-4">{% trans "CRA T3010 Preparatory Data" %}</h1>
+{# ── Header ──────────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-start justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-0">{% trans "CRA T3010 Preparatory Data" %}</h1>
+    <p class="text-muted mb-0">
+      {% trans "Fiscal year:" %} {{ fiscal_year_start|date:"N j, Y" }}
+      &ndash; {{ fiscal_year_end|date:"N j, Y" }}
+    </p>
+  </div>
+</div>
 
-<p class="text-muted">
-  {% blocktrans %}
-  This report provides the aggregated figures needed to complete your charity's
-  annual T3010 information return. No individual donor personal information is
-  included.
+{# ── Fiscal year selector ─────────────────────────────────────────────────── #}
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="get" class="row g-3 align-items-end"
+          aria-label="{% trans 'Select fiscal year end' %}">
+      <div class="col-sm-auto">
+        <label for="{{ form.fiscal_year_end.id_for_label }}" class="form-label fw-semibold">
+          {{ form.fiscal_year_end.label }}
+        </label>
+        {{ form.fiscal_year_end }}
+        {% if form.fiscal_year_end.help_text %}
+        <div id="{{ form.fiscal_year_end.id_for_label }}-help"
+             class="form-text text-muted">
+          {{ form.fiscal_year_end.help_text }}
+        </div>
+        {% endif %}
+        {% if form.fiscal_year_end.errors %}
+        <div class="invalid-feedback d-block" role="alert">
+          {% for error in form.fiscal_year_end.errors %}{{ error }}{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="col-sm-auto">
+        <button type="submit" class="btn btn-primary">
+          {% trans "Load Report" %}
+        </button>
+      </div>
+      {% if form.non_field_errors %}
+      <div class="col-12">
+        <div class="alert alert-danger" role="alert">
+          {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{# ── Filing deadline callout ──────────────────────────────────────────────── #}
+<div class="alert alert-info mb-4" role="alert">
+  <strong>{% trans "T3010 Filing Deadline:" %}</strong>
+  {{ filing_deadline|date:"F j, Y" }}
+  <span class="text-muted small ms-2">
+    {% trans "(6 months after fiscal year end — CRA requirement)" %}
+  </span>
+</div>
+
+{# ── Primary T3010 line item cards ───────────────────────────────────────── #}
+<div class="row g-3 mb-4" role="region" aria-label="{% trans 'CRA T3010 key figures' %}">
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100 border-primary">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">
+          {% trans "Line 4500 — Total Receipted Eligible" %}
+        </p>
+        <p class="card-title h4 mb-0 text-primary">
+          ${{ t3010.total_receipted_donations|floatformat:2|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {% trans "Sum of eligible_amount on receipted donations" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">
+          {% trans "Total Eligible Amount (all gifts)" %}
+        </p>
+        <p class="card-title h4 mb-0">
+          ${{ t3010.total_eligible_amount|floatformat:2|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {% trans "Includes unreceipted donations" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Donations Received" %}</p>
+        <p class="card-title h4 mb-0">{{ t3010.donation_count|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Receipts Issued" %}</p>
+        <p class="card-title h4 mb-0">{{ t3010.receipts_issued_in_year|intcomma }}</p>
+        {% if t3010.receipts_cancelled_in_year > 0 %}
+        <p class="card-text small text-warning mb-0">
+          {{ t3010.receipts_cancelled_in_year }}&nbsp;{% trans "cancelled" %}
+        </p>
+        {% endif %}
+        {% if t3010.receipts_superseded_in_year > 0 %}
+        <p class="card-text small text-muted mb-0">
+          {{ t3010.receipts_superseded_in_year }}&nbsp;{% trans "superseded" %}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Advantage amount callout ─────────────────────────────────────────────── #}
+{% if t3010.total_advantage_amount > 0 %}
+<div class="alert alert-secondary mb-4" role="alert">
+  <strong>{% trans "CRA IT-110R3 — Advantage Amount:" %}</strong>
+  ${{ t3010.total_advantage_amount|floatformat:2|intcomma }}
+  <br>
+  <span class="small">
+    {% trans "This amount was disclosed on official donation receipts as required by CRA IT-110R3." %}
+  </span>
+</div>
+{% endif %}
+
+{# ── Schedule 4 warning — large donations ────────────────────────────────── #}
+{% if t3010.large_donation_count > 0 %}
+<div class="alert alert-warning mb-4" role="alert">
+  <strong>{% trans "CRA Schedule 4 — Gifts of $10,000 or More" %}</strong><br>
+  {% blocktrans with count=t3010.large_donation_count %}
+  {{ count }} donation(s) of $10,000 or more were received this fiscal year.
+  CRA requires disclosure of each gift's country of origin on
+  <em>Schedule 4 — Gifts from Outside Canada</em>.
+  The system cannot auto-populate Schedule 4; review each large gift manually
+  before submitting your T3010.
   {% endblocktrans %}
-</p>
+</div>
+{% endif %}
 
-{# Wave 3: fiscal year selector, T3010 line items, filing deadline, by-campaign table, export links #}
-<p class="text-muted">{% trans "T3010 prep report — implemented in Wave 3." %}</p>
+{# ── Monthly breakdown ───────────────────────────────────────────────────── #}
+{% if t3010.by_month %}
+<section aria-labelledby="by-month-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="by-month-heading">{% trans "Monthly Breakdown" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle"
+           aria-label="{% trans 'Monthly T3010 breakdown' %}">
+      <caption class="visually-hidden">
+        {% trans "Monthly donation breakdown for fiscal year ending" %}
+        {{ fiscal_year_end|date:"N j, Y" }}
+      </caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Month" %}</th>
+          <th scope="col" class="text-end">{% trans "Gifts" %}</th>
+          <th scope="col" class="text-end">{% trans "Total Donated" %}</th>
+          <th scope="col" class="text-end">{% trans "Eligible Amount" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in t3010.by_month %}
+        <tr>
+          <td>{{ row.month_label }}</td>
+          <td class="text-end">{{ row.donation_count|intcomma }}</td>
+          <td class="text-end">${{ row.total_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ row.eligible_amount|floatformat:2|intcomma }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-semibold">
+        <tr>
+          <td>{% trans "Total" %}</td>
+          <td class="text-end">{{ t3010.donation_count|intcomma }}</td>
+          <td class="text-end">
+            ${{ t3010.total_eligible_amount|floatformat:2|intcomma }}
+          </td>
+          <td class="text-end">
+            ${{ t3010.total_eligible_amount|floatformat:2|intcomma }}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ── Campaign breakdown ──────────────────────────────────────────────────── #}
+{% if t3010.by_campaign %}
+<section aria-labelledby="by-campaign-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="by-campaign-heading">{% trans "Donations by Campaign" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle"
+           aria-label="{% trans 'Campaign T3010 breakdown' %}">
+      <caption class="visually-hidden">
+        {% trans "Campaign breakdown for fiscal year ending" %}
+        {{ fiscal_year_end|date:"N j, Y" }}
+      </caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Campaign" %}</th>
+          <th scope="col" class="text-end">{% trans "Gifts" %}</th>
+          <th scope="col" class="text-end">{% trans "Total Donated" %}</th>
+          <th scope="col" class="text-end">{% trans "Eligible Amount" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in t3010.by_campaign %}
+        <tr>
+          <td>{{ row.campaign_name }}</td>
+          <td class="text-end">{{ row.count|intcomma }}</td>
+          <td class="text-end">${{ row.total_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ row.eligible_amount|floatformat:2|intcomma }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-semibold">
+        <tr>
+          <td>{% trans "Total" %}</td>
+          <td class="text-end">{{ t3010.donation_count|intcomma }}</td>
+          <td class="text-end">
+            ${{ t3010.total_eligible_amount|floatformat:2|intcomma }}
+          </td>
+          <td class="text-end">
+            ${{ t3010.total_eligible_amount|floatformat:2|intcomma }}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if not t3010.by_month and not t3010.by_campaign %}
+<div class="alert alert-secondary mb-4" role="alert">
+  {% trans "No donation data for this fiscal year." %}
+</div>
+{% endif %}
+
+{# ── Export actions ────────────────────────────────────────────────────────── #}
+{% if perms.payments.export_donationreport %}
+<div class="d-flex gap-2 flex-wrap mb-4" role="group" aria-label="{% trans 'Export actions' %}">
+  <a href="{% url 'reports:t3010-prep-export' %}?fiscal_year_end={{ fiscal_year_end|date:'Y-m-d' }}"
+     class="btn btn-primary">
+    {% trans "Export T3010 Prep CSV" %}
+  </a>
+  <a href="{% url 'reports:receipts-export' %}?start={{ fiscal_year_start|date:'Y-m-d' }}&end={{ fiscal_year_end|date:'Y-m-d' }}"
+     class="btn btn-outline-secondary">
+    {% trans "Export Receipts CSV (Full Year)" %}
+  </a>
+</div>
+
+<div class="card border-secondary mb-4">
+  <div class="card-body small text-muted">
+    <strong>{% trans "PIPEDA Notice:" %}</strong>
+    {% trans "Exports contain aggregated financial figures and receipt serial numbers only. No donor name, address, or contact information is included in any export from this system." %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Navigation ────────────────────────────────────────────────────────────── #}
+<div class="d-flex gap-2 flex-wrap">
+  <a href="{% url 'reports:donations-annual' %}?year={{ fiscal_year_end|date:'Y' }}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "← Annual Summary" %}
+  </a>
+  <a href="{% url 'reports:donations-dashboard' %}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "← Monthly Dashboard" %}
+  </a>
+</div>
 {% endblock reports_content %}

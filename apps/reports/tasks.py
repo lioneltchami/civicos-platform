@@ -157,7 +157,27 @@ def _compute_all_snapshots(year: int, month: int) -> int:
             month,
         )
 
-    # Wave 3: donations  — implemented in Wave 3
+    # ── Wave 3: donations ─────────────────────────────────────────────────────
+    try:
+        from apps.reports.services.donations import compute_donations_snapshot
+        don_data = compute_donations_snapshot(year, month)
+        ReportSnapshot.objects.update_or_create(
+            report_type=ReportSnapshot.REPORT_TYPE_DONATIONS,
+            period_year=year,
+            period_month=month,
+            defaults={"data": don_data, "row_count": don_data.get("row_count", 0)},
+        )
+        written += 1
+        logger.info(
+            "reports.tasks._compute_all_snapshots.donations_ok year=%s month=%s",
+            year, month,
+        )
+    except Exception:
+        logger.exception(
+            "reports.tasks._compute_all_snapshots.donations_failed year=%s month=%s",
+            year, month,
+        )
+
     # Wave 4: operational — implemented in Wave 4
 
     return written
