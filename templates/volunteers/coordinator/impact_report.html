@@ -1,0 +1,371 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{#
+  Volunteer Impact Report — Wave 5 Phase A.
+
+  PIPEDA compliance:
+  - No volunteer names, emails, or any PII is rendered anywhere in this template.
+  - All context variables (hours_by_program, impact, t3010) contain programme-level
+    aggregates only (counts, hours totals, computed values).
+  - Download links point to streaming CSV exports that enforce the same PIPEDA
+    column whitelist. See apps/reports/exports/volunteer_export.py.
+
+  WCAG 2.1 AA notes:
+  - All data tables have a <caption> element.
+  - Filter form labels are associated with controls via <label for="">.
+  - Summary cards use <dl>/<dt>/<dd> for screen-reader-friendly key-value pairs.
+  - Skip-to-content link present (inherits from coordinator layout pattern).
+  - Active sidebar link carries aria-current="page".
+#}
+
+{% block title %}{% trans "Volunteer Impact Report" %}{% endblock %}
+{% block meta_description %}{% trans "Monthly volunteer hours, impact value, and T3010 category breakdown." %}{% endblock %}
+{% block body_class %}coordinator-layout{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li><a href="{% url 'volunteers:coordinator_dashboard' %}">{% trans "Coordinator Dashboard" %}</a></li>
+      <li aria-current="page">{% trans "Impact Report" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="coordinator-layout__inner">
+
+    {# Skip link — WCAG SC 2.4.1 #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
+
+    {# ============================================================
+       Coordinator sidebar navigation
+       ============================================================ #}
+    <aside class="coordinator-sidebar">
+      <nav aria-label="{% trans 'Coordinator navigation' %}">
+        <ul class="coordinator-nav" role="list">
+          <li>
+            <a href="{% url 'volunteers:coordinator_dashboard' %}"
+               class="coordinator-nav__link">
+              {% trans "Dashboard" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:opportunity_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Opportunities" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:coordinator_application_list' %}"
+               class="coordinator-nav__link">
+              {% trans "All Applications" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:shift_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Shifts" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:hours_approval_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Hours Approvals" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:volunteer_roster' %}"
+               class="coordinator-nav__link">
+              {% trans "Volunteers" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:impact_report' %}"
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
+              {% trans "Impact Report" %}
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    {# ============================================================
+       Main content area
+       ============================================================ #}
+    <div class="coordinator-main" id="coordinator-main-content" role="main">
+
+      <h1 class="page-title">{% trans "Volunteer Impact Report" %}</h1>
+
+      {# ============================================================
+         Year / month filter form
+         ============================================================ #}
+      <section class="filter-section" aria-label="{% trans 'Filter report period' %}">
+        <form method="get" action="" class="filter-form" role="search"
+              aria-label="{% trans 'Filter by year and month' %}">
+
+          <div class="form-row">
+
+            <div class="form-group">
+              <label for="id_year" class="form-label">{% trans "Year" %}</label>
+              <select id="id_year" name="year" class="form-select">
+                {% for y in years %}
+                  <option value="{{ y }}"{% if y == year %} selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="id_month" class="form-label">{% trans "Month" %}</label>
+              <select id="id_month" name="month" class="form-select">
+                <option value=""{% if not month %} selected{% endif %}>{% trans "All months" %}</option>
+                <option value="1"{% if month == 1 %} selected{% endif %}>{% trans "January" %}</option>
+                <option value="2"{% if month == 2 %} selected{% endif %}>{% trans "February" %}</option>
+                <option value="3"{% if month == 3 %} selected{% endif %}>{% trans "March" %}</option>
+                <option value="4"{% if month == 4 %} selected{% endif %}>{% trans "April" %}</option>
+                <option value="5"{% if month == 5 %} selected{% endif %}>{% trans "May" %}</option>
+                <option value="6"{% if month == 6 %} selected{% endif %}>{% trans "June" %}</option>
+                <option value="7"{% if month == 7 %} selected{% endif %}>{% trans "July" %}</option>
+                <option value="8"{% if month == 8 %} selected{% endif %}>{% trans "August" %}</option>
+                <option value="9"{% if month == 9 %} selected{% endif %}>{% trans "September" %}</option>
+                <option value="10"{% if month == 10 %} selected{% endif %}>{% trans "October" %}</option>
+                <option value="11"{% if month == 11 %} selected{% endif %}>{% trans "November" %}</option>
+                <option value="12"{% if month == 12 %} selected{% endif %}>{% trans "December" %}</option>
+              </select>
+            </div>
+
+            <div class="form-group form-group--submit">
+              <button type="submit" class="btn btn--primary">
+                {% trans "Filter" %}
+              </button>
+            </div>
+
+          </div>
+        </form>
+      </section>
+
+      {# ============================================================
+         Summary cards — PIPEDA: aggregate values only
+         ============================================================ #}
+      <section class="summary-cards" aria-label="{% trans 'Impact summary' %}">
+        <h2 class="section-title">
+          {% if month %}
+            {% blocktrans with y=year m=month %}Summary for {{ m }}/{{ y }}{% endblocktrans %}
+          {% else %}
+            {% blocktrans with y=year %}Summary for {{ y }}{% endblocktrans %}
+          {% endif %}
+        </h2>
+
+        <div class="cards-grid">
+
+          <div class="summary-card">
+            <dl>
+              <dt class="summary-card__label">{% trans "Total Volunteers" %}</dt>
+              <dd class="summary-card__value">{{ impact.volunteer_count }}</dd>
+            </dl>
+          </div>
+
+          <div class="summary-card">
+            <dl>
+              <dt class="summary-card__label">{% trans "Total Approved Hours" %}</dt>
+              <dd class="summary-card__value">{{ impact.total_approved_hours }}</dd>
+            </dl>
+          </div>
+
+          <div class="summary-card">
+            <dl>
+              <dt class="summary-card__label">
+                {% trans "Estimated Value (CAD)" %}
+                <span class="summary-card__label-note">
+                  {% blocktrans with rate=impact.hourly_rate prov=impact.province %}
+                    @ ${{ rate }}/hr ({{ prov }} minimum wage)
+                  {% endblocktrans %}
+                </span>
+              </dt>
+              <dd class="summary-card__value">
+                ${{ impact.estimated_value_cad }}
+              </dd>
+            </dl>
+          </div>
+
+          <div class="summary-card">
+            <dl>
+              <dt class="summary-card__label">{% trans "Opportunities Active" %}</dt>
+              <dd class="summary-card__value">{{ impact.opportunity_count }}</dd>
+            </dl>
+          </div>
+
+        </div>
+      </section>
+
+      {# ============================================================
+         Hours by program table — PIPEDA: no volunteer names
+         ============================================================ #}
+      <section aria-label="{% trans 'Hours by program and opportunity' %}">
+        <h2 class="section-title">{% trans "Hours by Program &amp; Opportunity" %}</h2>
+
+        {% if hours_by_program %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Approved volunteer hours by program and opportunity' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption>
+                {% if month %}
+                  {% blocktrans with y=year m=month %}
+                    Approved volunteer hours by program and opportunity for {{ m }}/{{ y }}
+                  {% endblocktrans %}
+                {% else %}
+                  {% blocktrans with y=year %}
+                    Approved volunteer hours by program and opportunity for {{ y }}
+                  {% endblocktrans %}
+                {% endif %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Program" %}</th>
+                  <th scope="col">{% trans "Opportunity" %}</th>
+                  <th scope="col" class="col--numeric">{% trans "Approved Hours" %}</th>
+                  <th scope="col" class="col--numeric">{% trans "Volunteers" %}</th>
+                  <th scope="col" class="col--numeric">{% trans "Shifts" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in hours_by_program %}
+                  <tr>
+                    <td>{{ row.program_title_en }}</td>
+                    <td>{{ row.opportunity_title_en }}</td>
+                    <td class="col--numeric">{{ row.approved_hours }}</td>
+                    <td class="col--numeric">{{ row.volunteer_count }}</td>
+                    <td class="col--numeric">{{ row.shift_count }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">
+              {% if month %}
+                {% blocktrans with y=year m=month %}No approved volunteer hours recorded for {{ m }}/{{ y }}.{% endblocktrans %}
+              {% else %}
+                {% blocktrans with y=year %}No approved volunteer hours recorded for {{ y }}.{% endblocktrans %}
+              {% endif %}
+            </p>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         T3010 Schedule 2 — Volunteer category breakdown
+         ============================================================ #}
+      <section aria-label="{% trans 'T3010 volunteer category breakdown' %}">
+        <h2 class="section-title">{% trans "T3010 Volunteer Metrics" %}</h2>
+        <p class="section-description">
+          {% blocktrans with y=year %}
+            CRA T3010 Schedule 2 volunteer data for {{ y }}.
+            Estimated value uses the Ontario minimum wage rate as a single national estimate.
+            Category breakdown is indicative — consult a CRA-qualified preparer before filing.
+          {% endblocktrans %}
+        </p>
+
+        <div class="cards-grid cards-grid--compact">
+          <div class="summary-card">
+            <dl>
+              <dt class="summary-card__label">{% trans "Total Volunteers (T3010 Line)" %}</dt>
+              <dd class="summary-card__value">{{ t3010.total_volunteers }}</dd>
+            </dl>
+          </div>
+          <div class="summary-card">
+            <dl>
+              <dt class="summary-card__label">{% trans "Total Volunteer Hours" %}</dt>
+              <dd class="summary-card__value">{{ t3010.total_volunteer_hours }}</dd>
+            </dl>
+          </div>
+          <div class="summary-card">
+            <dl>
+              <dt class="summary-card__label">{% trans "Programs with Activity" %}</dt>
+              <dd class="summary-card__value">{{ t3010.num_programs }}</dd>
+            </dl>
+          </div>
+          <div class="summary-card">
+            <dl>
+              <dt class="summary-card__label">{% trans "Estimated Value (CAD, ON rate)" %}</dt>
+              <dd class="summary-card__value">${{ t3010.estimated_value_cad }}</dd>
+            </dl>
+          </div>
+        </div>
+
+        {% if t3010.categories %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Volunteer hours by T3010 category' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption>{% trans "Volunteer hours breakdown by T3010 category" %}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Category" %}</th>
+                  <th scope="col" class="col--numeric">{% trans "Hours" %}</th>
+                  <th scope="col" class="col--numeric">{% trans "Volunteers (indicative)" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for cat in t3010.categories %}
+                  <tr>
+                    <td>
+                      {% if cat.category == "general" %}{% trans "General" %}
+                      {% elif cat.category == "governance" %}{% trans "Governance / Board" %}
+                      {% elif cat.category == "fundraising" %}{% trans "Fundraising / Donor Relations" %}
+                      {% elif cat.category == "program_delivery" %}{% trans "Program Delivery" %}
+                      {% else %}{{ cat.category }}
+                      {% endif %}
+                    </td>
+                    <td class="col--numeric">{{ cat.hours }}</td>
+                    <td class="col--numeric">{{ cat.volunteers }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         CSV download links
+         ============================================================ #}
+      <section class="downloads-section" aria-label="{% trans 'Download report data' %}">
+        <h2 class="section-title">{% trans "Downloads" %}</h2>
+        <p class="section-description">
+          {% trans "Exported files contain programme-level aggregates only (PIPEDA-compliant). No volunteer names or personal information are included." %}
+        </p>
+
+        <ul class="download-list" role="list">
+          <li>
+            <a href="{% url 'volunteers:volunteer_hours_export' %}?year={{ year }}{% if month %}&amp;month={{ month }}{% endif %}"
+               class="btn btn--secondary"
+               aria-label="{% trans 'Download volunteer hours CSV for selected period' %}">
+              {% trans "Download: Volunteer Hours (CSV)" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:volunteer_t3010_export' %}?year={{ year }}"
+               class="btn btn--secondary"
+               aria-label="{% trans 'Download T3010 volunteer data CSV for selected year' %}">
+              {% trans "Download: T3010 Volunteer Data (CSV)" %}
+            </a>
+          </li>
+        </ul>
+      </section>
+
+    </div>{# /coordinator-main #}
+  </div>{# /coordinator-layout__inner #}
+</div>{# /container #}
+{% endblock %}

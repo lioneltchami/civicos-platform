@@ -686,6 +686,16 @@ def create_beat_schedule():
         timezone="America/Toronto",
     )
 
+    # 02:30 UTC on the 1st of each month — volunteer impact snapshot.
+    first_of_month_0230_utc, _ = CrontabSchedule.objects.get_or_create(
+        minute="30",
+        hour="2",
+        day_of_week="*",
+        day_of_month="1",
+        month_of_year="*",
+        timezone="UTC",
+    )
+
     tasks = [
         {
             "name": "volunteers: 24h shift reminders (hourly)",
@@ -712,6 +722,13 @@ def create_beat_schedule():
             "task": "apps.volunteers.tasks.send_monthly_hours_summary",
             "crontab": first_of_month_morning,
         },
+        {
+            # Runs at 02:30 UTC on the 1st of each month — after nightly data jobs
+            # but before the 08:00 ET coordinator summary.
+            "name": "volunteers: monthly impact snapshot (1st of month 02:30 UTC)",
+            "task": "apps.volunteers.tasks.trigger_monthly_volunteer_snapshot",
+            "crontab": first_of_month_0230_utc,
+        },
     ]
 
     for spec in tasks:
@@ -731,3 +748,134 @@ def create_beat_schedule():
             obj.enabled = True
             obj.args = json.dumps([])   # clear any accidentally set args from prior migrations
             obj.save(update_fields=["task", "crontab", "enabled", "args"])
+
+
+# ---------------------------------------------------------------------------
+# Task 6: Monthly volunteer impact snapshot trigger (thin wrapper for Beat)
+# ---------------------------------------------------------------------------
+
+@shared_task(
+    bind=True,
+    name="volunteers.trigger_monthly_volunteer_snapshot",
+    max_retries=2,
+    default_retry_delay=300,
+    queue="volunteers",
+)
+def trigger_monthly_volunteer_snapshot(self):
+    """
+    Thin Beat-registered wrapper that derives year/month from timezone.now()
+    and dispatches compute_volunteer_impact_snapshot for the PREVIOUS month.
+
+    Registered in create_beat_schedule() with no args — Celery Beat cannot
+    pass dynamic args, so this wrapper derives them at call time.
+
+    Scheduled: 1st of each month at 02:30 UTC (after nightly data jobs).
+    """
+    now = timezone.now()
+    if now.month == 1:
+        year, month = now.year - 1, 12
+    else:
+        year, month = now.year, now.month - 1
+
+    logger.info(
+        "volunteers.tasks.trigger_monthly_volunteer_snapshot: dispatching "
+        "compute_volunteer_impact_snapshot for %d-%02d.", year, month,
+    )
+    compute_volunteer_impact_snapshot.delay(year, month)
+    return {"dispatched_year": year, "dispatched_month": month}
+
+
+# ---------------------------------------------------------------------------
+# Task 7: Compute and persist volunteer impact snapshot
+# ---------------------------------------------------------------------------
+
+@shared_task(
+    bind=True,
+    name="volunteers.compute_volunteer_impact_snapshot",
+    max_retries=3,
+    default_retry_delay=300,
+    queue="volunteers",
+)
+def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
+    """
+    Pre-compute volunteer impact metrics for a given month and persist as
+    ReportSnapshot (report_type="volunteers").
+
+    Called by trigger_monthly_volunteer_snapshot (Beat) or directly.
+
+    On success returns {"pk": <snapshot pk>, "created": bool}.
+    Retries up to 3 times on any exception (exponential back-off via
+    default_retry_delay=300).
+
+    PIPEDA: only aggregated metrics are stored in ReportSnapshot.data — no
+    volunteer names, emails, or any PII.
+    """
+    from decimal import Decimal as _Decimal
+
+    from apps.reports.models import ReportSnapshot
+    from apps.volunteers.services.reporting import (
+        hours_by_program,
+        impact_value,
+        t3010_volunteer_metrics,
+    )
+
+    def _serialise_decimal(v):
+        return str(v) if isinstance(v, _Decimal) else v
+
+    try:
+        with transaction.atomic():
+            hours_data = hours_by_program(year, month)
+            impact = impact_value(year)
+            t3010 = t3010_volunteer_metrics(year)
+
+            # Serialise Decimal values for JSON storage.
+            hours_data_serialised = [
+                {k: _serialise_decimal(v) for k, v in row.items()}
+                for row in hours_data
+            ]
+
+            impact_serialised = {
+                k: _serialise_decimal(v) for k, v in impact.items()
+            }
+
+            # t3010 has nested "categories" list — handle recursively.
+            t3010_serialised = {}
+            for k, v in t3010.items():
+                if k == "categories":
+                    t3010_serialised[k] = [
+                        {ck: _serialise_decimal(cv) for ck, cv in cat.items()}
+                        for cat in v
+                    ]
+                else:
+                    t3010_serialised[k] = _serialise_decimal(v)
+
+            data = {
+                "hours_by_program": hours_data_serialised,
+                "impact_value": impact_serialised,
+                "t3010": t3010_serialised,
+            }
+
+            snapshot, created = ReportSnapshot.objects.update_or_create(
+                report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
+                period_year=year,
+                period_month=month,
+                defaults={"data": data},
+            )
+
+        logger.info(
+            "volunteers.tasks.compute_volunteer_impact_snapshot: %s snapshot "
+            "pk=%s for %d-%02d.",
+            "created" if created else "updated",
+            snapshot.pk,
+            year,
+            month,
+        )
+        return {"pk": snapshot.pk, "created": created}
+
+    except Exception as exc:
+        logger.error(
+            "volunteers.tasks.compute_volunteer_impact_snapshot: error for "
+            "%d-%02d: %s — retrying.",
+            year, month, exc, exc_info=True,
+        )
+        raise self.retry(exc=exc)

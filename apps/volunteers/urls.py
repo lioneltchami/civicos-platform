@@ -59,14 +59,18 @@ from apps.volunteers.views.coordinator import (
     HoursApprovalListView,
     HoursApproveView,
     HoursRejectView,
+    ImpactReportView,
     RecordScreeningView,
     ShiftCancelView,
     ShiftCreateView,
     ShiftDetailView,
     ShiftListView,
     VolunteerDetailView,
+    VolunteerHoursExportView,
     VolunteerRosterView,
     VolunteerStatusChangeView,
+    VolunteerT3010ExportView,
+    ReferenceLetterPDFView,
 )
 from apps.volunteers.views.portal import (
     ApplicationFormView,
@@ -307,5 +311,42 @@ urlpatterns = [
         "coordinator/volunteers/<int:pk>/honorarium/new/",
         HonorariumCreateView.as_view(),
         name="honorarium_create",
+    ),
+
+    # ------------------------------------------------------------------
+    # Coordinator — volunteer impact report (Wave 5 Phase A)
+    # ------------------------------------------------------------------
+
+    # GET: volunteer impact report — coordinator/admin only.
+    # Supports ?year=YYYY and ?month=M query params.
+    # Linked from coordinator sidebar; provides CSV download links.
+    path(
+        "coordinator/impact-report/",
+        ImpactReportView.as_view(),
+        name="impact_report",
+    ),
+
+    # GET: stream volunteer hours CSV (PIPEDA-safe, programme-level aggregates).
+    # Supports ?year=YYYY and optionally ?month=M. Records ExportRecord audit log.
+    path(
+        "coordinator/impact-report/export/hours.csv",
+        VolunteerHoursExportView.as_view(),
+        name="volunteer_hours_export",
+    ),
+
+    # GET: stream T3010 Schedule 2 volunteer CSV (aggregates only).
+    # Supports ?year=YYYY. Records ExportRecord audit log.
+    path(
+        "coordinator/impact-report/export/t3010.csv",
+        VolunteerT3010ExportView.as_view(),
+        name="volunteer_t3010_export",
+    ),
+
+    # GET: generate volunteer reference letter PDF (WeasyPrint).
+    # IDOR-scoped: coordinator can only generate letters for their own volunteers.
+    path(
+        "coordinator/volunteers/<int:pk>/reference-letter.pdf",
+        ReferenceLetterPDFView.as_view(),
+        name="volunteer_reference_letter",
     ),
 ]

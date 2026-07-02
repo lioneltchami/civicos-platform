@@ -414,6 +414,8 @@ class ExportRecordChoicesTest(TestCase):
             ExportRecord.EXPORT_TYPE_RECEIPTS,
             ExportRecord.EXPORT_TYPE_REVENUE,
             ExportRecord.EXPORT_TYPE_REFUNDS,
+            ExportRecord.EXPORT_TYPE_VOLUNTEER_HOURS,
+            ExportRecord.EXPORT_TYPE_VOLUNTEER_T3010,
         }
         actual = {code for code, _ in ExportRecord.EXPORT_TYPE_CHOICES}
         self.assertEqual(expected, actual)

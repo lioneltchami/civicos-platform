@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE|default:'en' }}">
+{% load i18n %}
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: letter; margin: 2.5cm 2.5cm 2.5cm 2.5cm; }
+  body { font-family: serif; font-size: 11pt; line-height: 1.5; color: #1a1a1a; }
+  .letterhead { border-bottom: 2px solid #333; margin-bottom: 1.5em; padding-bottom: 0.5em; }
+  .org-name { font-size: 16pt; font-weight: bold; }
+  h1 { font-size: 14pt; text-align: center; text-transform: uppercase; letter-spacing: 0.05em; }
+  h2 { font-size: 12pt; margin-top: 1.5em; }
+  .signature-block { margin-top: 3em; }
+  .hours-table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+  .hours-table th, .hours-table td { border: 1px solid #999; padding: 0.4em 0.7em; }
+  .hours-table th { background: #f4f4f4; }
+  .footer { margin-top: 3em; font-size: 9pt; color: #555; border-top: 1px solid #ccc; padding-top: 0.5em; }
+</style>
+</head>
+<body>
+  <div class="letterhead">
+    <div class="org-name">{{ org_name }}</div>
+    {% if org_address %}<div>{{ org_address }}</div>{% endif %}
+    {% if org_email %}<div>{{ org_email }}</div>{% endif %}
+    <div>{{ letter_date }}</div>
+  </div>
+
+  <h1>{% trans "Volunteer Service Confirmation Letter" %}</h1>
+
+  <p>{% trans "To Whom It May Concern," %}</p>
+
+  <p>{% blocktrans with display=volunteer_display_name %}
+  This letter confirms that {{ display }} has volunteered with our organization.
+  {% endblocktrans %}</p>
+
+  <h2>{% trans "Volunteer Service Summary" %}</h2>
+  <table class="hours-table">
+    <thead>
+      <tr>
+        <th>{% trans "Program / Opportunity" %}</th>
+        <th>{% trans "Period" %}</th>
+        <th>{% trans "Approved Hours" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in service_rows %}
+      <tr>
+        <td>{{ row.opportunity_title }}</td>
+        <td>{{ row.period }}</td>
+        <td>{{ row.approved_hours }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="3"><em>{% trans "No approved hours on record." %}</em></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2"><strong>{% trans "Total Approved Volunteer Hours" %}</strong></td>
+        <td><strong>{{ total_hours }}</strong></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <p>{% blocktrans with org=org_name %}
+  We are grateful for their contribution to {{ org }} and the communities we serve.
+  {% endblocktrans %}</p>
+
+  <div class="signature-block">
+    <p>{% trans "Sincerely," %}</p>
+    <br><br>
+    <p>{{ coordinator_name }}<br>{{ coordinator_title }}</p>
+  </div>
+
+  <div class="footer">
+    {% trans "This letter is issued by" %} {{ org_name }}.
+    {% trans "Volunteer hours are approved and recorded in CivicOS." %}
+    {% trans "Reference ID:" %} {{ reference_id }}
+  </div>
+</body>
+</html>

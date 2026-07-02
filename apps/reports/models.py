@@ -39,10 +39,12 @@ class ReportSnapshot(models.Model):
     REPORT_TYPE_FINANCIAL = "financial"
     REPORT_TYPE_DONATIONS = "donations"
     REPORT_TYPE_OPERATIONAL = "operational"
+    REPORT_TYPE_VOLUNTEERS = "volunteers"
     REPORT_TYPE_CHOICES = [
         (REPORT_TYPE_FINANCIAL, _("Financial")),
         (REPORT_TYPE_DONATIONS, _("Donations & CRA")),
         (REPORT_TYPE_OPERATIONAL, _("Operational")),
+        (REPORT_TYPE_VOLUNTEERS, _("Volunteer Impact")),
     ]
 
     report_type = models.CharField(
@@ -120,12 +122,16 @@ class ExportRecord(models.Model):
     EXPORT_TYPE_RECEIPTS = "receipts"
     EXPORT_TYPE_REVENUE = "revenue"
     EXPORT_TYPE_REFUNDS = "refunds"
+    EXPORT_TYPE_VOLUNTEER_HOURS = "volunteer_hours"
+    EXPORT_TYPE_VOLUNTEER_T3010 = "volunteer_t3010"
     EXPORT_TYPE_CHOICES = [
         (EXPORT_TYPE_RECONCILIATION, _("Payment reconciliation")),
         (EXPORT_TYPE_T3010, _("T3010 preparatory data")),
         (EXPORT_TYPE_RECEIPTS, _("Donation receipts list")),
         (EXPORT_TYPE_REVENUE, _("Monthly revenue")),
         (EXPORT_TYPE_REFUNDS, _("Refund summary")),
+        (EXPORT_TYPE_VOLUNTEER_HOURS, _("Volunteer hours (PIPEDA)")),
+        (EXPORT_TYPE_VOLUNTEER_T3010, _("Volunteer T3010 data")),
     ]
 
     FORMAT_CSV = "csv"

@@ -38,7 +38,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
-from django.views.generic import CreateView, DetailView, FormView, ListView
+from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
 
 from django.db.models import Prefetch
 
@@ -1164,3 +1164,298 @@ class HonorariumCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 "profile": profile,
                 "ytd_honorarium": ytd,
             })
+
+
+# ---------------------------------------------------------------------------
+# ImpactReportView — Wave 5 Phase A
+# ---------------------------------------------------------------------------
+
+class ImpactReportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
+    """
+    Monthly volunteer impact report — coordinator and admin only.
+
+    Displays:
+      - Summary cards: total volunteers, total approved hours, estimated value (CAD)
+      - Hours-by-program table (PIPEDA: no volunteer names)
+      - T3010 category breakdown table
+      - Download links for CSV exports (volunteer hours + T3010)
+
+    Filtering: GET params ?year=YYYY and optionally ?month=M.
+
+    Permission: volunteers.view_volunteerprofile
+    Template:   volunteers/coordinator/impact_report.html
+    WCAG 2.1 AA: all tables have <caption>; filter controls have labels.
+    """
+
+    permission_required = "volunteers.view_volunteerprofile"
+    raise_exception = True
+    template_name = "volunteers/coordinator/impact_report.html"
+
+    def get_context_data(self, **kwargs):
+        from apps.volunteers.services.reporting import (
+            hours_by_program,
+            impact_value,
+            t3010_volunteer_metrics,
+        )
+
+        ctx = super().get_context_data(**kwargs)
+
+        current_year = timezone.localtime(timezone.now()).year
+        year_str = self.request.GET.get("year", "")
+        month_str = self.request.GET.get("month", "")
+
+        try:
+            year = int(year_str) if year_str.isdigit() else current_year
+        except (ValueError, AttributeError):
+            year = current_year
+
+        month = int(month_str) if month_str.isdigit() and 1 <= int(month_str) <= 12 else None
+
+        ctx["year"] = year
+        ctx["month"] = month
+        ctx["hours_by_program"] = hours_by_program(year, month)
+        ctx["impact"] = impact_value(year)
+        ctx["t3010"] = t3010_volunteer_metrics(year)
+        # Year selector: current year back 5 years
+        ctx["years"] = list(range(current_year, current_year - 6, -1))
+
+        logger.info(
+            "volunteers.views.ImpactReportView: rendered for year=%d month=%s "
+            "by user #%s.",
+            year,
+            month,
+            self.request.user.pk,
+        )
+        return ctx
+
+
+# ---------------------------------------------------------------------------
+# Volunteer CSV export views — Wave 5 Phase A
+# ---------------------------------------------------------------------------
+
+class VolunteerHoursExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Stream approved volunteer hours as a PIPEDA-safe CSV.
+
+    GET params: ?year=YYYY and optionally ?month=M.
+
+    Permission: volunteers.view_volunteerprofile
+    Audit: records download in ExportRecord (actor_pk, masked IP, row count).
+    """
+
+    permission_required = "volunteers.view_volunteerprofile"
+    raise_exception = True
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        from apps.reports.exports.volunteer_export import export_volunteer_hours_csv
+        from apps.reports.models import ExportRecord
+        from apps.volunteers.services.reporting import hours_by_program
+        from apps.forms.utils import _mask_ip
+        from datetime import date as _date
+        import calendar as _cal
+
+        current_year = timezone.localtime(timezone.now()).year
+        year_str = request.GET.get("year", "")
+        month_str = request.GET.get("month", "")
+
+        try:
+            year = int(year_str) if year_str.isdigit() else current_year
+        except (ValueError, AttributeError):
+            year = current_year
+
+        month = int(month_str) if month_str.isdigit() and 1 <= int(month_str) <= 12 else None
+
+        # Compute row count for audit record (re-uses cached service result
+        # so it is one extra tiny query, not a full re-export).
+        rows = hours_by_program(year, month)
+        row_count = len(rows)
+
+        # Audit record — PIPEDA: actor_pk not email; IP masked.
+        raw_ip = (
+            request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
+            or request.META.get("REMOTE_ADDR", "")
+        )
+        try:
+            masked_ip = _mask_ip(raw_ip)
+        except Exception:
+            masked_ip = None
+
+        period_start = _date(year, month or 1, 1)
+        last_month = month or 12
+        period_end = _date(year, last_month, _cal.monthrange(year, last_month)[1])
+
+        ExportRecord.objects.create(
+            export_type=ExportRecord.EXPORT_TYPE_VOLUNTEER_HOURS,
+            format=ExportRecord.FORMAT_CSV,
+            period_start=period_start,
+            period_end=period_end,
+            actor_pk=request.user.pk,
+            actor_ip=masked_ip,
+            row_count=row_count,
+        )
+
+        logger.info(
+            "volunteers.views.VolunteerHoursExportView: user #%s downloaded "
+            "volunteer_hours CSV year=%d month=%s rows=%d.",
+            request.user.pk, year, month, row_count,
+        )
+
+        return export_volunteer_hours_csv(year, month)
+
+
+class VolunteerT3010ExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Stream T3010 Schedule 2 volunteer section as a PIPEDA-safe CSV.
+
+    GET param: ?year=YYYY.
+
+    Permission: volunteers.view_volunteerprofile
+    Audit: records download in ExportRecord.
+    """
+
+    permission_required = "volunteers.view_volunteerprofile"
+    raise_exception = True
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        from apps.reports.exports.volunteer_export import export_t3010_volunteer_csv
+        from apps.reports.models import ExportRecord
+        from apps.forms.utils import _mask_ip
+        from datetime import date as _date
+
+        current_year = timezone.localtime(timezone.now()).year
+        year_str = request.GET.get("year", "")
+
+        try:
+            year = int(year_str) if year_str.isdigit() else current_year
+        except (ValueError, AttributeError):
+            year = current_year
+
+        raw_ip = (
+            request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
+            or request.META.get("REMOTE_ADDR", "")
+        )
+        try:
+            masked_ip = _mask_ip(raw_ip)
+        except Exception:
+            masked_ip = None
+
+        ExportRecord.objects.create(
+            export_type=ExportRecord.EXPORT_TYPE_VOLUNTEER_T3010,
+            format=ExportRecord.FORMAT_CSV,
+            period_start=_date(year, 1, 1),
+            period_end=_date(year, 12, 31),
+            actor_pk=request.user.pk,
+            actor_ip=masked_ip,
+            row_count=0,  # T3010 export row count is fixed / small; not meaningful
+        )
+
+        logger.info(
+            "volunteers.views.VolunteerT3010ExportView: user #%s downloaded "
+            "volunteer_t3010 CSV year=%d.",
+            request.user.pk, year,
+        )
+
+        return export_t3010_volunteer_csv(year)
+
+
+# ---------------------------------------------------------------------------
+# ReferenceLetterPDFView
+# ---------------------------------------------------------------------------
+
+class ReferenceLetterPDFView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    Generate a volunteer reference letter PDF for a specific volunteer profile.
+
+    GET /volunteers/volunteers/<pk>/reference-letter.pdf
+
+    IDOR scope: coordinator can only generate letters for volunteers who have
+    applied to an opportunity in one of their programs.
+
+    Requires: volunteers.view_volunteerprofile permission.
+    Renders: templates/volunteers/pdf/reference_letter.html → WeasyPrint PDF.
+    """
+    permission_required = "volunteers.view_volunteerprofile"
+    raise_exception = True
+
+    def get(self, request, pk):
+        from django.db.models import Sum
+        from django.http import HttpResponse
+        from django.template.loader import render_to_string
+        import uuid
+
+        # IDOR scope: only volunteers with applications in coordinator's programs
+        profile = get_object_or_404(
+            VolunteerProfile.objects.filter(
+                applications__opportunity__program__coordinator=request.user
+            ).distinct(),
+            pk=pk,
+        )
+
+        # Approved hours per opportunity for this volunteer
+        service_rows_qs = (
+            HoursLog.objects
+            .filter(volunteer=profile, status=HoursLog.STATUS_APPROVED)
+            .values("opportunity__title_en", "date__year")
+            .annotate(approved_hours=Sum("hours"))
+            .order_by("date__year", "opportunity__title_en")
+        )
+        formatted_rows = [
+            {
+                "opportunity_title": row["opportunity__title_en"] or "",
+                "period": str(row["date__year"]),
+                "approved_hours": str(row["approved_hours"]),
+            }
+            for row in service_rows_qs
+        ]
+        total_agg = (
+            HoursLog.objects
+            .filter(volunteer=profile, status=HoursLog.STATUS_APPROVED)
+            .aggregate(t=Sum("hours"))
+        )
+        total_hours = str(total_agg["t"] or 0)
+
+        context = {
+            "volunteer_display_name": profile.display_name,
+            "org_name": "CivicOS",
+            "org_address": "",
+            "org_email": "",
+            "letter_date": timezone.now().strftime("%B %d, %Y"),
+            "service_rows": formatted_rows,
+            "total_hours": total_hours,
+            "coordinator_name": request.user.get_full_name() or request.user.email,
+            "coordinator_title": "Program Coordinator",
+            "reference_id": str(uuid.uuid4())[:8].upper(),
+        }
+
+        html = render_to_string(
+            "volunteers/pdf/reference_letter.html",
+            context,
+            request=request,
+        )
+
+        try:
+            from weasyprint import HTML as WP_HTML
+            pdf_bytes = WP_HTML(
+                string=html,
+                base_url=request.build_absolute_uri("/"),
+            ).write_pdf()
+        except ImportError:
+            return HttpResponse(
+                "WeasyPrint is not installed. Contact your system administrator.",
+                status=500,
+                content_type="text/plain",
+            )
+
+        fname = (
+            f"volunteer_reference_{profile.pk}_{timezone.now().strftime('%Y%m%d')}.pdf"
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{fname}"'
+        logger.info(
+            "ReferenceLetterPDFView: coordinator #%s generated letter for profile #%s",
+            request.user.pk,
+            profile.pk,
+        )
+        return response
