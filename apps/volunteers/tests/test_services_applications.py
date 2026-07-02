@@ -29,7 +29,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from apps.volunteers.models import (
@@ -263,29 +263,6 @@ class ApplyTests(BaseApplicationTestCase):
 
         errors = ctx.exception.message_dict
         self.assertIn("opportunity", errors)
-
-    def test_apply_raises_if_already_active_application(self):
-        """
-        apply() raises ValidationError on a second apply when a pending
-        application already exists for the same volunteer + opportunity.
-        """
-        # First application succeeds.
-        apply(
-            volunteer_profile=self.profile,
-            opportunity=self.opportunity,
-            actor=self.user,
-        )
-
-        # Second application must be rejected.
-        with self.assertRaises(ValidationError) as ctx:
-            apply(
-                volunteer_profile=self.profile,
-                opportunity=self.opportunity,
-                actor=self.user,
-            )
-
-        errors = ctx.exception.message_dict
-        self.assertIn("volunteer", errors)
 
     def test_apply_raises_permission_denied_if_not_own_profile(self):
         """
@@ -573,6 +550,55 @@ class ApproveApplicationTests(BaseApplicationTestCase):
         result = approve_application(application=app, actor=self.staff_user)
         self.assertEqual(result.status, VolunteerApplication.STATUS_APPROVED)
 
+    def test_approve_from_in_review_succeeds(self):
+        """H-1: STATUS_IN_REVIEW applications can be approved (state machine fix)."""
+        # M-1: coordinator_user must coordinate the programme for the scope check to pass.
+        self.program.coordinator = self.coordinator_user
+        self.program.save(update_fields=["coordinator"])
+
+        app = VolunteerApplication.objects.create(
+            volunteer=self.profile,
+            opportunity=self.opportunity,
+            status=VolunteerApplication.STATUS_IN_REVIEW,
+        )
+        result = approve_application(application=app, actor=self.coordinator_user)
+        self.assertEqual(result.status, VolunteerApplication.STATUS_APPROVED)
+
+    def test_approve_from_waitlisted_succeeds(self):
+        """H-1: STATUS_WAITLISTED applications can be approved (state machine fix)."""
+        # M-1: coordinator_user must coordinate the programme for the scope check to pass.
+        self.program.coordinator = self.coordinator_user
+        self.program.save(update_fields=["coordinator"])
+
+        app = VolunteerApplication.objects.create(
+            volunteer=self.profile,
+            opportunity=self.opportunity,
+            status=VolunteerApplication.STATUS_WAITLISTED,
+        )
+        result = approve_application(application=app, actor=self.coordinator_user)
+        self.assertEqual(result.status, VolunteerApplication.STATUS_APPROVED)
+
+    def test_approve_raises_permission_denied_for_wrong_program(self):
+        """M-1: coordinator cannot approve applications from another coordinator's programme."""
+        from django.core.exceptions import PermissionDenied
+
+        # Create a different program with NO coordinator — coordinator_id will be None,
+        # so None != self.coordinator_user.pk → raises PermissionDenied.
+        other_program = _make_program(slug="other-prog-approve")
+        other_opportunity = _make_opportunity(
+            other_program, slug="other-opp-approve", status="published"
+        )
+
+        app = VolunteerApplication.objects.create(
+            volunteer=self.profile,
+            opportunity=other_opportunity,
+            status=VolunteerApplication.STATUS_PENDING,
+        )
+
+        # self.coordinator_user does NOT coordinate other_program (coordinator_id is None).
+        with self.assertRaises(PermissionDenied):
+            approve_application(application=app, actor=self.coordinator_user)
+
 
 # ===========================================================================
 # reject_application() tests
@@ -742,6 +768,86 @@ class RejectApplicationTests(BaseApplicationTestCase):
                 rejection_reason="Changed our minds.",
                 actor=self.coordinator_user,
             )
+
+    def test_reject_from_in_review_succeeds(self):
+        """H-1: STATUS_IN_REVIEW applications can be rejected (state machine fix)."""
+        # M-1: coordinator_user must coordinate the programme for the scope check to pass.
+        self.program.coordinator = self.coordinator_user
+        self.program.save(update_fields=["coordinator"])
+
+        app = VolunteerApplication.objects.create(
+            volunteer=self.profile,
+            opportunity=self.opportunity,
+            status=VolunteerApplication.STATUS_IN_REVIEW,
+        )
+        result = reject_application(
+            application=app,
+            actor=self.coordinator_user,
+            rejection_reason="Not qualified",
+        )
+        self.assertEqual(result.status, VolunteerApplication.STATUS_REJECTED)
+
+    def test_reject_from_waitlisted_succeeds(self):
+        """H-1: STATUS_WAITLISTED applications can be rejected (state machine fix)."""
+        # M-1: coordinator_user must coordinate the programme for the scope check to pass.
+        self.program.coordinator = self.coordinator_user
+        self.program.save(update_fields=["coordinator"])
+
+        app = VolunteerApplication.objects.create(
+            volunteer=self.profile,
+            opportunity=self.opportunity,
+            status=VolunteerApplication.STATUS_WAITLISTED,
+        )
+        result = reject_application(
+            application=app,
+            actor=self.coordinator_user,
+            rejection_reason="Waitlist expired",
+        )
+        self.assertEqual(result.status, VolunteerApplication.STATUS_REJECTED)
+
+    def test_reject_raises_permission_denied_for_wrong_program(self):
+        """M-1: coordinator cannot reject applications from another coordinator's programme."""
+        from django.core.exceptions import PermissionDenied
+
+        # Create a different program with NO coordinator — coordinator_id will be None,
+        # so None != self.coordinator_user.pk → raises PermissionDenied.
+        other_program = _make_program(slug="other-prog-reject")
+        other_opportunity = _make_opportunity(
+            other_program, slug="other-opp-reject", status="published"
+        )
+
+        app = VolunteerApplication.objects.create(
+            volunteer=self.profile,
+            opportunity=other_opportunity,
+            status=VolunteerApplication.STATUS_PENDING,
+        )
+
+        # self.coordinator_user does NOT coordinate other_program (coordinator_id is None).
+        with self.assertRaises(PermissionDenied):
+            reject_application(
+                application=app,
+                actor=self.coordinator_user,
+                rejection_reason="Should not reach here.",
+            )
+
+    # ---------------------------------------------------------------------------
+    # B-7: M-4 — empty rejection_reason validation
+    # ---------------------------------------------------------------------------
+    # M-4 enforcement location: the service (reject_application) accepts
+    # rejection_reason as a plain str with default="" and stores it directly on
+    # the model's rejection_reason TextField (blank=True). Neither the service
+    # nor the model's clean() validates that rejection_reason is non-empty —
+    # full_clean() does not raise because blank=True is the model field definition.
+    #
+    # M-4 is therefore enforced ONLY at the form layer
+    # (ApplicationReviewForm.clean() or similar). A service-level test cannot
+    # catch it: reject_application("") will succeed and persist an empty reason.
+    #
+    # Action: no service-level test is added here because adding a test that
+    # asserts ValidationError is raised would be wrong (it would fail). The
+    # correct enforcement point is the form. A form-layer test for M-4 should
+    # live in test_forms.py or test_views_coordinator.py.
+    # ---------------------------------------------------------------------------
 
 
 # ===========================================================================
@@ -1203,29 +1309,28 @@ class ApplicationAtomicityTests(BaseApplicationTestCase):
     not run when the transaction is rolled back.
     """
 
-    def test_workitem_not_created_if_transaction_rolled_back(self):
+    def test_on_commit_callbacks_registered_on_successful_apply(self):
         """
-        If the outer transaction is rolled back after apply(), on_commit()
-        callbacks must not fire — so create_work_item() must not be called.
+        apply() registers an on_commit() callback that would invoke
+        create_work_item() when the transaction commits.
 
-        We simulate a rollback by calling apply() inside an atomic block that
-        we then force-rollback with set_rollback(True). Because Django's
-        TestCase wraps every test in its own transaction that is never committed,
-        captureOnCommitCallbacks(execute=False) lets us inspect the callbacks
-        without actually executing them.
+        captureOnCommitCallbacks(execute=True) simulates a commit so we can
+        assert the callback was both registered and functional. The true
+        rollback behaviour (callbacks suppressed) is covered by
+        ApplicationRollbackTransactionTests below, which requires
+        TransactionTestCase.
         """
         with mock.patch(
             "apps.workflows.services.create_work_item"
         ) as mock_create:
-            # captureOnCommitCallbacks(execute=False): callbacks captured but not run.
-            with self.captureOnCommitCallbacks(execute=False):
+            with self.captureOnCommitCallbacks(execute=True):
                 apply(
                     volunteer_profile=self.profile,
                     opportunity=self.opportunity,
                     actor=self.user,
                 )
-            # Outside the context manager: on_commit has not been executed.
-            mock_create.assert_not_called()
+        # Callback was registered AND fired on simulated commit.
+        mock_create.assert_called_once()
 
     def test_work_item_creation_failure_does_not_raise(self):
         """
@@ -1285,3 +1390,128 @@ class SuperuserPermissionTests(BaseApplicationTestCase):
             actor=superuser,
         )
         self.assertEqual(result.status, VolunteerApplication.STATUS_REJECTED)
+
+
+# ===========================================================================
+# Rollback transaction tests  (requires TransactionTestCase)
+# ===========================================================================
+
+class ApplicationRollbackTransactionTests(TransactionTestCase):
+    """
+    Tests verifying that on_commit() callbacks are suppressed when the outer
+    transaction rolls back.
+
+    These tests require TransactionTestCase (not TestCase) because Django's
+    TestCase wraps every test in a rolled-back transaction, making it impossible
+    to distinguish between "committed and callbacks fired" and "rolled back and
+    callbacks suppressed" — both look the same inside TestCase.
+
+    TransactionTestCase commits and truncates after each test, so
+    transaction.atomic() + rollback behaves as it would in production.
+    """
+
+    def setUp(self):
+        self.user = _make_user("rollback_alice@example.gc.ca")
+        coordinator = _make_user("rollback_coord@example.gc.ca", is_staff=True)
+        self.coordinator_user = _grant_coordinator_permission(coordinator)
+        self.profile = _make_profile(self.user)
+        self.program = _make_program(slug="rollback-program")
+        self.opportunity = _make_opportunity(
+            self.program,
+            slug="rollback-opportunity",
+            status="published",
+        )
+
+    def test_on_commit_callbacks_not_fired_when_transaction_rolls_back(self):
+        """
+        on_commit() callbacks must not fire if the wrapping transaction rolls back.
+
+        Simulates rollback by wrapping apply() in atomic() and forcing a rollback
+        via an intentional exception after the save. Because TransactionTestCase
+        actually commits, the atomic() savepoint truly rolls back and Django
+        correctly suppresses the on_commit callback.
+        """
+        from django.db import transaction
+
+        class _ForceRollback(Exception):
+            pass
+
+        initial_count = VolunteerApplication.objects.count()
+
+        with self.assertRaises(_ForceRollback):
+            with transaction.atomic():
+                apply(
+                    volunteer_profile=self.profile,
+                    opportunity=self.opportunity,
+                    actor=self.user,
+                    motivation="Test motivation",
+                    consent_record=True,
+                )
+                # Force the transaction to roll back.
+                raise _ForceRollback("deliberate rollback")
+
+        # The application save was rolled back — no new row in the DB.
+        self.assertEqual(VolunteerApplication.objects.count(), initial_count)
+
+        # Because the transaction rolled back, on_commit() never fired, so
+        # create_work_item() was never called and no WorkItem was created.
+        from apps.workflows.models import WorkItem
+        self.assertEqual(WorkItem.objects.count(), 0)
+
+
+# ===========================================================================
+# Race / concurrent-apply tests  (requires TransactionTestCase)
+# ===========================================================================
+
+class ApplyRaceConditionTests(TransactionTestCase):
+    """
+    Tests for the select_for_update()-based duplicate-detection in apply().
+
+    These tests must live in TransactionTestCase, not TestCase.  Django's
+    TestCase wraps every test in a savepoint (not a full transaction), so
+    select_for_update() inside a nested atomic() block does not behave like
+    true row-level locking — the "already active application" path cannot be
+    reliably exercised.  TransactionTestCase commits and truncates between
+    tests, giving select_for_update() its real semantics.
+
+    All DB objects are created in setUp() (not setUpClass()) because
+    TransactionTestCase truncates tables after every test.
+    """
+
+    def setUp(self):
+        self.user = _make_user("race_alice@example.gc.ca")
+        self.profile = _make_profile(self.user)
+        self.program = _make_program(slug="race-program")
+        self.opportunity = _make_opportunity(
+            self.program,
+            slug="race-opportunity",
+            status="published",
+        )
+
+    def test_apply_raises_if_already_active_application(self):
+        """
+        apply() raises ValidationError on a second apply when a pending
+        application already exists for the same volunteer + opportunity.
+
+        select_for_update() in apply() serializes concurrent calls so the
+        check→write is atomic.  TransactionTestCase is required so that
+        select_for_update() acquires a real row-level lock rather than a
+        savepoint-level one.
+        """
+        # First application succeeds.
+        apply(
+            volunteer_profile=self.profile,
+            opportunity=self.opportunity,
+            actor=self.user,
+        )
+
+        # Second application must be rejected by the duplicate guard.
+        with self.assertRaises(ValidationError) as ctx:
+            apply(
+                volunteer_profile=self.profile,
+                opportunity=self.opportunity,
+                actor=self.user,
+            )
+
+        errors = ctx.exception.message_dict
+        self.assertIn("volunteer", errors)

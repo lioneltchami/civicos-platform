@@ -14,7 +14,7 @@ Security invariants enforced in every view:
   - No profile? Show a friendly prompt rather than a 500 or generic 403.
 
 WCAG 2.1 AA compliance notes:
-  - Every context key that drives content visibility (``has_profile``,
+  - Every context key that drives content visibility (``has_volunteer_profile``,
     ``existing_application``, ``user_applications``) has a comment below
     explaining how templates should use it accessibly.
   - Form error rendering must use Django's standard pattern so screen readers
@@ -31,14 +31,24 @@ import logging
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Q
 from django.http import Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView
 
-from apps.volunteers.forms import ApplicationForm
-from apps.volunteers.models import Opportunity, VolunteerApplication, VolunteerProfile
+from apps.volunteers.forms import ApplicationForm, HoursLogForm
+from apps.volunteers.models import (
+    HoursLog,
+    Opportunity,
+    RecognitionMilestone,
+    ShiftBooking,
+    VolunteerApplication,
+    VolunteerProfile,
+)
 from apps.volunteers.services.applications import apply, withdraw
 
 logger = logging.getLogger(__name__)
@@ -74,7 +84,7 @@ class OpportunityListView(LoginRequiredMixin, ListView):
                               used here is status=STATUS_PUBLISHED and accepts applications).
                               WCAG: each card should carry an <h2> with the opportunity
                               title and an aria-label on the apply link.
-      ``has_profile``       — bool. When False, template should show a prominent
+      ``has_volunteer_profile``       — bool. When False, template should show a prominent
                               "Create your volunteer profile" call-to-action instead
                               of Apply buttons.  Use role="alert" so screen readers
                               announce this on page load.
@@ -93,9 +103,13 @@ class OpportunityListView(LoginRequiredMixin, ListView):
         Return published opportunities accepting applications, newest first.
 
         select_related("program") avoids N+1 when templates render program names.
+
+        Excludes opportunities whose closes_at has passed — a NULL closes_at
+        means no deadline (always open).  Mirrors Opportunity.is_accepting_applications.
         """
         return (
             Opportunity.objects.filter(status=Opportunity.STATUS_PUBLISHED)
+            .filter(Q(closes_at__isnull=True) | Q(closes_at__gte=timezone.now()))
             .select_related("program")
             .order_by("-published_at", "title_en")
         )
@@ -103,7 +117,7 @@ class OpportunityListView(LoginRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         profile = _get_volunteer_profile_or_none(self.request.user)
-        context["has_profile"] = profile is not None
+        context["has_volunteer_profile"] = profile is not None
 
         if profile is not None:
             # Build a lookup dict so templates can show per-opportunity status
@@ -140,7 +154,7 @@ class OpportunityDetailView(LoginRequiredMixin, DetailView):
                                   than the Apply button.
                                   WCAG: status badge must carry sufficient colour
                                   contrast (4.5:1 minimum) and a text label.
-      ``has_profile``           — bool. When False, template should hide the Apply
+      ``has_volunteer_profile``           — bool. When False, template should hide the Apply
                                   button and show a profile-creation CTA.
       ``screening_required``    — Human-readable string summarising screening
                                   requirements, or empty string.  Used in an
@@ -152,16 +166,23 @@ class OpportunityDetailView(LoginRequiredMixin, DetailView):
     context_object_name = "opportunity"
 
     def get_queryset(self):
-        """Restrict to published opportunities only."""
-        return Opportunity.objects.filter(
-            status=Opportunity.STATUS_PUBLISHED
-        ).select_related("program")
+        """Restrict to published, non-expired opportunities only.
+
+        Applying closes_at filter here ensures a direct URL to an expired
+        opportunity returns 404 rather than showing an Apply button that
+        immediately rejects the submission.  NULL closes_at means no deadline.
+        """
+        return (
+            Opportunity.objects.filter(status=Opportunity.STATUS_PUBLISHED)
+            .filter(Q(closes_at__isnull=True) | Q(closes_at__gte=timezone.now()))
+            .select_related("program")
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         opportunity = self.object
         profile = _get_volunteer_profile_or_none(self.request.user)
-        context["has_profile"] = profile is not None
+        context["has_volunteer_profile"] = profile is not None
 
         # Existing application — exclude rejection_reason (PIPEDA).
         existing_application = None
@@ -255,9 +276,6 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
         We do this in dispatch() (before get/post) so neither branch has to
         repeat the check.
         """
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
-
         self.opportunity = self._get_opportunity()
         self.volunteer_profile = self._get_profile()
 
@@ -314,7 +332,14 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
             raise  # Let Django's 403 handler take over.
         except ValidationError as exc:
             # Re-render the form with service-layer error messages.
-            for field, errors in exc.message_dict.items():
+            # ValidationError can be raised as a plain string (no message_dict)
+            # or as a dict. Handle both to avoid AttributeError on .message_dict.
+            error_messages = (
+                exc.message_dict
+                if hasattr(exc, "message_dict")
+                else {"__all__": exc.messages}
+            )
+            for field, errors in error_messages.items():
                 for error in errors:
                     if field == "__all__":
                         form.add_error(None, error)
@@ -363,7 +388,7 @@ class MyApplicationsView(LoginRequiredMixin, ListView):
       ``applications``  — QuerySet of VolunteerApplication instances, ``rejection_reason``
                           deferred.  Each has ``.opportunity`` pre-fetched.
                           WCAG: status badges must carry text labels, not colour only.
-      ``has_profile``   — bool. When False, template shows a profile-creation CTA.
+      ``has_volunteer_profile``   — bool. When False, template shows a profile-creation CTA.
     """
 
     template_name = "volunteers/portal/application_status.html"
@@ -392,16 +417,8 @@ class MyApplicationsView(LoginRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         profile = _get_volunteer_profile_or_none(self.request.user)
-        context["has_profile"] = profile is not None
+        context["has_volunteer_profile"] = profile is not None
         return context
-
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
-
-        # Graceful handling: no profile means no applications — show empty state.
-        # We do NOT redirect here because the page itself should explain the state.
-        return super().dispatch(request, *args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -417,8 +434,9 @@ class WithdrawApplicationView(LoginRequiredMixin, View):
 
     Security:
       - Ownership is verified: the application's volunteer must be the logged-in
-        user's profile.  Mismatched ownership → 403 (not 404, to avoid revealing
-        that the application exists under a different user).
+        user's profile.  Mismatched ownership → 404 (not 403), so that callers
+        cannot use the response code to confirm that application #N exists under
+        a different account (IDOR prevention).
       - The ``withdraw()`` service enforces business rules (only pending
         applications may be withdrawn) and raises ``ValidationError`` for
         invalid transitions.
@@ -432,26 +450,20 @@ class WithdrawApplicationView(LoginRequiredMixin, View):
     http_method_names = ["post"]  # GET → 405 Method Not Allowed
 
     def post(self, request, *args, **kwargs):
-        # Fetch the application — 404 if it does not exist.
+        # Resolve the volunteer profile first.  A missing profile means there
+        # can be no owned application — return 404 immediately so callers cannot
+        # use the 403/404 distinction to confirm whether application #N exists.
+        profile = _get_volunteer_profile_or_none(request.user)
+        if profile is None:
+            raise Http404
+
+        # Ownership is folded directly into the lookup: non-owned PKs produce
+        # 404 (not 403), which prevents enumeration of application IDs.
         application = get_object_or_404(
             VolunteerApplication.objects.select_related("volunteer"),
-            pk=kwargs["pk"],
+            pk=self.kwargs["pk"],
+            volunteer=profile,
         )
-
-        # Ownership check: MUST be the volunteer's own application.
-        profile = _get_volunteer_profile_or_none(request.user)
-        if profile is None or application.volunteer_id != profile.pk:
-            logger.warning(
-                "volunteers.portal: Withdraw ownership check failed — "
-                "user #%s attempted to withdraw application #%s "
-                "(belongs to volunteer profile #%s).",
-                request.user.pk,
-                application.pk,
-                application.volunteer_id,
-            )
-            raise PermissionDenied(
-                "You do not have permission to withdraw this application."
-            )
 
         try:
             withdraw(application=application, actor=request.user)
@@ -468,3 +480,233 @@ class WithdrawApplicationView(LoginRequiredMixin, View):
             )
 
         return redirect(reverse_lazy("volunteers:my_applications"))
+
+
+# ---------------------------------------------------------------------------
+# MyShiftsView
+# ---------------------------------------------------------------------------
+
+class MyShiftsView(LoginRequiredMixin, ListView):
+    """
+    Volunteer's upcoming and past shift bookings, newest shift first.
+
+    IDOR prevention: queryset scoped to the logged-in volunteer's own profile.
+    No profile → empty queryset (not 404 or 403) with a CTA rendered by the
+    template.
+
+    Context variables for templates:
+      ``bookings``              — QuerySet of ShiftBooking instances (all statuses).
+                                  WCAG: status badges must carry text labels.
+      ``has_volunteer_profile`` — bool. When False, template shows profile-creation CTA.
+    """
+
+    template_name = "volunteers/portal/my_shifts.html"
+    context_object_name = "bookings"
+
+    def get_queryset(self):
+        profile = _get_volunteer_profile_or_none(self.request.user)
+        if profile is None:
+            return ShiftBooking.objects.none()
+        return (
+            ShiftBooking.objects
+            .filter(volunteer=profile)
+            .select_related("shift__opportunity__program")
+            .order_by("-shift__start_datetime")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["has_volunteer_profile"] = (
+            _get_volunteer_profile_or_none(self.request.user) is not None
+        )
+        now = timezone.now()
+        # Evaluate the queryset once in Python so we can split without a second DB hit.
+        all_bookings = list(context.get("object_list") or self.get_queryset())
+        context["upcoming_bookings"] = [
+            b for b in all_bookings if b.shift.end_datetime >= now
+        ]
+        context["past_bookings"] = [
+            b for b in all_bookings if b.shift.end_datetime < now
+        ]
+        return context
+
+
+# ---------------------------------------------------------------------------
+# MyHoursView
+# ---------------------------------------------------------------------------
+
+class MyHoursView(LoginRequiredMixin, ListView):
+    """
+    Volunteer's hours log history and cumulative approved total.
+
+    PIPEDA: ``rejection_reason`` is deferred at the ORM layer — it is a
+    coordinator-internal field and must never appear in volunteer-facing context
+    or templates.
+
+    Context variables for templates:
+      ``hours_logs``            — QuerySet of HoursLog (rejection_reason deferred).
+                                  WCAG: status badges must carry text labels.
+      ``has_volunteer_profile`` — bool.
+      ``total_hours_approved``  — Decimal denormalized total (from VolunteerProfile).
+      ``milestones``            — QuerySet of RecognitionMilestone ordered by threshold.
+    """
+
+    template_name = "volunteers/portal/my_hours.html"
+    context_object_name = "hours_logs"
+
+    def get_queryset(self):
+        profile = _get_volunteer_profile_or_none(self.request.user)
+        if profile is None:
+            return HoursLog.objects.none()
+        return (
+            HoursLog.objects
+            .filter(volunteer=profile)
+            .defer("rejection_reason")  # PIPEDA: coordinator-internal
+            .select_related("opportunity", "shift")
+            .order_by("-date", "-created_at")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        profile = _get_volunteer_profile_or_none(self.request.user)
+        context["has_volunteer_profile"] = profile is not None
+        context["total_hours_approved"] = profile.total_hours_approved if profile else 0
+        context["milestones"] = (
+            RecognitionMilestone.objects.filter(volunteer=profile).order_by("hours_threshold")
+            if profile else []
+        )
+        return context
+
+
+# ---------------------------------------------------------------------------
+# LogHoursView
+# ---------------------------------------------------------------------------
+
+class LogHoursView(LoginRequiredMixin, CreateView):
+    """
+    Volunteer logs hours against an approved opportunity.
+
+    The opportunity is resolved via the volunteer's own approved application —
+    a volunteer without an approved application for the given opportunity receives
+    404 (IDOR prevention).  A missing volunteer profile redirects to the
+    opportunity list with an informational message.
+
+    Context variables for templates:
+      ``opportunity`` — Opportunity instance. WCAG: use as <h1> context for the form.
+    """
+
+    form_class = HoursLogForm
+    template_name = "volunteers/portal/log_hours.html"
+
+    def _get_opportunity(self):
+        return get_object_or_404(
+            Opportunity.objects.select_related("program").distinct(),
+            pk=self.kwargs["pk"],
+            applications__volunteer__user=self.request.user,
+            applications__status=VolunteerApplication.STATUS_APPROVED,
+        )
+
+    def _setup_opportunity_and_profile(self, request):
+        """
+        Resolve and cache ``self.volunteer_profile`` and ``self.opportunity``.
+
+        Called at the top of ``get()`` and ``post()`` — both of which are only
+        reached after ``LoginRequiredMixin.dispatch()`` has verified
+        authentication.  This guarantees ``request.user`` is an authenticated
+        User, not ``AnonymousUser``.
+
+        Returns ``True`` if setup succeeded and the caller may continue, or
+        ``False`` if the caller should return the redirect response stored in
+        ``self._profile_missing_response``.
+        """
+        self.volunteer_profile = _get_volunteer_profile_or_none(request.user)
+        if self.volunteer_profile is None:
+            messages.info(request, _("Please create your volunteer profile first."))
+            self._profile_missing_response = redirect(reverse("volunteers:opportunity_list"))
+            return False
+        self.opportunity = self._get_opportunity()
+        return True
+
+    def get(self, request, *args, **kwargs):
+        if not self._setup_opportunity_and_profile(request):
+            return self._profile_missing_response
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        if not self._setup_opportunity_and_profile(request):
+            return self._profile_missing_response
+        return super().post(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["volunteer_profile"] = self.volunteer_profile
+        kwargs["opportunity"] = self.opportunity
+        kwargs.pop("instance", None)
+        return kwargs
+
+    def form_valid(self, form):
+        from apps.volunteers.services.hours import log_hours
+        try:
+            log_hours(
+                volunteer_profile=self.volunteer_profile,
+                opportunity=self.opportunity,
+                hours=form.cleaned_data["hours"],
+                date=form.cleaned_data["date"],
+                description=form.cleaned_data.get("description", ""),
+                shift=form.cleaned_data.get("shift"),
+                actor=self.request.user,
+            )
+            messages.success(self.request, _("Hours submitted for review."))
+        except (ValidationError, PermissionDenied) as exc:
+            for msg in (exc.messages if hasattr(exc, "messages") else [str(exc)]):
+                form.add_error(None, msg)
+            return self.form_invalid(form)
+        return redirect(reverse("volunteers:my_hours"))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["opportunity"] = self.opportunity
+        return context
+
+
+# ---------------------------------------------------------------------------
+# CancelBookingView
+# ---------------------------------------------------------------------------
+
+class CancelBookingView(LoginRequiredMixin, View):
+    """
+    Volunteer cancels their own shift booking.
+
+    POST-only: cancellation is a destructive state change — GET requests return
+    405 Method Not Allowed.
+
+    IDOR prevention: the booking queryset is scoped to the volunteer's own
+    profile; a mismatched PK returns 404 so callers cannot use the response
+    code to enumerate booking IDs under other accounts.
+
+    If the cancelled booking was confirmed and the shift has a waitlist, the
+    cancel_booking() service automatically promotes the next waitlisted volunteer.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        profile = _get_volunteer_profile_or_none(request.user)
+        if profile is None:
+            raise Http404
+
+        booking = get_object_or_404(
+            ShiftBooking.objects.select_related("volunteer"),
+            pk=self.kwargs["pk"],
+            volunteer=profile,
+        )
+        try:
+            from apps.volunteers.services.scheduling import cancel_booking
+            cancel_booking(booking=booking, actor=request.user)
+            messages.success(request, _("Your booking has been cancelled."))
+        except (ValidationError, PermissionDenied) as exc:
+            messages.error(
+                request,
+                exc.messages[0] if hasattr(exc, "messages") and exc.messages else str(exc),
+            )
+        return redirect(reverse("volunteers:my_shifts"))

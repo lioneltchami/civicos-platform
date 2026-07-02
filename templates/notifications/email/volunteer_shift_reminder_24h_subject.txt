@@ -1,0 +1,1 @@
+{% load i18n %}{% blocktrans with title=opportunity_title %}Reminder: Your shift is tomorrow — {{ title }}{% endblocktrans %}

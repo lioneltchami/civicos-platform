@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}
+  {% if shift.title_en %}{{ shift.title_en }} — {% endif %}{% trans "Shift Detail" %}
+{% endblock %}
+{% block meta_description %}{% trans "Shift booking roster and management." %}{% endblock %}
+{% block body_class %}coordinator-layout{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li><a href="{% url 'volunteers:coordinator_dashboard' %}">{% trans "Coordinator Dashboard" %}</a></li>
+      <li><a href="{% url 'volunteers:shift_list' %}">{% trans "Shifts" %}</a></li>
+      <li aria-current="page">{% trans "Shift Detail" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="coordinator-layout__inner">
+
+    {# Skip link — WCAG SC 2.4.1 #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
+
+    {# ============================================================
+       Coordinator sidebar navigation
+       ============================================================ #}
+    <aside class="coordinator-sidebar">
+      <nav aria-label="{% trans 'Coordinator navigation' %}">
+        <ul class="coordinator-nav" role="list">
+          <li>
+            <a href="{% url 'volunteers:coordinator_dashboard' %}"
+               class="coordinator-nav__link">
+              {% trans "Dashboard" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:opportunity_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Opportunities" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:coordinator_application_list' %}"
+               class="coordinator-nav__link">
+              {% trans "All Applications" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:shift_list' %}"
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
+              {% trans "Shifts" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:hours_approval_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Hours Approvals" %}
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    {# ============================================================
+       Main content area
+       ============================================================ #}
+    <div class="coordinator-main" id="coordinator-main-content" role="main">
+
+      <h1 class="page-title">
+        {% if shift.title_en %}
+          {{ shift.title_en }}
+        {% else %}
+          {% blocktrans with date=shift.start_datetime|date:"Y-m-d" %}Shift on {{ date }}{% endblocktrans %}
+        {% endif %}
+      </h1>
+
+      {# ============================================================
+         Cancellation notice (if cancelled)
+         ============================================================ #}
+      {% if shift.is_cancelled %}
+        <div class="callout callout--error" role="alert" aria-live="assertive">
+          <p class="callout__heading">
+            <strong>{% trans "This shift has been cancelled." %}</strong>
+          </p>
+          {% if shift.cancellation_reason %}
+            <p>
+              <strong>{% trans "Reason:" %}</strong>
+              {{ shift.cancellation_reason|linebreaksbr }}
+            </p>
+          {% endif %}
+          {% if shift.cancelled_at %}
+            <p class="callout__meta">
+              {% blocktrans with date=shift.cancelled_at|date:"Y-m-d H:i" %}Cancelled on {{ date }}.{% endblocktrans %}
+            </p>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      {# ============================================================
+         Shift metadata
+         ============================================================ #}
+      <section aria-labelledby="shift-metadata-heading" class="detail-section">
+        <h2 id="shift-metadata-heading">{% trans "Shift details" %}</h2>
+        <dl class="definition-list">
+          <dt>{% trans "Opportunity" %}</dt>
+          <dd>{{ shift.opportunity.get_title }}</dd>
+
+          <dt>{% trans "Start" %}</dt>
+          <dd>
+            <time datetime="{{ shift.start_datetime|date:'c' }}">
+              {{ shift.start_datetime|date:"Y-m-d H:i" }}
+            </time>
+          </dd>
+
+          <dt>{% trans "End" %}</dt>
+          <dd>
+            <time datetime="{{ shift.end_datetime|date:'c' }}">
+              {{ shift.end_datetime|date:"Y-m-d H:i" }}
+            </time>
+          </dd>
+
+          <dt>{% trans "Location" %}</dt>
+          <dd>
+            {% if shift.location_override %}
+              {{ shift.location_override }}
+            {% elif shift.opportunity.is_remote %}
+              {% trans "Remote / virtual" %}
+            {% elif shift.opportunity.location_name %}
+              {{ shift.opportunity.location_name }}
+            {% else %}
+              <span class="text-muted">{% trans "Not specified" %}</span>
+            {% endif %}
+          </dd>
+
+          <dt>{% trans "Capacity" %}</dt>
+          <dd>
+            {% if shift.effective_capacity %}
+              {% blocktrans with confirmed=confirmed_count cap=shift.effective_capacity %}{{ confirmed }} confirmed of {{ cap }} places{% endblocktrans %}
+            {% else %}
+              {% blocktrans with confirmed=confirmed_count %}{{ confirmed }} confirmed (unlimited capacity){% endblocktrans %}
+            {% endif %}
+          </dd>
+
+          <dt>{% trans "Waitlist" %}</dt>
+          <dd>
+            {% if shift.waitlist_enabled %}
+              {% if shift.waitlist_cap %}
+                {% blocktrans with cap=shift.waitlist_cap %}Enabled (max {{ cap }} on waitlist){% endblocktrans %}
+              {% else %}
+                {% trans "Enabled (unlimited)" %}
+              {% endif %}
+            {% else %}
+              {% trans "Disabled" %}
+            {% endif %}
+          </dd>
+
+          <dt>{% trans "Status" %}</dt>
+          <dd>
+            {% if shift.is_cancelled %}
+              <span class="badge badge--cancelled">{% trans "Cancelled" %}</span>
+            {% else %}
+              <span class="badge badge--active">{% trans "Active" %}</span>
+            {% endif %}
+          </dd>
+        </dl>
+      </section>
+
+      {# ============================================================
+         Cancel shift action (only if not already cancelled)
+         WCAG: uses <details>/<summary> — no onclick="confirm()" dialog
+         ============================================================ #}
+      {% if not shift.is_cancelled %}
+        <section aria-labelledby="cancel-shift-heading" class="detail-section">
+          <h2 id="cancel-shift-heading" class="visually-hidden">{% trans "Cancel this shift" %}</h2>
+          <details class="confirm-panel">
+            <summary class="btn btn--danger"
+                     aria-label="{% trans 'Cancel this entire shift and notify all volunteers' %}">
+              {% trans "Cancel shift" %}
+            </summary>
+            <div class="confirm-panel__body" role="group"
+                 aria-label="{% trans 'Confirm shift cancellation' %}">
+              <p class="confirm-panel__message">
+                {% trans "Cancelling this shift will notify all confirmed and waitlisted volunteers. This action cannot be undone." %}
+              </p>
+              <form method="post" action="{% url 'volunteers:shift_cancel' shift.pk %}">
+                {% csrf_token %}
+                <div class="form-group">
+                  <label for="cancel-reason" class="form-label">
+                    {% trans "Cancellation reason" %}
+                    <span aria-hidden="true">*</span>
+                    <span class="visually-hidden">{% trans "(required)" %}</span>
+                  </label>
+                  <textarea id="cancel-reason"
+                            name="reason"
+                            class="form-control"
+                            rows="3"
+                            required
+                            aria-required="true"
+                            aria-describedby="cancel-reason-hint">
+                  </textarea>
+                  <p id="cancel-reason-hint" class="hint">
+                    {% trans "This reason will be included in the notification sent to volunteers." %}
+                  </p>
+                </div>
+                <div class="confirm-panel__actions">
+                  <button type="submit" class="btn btn--danger">
+                    {% trans "Confirm cancellation" %}
+                  </button>
+                  <button type="button"
+                          class="btn btn--secondary"
+                          onclick="this.closest('details').removeAttribute('open')">
+                    {% trans "Keep shift" %}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </details>
+        </section>
+      {% endif %}
+
+      {# ============================================================
+         Booking roster
+         ============================================================ #}
+      <section aria-labelledby="bookings-heading" class="detail-section">
+        <h2 id="bookings-heading">
+          {% trans "Volunteer bookings" %}
+          {% if confirmed_count %}
+            <span class="heading-count">({{ confirmed_count }})</span>
+          {% endif %}
+        </h2>
+
+        {% if bookings %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Shift booking roster' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption class="visually-hidden">
+                {% trans "Roster of volunteers booked to this shift" %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Volunteer" %}</th>
+                  <th scope="col">{% trans "Status" %}</th>
+                  <th scope="col">{% trans "Waitlist position" %}</th>
+                  <th scope="col">{% trans "Booked on" %}</th>
+                  {% if not shift.is_cancelled %}
+                    <th scope="col">
+                      <span class="visually-hidden">{% trans "Actions" %}</span>
+                    </th>
+                  {% endif %}
+                </tr>
+              </thead>
+              <tbody>
+                {% now "c" as now_iso %}
+              {% for booking in bookings %}
+                  <tr>
+                    {# PIPEDA: identify volunteer by display_name (preferred or fallback to #pk) — never by email #}
+                    <th scope="row">{{ booking.volunteer.display_name }}</th>
+                    <td>
+                      {% if booking.status == "confirmed" %}
+                        <span class="badge badge--confirmed">{% trans "Confirmed" %}</span>
+                      {% elif booking.status == "waitlisted" %}
+                        <span class="badge badge--waitlisted">{% trans "Waitlisted" %}</span>
+                      {% elif booking.status == "cancelled" %}
+                        <span class="badge badge--cancelled">{% trans "Cancelled" %}</span>
+                      {% elif booking.status == "no_show" %}
+                        <span class="badge badge--no-show">{% trans "No show" %}</span>
+                      {% elif booking.status == "completed" %}
+                        <span class="badge badge--completed">{% trans "Completed" %}</span>
+                      {% else %}
+                        <span class="badge">{{ booking.get_status_display }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if booking.waitlist_position %}
+                        {{ booking.waitlist_position }}
+                      {% else %}
+                        <span class="text-muted">{% trans "—" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <time datetime="{{ booking.created_at|date:'c' }}">
+                        {{ booking.created_at|date:"Y-m-d" }}
+                      </time>
+                    </td>
+
+                    {# Post-shift actions: only when shift has ended and booking is confirmed #}
+                    {% if not shift.is_cancelled %}
+                      <td class="actions-cell">
+                        {% if shift.end_datetime|date:"c" < now_iso %}
+                          {# Shift is in the past — show outcome actions for confirmed bookings #}
+                          {% if booking.status == "confirmed" %}
+
+                            {# Mark no-show — WCAG: <details> confirmation, no confirm() dialog #}
+                            <details class="confirm-panel confirm-panel--inline">
+                              <summary class="btn btn--secondary btn--small"
+                                       aria-label="{% blocktrans with name=booking.volunteer.display_name %}Mark {{ name }} as no-show{% endblocktrans %}">
+                                {% trans "No-show" %}
+                              </summary>
+                              <div class="confirm-panel__body" role="group"
+                                   aria-label="{% trans 'Confirm no-show' %}">
+                                <p>{% blocktrans with name=booking.volunteer.display_name %}Mark {{ name }} as a no-show for this shift?{% endblocktrans %}</p>
+                                <form method="post"
+                                      action="{% url 'volunteers:booking_no_show' booking.pk %}">
+                                  {% csrf_token %}
+                                  <button type="submit" class="btn btn--secondary btn--small">
+                                    {% trans "Confirm no-show" %}
+                                  </button>
+                                  <button type="button"
+                                          class="btn btn--ghost btn--small"
+                                          onclick="this.closest('details').removeAttribute('open')">
+                                    {% trans "Cancel" %}
+                                  </button>
+                                </form>
+                              </div>
+                            </details>
+
+                            {# Mark complete — WCAG: <details> confirmation #}
+                            <details class="confirm-panel confirm-panel--inline">
+                              <summary class="btn btn--primary btn--small"
+                                       aria-label="{% blocktrans with name=booking.volunteer.display_name %}Mark {{ name }} as completed{% endblocktrans %}">
+                                {% trans "Complete" %}
+                              </summary>
+                              <div class="confirm-panel__body" role="group"
+                                   aria-label="{% trans 'Confirm completion' %}">
+                                <p>{% blocktrans with name=booking.volunteer.display_name %}Mark {{ name }} as having completed this shift? This will create a pending hours log.{% endblocktrans %}</p>
+                                <form method="post"
+                                      action="{% url 'volunteers:booking_complete' booking.pk %}">
+                                  {% csrf_token %}
+                                  <button type="submit" class="btn btn--primary btn--small">
+                                    {% trans "Confirm completion" %}
+                                  </button>
+                                  <button type="button"
+                                          class="btn btn--ghost btn--small"
+                                          onclick="this.closest('details').removeAttribute('open')">
+                                    {% trans "Cancel" %}
+                                  </button>
+                                </form>
+                              </div>
+                            </details>
+
+                          {% endif %}{# booking.status == "confirmed" #}
+                        {% endif %}{# shift in the past #}
+                      </td>
+                    {% endif %}{# not shift.is_cancelled #}
+
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No volunteers are booked to this shift yet." %}</p>
+          </div>
+        {% endif %}
+
+      </section>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

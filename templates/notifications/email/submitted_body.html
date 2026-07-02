@@ -33,9 +33,11 @@
         <p class="value">{{ reference }}</p>
       </div>
       <p>{% trans "Our team will review your request and you will receive an update when the status changes." %}</p>
+      {% if portal_link %}
       <div class="cta">
         <a href="{{ portal_link }}" class="btn">{% trans "View your request" %}</a>
       </div>
+      {% endif %}
     </div>
     <div class="footer">
       <p>{% trans "This is an automated message. Please do not reply directly to this email." %}</p>

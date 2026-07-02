@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Notifications / Notifications" %}{% endblock %}
+{% block title %}{% trans "Notifications" %}{% endblock %}
 
 {% block content %}
 <div class="container">
   <div class="page-header">
-    <h1>{% trans "Notifications / Notifications" %}</h1>
+    <h1>{% trans "Notifications" %}</h1>
     {% if unread_count %}
     <span class="badge badge--blue" aria-label="{% blocktrans with count=unread_count %}{{ count }} unread{% endblocktrans %}">
       {{ unread_count }}
@@ -19,7 +19,7 @@
   <form method="post" action="{% url 'notifications:mark-all-read' %}" style="display:inline">
     {% csrf_token %}
     <button type="submit" class="btn btn--secondary btn--sm">
-      {% trans "Mark all as read / Tout marquer comme lu" %}
+      {% trans "Mark all as read" %}
     </button>
   </form>
   {% endif %}
@@ -29,17 +29,17 @@
     <a href="{% url 'notifications:inbox' %}"
        {% if active_filter == 'all' %}aria-current="page"{% endif %}
        class="tab {% if active_filter == 'all' %}tab--active{% endif %}">
-      {% trans "All / Tous" %}
+      {% trans "All" %}
     </a>
     <a href="?filter=unread"
        {% if active_filter == 'unread' %}aria-current="page"{% endif %}
        class="tab {% if active_filter == 'unread' %}tab--active{% endif %}">
-      {% trans "Unread / Non lus" %}
+      {% trans "Unread" %}
     </a>
     <a href="?filter=read"
        {% if active_filter == 'read' %}aria-current="page"{% endif %}
        class="tab {% if active_filter == 'read' %}tab--active{% endif %}">
-      {% trans "Read / Lus" %}
+      {% trans "Read" %}
     </a>
   </nav>
 
@@ -70,7 +70,7 @@
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.path }}">
         <button type="submit" class="btn btn--ghost btn--sm">
-          {% trans "Mark as read / Marquer comme lu" %}
+          {% trans "Mark as read" %}
         </button>
       </form>
       {% endif %}
@@ -103,16 +103,16 @@
   <div class="empty-state" role="status">
     <p>
       {% if active_filter == 'unread' %}
-        {% trans "No unread notifications. / Aucune notification non lue." %}
+        {% trans "No unread notifications." %}
       {% else %}
-        {% trans "No notifications yet. / Aucune notification pour l'instant." %}
+        {% trans "No notifications yet." %}
       {% endif %}
     </p>
   </div>
   {% endif %}
 
   <nav aria-label="{% trans 'Quick links' %}" style="margin-top: 2rem">
-    <a href="{% url 'portal:dashboard' %}">&larr; {% trans "Back to Dashboard / Retour au tableau de bord" %}</a>
+    <a href="{% url 'portal:dashboard' %}">&larr; {% trans "Back to Dashboard" %}</a>
   </nav>
 </div>
 {% endblock %}

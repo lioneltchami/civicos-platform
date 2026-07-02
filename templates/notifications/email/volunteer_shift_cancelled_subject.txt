@@ -1,0 +1,1 @@
+{% load i18n %}{% blocktrans with title=opportunity_title %}Important: Your shift has been cancelled — {{ title }}{% endblocktrans %}

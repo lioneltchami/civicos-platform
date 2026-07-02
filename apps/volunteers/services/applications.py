@@ -25,11 +25,10 @@ import logging
 
 from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -125,30 +124,7 @@ def apply(
             }
         )
 
-    # --- Business rule: no duplicate active application (pre-check for clarity) ---
-    # The DB unique_together on (opportunity, volunteer) provides the hard guarantee;
-    # this pre-check surfaces a readable ValidationError before hitting the DB constraint.
-    existing_active = VolunteerApplication.objects.filter(
-        volunteer=volunteer_profile,
-        opportunity=opportunity,
-        status__in=[
-            VolunteerApplication.STATUS_PENDING,
-            VolunteerApplication.STATUS_IN_REVIEW,
-            VolunteerApplication.STATUS_APPROVED,
-            VolunteerApplication.STATUS_WAITLISTED,
-        ],
-    ).exists()
-    if existing_active:
-        raise ValidationError(
-            {
-                "volunteer": (
-                    f"VolunteerProfile #{volunteer_profile.pk} already has an "
-                    f"active application for Opportunity #{opportunity.pk}."
-                )
-            }
-        )
-
-    # --- Build and validate the application ---
+    # --- Build the application object (not yet saved) ---
     # Note: availability_json is accepted as a parameter for forward-compatibility
     # but the VolunteerApplication model does not currently have this field.
     # It is ignored here; callers can store it in a separate model if needed.
@@ -159,10 +135,136 @@ def apply(
         consent_record=consent_record,
         status=VolunteerApplication.STATUS_PENDING,
     )
-    # full_clean() validates field constraints (max_length, choices, etc.) and
-    # runs model-level clean(). Must be called before save() per project convention.
-    application.full_clean()
-    application.save()
+
+    # --- Business rule: no duplicate active application ---
+    # select_for_update() serializes concurrent apply() calls for the same
+    # (opportunity, volunteer) pair — eliminates the race condition window
+    # between the existence check and the INSERT.  transaction.atomic() here
+    # creates a savepoint inside the outer ATOMIC_REQUESTS transaction.
+    #
+    # Re-application design: unique_together = [("opportunity", "volunteer")]
+    # means there is at most ONE row per pair regardless of status. When a
+    # previously withdrawn volunteer re-applies we UPDATE that withdrawn row
+    # back to pending instead of trying to INSERT a new row (which would
+    # violate the constraint and permanently lock out the volunteer).
+    with transaction.atomic():
+        # Lock ALL rows for this (opportunity, volunteer) pair — there can only
+        # ever be one due to unique_together, but select_for_update() serialises
+        # concurrent apply() calls so the check→write is atomic.
+        existing = (
+            VolunteerApplication.objects
+            .select_for_update()
+            .filter(
+                opportunity=opportunity,
+                volunteer=volunteer_profile,
+            )
+        )
+
+        # Check for an already-active (non-withdrawn) application first.
+        active = existing.exclude(status=VolunteerApplication.STATUS_WITHDRAWN)
+        if active.exists():
+            raise ValidationError(
+                {
+                    "opportunity": (
+                        "You already have an active application for this opportunity."
+                    )
+                }
+            )
+
+        # Check for a previously withdrawn application — reuse the existing row
+        # rather than inserting a new one (unique_together blocks the INSERT).
+        withdrawn = existing.filter(
+            status=VolunteerApplication.STATUS_WITHDRAWN
+        ).first()
+
+        if withdrawn:
+            # Reactivate: reset the withdrawn row to pending for the new cycle.
+            # Fields intentionally NOT reset:
+            #   created_at       — immutable (auto_now_add); preserves original date.
+            #   declares_no_relevant_criminal_history — persisted from previous
+            #                      submission; coordinator screening notes remain too.
+            #   screening_notes  — coordinator notes persist across cycles (audit trail).
+            #   work_item        — replaced by the new on_commit work-item creation.
+            withdrawn.status = VolunteerApplication.STATUS_PENDING
+            withdrawn.motivation = motivation
+            withdrawn.consent_record = consent_record
+            withdrawn.reviewed_by = None
+            withdrawn.reviewed_at = None
+            withdrawn.rejection_reason = ""
+            withdrawn.full_clean()
+            withdrawn.save(update_fields=[
+                "status",
+                "motivation",
+                "consent_record",
+                "reviewed_by",
+                "reviewed_at",
+                "rejection_reason",
+                "updated_at",
+            ])
+            # Reassign so the _post_commit closure below captures the correct instance.
+            application = withdrawn
+        else:
+            # No prior application — create new.
+            try:
+                # full_clean() validates field constraints (max_length, choices, etc.)
+                # and runs model-level clean(). Must be called before save() per
+                # project convention.
+                application.full_clean()
+                application.save()
+            except IntegrityError:
+                # Lost the race — another concurrent request saved first.
+                raise ValidationError(
+                    {
+                        "opportunity": (
+                            "You already have an active application for this opportunity."
+                        )
+                    }
+                )
+
+        # --- Post-commit side-effects ---
+        # Both the signal and work-item creation are deferred to on_commit() so they
+        # only execute after the DB write succeeds. This is critical under
+        # ATOMIC_REQUESTS=True — the transaction may still be rolled back after save().
+        #
+        # Registering on_commit() INSIDE atomic() is the correct pattern: inside an
+        # HTTP request it fires on the outer ATOMIC_REQUESTS commit; in a Celery task
+        # or management command (no outer transaction) it fires on the inner savepoint
+        # commit — giving correct semantics in both contexts.  Registering it OUTSIDE
+        # would cause it to fire immediately and synchronously in the Celery/command
+        # case (Django fires on_commit() at once when called outside any atomic block).
+        #
+        # H-5 fix: moved on_commit registration inside atomic() to match the pattern
+        # used by withdraw(), approve_application(), and reject_application().
+        #
+        # create_work_item() wraps itself in atomic(), which is fine as a savepoint
+        # inside the outer request transaction. Its own work_item_created signal fires
+        # on commit of that inner savepoint (i.e. effectively on outer commit).
+        def _post_commit():
+            application_submitted.send_robust(
+                sender=VolunteerApplication,
+                instance=application,
+                actor=actor,
+                opportunity=opportunity,
+                volunteer=volunteer_profile,
+            )
+            try:
+                create_work_item(
+                    application,
+                    title=f"Review application: {opportunity.get_title()}",
+                    actor=None,  # system-initiated
+                    priority=WorkItemPriority.NORMAL,
+                )
+            except Exception as exc:
+                # Work-item creation failure must not cause a 500 — the application
+                # was already saved. The coordinator can manually create a work item.
+                logger.error(
+                    "volunteers.services.applications: failed to create work item "
+                    "for application #%s: %s",
+                    application.pk,
+                    exc,
+                )
+
+        transaction.on_commit(_post_commit)
 
     logger.info(
         "volunteers.services.applications: application #%s created — "
@@ -171,41 +273,6 @@ def apply(
         opportunity.pk,
         volunteer_profile.pk,
     )
-
-    # --- Post-commit side-effects ---
-    # Both the signal and work-item creation are deferred to on_commit() so they
-    # only execute after the DB write succeeds. This is critical under
-    # ATOMIC_REQUESTS=True — the transaction may still be rolled back after save().
-    #
-    # create_work_item() wraps itself in atomic(), which is fine as a savepoint
-    # inside the outer request transaction. Its own work_item_created signal fires
-    # on commit of that inner savepoint (i.e. effectively on outer commit).
-    def _post_commit():
-        application_submitted.send_robust(
-            sender=VolunteerApplication,
-            instance=application,
-            actor=actor,
-            opportunity=opportunity,
-            volunteer=volunteer_profile,
-        )
-        try:
-            create_work_item(
-                application,
-                title=f"Review application: {opportunity.get_title()}",
-                actor=None,  # system-initiated
-                priority=WorkItemPriority.NORMAL,
-            )
-        except Exception as exc:
-            # Work-item creation failure must not cause a 500 — the application
-            # was already saved. The coordinator can manually create a work item.
-            logger.error(
-                "volunteers.services.applications: failed to create work item "
-                "for application #%s: %s",
-                application.pk,
-                exc,
-            )
-
-    transaction.on_commit(_post_commit)
 
     return application
 
@@ -241,36 +308,52 @@ def withdraw(
     from apps.volunteers.signals import application_withdrawn
 
     # --- Permission check ---
+    # Stays outside atomic() — validation only, no state mutation, and keeping
+    # it here avoids holding the DB row lock any longer than necessary.
     _assert_is_volunteer_actor(application, actor)
 
-    # --- Business rule: only pending applications can be self-withdrawn ---
-    if application.status != VolunteerApplication.STATUS_PENDING:
-        raise ValidationError(
-            {
-                "status": (
-                    f"Application #{application.pk} cannot be withdrawn: "
-                    f"current status is '{application.get_status_display()}'. "
-                    "Only pending applications may be withdrawn."
-                )
-            }
+    # H-5 fix: wrap save + on_commit registration in atomic() so that when this
+    # function is called from a Celery task or management command (no outer
+    # ATOMIC_REQUESTS transaction), on_commit fires only after the write is durable.
+    # Inside an HTTP request it becomes a savepoint — behaviour is identical.
+    with transaction.atomic():
+        # Re-fetch with a row-level lock so the status check and save are atomic
+        # at the DB layer.  This prevents a coordinator from approving the
+        # application while this withdraw is in-flight (or vice-versa): the
+        # second writer will block on the lock, then re-read the already-changed
+        # status and raise ValidationError rather than silently overwriting.
+        application = (
+            VolunteerApplication.objects
+            .select_for_update()
+            .get(pk=application.pk)
         )
 
-    application.status = VolunteerApplication.STATUS_WITHDRAWN
-    application.save(update_fields=["status", "updated_at"])
+        # --- Business rule: only pending applications can be self-withdrawn ---
+        if application.status != VolunteerApplication.STATUS_PENDING:
+            raise ValidationError(
+                {
+                    "status": (
+                        "This application cannot be withdrawn in its current state."
+                    )
+                }
+            )
+
+        application.status = VolunteerApplication.STATUS_WITHDRAWN
+        application.full_clean()
+        application.save(update_fields=["status", "updated_at"])
+        transaction.on_commit(
+            lambda: application_withdrawn.send_robust(
+                sender=VolunteerApplication,
+                instance=application,
+                actor=actor,
+            )
+        )
 
     logger.info(
         "volunteers.services.applications: application #%s withdrawn by "
         "volunteer profile #%s.",
         application.pk,
         application.volunteer_id,
-    )
-
-    transaction.on_commit(
-        lambda: application_withdrawn.send_robust(
-            sender=VolunteerApplication,
-            instance=application,
-            actor=actor,
-        )
     )
 
     return application
@@ -306,25 +389,68 @@ def approve_application(
     from apps.volunteers.signals import application_approved
 
     # --- Permission check ---
+    # Stays outside atomic() — validation only, no state mutation, and keeping
+    # it here avoids holding the DB row lock any longer than necessary.
     _assert_coordinator_permission(actor)
 
-    # --- Business rule: only pending applications can be approved ---
-    if application.status != VolunteerApplication.STATUS_PENDING:
-        raise ValidationError(
-            {
-                "status": (
-                    f"Application #{application.pk} cannot be approved: "
-                    f"current status is '{application.get_status_display()}'. "
-                    "Only pending applications may be approved."
-                )
-            }
+    # Program-scope ownership check: actor must coordinate this specific programme.
+    # The global Django permission is necessary but not sufficient.
+    # Also stays outside atomic() for the same reason as above.
+    if application.opportunity.program.coordinator_id != actor.pk:
+        raise PermissionDenied(
+            f"User #{actor.pk} does not coordinate the programme for "
+            f"application #{application.pk}."
         )
 
-    now = timezone.now()
-    application.status = VolunteerApplication.STATUS_APPROVED
-    application.reviewed_by = actor
-    application.reviewed_at = now
-    application.save(update_fields=["status", "reviewed_by", "reviewed_at", "updated_at"])
+    # H-1 fix: broaden guard from STATUS_PENDING-only to the full set of non-terminal
+    # statuses that a coordinator may still act on.  STATUS_APPROVED, STATUS_REJECTED,
+    # and STATUS_WITHDRAWN are terminal — they must not be re-transitioned here.
+    _approvable = frozenset({
+        VolunteerApplication.STATUS_PENDING,
+        VolunteerApplication.STATUS_IN_REVIEW,
+        VolunteerApplication.STATUS_WAITLISTED,
+    })
+
+    # H-5 fix: wrap save + on_commit registration in atomic() so that when this
+    # function is called from a Celery task or management command (no outer
+    # ATOMIC_REQUESTS transaction), on_commit fires only after the write is durable.
+    # Inside an HTTP request it becomes a savepoint — behaviour is identical.
+    with transaction.atomic():
+        # Re-fetch with a row-level lock so the status check and save are atomic
+        # at the DB layer.  This prevents a volunteer's withdraw() from racing
+        # with this approval (or two coordinators approving simultaneously): the
+        # second writer blocks on the lock, re-reads the changed status, and
+        # raises ValidationError rather than silently overwriting.
+        application = (
+            VolunteerApplication.objects
+            .select_for_update()
+            .get(pk=application.pk)
+        )
+
+        # --- Business rule: only pending/in-review/waitlisted applications can be approved ---
+        if application.status not in _approvable:
+            raise ValidationError(
+                {
+                    "status": (
+                        "This application cannot be approved from its current state."
+                    )
+                }
+            )
+
+        now = timezone.now()
+        application.status = VolunteerApplication.STATUS_APPROVED
+        application.reviewed_by = actor
+        application.reviewed_at = now
+        application.full_clean()
+        application.save(update_fields=["status", "reviewed_by", "reviewed_at", "updated_at"])
+        transaction.on_commit(
+            lambda: application_approved.send_robust(
+                sender=VolunteerApplication,
+                instance=application,
+                actor=actor,
+                reviewed_by=actor,
+            )
+        )
 
     logger.info(
         "volunteers.services.applications: application #%s approved by "
@@ -333,15 +459,6 @@ def approve_application(
         actor.pk,
         application.opportunity_id,
         application.volunteer_id,
-    )
-
-    transaction.on_commit(
-        lambda: application_approved.send_robust(
-            sender=VolunteerApplication,
-            instance=application,
-            actor=actor,
-            reviewed_by=actor,
-        )
     )
 
     return application
@@ -381,34 +498,95 @@ def reject_application(
     from apps.volunteers.signals import application_rejected
 
     # --- Permission check ---
+    # Stays outside atomic() — validation only, no state mutation, and keeping
+    # it here avoids holding the DB row lock any longer than necessary.
     _assert_coordinator_permission(actor)
 
-    # --- Business rule: only pending applications can be rejected ---
-    if application.status != VolunteerApplication.STATUS_PENDING:
-        raise ValidationError(
-            {
-                "status": (
-                    f"Application #{application.pk} cannot be rejected: "
-                    f"current status is '{application.get_status_display()}'. "
-                    "Only pending applications may be rejected."
-                )
-            }
+    # Program-scope ownership check: actor must coordinate this specific programme.
+    # The global Django permission is necessary but not sufficient.
+    # Also stays outside atomic() for the same reason as above.
+    if application.opportunity.program.coordinator_id != actor.pk:
+        raise PermissionDenied(
+            f"User #{actor.pk} does not coordinate the programme for "
+            f"application #{application.pk}."
         )
 
-    now = timezone.now()
-    application.status = VolunteerApplication.STATUS_REJECTED
-    application.rejection_reason = rejection_reason  # internal only — never send to volunteer
-    application.reviewed_by = actor
-    application.reviewed_at = now
-    application.save(
-        update_fields=[
-            "status",
-            "rejection_reason",
-            "reviewed_by",
-            "reviewed_at",
-            "updated_at",
-        ]
-    )
+    # H-1 fix: broaden guard from STATUS_PENDING-only to the full set of non-terminal
+    # statuses that a coordinator may still act on.  Mirrors approve_application().
+    _rejectable = frozenset({
+        VolunteerApplication.STATUS_PENDING,
+        VolunteerApplication.STATUS_IN_REVIEW,
+        VolunteerApplication.STATUS_WAITLISTED,
+    })
+
+    def _reject_post_commit():
+        # Re-fetch a sanitised instance using .only() to whitelist safe fields.
+        # Django defers ALL fields not in this list — they are inaccessible without
+        # an explicit additional SELECT.  This means rejection_reason AND
+        # screening_notes are both deferred: signal receivers cannot read either
+        # field via the instance reference without triggering a new query, which
+        # is an auditable, traceable access (PIPEDA defence-in-depth).
+        safe_instance = (
+            VolunteerApplication.objects
+            .only(
+                "pk", "status", "opportunity_id", "volunteer_id",
+                "reviewed_by_id", "reviewed_at",
+            )
+            .get(pk=application.pk)
+        )
+        application_rejected.send_robust(
+            sender=VolunteerApplication,
+            instance=safe_instance,
+            actor=actor,
+            reviewed_by=actor,
+            # PIPEDA: rejection_reason is NOT passed in the signal kwargs so that
+            # receivers cannot accidentally include it in volunteer-facing output.
+            # The safe_instance fetched above also omits rejection_reason so that
+            # receivers cannot access it via instance.rejection_reason either.
+        )
+
+    # H-5 fix: wrap save + on_commit registration in atomic() so that when this
+    # function is called from a Celery task or management command (no outer
+    # ATOMIC_REQUESTS transaction), on_commit fires only after the write is durable.
+    # Inside an HTTP request it becomes a savepoint — behaviour is identical.
+    with transaction.atomic():
+        # Re-fetch with a row-level lock so the status check and save are atomic
+        # at the DB layer.  This prevents a concurrent approve_application() or
+        # withdraw() from racing with this rejection: the second writer blocks on
+        # the lock, re-reads the changed status, and raises ValidationError rather
+        # than silently overwriting.
+        application = (
+            VolunteerApplication.objects
+            .select_for_update()
+            .get(pk=application.pk)
+        )
+
+        # --- Business rule: only pending/in-review/waitlisted applications can be rejected ---
+        if application.status not in _rejectable:
+            raise ValidationError(
+                {
+                    "status": (
+                        "This application cannot be rejected from its current state."
+                    )
+                }
+            )
+
+        now = timezone.now()
+        application.status = VolunteerApplication.STATUS_REJECTED
+        application.rejection_reason = rejection_reason  # internal only — never send to volunteer
+        application.reviewed_by = actor
+        application.reviewed_at = now
+        application.full_clean()
+        application.save(
+            update_fields=[
+                "status",
+                "rejection_reason",
+                "reviewed_by",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
+        transaction.on_commit(_reject_post_commit)
 
     logger.info(
         "volunteers.services.applications: application #%s rejected by "
@@ -418,17 +596,6 @@ def reject_application(
         application.opportunity_id,
         application.volunteer_id,
         # NOTE: rejection_reason deliberately omitted from log (PIPEDA data minimisation).
-    )
-
-    transaction.on_commit(
-        lambda: application_rejected.send_robust(
-            sender=VolunteerApplication,
-            instance=application,
-            actor=actor,
-            reviewed_by=actor,
-            # PIPEDA: rejection_reason is NOT passed in the signal kwargs so that
-            # receivers cannot accidentally include it in volunteer-facing output.
-        )
     )
 
     return application

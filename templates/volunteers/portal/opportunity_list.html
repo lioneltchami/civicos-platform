@@ -73,12 +73,14 @@
              user_applications is a dict: {opportunity_pk: status_string}
              Passed from OpportunityListView.get_context_data(). #}
           {% if opp.pk in user_applications %}
+            {% with application=user_applications|get_item:opp.pk %}
             <p class="opportunity-card__status">
-              <span class="status-badge status-badge--{{ user_applications|get_item:opp.pk }}"
-                    aria-label="{% blocktrans with s=user_applications|get_item:opp.pk %}Application status: {{ s }}{% endblocktrans %}">
-                {{ user_applications|get_item:opp.pk }}
+              <span class="status-badge status-badge--{{ application.status }}"
+                    aria-label="{% blocktrans with s=application.get_status_display %}Application status: {{ s }}{% endblocktrans %}">
+                {{ application.get_status_display }}
               </span>
             </p>
+            {% endwith %}
           {% elif has_volunteer_profile %}
             <a href="{% url 'volunteers:apply' opp.pk %}"
                class="btn btn--primary btn--small"

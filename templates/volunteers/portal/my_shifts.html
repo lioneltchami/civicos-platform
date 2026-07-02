@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "My Shifts" %}{% endblock %}
+{% block meta_description %}{% trans "View your upcoming and past volunteer shift bookings." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li aria-current="page">{% trans "My Shifts" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <h1 class="page-title">{% trans "My shifts" %}</h1>
+
+  {# ============================================================
+     Profile creation CTA — shown when user has no volunteer profile
+     ============================================================ #}
+  {% if not has_volunteer_profile %}
+    <div class="callout callout--info" role="alert" aria-live="polite">
+      <p class="callout__heading">
+        <strong>{% trans "You do not have a volunteer profile yet." %}</strong>
+      </p>
+      <p>
+        {% trans "Create your volunteer profile to apply for opportunities and be booked to shifts." %}
+      </p>
+      <a href="{% url 'volunteers:opportunity_list' %}" class="btn btn--primary">
+        {% trans "Browse opportunities" %}
+      </a>
+    </div>
+  {% else %}
+
+    {# ============================================================
+       Split bookings into upcoming and past using 'now' template tag.
+       Datetimes are UTC in the DB; format for display in ET context.
+       ============================================================ #}
+    {# ============================================================
+       Upcoming bookings — split in the view via upcoming_bookings context var
+       ============================================================ #}
+    <section aria-labelledby="upcoming-heading" class="shifts-section">
+      <h2 id="upcoming-heading">{% trans "Upcoming shifts" %}</h2>
+
+      {% if upcoming_bookings %}
+        {% for booking in upcoming_bookings %}
+          <div class="shift-card{% if booking.shift.is_cancelled %} shift-card--cancelled{% endif %}">
+            <div class="shift-card__header">
+              <h3 class="shift-card__title">
+                {% if booking.shift.title_en %}
+                  {{ booking.shift.title_en }}
+                {% else %}
+                  {{ booking.shift.opportunity.get_title }}
+                {% endif %}
+              </h3>
+              {# Status badge #}
+              {% if booking.status == "confirmed" %}
+                <span class="badge badge--confirmed">{% trans "Confirmed" %}</span>
+              {% elif booking.status == "waitlisted" %}
+                <span class="badge badge--waitlisted">{% trans "Waitlisted" %}</span>
+              {% elif booking.status == "cancelled" %}
+                <span class="badge badge--cancelled">{% trans "Cancelled" %}</span>
+              {% else %}
+                <span class="badge">{{ booking.get_status_display }}</span>
+              {% endif %}
+            </div>
+
+            <dl class="shift-card__meta">
+              <dt>{% trans "Opportunity" %}</dt>
+              <dd>{{ booking.shift.opportunity.get_title }}</dd>
+
+              <dt>{% trans "Date and time" %}</dt>
+              <dd>
+                <time datetime="{{ booking.shift.start_datetime|date:'c' }}">
+                  {{ booking.shift.start_datetime|date:"Y-m-d H:i" }}
+                </time>
+                {% trans "to" %}
+                <time datetime="{{ booking.shift.end_datetime|date:'c' }}">
+                  {{ booking.shift.end_datetime|date:"H:i" }}
+                </time>
+              </dd>
+
+              <dt>{% trans "Location" %}</dt>
+              <dd>
+                {% if booking.shift.location_override %}
+                  {{ booking.shift.location_override }}
+                {% elif booking.shift.opportunity.is_remote %}
+                  {% trans "Remote / virtual" %}
+                {% elif booking.shift.opportunity.location_name %}
+                  {{ booking.shift.opportunity.location_name }}
+                {% else %}
+                  <span class="text-muted">{% trans "Not specified" %}</span>
+                {% endif %}
+              </dd>
+
+              {% if booking.status == "waitlisted" and booking.waitlist_position %}
+                <dt>{% trans "Waitlist position" %}</dt>
+                <dd>
+                  {% blocktrans with pos=booking.waitlist_position %}Position {{ pos }} on the waitlist{% endblocktrans %}
+                </dd>
+              {% endif %}
+            </dl>
+
+            {# Cancel booking — only for confirmed or waitlisted, not cancelled bookings #}
+            {% if booking.status == "confirmed" or booking.status == "waitlisted" %}
+              {# Only allow cancellation if shift is not yet cancelled #}
+              {% if not booking.shift.is_cancelled %}
+                <details class="confirm-panel confirm-panel--card">
+                  <summary class="btn btn--danger btn--small"
+                           aria-label="{% blocktrans with title=booking.shift.opportunity.get_title date=booking.shift.start_datetime|date:'Y-m-d' %}Cancel your booking for {{ title }} on {{ date }}{% endblocktrans %}">
+                    {% trans "Cancel booking" %}
+                  </summary>
+                  <div class="confirm-panel__body" role="group"
+                       aria-label="{% trans 'Confirm booking cancellation' %}">
+                    <p class="confirm-panel__message">
+                      {% trans "Are you sure you want to cancel this shift booking? This action cannot be undone." %}
+                    </p>
+                    <form method="post"
+                          action="{% url 'volunteers:cancel_booking' booking.pk %}">
+                      {% csrf_token %}
+                      <div class="confirm-panel__actions">
+                        <button type="submit" class="btn btn--danger btn--small">
+                          {% trans "Yes, cancel my booking" %}
+                        </button>
+                        <button type="button"
+                                class="btn btn--secondary btn--small"
+                                onclick="this.closest('details').removeAttribute('open')">
+                          {% trans "Keep my booking" %}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </details>
+              {% endif %}
+            {% endif %}
+
+          </div>{# /.shift-card #}
+        {% endfor %}
+      {% else %}
+        <p class="empty-state">{% trans "You have no upcoming shifts." %}</p>
+      {% endif %}
+
+    </section>
+
+    {# ============================================================
+       Past bookings
+       ============================================================ #}
+    {% if past_bookings %}
+      <section aria-labelledby="past-heading" class="shifts-section">
+        <h2 id="past-heading">{% trans "Past shifts" %}</h2>
+
+        {% for booking in past_bookings %}
+          <div class="shift-card shift-card--past">
+            <div class="shift-card__header">
+              <h3 class="shift-card__title">
+                {% if booking.shift.title_en %}
+                  {{ booking.shift.title_en }}
+                {% else %}
+                  {{ booking.shift.opportunity.get_title }}
+                {% endif %}
+              </h3>
+              {# Status badge — past shifts show outcome status #}
+              {% if booking.status == "confirmed" %}
+                <span class="badge badge--confirmed">{% trans "Confirmed" %}</span>
+              {% elif booking.status == "completed" %}
+                <span class="badge badge--completed">{% trans "Completed" %}</span>
+              {% elif booking.status == "no_show" %}
+                <span class="badge badge--no-show">{% trans "No show" %}</span>
+              {% elif booking.status == "cancelled" %}
+                <span class="badge badge--cancelled">{% trans "Cancelled" %}</span>
+              {% elif booking.status == "waitlisted" %}
+                <span class="badge badge--waitlisted">{% trans "Waitlisted" %}</span>
+              {% else %}
+                <span class="badge">{{ booking.get_status_display }}</span>
+              {% endif %}
+            </div>
+
+            <dl class="shift-card__meta">
+              <dt>{% trans "Opportunity" %}</dt>
+              <dd>{{ booking.shift.opportunity.get_title }}</dd>
+
+              <dt>{% trans "Date" %}</dt>
+              <dd>
+                <time datetime="{{ booking.shift.start_datetime|date:'c' }}">
+                  {{ booking.shift.start_datetime|date:"Y-m-d" }}
+                </time>
+              </dd>
+            </dl>
+          </div>
+        {% endfor %}
+
+      </section>
+    {% endif %}
+
+    {# ============================================================
+       Empty state — no bookings at all
+       ============================================================ #}
+    {% if not upcoming_bookings and not past_bookings %}
+      <div class="empty-state">
+        <p class="empty-state__message">
+          {% trans "You have no shift bookings yet. Browse opportunities to get started." %}
+        </p>
+        <a href="{% url 'volunteers:opportunity_list' %}" class="btn btn--primary">
+          {% trans "Browse volunteer opportunities" %}
+        </a>
+      </div>
+    {% endif %}
+
+  {% endif %}{# has_volunteer_profile #}
+
+</div>
+{% endblock %}

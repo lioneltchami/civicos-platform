@@ -1,0 +1,93 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ recipient.preferred_language|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% trans "Booking Cancellation Notice" %}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #1a1a1a; background: #ffffff; margin: 0; padding: 0; }
+    .email-wrapper { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
+    .email-header { border-bottom: 2px solid #c0392b; padding-bottom: 16px; margin-bottom: 24px; }
+    .email-header h1 { font-size: 20px; margin: 0; color: #c0392b; }
+    .notice-banner { background: #fde8e8; border: 1px solid #c0392b; border-radius: 4px; padding: 16px; margin: 16px 0; color: #7b1d1d; }
+    .detail-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .detail-table th { text-align: left; font-weight: bold; padding: 8px; background: #f2f4f7; width: 40%; vertical-align: top; }
+    .detail-table td { padding: 8px; vertical-align: top; }
+    .action-btn { display: inline-block; background: #1d4e89; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 4px; font-weight: bold; margin: 16px 0; }
+    .email-footer { border-top: 1px solid #cccccc; margin-top: 24px; padding-top: 16px; font-size: 13px; color: #666666; }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper" role="main">
+
+    <div class="email-header">
+      <h1>{% trans "Booking Cancellation Notice" %}</h1>
+    </div>
+
+    <p>{% blocktrans with display=volunteer_display %}Hello, {{ display }},{% endblocktrans %}</p>
+
+    <div class="notice-banner" role="alert" aria-label="{% trans "Booking cancelled" %}">
+      <strong>{% trans "We're writing to let you know that your booking for the following shift has been cancelled." %}</strong>
+    </div>
+
+    <table class="detail-table" role="presentation">
+      <tr>
+        <th scope="row">{% trans "Shift" %}</th>
+        <td>{{ shift_title }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Start" %}</th>
+        <td>{{ shift_start }}</td>
+      </tr>
+      {% if shift_end %}
+      <tr>
+        <th scope="row">{% trans "End" %}</th>
+        <td>{{ shift_end }}</td>
+      </tr>
+      {% endif %}
+      {% if shift_location %}
+      <tr>
+        <th scope="row">{% trans "Location" %}</th>
+        <td>{{ shift_location }}</td>
+      </tr>
+      {% endif %}
+    </table>
+
+    {% if cancellation_reason %}
+    <p>
+      <strong>{% trans "Reason for cancellation:" %}</strong><br>
+      {{ cancellation_reason|linebreaksbr }}
+    </p>
+    {% endif %}
+
+    <p>
+      {% trans "We apologize for any inconvenience. You are welcome to browse other available volunteer shifts through the portal." %}
+    </p>
+
+    {% if portal_url %}
+    <p>
+      <a href="{{ portal_url }}"
+         class="action-btn"
+         aria-label="{% trans "View your upcoming shifts in the portal" %}">
+        {% trans "View My Shifts" %}
+      </a>
+    </p>
+    <p>
+      {% trans "If the button above does not work, copy and paste this link into your browser:" %}<br>
+      <a href="{{ portal_url }}">{{ portal_url }}</a>
+    </p>
+    {% else %}
+    <p>{% trans "Please log in to the volunteer portal to view your upcoming shifts." %}</p>
+    {% endif %}
+
+    <p>{% trans "Thank you for your understanding and continued commitment to volunteering." %}</p>
+
+    <div class="email-footer" role="contentinfo">
+      <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+      <p>{% trans "This message was sent by the Volunteer Management System." %}</p>
+    </div>
+
+  </div>
+</body>
+</html>

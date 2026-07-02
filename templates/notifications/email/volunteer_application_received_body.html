@@ -1,9 +1,10 @@
+{% load i18n %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ recipient.preferred_language|default:'en' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>New Volunteer Application</title>
+  <title>{% trans "New Volunteer Application" %}</title>
   <style>
     body { font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #1a1a1a; background: #ffffff; margin: 0; padding: 0; }
     .email-wrapper { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
@@ -20,20 +21,20 @@
   <div class="email-wrapper" role="main">
 
     <div class="email-header">
-      <h1>New Volunteer Application Received</h1>
+      <h1>{% trans "New Volunteer Application Received" %}</h1>
     </div>
 
-    <p>Hello,</p>
+    <p>{% trans "Hello," %}</p>
 
-    <p>A new volunteer application has been submitted and is awaiting your review.</p>
+    <p>{% trans "A new volunteer application has been submitted and is awaiting your review." %}</p>
 
     <table class="detail-table" role="presentation">
       <tr>
-        <th scope="row">Opportunity</th>
+        <th scope="row">{% trans "Opportunity" %}</th>
         <td>{{ opportunity_title }}</td>
       </tr>
       <tr>
-        <th scope="row">Applicant Reference</th>
+        <th scope="row">{% trans "Applicant Reference" %}</th>
         <td>{{ volunteer_display }}</td>
       </tr>
     </table>
@@ -42,19 +43,19 @@
       <p>
         <a href="{{ review_url }}"
            class="action-btn"
-           aria-label="Review this volunteer application">
-          Review Application
+           aria-label="{% trans "Review this volunteer application" %}">
+          {% trans "Review Application" %}
         </a>
       </p>
       <p>
-        If the button above does not work, copy and paste this link into your browser:<br>
+        {% trans "If the button above does not work, copy and paste this link into your browser:" %}<br>
         <a href="{{ review_url }}">{{ review_url }}</a>
       </p>
     {% endif %}
 
     <div class="email-footer" role="contentinfo">
-      <p>This is an automated notification. Please do not reply to this email.</p>
-      <p>This message was sent by the Volunteer Management System.</p>
+      <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+      <p>{% trans "This message was sent by the Volunteer Management System." %}</p>
     </div>
 
   </div>

@@ -1,9 +1,10 @@
+{% load i18n %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ recipient.preferred_language|default:'en' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Screening Check Expiring Soon</title>
+  <title>{% trans "Screening Check Expiring Soon" %}</title>
   <style>
     body { font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #1a1a1a; background: #ffffff; margin: 0; padding: 0; }
     .email-wrapper { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
@@ -21,48 +22,46 @@
   <div class="email-wrapper" role="main">
 
     <div class="email-header">
-      <h1>Action Required: Screening Check Expiring Soon</h1>
+      <h1>{% trans "Action Required: Screening Check Expiring Soon" %}</h1>
     </div>
 
-    <p>Hello,</p>
+    <p>{% trans "Hello," %}</p>
 
-    <div class="warning-banner" role="alert" aria-label="Urgent: screening expiry notice">
-      <strong>Action required.</strong>
-      A volunteer screening check is expiring in
-      <span class="days-remaining">{{ days_remaining }}</span> days.
+    <div class="warning-banner" role="alert" aria-label="{% trans "Urgent: screening expiry notice" %}">
+      <strong>{% trans "Action required." %}</strong>
+      {% blocktrans with days=days_remaining %}A volunteer screening check is expiring in <span class="days-remaining">{{ days }}</span> days.{% endblocktrans %}
     </div>
 
     <table class="detail-table" role="presentation">
       <tr>
-        <th scope="row">Volunteer</th>
-        <td>{{ volunteer_display }}</td>
+        <th scope="row">{% trans "Volunteer" %}</th>
+        <td>{% if volunteer_display %}{{ volunteer_display }}{% else %}{% trans "Unknown" %}{% endif %}</td>
       </tr>
       <tr>
-        <th scope="row">Check Type</th>
+        <th scope="row">{% trans "Check Type" %}</th>
         <td>{{ check_type_display }}</td>
       </tr>
       <tr>
-        <th scope="row">Expiry Date</th>
+        <th scope="row">{% trans "Expiry Date" %}</th>
         <td>{{ expiry_date }}</td>
       </tr>
       <tr>
-        <th scope="row">Days Remaining</th>
-        <td><strong>{{ days_remaining }} days</strong></td>
+        <th scope="row">{% trans "Days Remaining" %}</th>
+        <td><strong>{% blocktrans with days=days_remaining %}{{ days }} days{% endblocktrans %}</strong></td>
       </tr>
     </table>
 
     <p>
-      Please arrange to renew this screening check before it expires to avoid any interruption
-      to volunteer activities.
+      {% trans "Please arrange to renew this screening check before it expires to avoid any interruption to volunteer activities." %}
     </p>
 
     <p>
-      If you have questions about the renewal process, please contact your coordinator directly.
+      {% trans "If you have questions about the renewal process, please contact your coordinator directly." %}
     </p>
 
     <div class="email-footer" role="contentinfo">
-      <p>This is an automated notification. Please do not reply to this email.</p>
-      <p>This message was sent by the Volunteer Management System.</p>
+      <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+      <p>{% trans "This message was sent by the Volunteer Management System." %}</p>
     </div>
 
   </div>

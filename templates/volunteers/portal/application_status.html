@@ -116,17 +116,30 @@
               <td>
                 {# Withdraw button — only for pending applications #}
                 {% if app.status == "pending" %}
-                  <form method="post"
-                        action="{% url 'volunteers:withdraw' app.pk %}"
-                        class="inline-form">
-                    {% csrf_token %}
-                    <button type="submit"
-                            class="btn btn--danger btn--small"
-                            aria-label="{% blocktrans with title=app.opportunity.get_title %}Withdraw application for {{ title }}{% endblocktrans %}"
-                            onclick="return confirm('{% trans "Are you sure you want to withdraw this application?" %}')">
+                  <details class="withdraw-confirm">
+                    <summary class="btn btn--danger btn--small"
+                             aria-label="{% blocktrans with title=app.opportunity.get_title %}Withdraw application for {{ title }}{% endblocktrans %}">
                       {% trans "Withdraw" %}
-                    </button>
-                  </form>
+                    </summary>
+                    <div class="withdraw-confirm__panel" role="group"
+                         aria-label="{% trans 'Confirm withdrawal' %}">
+                      <p class="withdraw-confirm__message">
+                        {% trans "Are you sure you want to withdraw this application? You may be able to re-apply later." %}
+                      </p>
+                      <form method="post"
+                            action="{% url 'volunteers:withdraw' app.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn--danger btn--small">
+                          {% trans "Yes, withdraw my application" %}
+                        </button>
+                        <button type="button"
+                                onclick="this.closest('details').removeAttribute('open')"
+                                class="btn btn--secondary btn--small">
+                          {% trans "Cancel" %}
+                        </button>
+                      </form>
+                    </div>
+                  </details>
                 {% endif %}
               </td>
             </tr>

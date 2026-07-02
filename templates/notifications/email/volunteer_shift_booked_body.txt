@@ -1,0 +1,33 @@
+{% load i18n %}
+{% if is_waitlisted %}{% trans "WAITLIST CONFIRMATION" %}{% else %}{% trans "SHIFT CONFIRMED" %}{% endif %}
+
+{% trans "Hello," %}
+
+{% if is_waitlisted %}
+{% trans "You are on the waitlist for the following shift." %}
+{% if waitlist_position %}{% blocktrans with pos=waitlist_position %}You are currently in position {{ pos }} on the waitlist.{% endblocktrans %}{% endif %}
+{% trans "You will be notified if a spot becomes available." %}
+{% else %}
+{% trans "Your shift has been confirmed. We look forward to seeing you." %}
+{% endif %}
+
+{% trans "SHIFT DETAILS" %}
+------------------------------------------------------------
+{% trans "Opportunity:" %} {{ opportunity_title }}
+{% trans "Shift:" %} {{ shift_title }}
+{% trans "Start:" %} {{ shift_start }}
+{% trans "End:" %} {{ shift_end }}
+{% if shift_location %}{% trans "Location:" %} {{ shift_location }}{% endif %}
+
+{% if portal_url %}
+{% trans "View your shift details:" %}
+{{ portal_url }}
+{% else %}
+{% trans "Please log in to the volunteer portal to view your shift details." %}
+{% endif %}
+
+{% trans "Thank you for volunteering. Your contribution makes a difference." %}
+
+------------------------------------------------------------
+{% trans "This is an automated notification. Please do not reply to this email." %}
+{% trans "This message was sent by the Volunteer Management System." %}

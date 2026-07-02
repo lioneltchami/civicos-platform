@@ -111,7 +111,7 @@
         {% endif %}
 
         {# Render the widget with ARIA attributes for error/hint linkage #}
-        {% if field.errors and field.help_text %}
+        {% if field.errors or field.help_text %}
           {{ field|add_class:"form__control" }}
         {% else %}
           {{ field }}

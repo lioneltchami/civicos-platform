@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{#
+  PIPEDA compliance note:
+  rejection_reason from HoursLog is a coordinator-internal field.
+  It is deferred at the ORM layer (MyHoursView.get_queryset()) and
+  is NEVER referenced in this template under any circumstance.
+  Rejected rows display only "Not approved" — never an internal reason.
+  This invariant MUST be preserved in all future edits to this file.
+#}
+
+{% block title %}{% trans "My Volunteer Hours" %}{% endblock %}
+{% block meta_description %}{% trans "View your logged volunteer hours, total approved hours, and recognition milestones." %}{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li aria-current="page">{% trans "My Volunteer Hours" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <h1 class="page-title">{% trans "My volunteer hours" %}</h1>
+
+  {# ============================================================
+     Profile creation CTA
+     ============================================================ #}
+  {% if not has_volunteer_profile %}
+    <div class="callout callout--info" role="alert" aria-live="polite">
+      <p class="callout__heading">
+        <strong>{% trans "You do not have a volunteer profile yet." %}</strong>
+      </p>
+      <p>
+        {% trans "Create your volunteer profile to apply for opportunities and log your hours." %}
+      </p>
+      <a href="{% url 'volunteers:opportunity_list' %}" class="btn btn--primary">
+        {% trans "Browse opportunities" %}
+      </a>
+    </div>
+  {% else %}
+
+    {# ============================================================
+       Total approved hours callout box
+       ============================================================ #}
+    <div class="callout callout--highlight" aria-live="polite">
+      <p class="callout__stat">
+        <strong>{% blocktrans with hours=total_hours_approved %}Total approved hours: {{ hours }}{% endblocktrans %}</strong>
+      </p>
+    </div>
+
+    {# ============================================================
+       Milestones section
+       ============================================================ #}
+    {% if milestones %}
+      <section aria-labelledby="milestones-heading" class="milestones-section">
+        <h2 id="milestones-heading">{% trans "Recognition milestones" %}</h2>
+        <p class="milestones-intro">
+          {% trans "Milestones you have achieved:" %}
+        </p>
+        <ul class="milestone-chips" role="list">
+          {% for milestone in milestones %}
+            <li>
+              <span class="milestone-chip"
+                    aria-label="{% blocktrans with hours=milestone.hours_threshold %}{{ hours }} hours milestone achieved{% endblocktrans %}">
+                {% blocktrans with hours=milestone.hours_threshold %}{{ hours }}h{% endblocktrans %}
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+
+    {# ============================================================
+       Log hours CTA
+       ============================================================ #}
+    <div class="section-actions">
+      <a href="{% url 'volunteers:opportunity_list' %}"
+         class="btn btn--primary">
+        {% trans "Log hours for an opportunity" %}
+      </a>
+    </div>
+
+    {# ============================================================
+       Hours log table
+       ============================================================ #}
+    {% if hours_logs %}
+      <section aria-labelledby="hours-log-heading" class="hours-section">
+        <h2 id="hours-log-heading">{% trans "Hours log" %}</h2>
+
+        <div class="table-wrapper"
+             role="region"
+             aria-label="{% trans 'Your volunteer hours submissions' %}"
+             tabindex="0">
+          <table class="data-table">
+            <caption class="visually-hidden">
+              {% trans "History of your volunteer hours submissions" %}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{% trans "Date" %}</th>
+                <th scope="col">{% trans "Opportunity" %}</th>
+                <th scope="col">{% trans "Hours" %}</th>
+                <th scope="col">{% trans "Description" %}</th>
+                <th scope="col">{% trans "Status" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in hours_logs %}
+                <tr>
+                  <td>
+                    <time datetime="{{ log.date|date:'Y-m-d' }}">
+                      {{ log.date|date:"Y-m-d" }}
+                    </time>
+                  </td>
+                  <td>
+                    {% if log.opportunity %}
+                      {{ log.opportunity.get_title }}
+                    {% else %}
+                      <span class="text-muted">{% trans "—" %}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ log.hours }}</td>
+                  <td>
+                    {% if log.description %}
+                      {{ log.description }}
+                    {% else %}
+                      <span class="text-muted">{% trans "—" %}</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {#
+                      Status badges:
+                      - pending  = amber (awaiting review)
+                      - approved = green
+                      - rejected = red "Not approved"
+
+                      PIPEDA INVARIANT: rejected rows show "Not approved" only.
+                      rejection_reason MUST NEVER be displayed in this column or
+                      anywhere else in this template. The field is deferred in
+                      the view queryset and is coordinator-internal only.
+                    #}
+                    {% if log.status == "pending" %}
+                      <span class="badge badge--pending"
+                            aria-label="{% trans 'Hours submission pending review' %}">
+                        {% trans "Pending" %}
+                      </span>
+                    {% elif log.status == "approved" %}
+                      <span class="badge badge--approved"
+                            aria-label="{% trans 'Hours approved' %}">
+                        {% trans "Approved" %}
+                      </span>
+                    {% elif log.status == "rejected" %}
+                      {#
+                        PIPEDA: display "Not approved" only — no rejection_reason.
+                        rejection_reason is coordinator-internal and is deferred in
+                        the view queryset. Do NOT add it here, even in a comment/tooltip.
+                      #}
+                      <span class="badge badge--rejected"
+                            aria-label="{% trans 'Hours submission not approved' %}">
+                        {% trans "Not approved" %}
+                      </span>
+                    {% else %}
+                      <span class="badge"
+                            aria-label="{{ log.get_status_display }}">
+                        {{ log.get_status_display }}
+                      </span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    {% else %}
+      {# ============================================================
+         Empty state
+         ============================================================ #}
+      <div class="empty-state">
+        <p class="empty-state__message">
+          {% trans "You haven't logged any hours yet." %}
+        </p>
+        <a href="{% url 'volunteers:opportunity_list' %}" class="btn btn--primary">
+          {% trans "Browse volunteer opportunities" %}
+        </a>
+      </div>
+    {% endif %}
+
+  {% endif %}{# has_volunteer_profile #}
+
+</div>
+{% endblock %}

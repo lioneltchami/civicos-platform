@@ -1,0 +1,25 @@
+{% load i18n %}
+{% trans "UPDATE ON YOUR HOURS SUBMISSION" %}
+
+{% trans "Hello," %}
+
+{% trans "We are writing to let you know that your hours submission for the following opportunity could not be approved at this time." %}
+
+{% trans "SUBMISSION DETAILS" %}
+------------------------------------------------------------
+{% trans "Opportunity:" %} {{ opportunity_title }}
+{% trans "Submission date:" %} {{ date }}
+{% trans "Hours submitted:" %} {{ hours }}
+
+{% trans "If you have questions about this decision, please contact your volunteer coordinator directly for more information." %}
+
+{% if portal_url %}
+{% trans "You can review your hours record and submission history in the volunteer portal:" %}
+{{ portal_url }}
+{% endif %}
+
+{% trans "Thank you for your understanding and for your continued dedication to volunteering." %}
+
+------------------------------------------------------------
+{% trans "This is an automated notification. Please do not reply to this email." %}
+{% trans "This message was sent by the Volunteer Management System." %}

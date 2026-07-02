@@ -31,9 +31,11 @@
         <p>{% trans "If your circumstances change, you are welcome to submit a new request through the portal." %}</p>
       </div>
       <p>{% trans "If you have questions about this decision, please contact us through the portal." %}</p>
+      {% if portal_link %}
       <div class="cta">
         <a href="{{ portal_link }}" class="btn">{% trans "Visit the portal" %}</a>
       </div>
+      {% endif %}
     </div>
     <div class="footer">
       <p>{% trans "This is an automated message. Please do not reply directly to this email." %}</p>

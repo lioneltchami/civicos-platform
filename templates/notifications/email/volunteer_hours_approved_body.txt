@@ -1,0 +1,26 @@
+{% load i18n %}
+{% trans "VOLUNTEER HOURS APPROVED" %}
+
+{% trans "Hello," %}
+
+{% trans "Your volunteer hours have been approved and your contribution has been recorded." %}
+
+{% trans "HOURS SUMMARY" %}
+------------------------------------------------------------
+{% trans "Opportunity:" %} {{ opportunity_title }}
+{% trans "Date:" %} {{ date }}
+{% trans "Hours approved:" %} {{ hours }}
+{% if total_hours_approved %}{% trans "Your total approved hours:" %} {{ total_hours_approved }}{% endif %}
+
+{% if portal_url %}
+{% trans "View your hours log:" %}
+{{ portal_url }}
+{% else %}
+{% trans "Please log in to the volunteer portal to view your complete hours record." %}
+{% endif %}
+
+{% trans "Thank you for your valuable contribution. Every hour you give makes a difference." %}
+
+------------------------------------------------------------
+{% trans "This is an automated notification. Please do not reply to this email." %}
+{% trans "This message was sent by the Volunteer Management System." %}

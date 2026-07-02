@@ -1,0 +1,28 @@
+{% load i18n %}
+{% trans "CONGRATULATIONS — VOLUNTEER MILESTONE ACHIEVED!" %}
+
+{% trans "Hello," %}
+
+{% blocktrans with hours=hours_threshold %}You have reached an incredible milestone — {{ hours }} volunteer hours!{% endblocktrans %}
+
+{% trans "This is a remarkable achievement and a testament to your generous commitment to your community." %}
+
+{% trans "YOUR VOLUNTEER RECORD" %}
+------------------------------------------------------------
+{% trans "Milestone reached:" %} {{ hours_threshold }} {% trans "hours" %}
+{% if total_hours_approved %}{% trans "Your total approved hours:" %} {{ total_hours_approved }}{% endif %}
+
+{% trans "On behalf of everyone at the Volunteer Management System, thank you sincerely. The time and energy you dedicate makes a real and lasting difference." %}
+
+{% if portal_url %}
+{% trans "View your volunteer record:" %}
+{{ portal_url }}
+{% else %}
+{% trans "Please log in to the volunteer portal to view your complete record." %}
+{% endif %}
+
+{% trans "Thank you for making a difference." %}
+
+------------------------------------------------------------
+{% trans "This is an automated notification. Please do not reply to this email." %}
+{% trans "This message was sent by the Volunteer Management System." %}

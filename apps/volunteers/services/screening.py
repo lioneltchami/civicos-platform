@@ -29,6 +29,8 @@ from __future__ import annotations
 import datetime
 import logging
 
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -95,6 +97,23 @@ def record_check(
         ValidationError:  full_clean() fails (e.g. notes violate VSC rules,
                           unique constraint on volunteer+check_type+opportunity).
     """
+    # --- Service-layer defence-in-depth permission check ---
+    # Callers (views) must also gate this action, but the service enforces the
+    # minimum permission requirement independently so that non-HTTP entry points
+    # (Celery tasks, management commands, shell scripts) cannot bypass the guard.
+    # Superusers always pass (Django's has_perm() respects that invariant).
+    #
+    # Future scope check: if a tighter coordinator-scoping rule is needed (e.g.
+    # "requested_by must coordinate at least one program this volunteer is
+    # applying to"), insert it here after the has_perm() guard. For now a
+    # broad Django permission is the required minimum; scoping is enforced at
+    # the view layer via the opportunity FK on the screening record itself.
+    if not requested_by.has_perm("volunteers.add_screeningrecord"):
+        raise PermissionDenied(
+            f"User #{requested_by.pk} does not have permission to record screening checks "
+            "(requires 'volunteers.add_screeningrecord')."
+        )
+
     from apps.volunteers.models import ScreeningRecord
     from django.core.exceptions import ValidationError
 
@@ -122,10 +141,15 @@ def record_check(
         verified_by=requested_by,
     )
 
+    # A-4 fix: wrap full_clean() + save() in atomic() so that when this
+    # function is called from a Celery task or management command (no outer
+    # ATOMIC_REQUESTS transaction), any future on_commit() callbacks fire only
+    # after the write is durable. Inside an HTTP request it becomes a savepoint.
     # full_clean() validates choices, max_length, unique constraints, and
     # the custom clean() VSC rules.
-    record.full_clean()
-    record.save()
+    with transaction.atomic():
+        record.full_clean()
+        record.save()
 
     logger.info(
         "volunteers.services.screening: ScreeningRecord #%s created — "
@@ -174,6 +198,19 @@ def complete_check(
     Raises:
         ValidationError: full_clean() fails (e.g. VSC note restrictions violated).
     """
+    # --- Service-layer defence-in-depth permission check ---
+    # Mirrors the guard in record_check(). completed_by must hold the Django
+    # change permission for ScreeningRecord. Superusers always pass.
+    #
+    # Future scope check: if coordinator-scoping is added to record_check(),
+    # mirror it here — completed_by should coordinate the same program scope
+    # as the volunteer's opportunity.
+    if not completed_by.has_perm("volunteers.change_screeningrecord"):
+        raise PermissionDenied(
+            f"User #{completed_by.pk} does not have permission to complete screening checks "
+            "(requires 'volunteers.change_screeningrecord')."
+        )
+
     # Set fields on the instance before full_clean() so the VSC validation
     # in ScreeningRecord.clean() can see the final state.
     screening_record.verified_clear = verified_clear
@@ -181,13 +218,17 @@ def complete_check(
     screening_record.verified_by = completed_by
     screening_record.notes = notes
 
+    # A-4 fix: wrap full_clean() + save() in atomic() so that when this
+    # function is called from a Celery task or management command (no outer
+    # ATOMIC_REQUESTS transaction), any future on_commit() callbacks fire only
+    # after the write is durable. Inside an HTTP request it becomes a savepoint.
     # full_clean() runs ScreeningRecord.clean() which enforces VSC note restrictions
     # when verified_clear is not None. This MUST happen before save().
-    screening_record.full_clean()
-
-    screening_record.save(
-        update_fields=["verified_clear", "verified_at", "verified_by", "notes", "updated_at"]
-    )
+    with transaction.atomic():
+        screening_record.full_clean()
+        screening_record.save(
+            update_fields=["verified_clear", "verified_at", "verified_by", "notes", "updated_at"]
+        )
 
     logger.info(
         "volunteers.services.screening: ScreeningRecord #%s completed — "

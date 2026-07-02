@@ -89,7 +89,7 @@
       {# Authenticated user menu #}
       {% if user.is_authenticated %}
         <div class="user-menu">
-          <a href="{% url 'notifications:inbox' %}" class="user-menu__link" aria-label="{% trans 'Notifications / Notifications' %}">
+          <a href="{% url 'notifications:inbox' %}" class="user-menu__link" aria-label="{% trans 'Notifications' %}">
             {% trans "Notifications" %}
           </a>
           <a href="{% url 'portal:dashboard' %}" class="user-menu__link">

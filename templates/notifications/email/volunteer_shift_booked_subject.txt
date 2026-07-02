@@ -1,0 +1,1 @@
+{% load i18n %}{% if is_waitlisted %}{% blocktrans with title=opportunity_title %}Waitlist confirmation — {{ title }}{% endblocktrans %}{% else %}{% blocktrans with title=opportunity_title %}Shift confirmed — {{ title }}{% endblocktrans %}{% endif %}

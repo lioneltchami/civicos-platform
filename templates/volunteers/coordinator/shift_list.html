@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Shifts" %}{% endblock %}
+{% block meta_description %}{% trans "Manage scheduled shifts across your volunteer opportunities." %}{% endblock %}
+{% block body_class %}coordinator-layout{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li><a href="{% url 'volunteers:coordinator_dashboard' %}">{% trans "Coordinator Dashboard" %}</a></li>
+      <li aria-current="page">{% trans "Shifts" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="coordinator-layout__inner">
+
+    {# Skip link — WCAG SC 2.4.1: bypass sidebar #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
+
+    {# ============================================================
+       Coordinator sidebar navigation
+       ============================================================ #}
+    <aside class="coordinator-sidebar">
+      <nav aria-label="{% trans 'Coordinator navigation' %}">
+        <ul class="coordinator-nav" role="list">
+          <li>
+            <a href="{% url 'volunteers:coordinator_dashboard' %}"
+               class="coordinator-nav__link">
+              {% trans "Dashboard" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:opportunity_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Opportunities" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:coordinator_application_list' %}"
+               class="coordinator-nav__link">
+              {% trans "All Applications" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:shift_list' %}"
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
+              {% trans "Shifts" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:hours_approval_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Hours Approvals" %}
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    {# ============================================================
+       Main content area
+       ============================================================ #}
+    <div class="coordinator-main" id="coordinator-main-content" role="main">
+
+      <h1 class="page-title">{% trans "Shifts" %}</h1>
+
+      {# ============================================================
+         Summary statistics
+         ============================================================ #}
+      {% if is_paginated %}
+        <section aria-labelledby="summary-heading" class="stats-section">
+          <h2 id="summary-heading" class="visually-hidden">{% trans "Shift summary" %}</h2>
+          <ul class="stats-row" role="list">
+            <li class="stats-card">
+              <span class="stats-card__number">{{ paginator.count }}</span>
+              <span class="stats-card__label">{% trans "Total shifts" %}</span>
+            </li>
+          </ul>
+        </section>
+      {% endif %}
+
+      {# ============================================================
+         Create shift notice
+         ============================================================ #}
+      <div class="callout callout--info" role="note">
+        <p>
+          {% trans "To create a new shift, visit the opportunity detail page and use the \"Add shift\" action." %}
+        </p>
+      </div>
+
+      {# ============================================================
+         Shifts table
+         ============================================================ #}
+      {% if shifts %}
+        <div class="table-wrapper"
+             role="region"
+             aria-label="{% trans 'Scheduled shifts' %}"
+             tabindex="0">
+          <table class="data-table">
+            <caption class="visually-hidden">
+              {% trans "List of scheduled shifts across your opportunities" %}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{% trans "Start date / time" %}</th>
+                <th scope="col">{% trans "Title" %}</th>
+                <th scope="col">{% trans "Opportunity" %}</th>
+                <th scope="col">{% trans "Capacity" %}</th>
+                <th scope="col">{% trans "Status" %}</th>
+                <th scope="col">
+                  <span class="visually-hidden">{% trans "Actions" %}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for shift in shifts %}
+                <tr>
+                  <td>
+                    <time datetime="{{ shift.start_datetime|date:'c' }}">
+                      {{ shift.start_datetime|date:"Y-m-d H:i" }}
+                    </time>
+                  </td>
+                  <td>
+                    {% if shift.title_en %}
+                      {{ shift.title_en }}
+                    {% else %}
+                      <span class="text-muted">{% trans "No title" %}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ shift.opportunity.get_title }}</td>
+                  <td>
+                    {% if shift.effective_capacity %}
+                      {% blocktrans with cap=shift.effective_capacity %}{{ cap }} places{% endblocktrans %}
+                    {% else %}
+                      {% trans "Unlimited" %}
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if shift.is_cancelled %}
+                      <span class="badge badge--cancelled">{% trans "Cancelled" %}</span>
+                    {% else %}
+                      <span class="badge badge--active">{% trans "Active" %}</span>
+                    {% endif %}
+                  </td>
+                  <td class="actions-cell">
+                    <a href="{% url 'volunteers:shift_detail' shift.pk %}"
+                       class="link-action"
+                       aria-label="{% blocktrans with date=shift.start_datetime|date:'Y-m-d' title=shift.opportunity.get_title %}View shift on {{ date }} for {{ title }}{% endblocktrans %}">
+                      {% trans "View" %}
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {# ============================================================
+           Pagination
+           ============================================================ #}
+        {% if is_paginated %}
+          <nav aria-label="{% trans 'Shift list pagination' %}" class="pagination-nav">
+            <ul class="pagination" role="list">
+              {% if page_obj.has_previous %}
+                <li>
+                  <a href="?page={{ page_obj.previous_page_number }}"
+                     class="pagination__link"
+                     aria-label="{% trans 'Previous page' %}">
+                    {% trans "Previous" %}
+                  </a>
+                </li>
+              {% endif %}
+
+              <li class="pagination__page-info" aria-current="page" aria-live="polite">
+                {% blocktrans with current=page_obj.number total=paginator.num_pages %}
+                  Page {{ current }} of {{ total }}
+                {% endblocktrans %}
+              </li>
+
+              {% if page_obj.has_next %}
+                <li>
+                  <a href="?page={{ page_obj.next_page_number }}"
+                     class="pagination__link"
+                     aria-label="{% trans 'Next page' %}">
+                    {% trans "Next" %}
+                  </a>
+                </li>
+              {% endif %}
+            </ul>
+          </nav>
+        {% endif %}
+
+      {% else %}
+        {# ============================================================
+           Empty state
+           ============================================================ #}
+        <div class="empty-state">
+          <p class="empty-state__message">
+            {% trans "No shifts have been created yet." %}
+          </p>
+          <p>
+            {% trans "To create a shift, visit the opportunity detail page and use the \"Add shift\" action." %}
+          </p>
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}

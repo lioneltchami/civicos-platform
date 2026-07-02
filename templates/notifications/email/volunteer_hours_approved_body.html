@@ -1,0 +1,84 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ recipient.preferred_language|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% trans "Volunteer Hours Approved" %}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #1a1a1a; background: #ffffff; margin: 0; padding: 0; }
+    .email-wrapper { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
+    .email-header { border-bottom: 2px solid #1d7540; padding-bottom: 16px; margin-bottom: 24px; }
+    .email-header h1 { font-size: 20px; margin: 0; color: #1d7540; }
+    .success-banner { background: #d4edda; border: 1px solid #1d7540; border-radius: 4px; padding: 16px; margin: 16px 0; color: #155724; }
+    .detail-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .detail-table th { text-align: left; font-weight: bold; padding: 8px; background: #f2f4f7; width: 40%; vertical-align: top; }
+    .detail-table td { padding: 8px; vertical-align: top; }
+    .total-row td, .total-row th { background: #e9f5ec; font-weight: bold; }
+    .action-btn { display: inline-block; background: #1d7540; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 4px; font-weight: bold; margin: 16px 0; }
+    .email-footer { border-top: 1px solid #cccccc; margin-top: 24px; padding-top: 16px; font-size: 13px; color: #666666; }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper" role="main">
+
+    <div class="email-header">
+      <h1>{% trans "Volunteer Hours Approved" %}</h1>
+    </div>
+
+    <p>{% trans "Hello," %}</p>
+
+    <div class="success-banner" role="status" aria-label="{% trans "Hours approved" %}">
+      <strong>{% trans "Your volunteer hours have been approved." %}</strong>
+      {% trans "Your contribution has been recorded." %}
+    </div>
+
+    <p>{% trans "Here is a summary of your approved hours:" %}</p>
+
+    <table class="detail-table" role="presentation">
+      <tr>
+        <th scope="row">{% trans "Opportunity" %}</th>
+        <td>{{ opportunity_title }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Date" %}</th>
+        <td>{{ date }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Hours approved" %}</th>
+        <td>{{ hours }}</td>
+      </tr>
+      {% if total_hours_approved %}
+      <tr class="total-row">
+        <th scope="row">{% trans "Your total approved hours" %}</th>
+        <td>{{ total_hours_approved }}</td>
+      </tr>
+      {% endif %}
+    </table>
+
+    {% if portal_url %}
+    <p>
+      <a href="{{ portal_url }}"
+         class="action-btn"
+         aria-label="{% trans "View your volunteer hours log in the portal" %}">
+        {% trans "View My Hours Log" %}
+      </a>
+    </p>
+    <p>
+      {% trans "If the button above does not work, copy and paste this link into your browser:" %}<br>
+      <a href="{{ portal_url }}">{{ portal_url }}</a>
+    </p>
+    {% else %}
+    <p>{% trans "Please log in to the volunteer portal to view your complete hours record." %}</p>
+    {% endif %}
+
+    <p>{% trans "Thank you for your valuable contribution. Every hour you give makes a difference." %}</p>
+
+    <div class="email-footer" role="contentinfo">
+      <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+      <p>{% trans "This message was sent by the Volunteer Management System." %}</p>
+    </div>
+
+  </div>
+</body>
+</html>

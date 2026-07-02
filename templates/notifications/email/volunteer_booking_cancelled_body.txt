@@ -1,0 +1,13 @@
+{% load i18n %}
+{% blocktrans with display=volunteer_display %}Hello, {{ display }},{% endblocktrans %}
+
+{% trans "We're writing to let you know that your booking for the following shift has been cancelled." %}
+
+{% trans "Shift:" %} {{ shift_title }}
+{% trans "Date and time:" %} {{ shift_start }}{% if shift_end %} – {{ shift_end }}{% endif %}
+{% if shift_location %}{% trans "Location:" %} {{ shift_location }}
+{% endif %}{% if cancellation_reason %}{% trans "Reason:" %} {{ cancellation_reason }}
+{% endif %}
+{% if portal_url %}{% blocktrans with url=portal_url %}To view your upcoming shifts, visit: {{ url }}{% endblocktrans %}{% endif %}
+
+{% trans "Thank you for your commitment as a volunteer." %}

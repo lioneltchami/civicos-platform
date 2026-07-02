@@ -1,0 +1,98 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ recipient.preferred_language|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if is_waitlisted %}{% trans "Waitlist Confirmation" %}{% else %}{% trans "Shift Confirmed" %}{% endif %}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #1a1a1a; background: #ffffff; margin: 0; padding: 0; }
+    .email-wrapper { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
+    .email-header { border-bottom: 2px solid #1d7540; padding-bottom: 16px; margin-bottom: 24px; }
+    .email-header h1 { font-size: 20px; margin: 0; color: #1d7540; }
+    .info-banner { background: #d4edda; border: 1px solid #1d7540; border-radius: 4px; padding: 16px; margin: 16px 0; color: #155724; }
+    .waitlist-banner { background: #fff3cd; border: 1px solid #856404; border-radius: 4px; padding: 16px; margin: 16px 0; color: #664d03; }
+    .detail-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .detail-table th { text-align: left; font-weight: bold; padding: 8px; background: #f2f4f7; width: 40%; vertical-align: top; }
+    .detail-table td { padding: 8px; vertical-align: top; }
+    .action-btn { display: inline-block; background: #1d7540; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 4px; font-weight: bold; margin: 16px 0; }
+    .email-footer { border-top: 1px solid #cccccc; margin-top: 24px; padding-top: 16px; font-size: 13px; color: #666666; }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper" role="main">
+
+    <div class="email-header">
+      <h1>{% if is_waitlisted %}{% trans "Waitlist Confirmation" %}{% else %}{% trans "Shift Confirmed" %}{% endif %}</h1>
+    </div>
+
+    <p>{% trans "Hello," %}</p>
+
+    {% if is_waitlisted %}
+    <div class="waitlist-banner" role="status" aria-label="{% trans "Waitlist confirmation" %}">
+      <strong>{% trans "You are on the waitlist." %}</strong>
+      {% if waitlist_position %}
+      {% blocktrans with pos=waitlist_position %}You are currently in position {{ pos }} on the waitlist for this shift.{% endblocktrans %}
+      {% endif %}
+      {% trans "You will be notified if a spot becomes available." %}
+    </div>
+    {% else %}
+    <div class="info-banner" role="status" aria-label="{% trans "Shift confirmed" %}">
+      <strong>{% trans "Your shift is confirmed." %}</strong>
+      {% trans "We look forward to seeing you." %}
+    </div>
+    {% endif %}
+
+    <p>{% trans "Here are the details for your upcoming shift:" %}</p>
+
+    <table class="detail-table" role="presentation">
+      <tr>
+        <th scope="row">{% trans "Opportunity" %}</th>
+        <td>{{ opportunity_title }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Shift" %}</th>
+        <td>{{ shift_title }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Start" %}</th>
+        <td>{{ shift_start }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "End" %}</th>
+        <td>{{ shift_end }}</td>
+      </tr>
+      {% if shift_location %}
+      <tr>
+        <th scope="row">{% trans "Location" %}</th>
+        <td>{{ shift_location }}</td>
+      </tr>
+      {% endif %}
+    </table>
+
+    {% if portal_url %}
+    <p>
+      <a href="{{ portal_url }}"
+         class="action-btn"
+         aria-label="{% trans "View your shift details in the volunteer portal" %}">
+        {% trans "View My Shift" %}
+      </a>
+    </p>
+    <p>
+      {% trans "If the button above does not work, copy and paste this link into your browser:" %}<br>
+      <a href="{{ portal_url }}">{{ portal_url }}</a>
+    </p>
+    {% else %}
+    <p>{% trans "Please log in to the volunteer portal to view your shift details." %}</p>
+    {% endif %}
+
+    <p>{% trans "Thank you for volunteering. Your contribution makes a difference." %}</p>
+
+    <div class="email-footer" role="contentinfo">
+      <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+      <p>{% trans "This message was sent by the Volunteer Management System." %}</p>
+    </div>
+
+  </div>
+</body>
+</html>

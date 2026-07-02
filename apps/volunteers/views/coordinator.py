@@ -31,13 +31,16 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse_lazy
-from django.views.generic import FormView, ListView
+from django.urls import reverse, reverse_lazy
+from django.utils.translation import gettext_lazy as _
+from django.views import View
+from django.views.generic import CreateView, DetailView, FormView, ListView
 
-from apps.volunteers.forms import ApplicationReviewForm
-from apps.volunteers.models import Opportunity, VolunteerApplication
+from apps.volunteers.forms import ApplicationReviewForm, HoursRejectForm, ShiftForm
+from apps.volunteers.models import HoursLog, Opportunity, Shift, ShiftBooking, VolunteerApplication
 from apps.volunteers.services.applications import approve_application, reject_application
 
 logger = logging.getLogger(__name__)
@@ -69,6 +72,7 @@ class CoordinatorDashboardView(LoginRequiredMixin, PermissionRequiredMixin, List
 
     # MRO: LoginRequiredMixin → PermissionRequiredMixin (login redirect before 403 check)
     permission_required = "volunteers.change_volunteerapplication"
+    raise_exception = True  # authenticated users without permission get 403, not a login redirect
     template_name = "volunteers/coordinator/dashboard.html"
     context_object_name = "applications"
     paginate_by = 25
@@ -100,7 +104,9 @@ class CoordinatorDashboardView(LoginRequiredMixin, PermissionRequiredMixin, List
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["pending_count"] = self.get_queryset().count()
+        # paginator.count is already computed by ListView's pagination logic —
+        # use it directly to avoid a redundant COUNT(*) query.
+        context["pending_count"] = context["paginator"].count
         return context
 
 
@@ -136,12 +142,18 @@ class ApplicationReviewView(LoginRequiredMixin, PermissionRequiredMixin, FormVie
     """
 
     permission_required = "volunteers.change_volunteerapplication"
+    raise_exception = True  # authenticated users without permission get 403, not a login redirect
     form_class = ApplicationReviewForm
     template_name = "volunteers/coordinator/application_review.html"
     success_url = reverse_lazy("volunteers:coordinator_dashboard")
 
     def _get_application(self):
-        """Fetch the target application with related objects, or 404."""
+        """Fetch the target application with related objects, or 404.
+
+        Scoped to the current coordinator via opportunity__program__coordinator
+        to prevent IDOR: a coordinator cannot access applications that belong
+        to another coordinator's programme.
+        """
         return get_object_or_404(
             VolunteerApplication.objects.select_related(
                 "volunteer",
@@ -151,25 +163,35 @@ class ApplicationReviewView(LoginRequiredMixin, PermissionRequiredMixin, FormVie
                 "reviewed_by",
             ),
             pk=self.kwargs["pk"],
+            opportunity__program__coordinator=self.request.user,
         )
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
-            return self.handle_no_permission()
-        # PermissionRequiredMixin.dispatch() checks self.permission_required.
-        response = super().dispatch(request, *args, **kwargs)
-        # Cache the application after permission checks pass.
-        if hasattr(response, "status_code") and response.status_code in (302, 403):
-            return response
+            # Redirect to login rather than 403 — do NOT call handle_no_permission()
+            # here because raise_exception=True makes it return 403, which confirms
+            # the URL exists to unauthenticated crawlers.
+            # LoginRequiredMixin.dispatch() would handle this via super(), but we
+            # must set self.application before get()/post() so we intercept first.
+            return redirect_to_login(
+                request.get_full_path(),
+                self.get_login_url(),
+                self.get_redirect_field_name(),
+            )
+        # Set self.application once here so get(), post(), and get_context_data()
+        # all share the same already-fetched instance — no repeated DB queries.
+        # _get_application() raises Http404 if the PK doesn't exist or belongs
+        # to a different coordinator, which is handled by Django's 404 machinery
+        # before get()/post() are ever called.
         self.application = self._get_application()
-        return response
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
-        self.application = self._get_application()
+        # self.application already set in dispatch() — no DB hit needed here.
         return super().get(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
-        self.application = self._get_application()
+        # self.application already set in dispatch() — no DB hit needed here.
         return super().post(request, *args, **kwargs)
 
     def get_initial(self):
@@ -181,7 +203,9 @@ class ApplicationReviewView(LoginRequiredMixin, PermissionRequiredMixin, FormVie
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        application = getattr(self, "application", None) or self._get_application()
+        # self.application is guaranteed to exist — dispatch() set it before
+        # calling get() or post(), which are the only paths into get_context_data().
+        application = self.application
         context["application"] = application
         # rejection_reason IS exposed here — coordinator-only page.
         # Templates MUST NOT render this on any volunteer-facing page.
@@ -231,7 +255,14 @@ class ApplicationReviewView(LoginRequiredMixin, PermissionRequiredMixin, FormVie
 
         except ValidationError as exc:
             # State transition not allowed (e.g. already approved/rejected).
-            for field, errors in exc.message_dict.items():
+            # ValidationError can be raised as a plain string (no message_dict)
+            # or as a dict. Handle both to avoid AttributeError on .message_dict.
+            error_messages = (
+                exc.message_dict
+                if hasattr(exc, "message_dict")
+                else {"__all__": exc.messages}
+            )
+            for field, errors in error_messages.items():
                 for error in errors:
                     if field == "__all__":
                         form.add_error(None, error)
@@ -275,6 +306,7 @@ class CoordinatorApplicationListView(LoginRequiredMixin, PermissionRequiredMixin
     """
 
     permission_required = "volunteers.change_volunteerapplication"
+    raise_exception = True  # authenticated users without permission get 403, not a login redirect
     template_name = "volunteers/coordinator/application_list.html"
     context_object_name = "applications"
     paginate_by = 50
@@ -290,7 +322,9 @@ class CoordinatorApplicationListView(LoginRequiredMixin, PermissionRequiredMixin
         opportunity names.  No ``.defer()`` here — coordinators have access to all
         fields in this view (rejection_reason included).
         """
-        qs = VolunteerApplication.objects.select_related(
+        qs = VolunteerApplication.objects.filter(
+            opportunity__program__coordinator=self.request.user,
+        ).select_related(
             "volunteer",
             "volunteer__user",
             "opportunity",
@@ -312,3 +346,353 @@ class CoordinatorApplicationListView(LoginRequiredMixin, PermissionRequiredMixin
         )
         context["status_choices"] = VolunteerApplication.STATUS_CHOICES
         return context
+
+
+# ---------------------------------------------------------------------------
+# ShiftListView
+# ---------------------------------------------------------------------------
+
+class ShiftListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+    """List all shifts across the coordinator's opportunities."""
+
+    # MRO: LoginRequiredMixin → PermissionRequiredMixin (login redirect before 403 check)
+    permission_required = "volunteers.view_shift"
+    raise_exception = True
+    template_name = "volunteers/coordinator/shift_list.html"
+    context_object_name = "shifts"
+    paginate_by = 25
+
+    def get_queryset(self):
+        return (
+            Shift.objects
+            .filter(opportunity__program__coordinator=self.request.user)
+            .select_related("opportunity__program")
+            .order_by("start_datetime")
+        )
+
+
+# ---------------------------------------------------------------------------
+# ShiftDetailView
+# ---------------------------------------------------------------------------
+
+class ShiftDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailView):
+    """
+    Detail page for a single shift with full booking roster.
+
+    Security: queryset scoped to coordinator's own opportunities to prevent IDOR.
+    Non-owned PKs produce 404 (not 403) so callers cannot enumerate shift IDs
+    across coordinators.
+    """
+
+    permission_required = "volunteers.view_shift"
+    raise_exception = True
+    template_name = "volunteers/coordinator/shift_detail.html"
+    context_object_name = "shift"
+
+    def get_queryset(self):
+        return (
+            Shift.objects
+            .filter(opportunity__program__coordinator=self.request.user)
+            .select_related("opportunity__program")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["bookings"] = (
+            self.object.bookings
+            .select_related("volunteer__user")
+            .order_by("status", "waitlist_position", "created_at")
+        )
+        context["confirmed_count"] = context["bookings"].filter(
+            status=ShiftBooking.STATUS_CONFIRMED
+        ).count()
+        return context
+
+
+# ---------------------------------------------------------------------------
+# ShiftCreateView
+# ---------------------------------------------------------------------------
+
+class ShiftCreateView(LoginRequiredMixin, PermissionRequiredMixin, CreateView):
+    """
+    Coordinator creates a new shift under one of their opportunities.
+
+    ``opportunity_pk`` URL kwarg is resolved to an Opportunity scoped to the
+    current coordinator in dispatch() — an invalid or foreign PK returns 404.
+    """
+
+    permission_required = "volunteers.add_shift"
+    raise_exception = True
+    form_class = ShiftForm
+    template_name = "volunteers/coordinator/shift_form.html"
+
+    def _get_opportunity(self):
+        return get_object_or_404(
+            Opportunity,
+            pk=self.kwargs["opportunity_pk"],
+            program__coordinator=self.request.user,
+        )
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(
+                request.get_full_path(),
+                self.get_login_url(),
+                self.get_redirect_field_name(),
+            )
+        self.opportunity = self._get_opportunity()
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["opportunity"] = self.opportunity
+        kwargs.pop("instance", None)
+        return kwargs
+
+    def form_valid(self, form):
+        shift = form.save(commit=False)
+        shift.opportunity = self.opportunity
+        shift.coordinator = self.request.user
+        try:
+            shift.full_clean()
+        except ValidationError as e:
+            form.add_error(None, e)
+            return self.form_invalid(form)
+        shift.save()
+        messages.success(self.request, _("Shift created."))
+        return redirect(reverse("volunteers:shift_detail", kwargs={"pk": shift.pk}))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["opportunity"] = self.opportunity
+        return context
+
+
+# ---------------------------------------------------------------------------
+# ShiftCancelView
+# ---------------------------------------------------------------------------
+
+class ShiftCancelView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    POST-only. Coordinator cancels an entire shift via the cancel_shift() service.
+
+    All confirmed/waitlisted bookings are bulk-cancelled and a post-commit signal
+    fires for volunteer notifications.  A reason is required (enforced by the
+    service).
+    """
+
+    permission_required = "volunteers.change_shift"
+    raise_exception = True
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        shift = get_object_or_404(
+            Shift,
+            pk=self.kwargs["pk"],
+            opportunity__program__coordinator=request.user,
+        )
+        reason = request.POST.get("reason", "").strip()
+        try:
+            from apps.volunteers.services.scheduling import cancel_shift
+            cancel_shift(shift=shift, actor=request.user, reason=reason)
+            messages.success(request, _("Shift cancelled. All bookings have been notified."))
+        except (ValidationError, PermissionDenied) as exc:
+            messages.error(
+                request,
+                exc.messages[0] if hasattr(exc, "messages") and exc.messages else str(exc),
+            )
+        return redirect(reverse("volunteers:shift_detail", kwargs={"pk": self.kwargs["pk"]}))
+
+
+# ---------------------------------------------------------------------------
+# BookingNoShowView
+# ---------------------------------------------------------------------------
+
+class BookingNoShowView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    POST-only. Coordinator marks a confirmed booking as no-show after the shift
+    start time.
+
+    IDOR prevention: the booking queryset is scoped to the coordinator's own
+    opportunities; mismatched PKs return 404.
+    """
+
+    permission_required = "volunteers.change_shiftbooking"
+    raise_exception = True
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        booking = get_object_or_404(
+            ShiftBooking.objects.select_related("shift__opportunity__program"),
+            pk=self.kwargs["pk"],
+            shift__opportunity__program__coordinator=request.user,
+        )
+        try:
+            from apps.volunteers.services.scheduling import mark_no_show
+            mark_no_show(booking=booking, actor=request.user)
+            messages.success(request, _("Marked as no-show."))
+        except (ValidationError, PermissionDenied) as exc:
+            messages.error(
+                request,
+                exc.messages[0] if hasattr(exc, "messages") and exc.messages else str(exc),
+            )
+        return redirect(reverse("volunteers:shift_detail", kwargs={"pk": booking.shift_id}))
+
+
+# ---------------------------------------------------------------------------
+# BookingCompleteView
+# ---------------------------------------------------------------------------
+
+class BookingCompleteView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    POST-only. Coordinator marks a confirmed booking as completed.
+
+    Triggers auto-HoursLog creation (STATUS_PENDING) via the complete_booking()
+    service so hours are queued for coordinator approval.
+
+    IDOR prevention: booking queryset scoped to coordinator's own opportunities.
+    """
+
+    permission_required = "volunteers.change_shiftbooking"
+    raise_exception = True
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        booking = get_object_or_404(
+            ShiftBooking.objects.select_related("shift__opportunity__program"),
+            pk=self.kwargs["pk"],
+            shift__opportunity__program__coordinator=request.user,
+        )
+        try:
+            from apps.volunteers.services.scheduling import complete_booking
+            complete_booking(booking=booking, actor=request.user)
+            messages.success(request, _("Booking marked complete. Hours log created."))
+        except (ValidationError, PermissionDenied) as exc:
+            messages.error(
+                request,
+                exc.messages[0] if hasattr(exc, "messages") and exc.messages else str(exc),
+            )
+        return redirect(reverse("volunteers:shift_detail", kwargs={"pk": booking.shift_id}))
+
+
+# ---------------------------------------------------------------------------
+# HoursApprovalListView
+# ---------------------------------------------------------------------------
+
+class HoursApprovalListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+    """
+    Pending hours logs queued for the coordinator's review.
+
+    Only STATUS_PENDING logs are shown so the action queue stays focused.
+    Coordinators can see rejection_reason here (coordinator-only view) — it is
+    NOT deferred in this queryset.
+    """
+
+    permission_required = "volunteers.change_hourslog"
+    raise_exception = True
+    template_name = "volunteers/coordinator/hours_approval_list.html"
+    context_object_name = "hours_logs"
+    paginate_by = 25
+
+    def get_queryset(self):
+        return (
+            HoursLog.objects
+            .filter(
+                opportunity__program__coordinator=self.request.user,
+                status=HoursLog.STATUS_PENDING,
+            )
+            .select_related("volunteer__user", "opportunity", "shift")
+            .order_by("date", "created_at")
+        )
+
+
+# ---------------------------------------------------------------------------
+# HoursApproveView
+# ---------------------------------------------------------------------------
+
+class HoursApproveView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    POST-only. Coordinator approves a pending HoursLog via approve_hours() service.
+
+    Side-effects (fired post-commit): hours_approved signal, total_hours_approved
+    recompute, and RecognitionMilestone creation if a threshold is crossed.
+
+    IDOR prevention: log queryset scoped to coordinator's own opportunities.
+    """
+
+    permission_required = "volunteers.change_hourslog"
+    raise_exception = True
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        log = get_object_or_404(
+            HoursLog.objects.select_related("opportunity__program"),
+            pk=self.kwargs["pk"],
+            opportunity__program__coordinator=request.user,
+        )
+        try:
+            from apps.volunteers.services.hours import approve_hours
+            approve_hours(hours_log=log, actor=request.user)
+            messages.success(request, _("Hours approved."))
+        except (ValidationError, PermissionDenied) as exc:
+            messages.error(
+                request,
+                exc.messages[0] if hasattr(exc, "messages") and exc.messages else str(exc),
+            )
+        return redirect(reverse("volunteers:hours_approval_list"))
+
+
+# ---------------------------------------------------------------------------
+# HoursRejectView
+# ---------------------------------------------------------------------------
+
+class HoursRejectView(LoginRequiredMixin, PermissionRequiredMixin, FormView):
+    """
+    POST with reason. Coordinator rejects a pending HoursLog via reject_hours().
+
+    PIPEDA: rejection_reason is stored coordinator-side only.  The hours_rejected
+    signal dispatched by the service deliberately omits rejection_reason from
+    kwargs so volunteer-facing notifications cannot leak it.
+
+    Re-renders the hours approval list template with an error if the form is
+    invalid, keeping the coordinator in context without a full page redirect.
+
+    IDOR prevention: log fetched in form_valid() scoped to coordinator's own
+    opportunities.
+    """
+
+    permission_required = "volunteers.change_hourslog"
+    raise_exception = True
+    http_method_names = ["post"]  # GET → 405 Method Not Allowed
+    form_class = HoursRejectForm
+    # Re-render the list page so the coordinator stays in context after a
+    # form error (e.g. blank reason).
+    template_name = "volunteers/coordinator/hours_approval_list.html"
+
+    def _get_log(self):
+        return get_object_or_404(
+            HoursLog.objects.select_related("opportunity__program"),
+            pk=self.kwargs["pk"],
+            opportunity__program__coordinator=self.request.user,
+        )
+
+    def form_valid(self, form):
+        log = self._get_log()
+        try:
+            from apps.volunteers.services.hours import reject_hours
+            reject_hours(
+                hours_log=log,
+                actor=self.request.user,
+                reason=form.cleaned_data["reason"],
+            )
+            messages.success(self.request, _("Hours submission declined."))
+        except (ValidationError, PermissionDenied) as exc:
+            messages.error(
+                self.request,
+                exc.messages[0] if hasattr(exc, "messages") and exc.messages else str(exc),
+            )
+        return redirect(reverse("volunteers:hours_approval_list"))
+
+    def form_invalid(self, form):
+        messages.error(self.request, _("Please provide a rejection reason."))
+        return redirect(reverse("volunteers:hours_approval_list"))

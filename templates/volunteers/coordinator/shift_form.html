@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Create Shift" %}{% endblock %}
+{% block meta_description %}{% trans "Create a new volunteer shift for this opportunity." %}{% endblock %}
+{% block body_class %}coordinator-layout{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li><a href="{% url 'volunteers:coordinator_dashboard' %}">{% trans "Coordinator Dashboard" %}</a></li>
+      <li><a href="{% url 'volunteers:shift_list' %}">{% trans "Shifts" %}</a></li>
+      <li aria-current="page">{% trans "Create shift" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="coordinator-layout__inner">
+
+    {# Skip link — WCAG SC 2.4.1 #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
+
+    {# ============================================================
+       Coordinator sidebar navigation
+       ============================================================ #}
+    <aside class="coordinator-sidebar">
+      <nav aria-label="{% trans 'Coordinator navigation' %}">
+        <ul class="coordinator-nav" role="list">
+          <li>
+            <a href="{% url 'volunteers:coordinator_dashboard' %}"
+               class="coordinator-nav__link">
+              {% trans "Dashboard" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:opportunity_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Opportunities" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:coordinator_application_list' %}"
+               class="coordinator-nav__link">
+              {% trans "All Applications" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:shift_list' %}"
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
+              {% trans "Shifts" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:hours_approval_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Hours Approvals" %}
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    {# ============================================================
+       Main content area
+       ============================================================ #}
+    <div class="coordinator-main" id="coordinator-main-content" role="main">
+
+      <h1 class="page-title">
+        {% blocktrans with title=opportunity.get_title %}Create shift for {{ title }}{% endblocktrans %}
+      </h1>
+
+      {# ============================================================
+         Non-field errors (form-level validation errors)
+         ============================================================ #}
+      {% if form.non_field_errors %}
+        <div class="error-summary" role="alert" aria-live="assertive" aria-atomic="true">
+          <h2 class="error-summary__heading">{% trans "There is a problem" %}</h2>
+          <ul class="error-summary__list">
+            {% for error in form.non_field_errors %}
+              <li>{{ error }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {# ============================================================
+         Shift creation form
+         ============================================================ #}
+      <form method="post"
+            novalidate
+            aria-label="{% trans 'Create shift form' %}">
+        {% csrf_token %}
+
+        {% for field in form %}
+          <div class="form-group{% if field.errors %} form-group--error{% endif %}">
+
+            <label class="form-label" for="{{ field.id_for_label }}">
+              {{ field.label }}
+              {% if field.field.required %}
+                <span aria-hidden="true">*</span>
+                <span class="visually-hidden">{% trans "(required)" %}</span>
+              {% endif %}
+            </label>
+
+            {% if field.help_text %}
+              <p id="{{ field.id_for_label }}-hint" class="hint">
+                {{ field.help_text }}
+              </p>
+            {% endif %}
+
+            {% if field.errors %}
+              <ul id="{{ field.id_for_label }}-errors"
+                  class="error-list"
+                  role="alert"
+                  aria-live="assertive">
+                {% for error in field.errors %}
+                  <li class="error-list__item">{{ error }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+
+            {# aria-describedby is applied via ShiftForm.__init__() — no dead |attr filter needed #}
+            {{ field }}
+
+          </div>
+        {% endfor %}
+
+        {# ============================================================
+           Form actions
+           ============================================================ #}
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">
+            {% trans "Save shift" %}
+          </button>
+          <a href="{% url 'volunteers:shift_list' %}"
+             class="btn btn--secondary">
+            {% trans "Cancel" %}
+          </a>
+        </div>
+
+      </form>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

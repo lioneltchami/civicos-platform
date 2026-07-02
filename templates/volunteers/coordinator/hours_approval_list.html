@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{#
+  PIPEDA compliance note:
+  rejection_reason from HoursLog is a coordinator-internal field.
+  It is NOT referenced anywhere in this template and is excluded via
+  .defer("rejection_reason") in the view queryset.
+  This invariant MUST be preserved in all future edits to this file.
+#}
+
+{% block title %}{% trans "Pending Hours Approvals" %}{% endblock %}
+{% block meta_description %}{% trans "Review and approve volunteer hours submissions." %}{% endblock %}
+{% block body_class %}coordinator-layout{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li><a href="{% url 'volunteers:coordinator_dashboard' %}">{% trans "Coordinator Dashboard" %}</a></li>
+      <li aria-current="page">{% trans "Hours Approvals" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="coordinator-layout__inner">
+
+    {# Skip link — WCAG SC 2.4.1 #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
+
+    {# ============================================================
+       Coordinator sidebar navigation
+       ============================================================ #}
+    <aside class="coordinator-sidebar">
+      <nav aria-label="{% trans 'Coordinator navigation' %}">
+        <ul class="coordinator-nav" role="list">
+          <li>
+            <a href="{% url 'volunteers:coordinator_dashboard' %}"
+               class="coordinator-nav__link">
+              {% trans "Dashboard" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:opportunity_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Opportunities" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:coordinator_application_list' %}"
+               class="coordinator-nav__link">
+              {% trans "All Applications" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:shift_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Shifts" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:hours_approval_list' %}"
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
+              {% trans "Hours Approvals" %}
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    {# ============================================================
+       Main content area
+       ============================================================ #}
+    <div class="coordinator-main" id="coordinator-main-content" role="main">
+
+      <h1 class="page-title">{% trans "Pending hours approvals" %}</h1>
+
+      {# ============================================================
+         Hours log table
+         ============================================================ #}
+      {% if hours_logs %}
+        <div class="table-wrapper"
+             role="region"
+             aria-label="{% trans 'Pending volunteer hours submissions' %}"
+             tabindex="0">
+          <table class="data-table">
+            <caption class="visually-hidden">
+              {% trans "Volunteer hours submissions pending coordinator review" %}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{% trans "Volunteer" %}</th>
+                <th scope="col">{% trans "Opportunity" %}</th>
+                <th scope="col">{% trans "Date" %}</th>
+                <th scope="col">{% trans "Hours" %}</th>
+                <th scope="col">{% trans "Description" %}</th>
+                <th scope="col">{% trans "Submitted" %}</th>
+                <th scope="col">
+                  <span class="visually-hidden">{% trans "Actions" %}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in hours_logs %}
+                <tr>
+                  {# PIPEDA: display_name (preferred name or "Volunteer #pk") — never raw email #}
+                  <th scope="row">{{ log.volunteer.display_name }}</th>
+                  <td>
+                    {% if log.opportunity %}
+                      {{ log.opportunity.get_title }}
+                    {% else %}
+                      <span class="text-muted">{% trans "—" %}</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <time datetime="{{ log.date|date:'Y-m-d' }}">
+                      {{ log.date|date:"Y-m-d" }}
+                    </time>
+                  </td>
+                  <td>{{ log.hours }}</td>
+                  <td>
+                    {% if log.description %}
+                      {{ log.description }}
+                    {% else %}
+                      <span class="text-muted">{% trans "—" %}</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <time datetime="{{ log.created_at|date:'c' }}">
+                      {{ log.created_at|date:"Y-m-d" }}
+                    </time>
+                  </td>
+                  <td class="actions-cell">
+
+                    {# Approve — idempotent, no confirmation needed #}
+                    <form method="post"
+                          action="{% url 'volunteers:hours_approve' log.pk %}"
+                          class="inline-form">
+                      {% csrf_token %}
+                      <button type="submit"
+                              class="btn btn--primary btn--small"
+                              aria-label="{% blocktrans with name=log.volunteer.display_name date=log.date|date:'Y-m-d' hours=log.hours %}Approve {{ hours }} hours for {{ name }} on {{ date }}{% endblocktrans %}">
+                        {% trans "Approve" %}
+                      </button>
+                    </form>
+
+                    {# Decline — requires reason; uses <details> panel for inline form #}
+                    {#
+                      PIPEDA: rejection_reason captured here is coordinator-internal only.
+                      The reject_hours() service omits rejection_reason from volunteer-facing
+                      notification signals. This field is never rendered in volunteer-facing templates.
+                    #}
+                    <details class="confirm-panel confirm-panel--inline">
+                      <summary class="btn btn--danger btn--small"
+                               aria-label="{% blocktrans with name=log.volunteer.display_name date=log.date|date:'Y-m-d' hours=log.hours %}Decline {{ hours }} hours for {{ name }} on {{ date }}{% endblocktrans %}">
+                        {% trans "Decline" %}
+                      </summary>
+                      <div class="confirm-panel__body" role="group"
+                           aria-label="{% trans 'Decline hours submission' %}">
+                        <form method="post"
+                              action="{% url 'volunteers:hours_reject' log.pk %}">
+                          {% csrf_token %}
+                          <div class="form-group">
+                            <label for="decline-reason-{{ log.pk }}" class="form-label">
+                              {% trans "Reason for declining" %}
+                              <span aria-hidden="true">*</span>
+                              <span class="visually-hidden">{% trans "(required)" %}</span>
+                            </label>
+                            <p id="decline-reason-{{ log.pk }}-hint" class="hint">
+                              {% trans "Coordinator-internal note. Not shown to the volunteer." %}
+                            </p>
+                            <textarea id="decline-reason-{{ log.pk }}"
+                                      name="reason"
+                                      class="form-control"
+                                      rows="3"
+                                      required
+                                      aria-required="true"
+                                      aria-describedby="decline-reason-{{ log.pk }}-hint"
+                                      maxlength="300">
+                            </textarea>
+                          </div>
+                          <div class="confirm-panel__actions">
+                            <button type="submit" class="btn btn--danger btn--small">
+                              {% trans "Confirm decline" %}
+                            </button>
+                            <button type="button"
+                                    class="btn btn--ghost btn--small"
+                                    onclick="this.closest('details').removeAttribute('open')">
+                              {% trans "Cancel" %}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </details>
+
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {# ============================================================
+           Pagination
+           ============================================================ #}
+        {% if is_paginated %}
+          <nav aria-label="{% trans 'Hours approvals pagination' %}" class="pagination-nav">
+            <ul class="pagination" role="list">
+              {% if page_obj.has_previous %}
+                <li>
+                  <a href="?page={{ page_obj.previous_page_number }}"
+                     class="pagination__link"
+                     aria-label="{% trans 'Previous page' %}">
+                    {% trans "Previous" %}
+                  </a>
+                </li>
+              {% endif %}
+
+              <li class="pagination__page-info" aria-current="page" aria-live="polite">
+                {% blocktrans with current=page_obj.number total=paginator.num_pages %}
+                  Page {{ current }} of {{ total }}
+                {% endblocktrans %}
+              </li>
+
+              {% if page_obj.has_next %}
+                <li>
+                  <a href="?page={{ page_obj.next_page_number }}"
+                     class="pagination__link"
+                     aria-label="{% trans 'Next page' %}">
+                    {% trans "Next" %}
+                  </a>
+                </li>
+              {% endif %}
+            </ul>
+          </nav>
+        {% endif %}
+
+      {% else %}
+        {# ============================================================
+           Empty state
+           ============================================================ #}
+        <div class="empty-state">
+          <p class="empty-state__message">
+            {% trans "No pending hours submissions." %}
+          </p>
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}

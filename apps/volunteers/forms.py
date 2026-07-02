@@ -24,10 +24,12 @@ WCAG 2.1 AA compliance notes:
 """
 from __future__ import annotations
 
+import copy
+
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from apps.volunteers.models import VolunteerApplication
+from apps.volunteers.models import HoursLog, Shift, VolunteerApplication
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +109,6 @@ class ApplicationForm(forms.ModelForm):
             "motivation": forms.Textarea(
                 attrs={
                     "rows": 6,
-                    "aria-describedby": "motivation-help",
                 }
             ),
         }
@@ -147,14 +148,27 @@ class ApplicationForm(forms.ModelForm):
         if opportunity and opportunity.required_profile_fields:
             for field_name in opportunity.required_profile_fields:
                 if field_name in _PROFILE_FIELD_REGISTRY and field_name not in self.fields:
-                    # Copy the field so mutations (e.g. required=False overrides)
-                    # don't affect the registry original.
-                    self.fields[field_name] = _PROFILE_FIELD_REGISTRY[field_name]
+                    # Deep-copy the field so mutations (e.g. required=False
+                    # overrides, aria-describedby additions, widget.attrs
+                    # updates) don't corrupt the shared registry object for
+                    # subsequent requests.
+                    self.fields[field_name] = copy.deepcopy(_PROFILE_FIELD_REGISTRY[field_name])
 
         # --- Accessibility: mark required fields explicitly ---
         for name, field in self.fields.items():
             if field.required:
                 field.widget.attrs.setdefault("aria-required", "true")
+
+        # WCAG 2.1 SC 1.3.1 fix: wire aria-describedby to BOTH the hint
+        # paragraph (-hint) AND the error container (-errors) so screen readers
+        # can navigate field → help text AND field → error message.
+        # Direct assignment (not setdefault) ensures any stale value set in
+        # Meta.widgets is overwritten.  AT tools gracefully ignore IDs that are
+        # absent from the DOM, so referencing both is safe when only one exists.
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
 
     def clean(self):
         """
@@ -179,6 +193,9 @@ class ApplicationForm(forms.ModelForm):
                 ),
             )
 
+        # E-5 fix: write the stripped value back so leading/trailing whitespace
+        # is never persisted to the database.
+        cleaned_data["motivation"] = motivation
         return cleaned_data
 
 
@@ -196,9 +213,11 @@ class ApplicationReviewForm(forms.Form):
       - ``action`` uses a radio widget for clarity over a select drop-down;
         both choices are visible without interaction.
       - ``rejection_reason`` textarea is conditionally required via JavaScript
-        in the template, but server-side validation issues a non-blocking warning
-        (``__all__`` error) rather than a hard error to avoid blocking a
-        coordinator who intentionally leaves it blank.
+        in the template. Server-side, ``clean()`` raises a hard field-level
+        ``ValidationError`` on ``"rejection_reason"`` when ``action == "reject"``
+        and ``rejection_reason`` is empty or whitespace-only (M-4 fix). The
+        service layer (``reject_application()``) does not enforce this — the
+        form is the gate.
     """
 
     action = forms.ChoiceField(
@@ -216,7 +235,6 @@ class ApplicationReviewForm(forms.Form):
         widget=forms.Textarea(
             attrs={
                 "rows": 4,
-                "aria-describedby": "rejection-reason-help",
             }
         ),
         required=False,
@@ -226,32 +244,227 @@ class ApplicationReviewForm(forms.Form):
         ),
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # WCAG 2.1 SC 1.3.1 fix: wire aria-describedby to BOTH the hint
+        # paragraph (-hint) AND the error container (-errors) so screen readers
+        # can navigate field → help text AND field → error message.
+        # Direct assignment (not setdefault) overwrites any stale value set on
+        # widget attrs at class-definition time.  AT tools gracefully ignore IDs
+        # absent from the DOM, so referencing both is safe when only one exists.
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
+
     def clean(self):
         """
-        Non-blocking warning when rejecting without a reason.
+        Hard validation: rejection decisions require an internal reason.
 
-        A missing ``rejection_reason`` on rejection is surfaced as a non-field
-        error (warning level) rather than a ``ValidationError`` so the form is
-        still valid and the coordinator can proceed.  This preserves the ability
-        to act quickly without forcing boilerplate text entry.
+        Under PIPEDA's accountability principle and access-to-information
+        obligations, every rejection must carry a documented internal rationale.
+        A missing ``rejection_reason`` when ``action == "reject"`` is a hard
+        ``ValidationError`` that prevents form submission.
+
+        The ``rejection_reason`` field remains ``required=False`` at the field
+        level so the HTML input is not unconditionally marked required — this
+        cross-field rule enforces the conditional requirement server-side.
+
+        Note: the rejection reason is an internal coordinator record and is
+        NEVER surfaced to the volunteer.
         """
         cleaned_data = super().clean()
         action = cleaned_data.get("action")
-        reason = cleaned_data.get("rejection_reason", "").strip()
+        rejection_reason = cleaned_data.get("rejection_reason", "").strip()
 
-        if action == "reject" and not reason:
-            # Non-blocking: add informational message rather than invalidating.
-            # Templates should surface this via form.non_field_errors with a
-            # "warning" CSS class, not "error".
-            self.add_error(
-                None,
-                _(
-                    "No internal notes were provided for this rejection. "
-                    "Consider adding a note for audit purposes — "
-                    "it will not be shown to the volunteer."
-                ),
+        if action == "reject" and not rejection_reason:
+            raise forms.ValidationError(
+                {
+                    "rejection_reason": _(
+                        "A rejection reason is required for audit purposes. "
+                        "This record is for internal use only and will not be "
+                        "shared with the applicant."
+                    )
+                }
             )
-            # NOTE: we deliberately do NOT raise; the form remains valid so the
-            # coordinator can submit without a reason if they choose.
 
         return cleaned_data
+
+
+# ---------------------------------------------------------------------------
+# ShiftForm
+# ---------------------------------------------------------------------------
+
+class ShiftForm(forms.ModelForm):
+    """
+    Create or edit a Shift under an Opportunity.
+
+    Used by coordinator ShiftCreateView and ShiftEditView.  The opportunity
+    is injected via __init__ rather than rendered as a form field.
+
+    WCAG notes:
+      - start_datetime / end_datetime use <input type="datetime-local"> with
+        explicit <label> elements — not placeholder-only.
+      - aria-describedby references both -hint and -errors IDs.
+    """
+
+    class Meta:
+        model = Shift
+        fields = [
+            "title_en", "title_fr",
+            "description_en", "description_fr",
+            "start_datetime", "end_datetime",
+            "location_override",
+            "is_remote",
+            "capacity",
+            "waitlist_enabled",
+            "waitlist_cap",
+        ]
+        widgets = {
+            "start_datetime": forms.DateTimeInput(
+                attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "end_datetime": forms.DateTimeInput(
+                attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "description_en": forms.Textarea(attrs={"rows": 4}),
+            "description_fr": forms.Textarea(attrs={"rows": 4}),
+        }
+        labels = {
+            "title_en": _("Shift title (English)"),
+            "title_fr": _("Shift title (French)"),
+            "description_en": _("Description (English)"),
+            "description_fr": _("Description (French)"),
+            "start_datetime": _("Start date and time"),
+            "end_datetime": _("End date and time"),
+            "location_override": _("Location (leave blank to use opportunity location)"),
+            "is_remote": _("Remote shift"),
+            "capacity": _("Volunteer capacity (leave blank to inherit from opportunity)"),
+            "waitlist_enabled": _("Enable waitlist"),
+            "waitlist_cap": _("Waitlist cap (leave blank for unlimited)"),
+        }
+
+    def __init__(self, *args, opportunity=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.opportunity = opportunity
+        # WCAG: set aria-describedby on every visible field
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start = cleaned_data.get("start_datetime")
+        end = cleaned_data.get("end_datetime")
+
+        if start and end and end <= start:
+            self.add_error("end_datetime", _("End date and time must be after the start."))
+
+        # Validate waitlist_cap only makes sense when waitlist_enabled
+        waitlist_enabled = cleaned_data.get("waitlist_enabled")
+        waitlist_cap = cleaned_data.get("waitlist_cap")
+        if waitlist_cap and not waitlist_enabled:
+            self.add_error("waitlist_cap", _("Set a waitlist cap only when the waitlist is enabled."))
+
+        return cleaned_data
+
+
+# ---------------------------------------------------------------------------
+# HoursLogForm
+# ---------------------------------------------------------------------------
+
+class HoursLogForm(forms.ModelForm):
+    """
+    Volunteer submits an hours log against an opportunity.
+
+    The ``volunteer_profile`` and ``opportunity`` are injected via __init__
+    and are NOT rendered as form fields.  ``shift`` is an optional
+    ModelChoiceField filtered to the volunteer's confirmed bookings.
+
+    PIPEDA: ``rejection_reason`` is never rendered.
+    """
+
+    class Meta:
+        model = HoursLog
+        fields = ["date", "hours", "description", "shift"]
+        widgets = {
+            "date": forms.DateInput(attrs={"type": "date"}),
+            "description": forms.Textarea(attrs={"rows": 3}),
+        }
+        labels = {
+            "date": _("Date of volunteering"),
+            "hours": _("Hours volunteered"),
+            "description": _("Brief description (optional)"),
+            "shift": _("Associated shift (optional)"),
+        }
+
+    def __init__(self, *args, volunteer_profile=None, opportunity=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.volunteer_profile = volunteer_profile
+        self.opportunity = opportunity
+        # Filter shift choices to confirmed/completed bookings for this volunteer+opportunity
+        if volunteer_profile is not None and opportunity is not None:
+            from apps.volunteers.models import ShiftBooking
+            self.fields["shift"].queryset = (
+                Shift.objects.filter(
+                    opportunity=opportunity,
+                    bookings__volunteer=volunteer_profile,
+                    bookings__status__in=[
+                        ShiftBooking.STATUS_CONFIRMED,
+                        ShiftBooking.STATUS_COMPLETED,
+                    ],
+                ).distinct()
+            )
+        else:
+            self.fields["shift"].queryset = Shift.objects.none()
+        self.fields["shift"].required = False
+        # WCAG: aria-describedby wiring
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
+
+    def clean_hours(self):
+        hours = self.cleaned_data.get("hours")
+        if hours is not None:
+            if hours <= 0:
+                raise forms.ValidationError(_("Hours must be greater than zero."))
+            if hours > 24:
+                raise forms.ValidationError(_("Cannot log more than 24 hours in a single entry."))
+        return hours
+
+
+# ---------------------------------------------------------------------------
+# HoursRejectForm
+# ---------------------------------------------------------------------------
+
+class HoursRejectForm(forms.Form):
+    """
+    Coordinator provides a rejection reason when rejecting an hours log.
+
+    Raises a hard field-level ValidationError on ``reason`` when reason is
+    empty or whitespace-only.  The service layer (``reject_hours()``) also
+    requires a non-empty reason — this form is the gate.
+    """
+
+    reason = forms.CharField(
+        label=_("Reason for rejection"),
+        max_length=300,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text=_("This reason will not be shown to the volunteer. Keep it brief."),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # WCAG: aria-describedby wiring
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
+
+    def clean_reason(self):
+        reason = self.cleaned_data.get("reason", "").strip()
+        if not reason:
+            raise forms.ValidationError(_("A rejection reason is required."))
+        return reason

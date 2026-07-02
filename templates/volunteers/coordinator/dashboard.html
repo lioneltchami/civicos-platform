@@ -20,6 +20,14 @@
 <div class="container">
   <div class="coordinator-layout__inner">
 
+    {# Skip link for coordinator layout — WCAG SC 2.4.1
+       The base template skip link lands on #main-content (the outer <main>),
+       but the coordinator sidebar is the first child inside that element.
+       This second skip link lets keyboard users jump past the sidebar. #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
+
     {# ============================================================
        Coordinator sidebar navigation
        ============================================================ #}

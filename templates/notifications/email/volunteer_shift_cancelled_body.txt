@@ -1,0 +1,32 @@
+{% load i18n %}
+{% trans "SHIFT CANCELLATION NOTICE" %}
+
+{% trans "Hello," %}
+
+{% trans "We regret to inform you that the following shift has been cancelled." %}
+
+{% trans "SHIFT DETAILS" %}
+------------------------------------------------------------
+{% trans "Opportunity:" %} {{ opportunity_title }}
+{% trans "Shift:" %} {{ shift_title }}
+{% trans "Originally scheduled:" %} {{ shift_start }} – {{ shift_end }}
+
+{% if cancellation_reason %}
+{% trans "Reason for cancellation:" %}
+{{ cancellation_reason }}
+
+{% endif %}
+{% trans "We sincerely apologize for any inconvenience this may cause. We encourage you to explore other available volunteer opportunities through the portal." %}
+
+{% if portal_url %}
+{% trans "Find other opportunities:" %}
+{{ portal_url }}
+{% else %}
+{% trans "Please log in to the volunteer portal to find other available shifts." %}
+{% endif %}
+
+{% trans "Thank you for your understanding and continued commitment to volunteering." %}
+
+------------------------------------------------------------
+{% trans "This is an automated notification. Please do not reply to this email." %}
+{% trans "This message was sent by the Volunteer Management System." %}

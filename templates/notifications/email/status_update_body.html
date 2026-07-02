@@ -32,9 +32,11 @@
         <p class="label">{% trans "New status" %}</p>
         <p class="value">{{ new_status }}</p>
       </div>
+      {% if portal_link %}
       <div class="cta">
         <a href="{{ portal_link }}" class="btn">{% trans "View your request" %}</a>
       </div>
+      {% endif %}
     </div>
     <div class="footer">
       <p>{% trans "This is an automated message. Please do not reply directly to this email." %}</p>

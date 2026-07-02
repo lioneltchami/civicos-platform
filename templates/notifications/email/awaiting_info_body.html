@@ -31,9 +31,11 @@
       <div class="info-box">
         <p>{% trans "Please sign in to your portal account to view what is needed and provide the requested information." %}</p>
       </div>
+      {% if portal_link %}
       <div class="cta">
         <a href="{{ portal_link }}" class="btn">{% trans "Provide required information" %}</a>
       </div>
+      {% endif %}
       <p class="warning">{% trans "If you do not respond within 30 days, your request may be closed." %}</p>
     </div>
     <div class="footer">
