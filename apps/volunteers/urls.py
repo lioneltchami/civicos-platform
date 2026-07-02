@@ -6,23 +6,37 @@ Namespace: ``volunteers``
 URL groups
 ----------
 Portal (volunteer-facing)
-  /volunteer/opportunities/                  — opportunity_list
-  /volunteer/opportunities/<pk>/             — opportunity_detail
-  /volunteer/opportunities/<pk>/apply/       — apply
-  /volunteer/applications/                   — my_applications
-  /volunteer/applications/<pk>/withdraw/     — withdraw
+  /volunteer/opportunities/                          — opportunity_list
+  /volunteer/opportunities/<pk>/                     — opportunity_detail
+  /volunteer/opportunities/<pk>/apply/               — apply
+  /volunteer/opportunities/<pk>/log-hours/           — log_hours
+  /volunteer/applications/                           — my_applications
+  /volunteer/applications/<pk>/withdraw/             — withdraw
+  /volunteer/shifts/                                 — my_shifts
+  /volunteer/hours/                                  — my_hours
+  /volunteer/bookings/<pk>/cancel/                   — cancel_booking
 
 Coordinator
-  /coordinator/                              — coordinator_dashboard
-  /coordinator/applications/                 — coordinator_application_list
-  /coordinator/applications/<pk>/review/     — application_review
+  /coordinator/                                      — coordinator_dashboard
+  /coordinator/applications/                         — coordinator_application_list
+  /coordinator/applications/<pk>/review/             — application_review
+  /coordinator/shifts/                               — shift_list
+  /coordinator/shifts/<pk>/                          — shift_detail
+  /coordinator/opportunities/<pk>/shifts/new/        — shift_create
+  /coordinator/shifts/<pk>/cancel/                   — shift_cancel
+  /coordinator/bookings/<pk>/no-show/                — booking_no_show
+  /coordinator/bookings/<pk>/complete/               — booking_complete
+  /coordinator/hours/                                — hours_approval_list
+  /coordinator/hours/<pk>/approve/                   — hours_approve
+  /coordinator/hours/<pk>/reject/                    — hours_reject
 
 Security notes:
   - All portal views require login only (``LoginRequiredMixin``).
   - All coordinator views require login + ``volunteers.change_volunteerapplication``
     permission (``LoginRequiredMixin`` + ``PermissionRequiredMixin``, in that MRO order).
-  - withdraw/ accepts POST only — the view enforces ``http_method_names = ["post"]``
-    to prevent GET-triggered state changes.
+  - withdraw/, cancel_booking, shift_cancel, booking_no_show, booking_complete,
+    hours_approve, and hours_reject accept POST only — the views enforce
+    ``http_method_names = ["post"]`` to prevent GET-triggered state changes.
 """
 from django.urls import path
 

@@ -1023,6 +1023,11 @@ class SecurityInvariantsTests(BaseViewTestCase):
             ("opportunity_list", {}),
             ("my_applications", {}),
             ("coordinator_dashboard", {}),
+            # Wave 3 portal URLs
+            ("my_shifts", {}),
+            ("my_hours", {}),
+            ("log_hours", {"pk": 999}),
+            ("cancel_booking", {"pk": 999}),
         ]
 
         for name, kwargs in known_views:
@@ -1645,8 +1650,8 @@ class LogHoursViewTests(TestCase):
             "date": dt.date.today().isoformat(),
             "hours": "0",
         })
-        # Either 200 (form re-render with error) or 302 that the service blocks
-        self.assertIn(response.status_code, [200, 302])
+        # Invalid form input must re-render the form (200), not redirect
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             HoursLog.objects.filter(
                 volunteer=self.profile,
@@ -1692,6 +1697,27 @@ class LogHoursViewTests(TestCase):
             self.skipTest("log_hours URL not registered")
         response = self.client.get(url2)
         self.assertEqual(response.status_code, 404)
+
+    def test_post_with_wrong_opportunity_pk_returns_404(self):
+        """IDOR: volunteer approved for opp A cannot log hours against opp B's PK."""
+        url = self._url()
+        if url is None:
+            self.skipTest("log_hours URL not registered")
+        # Create a second opportunity that this volunteer is NOT approved for
+        opp_b = _make_opportunity(self.program, slug="loghours-opp-idor")
+        url_b = _url("log_hours", pk=opp_b.pk)
+        if url_b is None:
+            self.skipTest("log_hours URL not registered")
+        response = self.client.post(url_b, {
+            "date": dt.date.today().isoformat(),
+            "hours": "2",
+            "description": "IDOR attempt",
+        })
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            HoursLog.objects.filter(volunteer=self.profile, opportunity=opp_b).count(),
+            0,
+        )
 
 
 # ===========================================================================

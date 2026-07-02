@@ -52,6 +52,9 @@ logger = logging.getLogger(__name__)
 # The service functions reference ShiftBooking.STATUS_* constants at call-time.
 _CANCELLABLE = frozenset({"confirmed", "waitlisted"})
 
+_REASON_PREFIX = "Shift cancelled: "
+_REASON_MAX = 300  # ShiftBooking.cancellation_reason max_length
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -708,7 +711,7 @@ def cancel_shift(
         ).update(
             status=ShiftBooking.STATUS_CANCELLED,
             cancelled_at=timezone.now(),
-            cancellation_reason=f"Shift cancelled: {reason.strip()[:250]}",
+            cancellation_reason=(_REASON_PREFIX + reason.strip())[: _REASON_MAX - 1],
             updated_at=timezone.now(),
         )
 

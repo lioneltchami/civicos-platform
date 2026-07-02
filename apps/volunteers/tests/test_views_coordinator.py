@@ -1571,5 +1571,5 @@ class HoursRejectViewTests(TestCase):
         reason = "Hours exceed shift duration by 4 hours"
         self.client.post(url, {"reason": reason})
         self.log.refresh_from_db()
-        if self.log.status == HoursLog.STATUS_REJECTED:
-            self.assertEqual(self.log.rejection_reason, reason)
+        self.assertEqual(self.log.status, HoursLog.STATUS_REJECTED)
+        self.assertEqual(self.log.rejection_reason, reason)

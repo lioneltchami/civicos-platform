@@ -550,7 +550,7 @@ def notify_volunteer_on_booking_cancelled(sender, instance, shift, volunteer, re
             portal_url = ""
 
         context = {
-            "shift_title": booking.shift.opportunity.get_title(),
+            "opportunity_title": booking.shift.opportunity.get_title(),
             "shift_start": django_date_format(local_start, "DATETIME_FORMAT"),
             "shift_end": django_date_format(local_end, "DATETIME_FORMAT"),
             "shift_location": booking.shift.location_override or "",

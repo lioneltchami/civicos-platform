@@ -21,6 +21,7 @@ Conventions:
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 from unittest import mock
 
@@ -178,8 +179,9 @@ class SchedulingBaseTestCase(TestCase):
         self.volunteer_user = _make_user("vol@example.gc.ca")
         self.volunteer_profile = _make_profile(self.volunteer_user)
 
-        self.program = _make_program(slug="base-sched-prog")
-        self.opportunity = _make_opportunity(self.program, slug="base-sched-opp")
+        _slug_uid = uuid.uuid4().hex[:8]
+        self.program = _make_program(slug=f"base-sched-prog-{_slug_uid}")
+        self.opportunity = _make_opportunity(self.program, slug=f"base-sched-opp-{_slug_uid}")
 
         self.approved_application = _approve_application(
             self.volunteer_profile, self.opportunity

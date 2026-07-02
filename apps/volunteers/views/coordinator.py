@@ -388,14 +388,17 @@ class ShiftDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["bookings"] = (
+        # Force to a list in one DB round-trip, then compute counts in Python
+        # to avoid a separate COUNT(*) query.
+        bookings = list(
             self.object.bookings
             .select_related("volunteer__user")
             .order_by("status", "waitlist_position", "created_at")
         )
-        context["confirmed_count"] = context["bookings"].filter(
-            status=ShiftBooking.STATUS_CONFIRMED
-        ).count()
+        context["bookings"] = bookings
+        context["confirmed_count"] = sum(
+            1 for b in bookings if b.status == ShiftBooking.STATUS_CONFIRMED
+        )
         return context
 
 

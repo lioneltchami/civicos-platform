@@ -1,1 +1,1 @@
-{% load i18n %}{% blocktrans with title=shift_title %}Your booking for "{{ title }}" has been cancelled{% endblocktrans %}
+{% load i18n %}{% blocktrans with title=opportunity_title %}Your booking for "{{ title }}" has been cancelled{% endblocktrans %}

@@ -546,7 +546,9 @@ class MyShiftsView(LoginRequiredMixin, ListView):
         )
         now = timezone.now()
         # Evaluate the queryset once in Python so we can split without a second DB hit.
-        all_bookings = list(context.get("object_list") or self.get_queryset())
+        # Use context["object_list"] directly — ListView always sets it, and an empty
+        # queryset is falsy so `or self.get_queryset()` would trigger a redundant DB call.
+        all_bookings = list(context["object_list"])
         context["upcoming_bookings"] = [
             b for b in all_bookings if b.shift.end_datetime >= now
         ]

@@ -239,6 +239,7 @@
         </h2>
 
         {% if bookings %}
+          {% now "c" as now_iso %}
           <div class="table-wrapper"
                role="region"
                aria-label="{% trans 'Shift booking roster' %}"
@@ -261,7 +262,6 @@
                 </tr>
               </thead>
               <tbody>
-                {% now "c" as now_iso %}
               {% for booking in bookings %}
                   <tr>
                     {# PIPEDA: identify volunteer by display_name (preferred or fallback to #pk) — never by email #}

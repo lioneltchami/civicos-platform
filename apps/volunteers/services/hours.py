@@ -378,6 +378,7 @@ def reject_hours(
             from apps.volunteers.models import HoursLog as _HL
             from django.contrib.auth import get_user_model
             User = get_user_model()
+            # email included for coordinator-audit notification only — never send to volunteer-facing context
             _actor = User.objects.only("pk", "email").get(pk=_actor_pk)
             # PIPEDA: fetch with .only() so rejection_reason is deferred and
             # inaccessible to signal receivers without an explicit extra query.
@@ -491,12 +492,20 @@ def _check_milestones(*, volunteer_profile_pk, old_total, new_total) -> list:
                     .select_related("user")
                     .get(pk=volunteer_profile_pk)
                 )
-                milestone_achieved.send_robust(
+                results = milestone_achieved.send_robust(
                     sender=RecognitionMilestone,
                     instance=milestone,
                     volunteer=volunteer,
                     hours_threshold=threshold,
                 )
+                for receiver_fn, exc in results:
+                    if isinstance(exc, Exception):
+                        logger.error(
+                            "_check_milestones: receiver %s raised %s",
+                            receiver_fn,
+                            exc,
+                            exc_info=exc,
+                        )
                 logger.info(
                     "volunteers.hours: milestone achieved volunteer=%s threshold=%s",
                     volunteer_profile_pk,

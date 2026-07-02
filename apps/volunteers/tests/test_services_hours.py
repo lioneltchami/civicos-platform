@@ -638,7 +638,7 @@ class MilestoneTests(HoursBaseTestCase):
         finally:
             milestone_achieved.disconnect(handler)
 
-        self.assertGreaterEqual(len(received), 1)
+        self.assertEqual(len(received), 1)
         thresholds = [r["hours_threshold"] for r in received]
         self.assertIn(Decimal("25"), thresholds)
 

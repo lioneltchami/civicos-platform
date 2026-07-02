@@ -3,7 +3,7 @@
 
 {% trans "We're writing to let you know that your booking for the following shift has been cancelled." %}
 
-{% trans "Shift:" %} {{ shift_title }}
+{% trans "Shift:" %} {{ opportunity_title }}
 {% trans "Date and time:" %} {{ shift_start }}{% if shift_end %} – {{ shift_end }}{% endif %}
 {% if shift_location %}{% trans "Location:" %} {{ shift_location }}
 {% endif %}{% if cancellation_reason %}{% trans "Reason:" %} {{ cancellation_reason }}
