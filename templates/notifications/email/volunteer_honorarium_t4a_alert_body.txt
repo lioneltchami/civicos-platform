@@ -1,0 +1,30 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with year=calendar_year vol=volunteer_display %}T4A REQUIRED — Volunteer {{ vol }} ({{ year }}){% endblocktrans %}
+{% trans "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" %}
+
+{% trans "Hello," %}
+
+{% blocktrans with vol=volunteer_display year=calendar_year %}This message is to inform you that volunteer {{ vol }} has now reached or exceeded the $500.00 CAD cumulative honorarium threshold for calendar year {{ year }}.{% endblocktrans %}
+
+{% trans "Under CRA protocol PC-025, a T4A information return must be issued for this volunteer." %}
+
+{% trans "Payment Details" %}
+{% trans "━━━━━━━━━━━━━━━" %}
+{% trans "Volunteer:" %} {{ volunteer_display }} ({% trans "Profile" %} #{{ volunteer_pk }})
+{% trans "Calendar Year:" %} {{ calendar_year }}
+{% trans "This Payment Amount:" %} ${{ amount }} CAD
+{% trans "Payment Date:" %} {{ payment_date }}
+
+{% trans "Required Action" %}
+{% trans "━━━━━━━━━━━━━━━" %}
+{% trans "Please ensure a T4A slip is prepared and issued to the volunteer and filed with the Canada Revenue Agency (CRA) as required under PC-025." %}
+
+{% if portal_url %}
+{% trans "Volunteer Record:" %}
+{{ portal_url }}
+{% endif %}
+
+{% trans "If you have questions about T4A reporting obligations, please consult your finance department or CRA guidance." %}
+
+{% trans "This is an automated notification from the Volunteer Management System. Please do not reply to this email." %}
+{% endautoescape %}

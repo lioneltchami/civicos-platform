@@ -1,0 +1,19 @@
+{% load i18n %}Hello,
+
+Here is the volunteer hours summary for {{ program_name_en }} for {{ month_label }}.
+
+Total approved hours: {{ total_hours }}
+Volunteer count: {{ volunteer_count }}
+
+Breakdown by opportunity:
+{% for opp in by_opportunity %} - {{ opp.title_en }}: {{ opp.hours }} hours ({{ opp.volunteer_count }} volunteers)
+{% endfor %}
+{% if portal_url %}
+View the full report in the coordinator portal:
+{{ portal_url }}
+{% endif %}
+
+Thank you for your leadership of this program.
+
+This is an automated notification. Please do not reply to this email.
+This message was sent by the Volunteer Management System.

@@ -32,14 +32,30 @@ import logging
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.shortcuts import get_object_or_404, redirect
+from django.db import transaction
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import CreateView, DetailView, FormView, ListView
 
+from django.db.models import Prefetch
+
 from apps.volunteers.forms import ApplicationReviewForm, HoursRejectForm, ShiftForm
-from apps.volunteers.models import HoursLog, Opportunity, Shift, ShiftBooking, VolunteerApplication
+from apps.volunteers.models import (
+    Certification,
+    Honorarium,
+    HoursLog,
+    Opportunity,
+    RecognitionMilestone,
+    ScreeningRecord,
+    Shift,
+    ShiftBooking,
+    VolunteerApplication,
+    VolunteerNote,
+    VolunteerProfile,
+)
 from apps.volunteers.services.applications import approve_application, reject_application
 
 logger = logging.getLogger(__name__)
@@ -693,3 +709,437 @@ class HoursRejectView(LoginRequiredMixin, PermissionRequiredMixin, FormView):
     def form_invalid(self, form):
         messages.error(self.request, _("Please provide a rejection reason."))
         return redirect(reverse("volunteers:hours_approval_list"))
+
+
+# ---------------------------------------------------------------------------
+# VolunteerRosterView
+# ---------------------------------------------------------------------------
+
+class VolunteerRosterView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+    """
+    Coordinator view of all volunteer profiles.
+    Paginated, filterable by status and skill tag.
+    """
+
+    permission_required = "volunteers.change_volunteerapplication"
+    raise_exception = True
+    model = VolunteerProfile
+    template_name = "volunteers/coordinator/volunteer_roster.html"
+    context_object_name = "profiles"
+    paginate_by = 30
+
+    def get_queryset(self):
+        qs = (
+            VolunteerProfile.objects
+            .select_related("user")
+            .prefetch_related("skills")
+            .order_by("-created_at")
+        )
+        status = self.request.GET.get("status", "").strip()
+        if status in {c[0] for c in VolunteerProfile.STATUS_CHOICES}:
+            qs = qs.filter(status=status)
+        skill_pk = self.request.GET.get("skill", "").strip()
+        if skill_pk.isdigit():
+            qs = qs.filter(skills__pk=int(skill_pk))
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        from apps.volunteers.models import SkillTag
+        ctx["status_choices"] = VolunteerProfile.STATUS_CHOICES
+        ctx["skill_tags"] = SkillTag.objects.order_by("name_en")
+        ctx["current_status"] = self.request.GET.get("status", "")
+        ctx["current_skill"] = self.request.GET.get("skill", "")
+        return ctx
+
+
+# ---------------------------------------------------------------------------
+# VolunteerDetailView
+# ---------------------------------------------------------------------------
+
+class VolunteerDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailView):
+    """
+    Full coordinator profile view for a single volunteer.
+
+    Tabs: profile info, applications, shift bookings, hours, screenings,
+    certifications, honoraria, notes, milestones.
+
+    PIPEDA: accommodation_notes, emergency_contact_*, sin_last4 only exposed
+    when request.user has volunteers.view_accommodation_notes permission.
+    """
+
+    permission_required = "volunteers.change_volunteerapplication"
+    raise_exception = True
+    model = VolunteerProfile
+    template_name = "volunteers/coordinator/volunteer_detail.html"
+
+    def get_queryset(self):
+        return VolunteerProfile.objects.select_related(
+            "user", "status_changed_by"
+        ).prefetch_related(
+            Prefetch(
+                "applications",
+                queryset=VolunteerApplication.objects.select_related(
+                    "opportunity__program"
+                ).order_by("-created_at")[:10],
+                to_attr="_prefetched_applications",
+            ),
+            Prefetch(
+                "bookings",
+                queryset=ShiftBooking.objects.select_related(
+                    "shift__opportunity"
+                ).order_by("-created_at")[:10],
+                to_attr="_prefetched_bookings",
+            ),
+            Prefetch(
+                "hours_logs",
+                queryset=HoursLog.objects.defer("rejection_reason").select_related(
+                    "opportunity"
+                ).order_by("-date")[:20],
+                to_attr="_prefetched_hours_logs",
+            ),
+            Prefetch(
+                "screening_records",
+                queryset=ScreeningRecord.objects.select_related(
+                    "opportunity", "verified_by"
+                ).order_by("-completed_date"),
+                to_attr="_prefetched_screenings",
+            ),
+            Prefetch(
+                "certifications",
+                queryset=Certification.objects.select_related(
+                    "verified_by"
+                ).order_by("-issued_date"),
+                to_attr="_prefetched_certifications",
+            ),
+            Prefetch(
+                "honoraria",
+                queryset=Honorarium.objects.select_related(
+                    "created_by"
+                ).order_by("-payment_date")[:10],
+                to_attr="_prefetched_honoraria",
+            ),
+            Prefetch(
+                "notes",
+                queryset=VolunteerNote.objects.select_related("author").order_by("-created_at")[:20],
+                to_attr="_prefetched_notes",
+            ),
+            Prefetch(
+                "milestones",
+                queryset=RecognitionMilestone.objects.order_by("hours_threshold"),
+                to_attr="_prefetched_milestones",
+            ),
+        )
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        profile = self.object
+        can_view_sensitive = self.request.user.has_perm("volunteers.view_accommodation_notes")
+
+        ctx["can_view_sensitive"] = can_view_sensitive
+
+        # Server-side PIPEDA enforcement: if the coordinator lacks permission,
+        # None-out sensitive fields on the profile object in context so that
+        # even a template bug cannot expose them.
+        if not can_view_sensitive:
+            profile.accommodation_notes = None
+            profile.emergency_contact_name = None
+            profile.emergency_contact_phone = None
+            profile.emergency_contact_relation = None
+            profile.sin_last4 = None
+            # sin_encrypted is never exposed — already absent from template
+
+        # Use prefetched data (loaded by get_queryset) to avoid N+1 DB queries.
+        # Each _prefetched_* attribute is a list populated by the Prefetch objects
+        # in get_queryset(); accessing them costs zero additional DB round-trips.
+        ctx["applications"] = profile._prefetched_applications
+        ctx["bookings"] = profile._prefetched_bookings
+        ctx["hours_logs"] = profile._prefetched_hours_logs  # rejection_reason deferred (PIPEDA)
+        ctx["screenings"] = profile._prefetched_screenings
+        ctx["certifications"] = profile._prefetched_certifications
+        ctx["honoraria"] = profile._prefetched_honoraria
+        ctx["notes"] = profile._prefetched_notes
+        ctx["milestones"] = profile._prefetched_milestones
+
+        # Forms for inline actions
+        from apps.volunteers.forms import VolunteerNoteForm, VolunteerStatusForm
+        ctx["note_form"] = VolunteerNoteForm()
+        ctx["status_form"] = VolunteerStatusForm(initial={"status": profile.status})
+
+        # CRA: YTD honorarium total for current year.
+        # cumulative_ytd() already returns Decimal("0") on empty, but guard
+        # defensively in case the service contract changes or returns None.
+        from decimal import Decimal
+        from apps.volunteers.services.honoraria import cumulative_ytd
+        ctx["ytd_honorarium"] = cumulative_ytd(
+            profile, year=timezone.localtime(timezone.now()).year
+        ) or Decimal("0")
+
+        return ctx
+
+
+# ---------------------------------------------------------------------------
+# VolunteerStatusChangeView
+# ---------------------------------------------------------------------------
+
+class VolunteerStatusChangeView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    POST-only: coordinator changes a volunteer's status (active/inactive/suspended).
+    Logs the change with status_changed_by and status_changed_at.
+    """
+
+    permission_required = "volunteers.change_volunteerprofile"
+    raise_exception = True
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        profile = get_object_or_404(
+            VolunteerProfile.objects.filter(
+                applications__opportunity__program__coordinator=request.user
+            ).distinct(),
+            pk=self.kwargs["pk"],
+        )
+        from apps.volunteers.forms import VolunteerStatusForm
+        form = VolunteerStatusForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, _("Invalid status value."))
+            return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
+
+        new_status = form.cleaned_data["status"]
+        reason = form.cleaned_data.get("reason", "")
+
+        with transaction.atomic():
+            # select_for_update to prevent concurrent status changes
+            locked = VolunteerProfile.objects.select_for_update().get(pk=profile.pk)
+            old_status = locked.status
+            locked.status = new_status
+            locked.status_changed_at = timezone.now()
+            locked.status_changed_by = request.user
+            locked.save(update_fields=["status", "status_changed_at", "status_changed_by", "updated_at"])
+
+        logger.info(
+            "VolunteerStatusChangeView: profile #%s status changed from %s to %s by user #%s",
+            profile.pk, old_status, new_status, request.user.pk,
+        )
+        messages.success(
+            request,
+            _("Volunteer status updated to %(status)s.") % {"status": locked.get_status_display()},
+        )
+        return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
+
+
+# ---------------------------------------------------------------------------
+# AddVolunteerNoteView
+# ---------------------------------------------------------------------------
+
+class AddVolunteerNoteView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    POST-only: coordinator adds an internal (append-only) note to a volunteer profile.
+    Notes are NEVER shown to the volunteer.
+    """
+
+    permission_required = "volunteers.change_volunteerprofile"
+    raise_exception = True
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        profile = get_object_or_404(
+            VolunteerProfile.objects.filter(
+                applications__opportunity__program__coordinator=request.user
+            ).distinct(),
+            pk=self.kwargs["pk"],
+        )
+        from apps.volunteers.forms import VolunteerNoteForm
+        from apps.volunteers.models import VolunteerNote
+        form = VolunteerNoteForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, _("Note cannot be empty."))
+            return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
+
+        VolunteerNote.objects.create(
+            volunteer=profile,
+            author=request.user,
+            body=form.cleaned_data["body"],
+        )
+        logger.info(
+            "AddVolunteerNoteView: note added to volunteer profile #%s by user #%s",
+            profile.pk, request.user.pk,
+        )
+        messages.success(request, _("Note added."))
+        return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
+
+
+# ---------------------------------------------------------------------------
+# RecordScreeningView
+# ---------------------------------------------------------------------------
+
+class RecordScreeningView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    GET: show form to record a new background check for a volunteer.
+    POST: create ScreeningRecord via record_check() service.
+
+    PIPEDA: notes field has enforced content restrictions for VSC records.
+    The actual criminal record result is NEVER stored — only verified_clear flag.
+    """
+
+    permission_required = "volunteers.add_screeningrecord"
+    raise_exception = True
+
+    def _get_profile(self):
+        return get_object_or_404(
+            VolunteerProfile.objects.filter(
+                applications__opportunity__program__coordinator=self.request.user
+            ).distinct(),
+            pk=self.kwargs["pk"],
+        )
+
+    def get(self, request, *args, **kwargs):
+        profile = self._get_profile()
+        from apps.volunteers.forms import ScreeningForm
+        form = ScreeningForm(volunteer=profile)
+        return render(request, "volunteers/coordinator/screening_form.html", {
+            "form": form,
+            "profile": profile,
+        })
+
+    def post(self, request, *args, **kwargs):
+        profile = self._get_profile()
+        from apps.volunteers.forms import ScreeningForm
+        from apps.volunteers.services.screening import record_check
+        form = ScreeningForm(request.POST, volunteer=profile)
+        if not form.is_valid():
+            return render(request, "volunteers/coordinator/screening_form.html", {
+                "form": form,
+                "profile": profile,
+            })
+        try:
+            record_check(
+                volunteer_profile=profile,
+                check_type=form.cleaned_data["check_type"],
+                opportunity=form.cleaned_data.get("opportunity"),
+                requested_by=request.user,
+                notes=form.cleaned_data.get("notes", ""),
+                expiry_date=form.cleaned_data.get("expires_date"),
+                completed_date=form.cleaned_data.get("completed_date"),
+            )
+            messages.success(request, _("Screening record created."))
+            return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
+        except ValidationError as exc:
+            form.add_error(None, exc)
+            return render(request, "volunteers/coordinator/screening_form.html", {
+                "form": form,
+                "profile": profile,
+            })
+
+
+# ---------------------------------------------------------------------------
+# CompleteScreeningView
+# ---------------------------------------------------------------------------
+
+class CompleteScreeningView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    POST-only: coordinator records the outcome (verified_clear) of a screening.
+
+    PIPEDA: For VSC records, notes are restricted to logistical content only.
+    Criminal record details must NEVER be stored.
+    """
+
+    permission_required = "volunteers.change_screeningrecord"
+    raise_exception = True
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        from apps.volunteers.models import ScreeningRecord
+        from apps.volunteers.forms import CompleteScreeningForm
+        from apps.volunteers.services.screening import complete_check
+
+        screening = get_object_or_404(
+            ScreeningRecord.objects.filter(
+                volunteer__applications__opportunity__program__coordinator=request.user
+            ).distinct(),
+            pk=self.kwargs["pk"],
+        )
+        form = CompleteScreeningForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, _("Please correct the form errors."))
+            return redirect(
+                reverse("volunteers:volunteer_detail", kwargs={"pk": screening.volunteer_id})
+            )
+        try:
+            complete_check(
+                screening_record=screening,
+                verified_clear=form.cleaned_data["verified_clear"],
+                completed_by=request.user,
+                notes=form.cleaned_data.get("notes", ""),
+            )
+            messages.success(request, _("Screening record updated."))
+        except ValidationError as exc:
+            for msg in exc.messages:
+                messages.error(request, msg)
+        return redirect(
+            reverse("volunteers:volunteer_detail", kwargs={"pk": screening.volunteer_id})
+        )
+
+
+# ---------------------------------------------------------------------------
+# HonorariumCreateView
+# ---------------------------------------------------------------------------
+
+class HonorariumCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    """
+    GET: show form to create an honorarium for a volunteer.
+    POST: create Honorarium via create_honorarium() service (CRA threshold enforcement).
+
+    CRA PC-025: Service enforces cumulative $450/$500/$1000 thresholds.
+    If ValidationError (hard block), form is re-rendered with error message.
+    """
+
+    permission_required = "volunteers.add_honorarium"
+    raise_exception = True
+
+    def _get_profile(self):
+        return get_object_or_404(VolunteerProfile, pk=self.kwargs["pk"])
+
+    def get(self, request, *args, **kwargs):
+        profile = self._get_profile()
+        from apps.volunteers.forms import HonorariumForm
+        from apps.volunteers.services.honoraria import cumulative_ytd
+        form = HonorariumForm()
+        ytd = cumulative_ytd(profile, year=timezone.localtime(timezone.now()).year)
+        return render(request, "volunteers/coordinator/honorarium_form.html", {
+            "form": form,
+            "profile": profile,
+            "ytd_honorarium": ytd,
+        })
+
+    def post(self, request, *args, **kwargs):
+        profile = self._get_profile()
+        from apps.volunteers.forms import HonorariumForm
+        from apps.volunteers.services.honoraria import create_honorarium, cumulative_ytd
+        form = HonorariumForm(request.POST)
+        if not form.is_valid():
+            ytd = cumulative_ytd(profile, year=timezone.localtime(timezone.now()).year)
+            return render(request, "volunteers/coordinator/honorarium_form.html", {
+                "form": form,
+                "profile": profile,
+                "ytd_honorarium": ytd,
+            })
+        try:
+            create_honorarium(
+                volunteer_profile=profile,
+                payment_type=form.cleaned_data["payment_type"],
+                amount=form.cleaned_data["amount"],
+                description=form.cleaned_data["description"],
+                payment_date=form.cleaned_data["payment_date"],
+                created_by=request.user,
+            )
+            messages.success(request, _("Honorarium recorded."))
+            return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
+        except ValidationError as exc:
+            form.add_error(None, exc)
+            ytd = cumulative_ytd(profile, year=timezone.localtime(timezone.now()).year)
+            return render(request, "volunteers/coordinator/honorarium_form.html", {
+                "form": form,
+                "profile": profile,
+                "ytd_honorarium": ytd,
+            })

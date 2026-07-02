@@ -33,3 +33,10 @@ certification_expiring = Signal()   # sender=Certification; kwargs: volunteer, c
 
 # --- Recognition ---
 milestone_achieved = Signal()   # sender=RecognitionMilestone; kwargs: volunteer, hours_threshold
+
+# --- Honorarium / CRA ---
+honorarium_created          = Signal()  # sender=Honorarium; kwargs: created_by
+t4a_threshold_reached       = Signal()  # sender=Honorarium; kwargs: coordinator
+# Fired when cumulative YTD honoraria cross the $450 alert threshold but have NOT yet
+# reached the $500 T4A threshold. Non-blocking — coordinator notification only.
+cra_alert_threshold_reached = Signal()  # sender=Honorarium; kwargs: coordinator, ytd_total

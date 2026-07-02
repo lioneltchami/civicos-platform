@@ -467,12 +467,171 @@ def check_expiring_certifications(self):
 
 
 # ---------------------------------------------------------------------------
+# Task 5: Monthly hours summary to program coordinators
+# ---------------------------------------------------------------------------
+
+@shared_task(
+    bind=True,
+    name="volunteers.send_monthly_hours_summary",
+    max_retries=2,
+    default_retry_delay=300,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    queue="volunteers",
+)
+def send_monthly_hours_summary(self):
+    """
+    Monthly digest of approved volunteer hours per active Program,
+    sent to each program's coordinator.
+
+    Summarises the PREVIOUS calendar month's approved HoursLog entries.
+    Scheduled: 1st of each month at 08:00 Toronto time via Celery Beat.
+
+    For each active Program with a coordinator:
+      - Query approved HoursLog records for that program in the previous month
+      - Aggregate: total hours, distinct volunteer count, breakdown by opportunity
+      - Email the program coordinator (skip if zero hours for that month)
+
+    PIPEDA: Coordinator-facing report only. Volunteer names not included —
+    only aggregated counts. No individual volunteer data in context.
+    """
+    from apps.volunteers.models import HoursLog, Program
+    from apps.notifications.services import send_email_notification
+    from django.db.models import Sum, Count, Q
+
+    # Compute the previous calendar month
+    now = timezone.localtime(timezone.now())
+    if now.month == 1:
+        report_year, report_month = now.year - 1, 12
+    else:
+        report_year, report_month = now.year, now.month - 1
+
+    # Human-readable month label (bilingual not needed — coordinator email in their preferred lang)
+    import calendar as _cal
+    month_name = _cal.month_name[report_month]  # e.g. "June"
+    month_label = f"{month_name} {report_year}"
+
+    programs = (
+        Program.objects.filter(is_active=True)
+        .select_related("coordinator")
+        .exclude(coordinator__isnull=True)
+        .order_by("pk")
+    )
+
+    processed = 0
+    skipped = 0
+    error_count = 0
+
+    for program in programs:
+        try:
+            # Aggregate hours for this program in the previous month
+            hours_qs = (
+                HoursLog.objects.filter(
+                    status=HoursLog.STATUS_APPROVED,
+                    date__year=report_year,
+                    date__month=report_month,
+                    opportunity__program=program,
+                )
+                .select_related("opportunity")
+            )
+
+            stats = hours_qs.aggregate(
+                total_hours=Sum("hours"),
+                volunteer_count=Count("volunteer", distinct=True),
+            )
+
+            if stats["total_hours"] is None:
+                skipped += 1
+                logger.debug(
+                    "volunteers.tasks.send_monthly_hours_summary: "
+                    "no approved hours for program #%s in %s — skipping.",
+                    program.pk,
+                    month_label,
+                )
+                continue
+
+            # Per-opportunity breakdown (aggregated counts only — no individual volunteer data)
+            opp_rows = (
+                hours_qs.values(
+                    "opportunity__pk",
+                    "opportunity__title_en",
+                    "opportunity__title_fr",
+                )
+                .annotate(
+                    opp_hours=Sum("hours"),
+                    opp_volunteers=Count("volunteer", distinct=True),
+                )
+                .order_by("-opp_hours")
+            )
+
+            # Build a serialisable list (no Django ORM objects in email context)
+            by_opportunity = [
+                {
+                    "title_en": row["opportunity__title_en"] or "",
+                    "title_fr": row["opportunity__title_fr"] or "",
+                    "hours": str(row["opp_hours"] or "0.00"),
+                    "volunteer_count": row["opp_volunteers"] or 0,
+                }
+                for row in opp_rows
+            ]
+
+            try:
+                portal_url = settings.SITE_URL + reverse("volunteers:coordinator_dashboard")
+            except Exception:
+                portal_url = ""
+
+            context = {
+                "recipient": program.coordinator,
+                "program_name_en": program.name_en,
+                "program_name_fr": program.name_fr,
+                "month_label": month_label,
+                "report_year": report_year,
+                "report_month": report_month,
+                "total_hours": str(stats["total_hours"] or "0.00"),
+                "volunteer_count": stats["volunteer_count"] or 0,
+                "by_opportunity": by_opportunity,
+                "portal_url": portal_url,
+            }
+
+            send_email_notification(
+                recipient=program.coordinator,
+                subject_key="coordinator_monthly_summary",
+                context=context,
+            )
+            processed += 1
+            logger.info(
+                "volunteers.tasks.send_monthly_hours_summary: "
+                "sent summary for program #%s to coordinator user #%s (%s hours).",
+                program.pk,
+                program.coordinator_id,
+                stats["total_hours"],
+            )
+
+        except Exception as exc:
+            error_count += 1
+            logger.error(
+                "volunteers.tasks.send_monthly_hours_summary: "
+                "failed for program #%s: %s — continuing.",
+                program.pk,
+                exc,
+                exc_info=True,
+            )
+
+    logger.info(
+        "volunteers.tasks.send_monthly_hours_summary: complete — "
+        "processed=%d skipped=%d errors=%d month=%s.",
+        processed, skipped, error_count, month_label,
+    )
+    return {"processed": processed, "skipped": skipped, "errors": error_count}
+
+
+# ---------------------------------------------------------------------------
 # Beat schedule helper (DatabaseScheduler — call from a data migration)
 # ---------------------------------------------------------------------------
 
 def create_beat_schedule():
     """
-    Register all four periodic tasks in django_celery_beat's PeriodicTask table.
+    Register all five periodic tasks in django_celery_beat's PeriodicTask table.
 
     Call this from a data migration or a management command after django_celery_beat
     migrations have run. Safe to call repeatedly — uses get_or_create.
@@ -517,6 +676,16 @@ def create_beat_schedule():
         timezone="America/Toronto",
     )
 
+    # 08:00 America/Toronto on the 1st of each month.
+    first_of_month_morning, _ = CrontabSchedule.objects.get_or_create(
+        minute="0",
+        hour="8",
+        day_of_week="*",
+        day_of_month="1",
+        month_of_year="*",
+        timezone="America/Toronto",
+    )
+
     tasks = [
         {
             "name": "volunteers: 24h shift reminders (hourly)",
@@ -537,6 +706,11 @@ def create_beat_schedule():
             "name": "volunteers: check expiring certifications (daily 08:00 ET)",
             "task": "apps.volunteers.tasks.check_expiring_certifications",
             "crontab": daily_morning,
+        },
+        {
+            "name": "volunteers: monthly hours summary to coordinators (1st of month 08:00 ET)",
+            "task": "apps.volunteers.tasks.send_monthly_hours_summary",
+            "crontab": first_of_month_morning,
         },
     ]
 

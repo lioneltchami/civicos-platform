@@ -29,7 +29,16 @@ import copy
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from apps.volunteers.models import HoursLog, Shift, VolunteerApplication
+from apps.volunteers.models import (
+    HoursLog,
+    Honorarium,
+    Opportunity,
+    ScreeningRecord,
+    Shift,
+    VolunteerApplication,
+    VolunteerNote,
+    VolunteerProfile,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -468,3 +477,291 @@ class HoursRejectForm(forms.Form):
         if not reason:
             raise forms.ValidationError(_("A rejection reason is required."))
         return reason
+
+
+# ---------------------------------------------------------------------------
+# ScreeningForm
+# ---------------------------------------------------------------------------
+
+class ScreeningForm(forms.ModelForm):
+    """
+    Coordinator initiates a new background check for a volunteer.
+
+    Used by RecordScreeningView.  The ``volunteer`` is injected via __init__
+    and is NOT rendered as a form field.  The ``opportunity`` queryset is
+    filtered to opportunities where the volunteer has an APPROVED application.
+
+    WCAG notes:
+      - All date inputs use <input type="date"> with explicit <label> elements.
+      - aria-describedby references both -hint and -errors IDs.
+
+    PIPEDA: completed_date and expires_date are administrative records only;
+    no personal health or criminal record details are collected here.
+    """
+
+    class Meta:
+        model = ScreeningRecord
+        fields = ["check_type", "opportunity", "completed_date", "expires_date", "notes"]
+        widgets = {
+            "completed_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "expires_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+        labels = {
+            "check_type": _("Type of check"),
+            "opportunity": _("Associated opportunity (optional)"),
+            "completed_date": _("Date check was completed"),
+            "expires_date": _("Expiry date (if applicable)"),
+            "notes": _("Logistical notes"),
+        }
+        help_texts = {
+            "notes": _(
+                "Logistical notes only. For VSC records: maximum 150 characters, "
+                "no criminal record details (PIPEDA)."
+            ),
+        }
+
+    def __init__(self, *args, volunteer=None, **kwargs):
+        """
+        Args:
+            volunteer: ``VolunteerProfile`` instance being screened.
+                       Used to filter the opportunity queryset to approved
+                       applications only.
+            *args / **kwargs: Passed verbatim to ``ModelForm.__init__``.
+        """
+        super().__init__(*args, **kwargs)
+        self.volunteer = volunteer
+
+        if volunteer is not None:
+            approved_ids = VolunteerApplication.objects.filter(
+                volunteer=volunteer,
+                status=VolunteerApplication.STATUS_APPROVED,
+            ).values_list("opportunity_id", flat=True)
+            self.fields["opportunity"].queryset = Opportunity.objects.filter(
+                pk__in=approved_ids
+            )
+        else:
+            self.fields["opportunity"].queryset = Opportunity.objects.all()
+
+        # FK fields default to required=True; opportunity is optional here.
+        self.fields["opportunity"].required = False
+
+        # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        completed_date = cleaned_data.get("completed_date")
+        expires_date = cleaned_data.get("expires_date")
+
+        if expires_date and completed_date and expires_date <= completed_date:
+            self.add_error(
+                "expires_date",
+                _("Expiry date must be after the completed date."),
+            )
+
+        return cleaned_data
+
+
+# ---------------------------------------------------------------------------
+# CompleteScreeningForm
+# ---------------------------------------------------------------------------
+
+class CompleteScreeningForm(forms.Form):
+    """
+    Coordinator marks a screening as verified.
+
+    Used by CompleteScreeningView.  Converts the string "True"/"False" from
+    HTML radio POST data to a proper Python bool in ``clean_verified_clear``.
+
+    WCAG notes:
+      - ``verified_clear`` uses RadioSelect for visible, unambiguous choice.
+      - aria-describedby references both -hint and -errors IDs.
+
+    PIPEDA: notes field must contain logistical notes only — no criminal
+    record details for VSC records (enforced by help_text; coordinators are
+    trained accordingly).
+    """
+
+    verified_clear = forms.ChoiceField(
+        choices=[
+            (True, _("Clear — result confirmed clear")),
+            (False, _("Not clear — result not clear")),
+        ],
+        widget=forms.RadioSelect,
+        label=_("Verification result"),
+    )
+
+    notes = forms.CharField(
+        required=False,
+        max_length=300,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        label=_("Notes"),
+        help_text=_(
+            "Logistical notes only. For VSC records: maximum 150 characters, "
+            "no criminal record details (PIPEDA)."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
+
+    def clean_verified_clear(self):
+        """Convert HTML radio string to Python bool."""
+        val = self.cleaned_data.get("verified_clear")
+        if val in (True, "True", "true", "1"):
+            return True
+        if val in (False, "False", "false", "0"):
+            return False
+        raise forms.ValidationError(_("Please select a verification result."))
+
+
+# ---------------------------------------------------------------------------
+# HonorariumForm
+# ---------------------------------------------------------------------------
+
+class HonorariumForm(forms.ModelForm):
+    """
+    Coordinator records an honorarium or expense-reimbursement payment.
+
+    Used by HonorariumCreateView.  Calendar year, T4A flag, and created_by
+    are set by the service layer — they are NOT form fields.
+
+    WCAG notes:
+      - payment_date uses <input type="date"> with explicit <label>.
+      - aria-describedby references both -hint and -errors IDs.
+    """
+
+    class Meta:
+        model = Honorarium
+        fields = ["payment_type", "amount", "description", "payment_date"]
+        widgets = {
+            "payment_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "description": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "payment_type": _("Payment type"),
+            "amount": _("Amount (CAD)"),
+            "description": _("Description / purpose"),
+            "payment_date": _("Payment date"),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
+
+    def clean_amount(self):
+        """Reject negative or zero amounts (belt-and-suspenders; model has CheckConstraint)."""
+        from decimal import Decimal
+        amount = self.cleaned_data.get("amount")
+        if amount is not None and amount <= Decimal("0"):
+            raise forms.ValidationError(_("Amount must be greater than zero."))
+        return amount
+
+    def clean_payment_date(self):
+        """Reject future payment dates."""
+        from django.utils import timezone
+        date = self.cleaned_data.get("payment_date")
+        if date and date > timezone.localtime(timezone.now()).date():
+            raise forms.ValidationError(_("Payment date cannot be in the future."))
+        return date
+
+
+# ---------------------------------------------------------------------------
+# VolunteerNoteForm
+# ---------------------------------------------------------------------------
+
+class VolunteerNoteForm(forms.ModelForm):
+    """
+    Coordinator adds an internal note against a volunteer profile.
+
+    Used by AddVolunteerNoteView.  The ``volunteer`` and ``author`` are set
+    by the view — they are NOT form fields.
+
+    WCAG notes:
+      - ``body`` has no placeholder text — label only (WCAG 2.1 SC 1.3.1).
+      - aria-describedby references both -hint and -errors IDs.
+
+    PIPEDA: notes are for internal coordinator use only and are NEVER shown
+    to the volunteer.
+    """
+
+    class Meta:
+        model = VolunteerNote
+        fields = ["body"]
+        widgets = {
+            # Placeholder intentionally omitted — rely on label only (WCAG).
+            "body": forms.Textarea(attrs={"rows": 4, "placeholder": ""}),
+        }
+        labels = {
+            "body": _("Note"),
+        }
+        help_texts = {
+            "body": _(
+                "This note is for internal coordinator use only. "
+                "It is never shown to the volunteer."
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )
+
+
+# ---------------------------------------------------------------------------
+# VolunteerStatusForm
+# ---------------------------------------------------------------------------
+
+class VolunteerStatusForm(forms.Form):
+    """
+    Coordinator changes the status of a volunteer profile.
+
+    Used by VolunteerStatusChangeView.  The ``reason`` is recorded in the
+    audit log but is NEVER shown to the volunteer.
+
+    WCAG notes:
+      - ``status`` uses RadioSelect for visible, unambiguous choice.
+      - aria-describedby references both -hint and -errors IDs.
+
+    PIPEDA: ``reason`` is an internal administrative record only.
+    """
+
+    status = forms.ChoiceField(
+        choices=VolunteerProfile.STATUS_CHOICES,
+        label=_("New status"),
+        widget=forms.RadioSelect,
+    )
+
+    reason = forms.CharField(
+        required=False,
+        max_length=300,
+        widget=forms.Textarea(attrs={"rows": 2}),
+        label=_("Reason for change"),
+        help_text=_(
+            "Optional — recorded in audit log. Not shown to the volunteer."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # WCAG 2.1 SC 1.3.1: wire aria-describedby to both -hint and -errors.
+        for visible in self.visible_fields():
+            visible.field.widget.attrs["aria-describedby"] = (
+                f"{visible.auto_id}-hint {visible.auto_id}-errors"
+            )

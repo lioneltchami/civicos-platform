@@ -1,0 +1,1 @@
+{% load i18n %}{% blocktrans with year=calendar_year %}Approaching CRA T4A Threshold — Volunteer #{{ volunteer_pk }} ({{ year }}){% endblocktrans %}

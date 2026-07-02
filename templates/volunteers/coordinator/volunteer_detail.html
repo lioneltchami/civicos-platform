@@ -1,0 +1,817 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{#
+  PIPEDA compliance notes:
+  - rejection_reason from HoursLog is NEVER rendered in this template (deferred in view queryset).
+  - Volunteer notes are coordinator-internal; never exposed to volunteers.
+  - Sensitive fields (accommodation notes, emergency contact, SIN last 4) gated on can_view_sensitive.
+#}
+
+{% block title %}
+  {% blocktrans with pk=object.pk name=object.display_name %}Volunteer #{{ pk }} — {{ name }}{% endblocktrans %}
+{% endblock %}
+{% block meta_description %}{% trans "Volunteer profile detail for coordinator review." %}{% endblock %}
+{% block body_class %}coordinator-layout{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li><a href="{% url 'volunteers:coordinator_dashboard' %}">{% trans "Coordinator Dashboard" %}</a></li>
+      <li><a href="{% url 'volunteers:volunteer_roster' %}">{% trans "Volunteers" %}</a></li>
+      <li aria-current="page">
+        {% blocktrans with pk=object.pk %}Volunteer #{{ pk }}{% endblocktrans %}
+      </li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="coordinator-layout__inner">
+
+    {# Skip link — WCAG SC 2.4.1: bypass sidebar #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
+
+    {# ============================================================
+       Coordinator sidebar navigation
+       ============================================================ #}
+    <aside class="coordinator-sidebar">
+      <nav aria-label="{% trans 'Coordinator navigation' %}">
+        <ul class="coordinator-nav" role="list">
+          <li>
+            <a href="{% url 'volunteers:coordinator_dashboard' %}"
+               class="coordinator-nav__link">
+              {% trans "Dashboard" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:opportunity_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Opportunities" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:coordinator_application_list' %}"
+               class="coordinator-nav__link">
+              {% trans "All Applications" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:shift_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Shifts" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:hours_approval_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Hours Approvals" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:volunteer_roster' %}"
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
+              {% trans "Volunteers" %}
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    {# ============================================================
+       Main content area
+       ============================================================ #}
+    <div class="coordinator-main" id="coordinator-main-content" role="main">
+
+      {# ============================================================
+         Page heading and summary stats
+         ============================================================ #}
+      <h1 class="page-title">
+        {% blocktrans with pk=object.pk name=object.display_name %}
+          Volunteer #{{ pk }} — {{ name }}
+        {% endblocktrans %}
+      </h1>
+
+      <div class="volunteer-summary" role="region" aria-label="{% trans 'Volunteer summary' %}">
+        <span class="badge badge--{{ object.status }}">
+          {{ object.get_status_display }}
+        </span>
+        <span class="volunteer-summary__stat">
+          {% trans "Total hours:" %} <strong>{{ object.total_hours_approved }}h</strong>
+        </span>
+        <span class="volunteer-summary__stat">
+          {% trans "YTD honoraria:" %} <strong>${{ ytd_honorarium|floatformat:2 }}</strong>
+        </span>
+      </div>
+
+      {# ============================================================
+         Quick-link actions
+         ============================================================ #}
+      <div class="action-bar" role="group" aria-label="{% trans 'Volunteer actions' %}">
+        <a href="{% url 'volunteers:record_screening' pk=object.pk %}"
+           class="btn btn--secondary">
+          {% trans "Record Screening" %}
+        </a>
+        <a href="{% url 'volunteers:honorarium_create' pk=object.pk %}"
+           class="btn btn--secondary">
+          {% trans "Record Honorarium" %}
+        </a>
+      </div>
+
+      {# ============================================================
+         Status change (inline <details> — no JS required, WCAG safe)
+         ============================================================ #}
+      <section aria-labelledby="status-change-heading" class="detail-section">
+        <h2 id="status-change-heading" class="visually-hidden">{% trans "Change volunteer status" %}</h2>
+        <details class="confirm-panel">
+          <summary class="btn btn--secondary"
+                   aria-label="{% trans 'Expand to change volunteer status' %}">
+            {% trans "Change Status" %}
+          </summary>
+          <div class="confirm-panel__body" role="group"
+               aria-label="{% trans 'Change volunteer status form' %}">
+            <form method="post"
+                  action="{% url 'volunteers:volunteer_status_change' pk=object.pk %}"
+                  aria-label="{% trans 'Change status form' %}">
+              {% csrf_token %}
+              {% if status_form.non_field_errors %}
+                <div class="error-summary" role="alert" aria-live="assertive" aria-atomic="true">
+                  <h3 class="error-summary__heading">{% trans "There is a problem" %}</h3>
+                  <ul class="error-summary__list">
+                    {% for error in status_form.non_field_errors %}
+                      <li>{{ error }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endif %}
+              {% for field in status_form %}
+                <div class="form-group{% if field.errors %} form-group--error{% endif %}">
+                  <label class="form-label" for="{{ field.id_for_label }}">
+                    {{ field.label }}
+                    {% if field.field.required %}
+                      <span aria-hidden="true">*</span>
+                      <span class="visually-hidden">{% trans "(required)" %}</span>
+                    {% endif %}
+                  </label>
+                  {% if field.help_text %}
+                    <p id="{{ field.id_for_label }}-hint" class="hint">{{ field.help_text }}</p>
+                  {% endif %}
+                  {% if field.errors %}
+                    <ul id="{{ field.id_for_label }}-errors" class="error-list" role="alert" aria-live="assertive">
+                      {% for error in field.errors %}
+                        <li class="error-list__item">{{ error }}</li>
+                      {% endfor %}
+                    </ul>
+                  {% endif %}
+                  {{ field }}
+                </div>
+              {% endfor %}
+              <div class="confirm-panel__actions">
+                <button type="submit" class="btn btn--primary">{% trans "Save status" %}</button>
+                <button type="button"
+                        class="btn btn--ghost"
+                        onclick="this.closest('details').removeAttribute('open')">
+                  {% trans "Cancel" %}
+                </button>
+              </div>
+            </form>
+          </div>
+        </details>
+      </section>
+
+      {# ============================================================
+         Add internal note (inline <details> — coordinator-internal only)
+         ============================================================ #}
+      <section aria-labelledby="add-note-heading" class="detail-section">
+        <h2 id="add-note-heading" class="visually-hidden">{% trans "Add internal note" %}</h2>
+        <details class="confirm-panel">
+          <summary class="btn btn--secondary"
+                   aria-label="{% trans 'Expand to add an internal coordinator note' %}">
+            {% trans "Add Internal Note" %}
+          </summary>
+          <div class="confirm-panel__body" role="group"
+               aria-label="{% trans 'Add internal note form' %}">
+            <p class="hint">{% trans "Internal notes are visible to coordinators only and are never shared with volunteers." %}</p>
+            <form method="post"
+                  action="{% url 'volunteers:volunteer_add_note' pk=object.pk %}"
+                  aria-label="{% trans 'Add note form' %}">
+              {% csrf_token %}
+              {% if note_form.non_field_errors %}
+                <div class="error-summary" role="alert" aria-live="assertive" aria-atomic="true">
+                  <h3 class="error-summary__heading">{% trans "There is a problem" %}</h3>
+                  <ul class="error-summary__list">
+                    {% for error in note_form.non_field_errors %}
+                      <li>{{ error }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+              {% endif %}
+              {% for field in note_form %}
+                <div class="form-group{% if field.errors %} form-group--error{% endif %}">
+                  <label class="form-label" for="{{ field.id_for_label }}">
+                    {{ field.label }}
+                    {% if field.field.required %}
+                      <span aria-hidden="true">*</span>
+                      <span class="visually-hidden">{% trans "(required)" %}</span>
+                    {% endif %}
+                  </label>
+                  {% if field.help_text %}
+                    <p id="{{ field.id_for_label }}-hint" class="hint">{{ field.help_text }}</p>
+                  {% endif %}
+                  {% if field.errors %}
+                    <ul id="{{ field.id_for_label }}-errors" class="error-list" role="alert" aria-live="assertive">
+                      {% for error in field.errors %}
+                        <li class="error-list__item">{{ error }}</li>
+                      {% endfor %}
+                    </ul>
+                  {% endif %}
+                  {{ field }}
+                </div>
+              {% endfor %}
+              <div class="confirm-panel__actions">
+                <button type="submit" class="btn btn--primary">{% trans "Save note" %}</button>
+                <button type="button"
+                        class="btn btn--ghost"
+                        onclick="this.closest('details').removeAttribute('open')">
+                  {% trans "Cancel" %}
+                </button>
+              </div>
+            </form>
+          </div>
+        </details>
+      </section>
+
+      {# ============================================================
+         Profile information
+         ============================================================ #}
+      <section aria-labelledby="profile-info-heading" class="detail-section">
+        <h2 id="profile-info-heading">{% trans "Profile information" %}</h2>
+        <dl class="definition-list">
+          <dt>{% trans "Display name" %}</dt>
+          <dd>{{ object.display_name }}</dd>
+
+          <dt>{% trans "Preferred language" %}</dt>
+          <dd>{{ object.get_preferred_language_display|default:"—" }}</dd>
+
+          <dt>{% trans "Phone" %}</dt>
+          <dd>{{ object.phone|default:"—" }}</dd>
+
+          <dt>{% trans "Availability" %}</dt>
+          <dd>
+            <ul class="inline-list" role="list">
+              {% if object.available_weekdays %}<li>{% trans "Weekdays" %}</li>{% endif %}
+              {% if object.available_evenings %}<li>{% trans "Evenings" %}</li>{% endif %}
+              {% if object.available_weekends %}<li>{% trans "Weekends" %}</li>{% endif %}
+              {% if not object.available_weekdays and not object.available_evenings and not object.available_weekends %}
+                <li><span class="text-muted">{% trans "—" %}</span></li>
+              {% endif %}
+            </ul>
+          </dd>
+
+          <dt>{% trans "Skills" %}</dt>
+          <dd>
+            {% for skill in object.skills.all %}
+              <span class="tag">{{ skill.name_en }}</span>{% if not forloop.last %}, {% endif %}
+            {% empty %}
+              <span class="text-muted">{% trans "—" %}</span>
+            {% endfor %}
+          </dd>
+
+          <dt>{% trans "Member since" %}</dt>
+          <dd>
+            <time datetime="{{ object.created_at|date:'Y-m-d' }}">
+              {{ object.created_at|date:"Y-m-d" }}
+            </time>
+          </dd>
+        </dl>
+
+        {# Sensitive fields — gated on permission #}
+        {% if can_view_sensitive %}
+          <div class="callout callout--warning" role="note">
+            <p><strong>{% trans "Sensitive information — handle in accordance with PIPEDA." %}</strong></p>
+          </div>
+          <dl class="definition-list">
+            <dt>{% trans "Accommodation notes" %}</dt>
+            <dd>{{ object.accommodation_notes|default:"—"|linebreaksbr }}</dd>
+
+            <dt>{% trans "Emergency contact name" %}</dt>
+            <dd>{{ object.emergency_contact_name|default:"—" }}</dd>
+
+            <dt>{% trans "Emergency contact phone" %}</dt>
+            <dd>{{ object.emergency_contact_phone|default:"—" }}</dd>
+
+            <dt>{% trans "Emergency contact relationship" %}</dt>
+            <dd>{{ object.emergency_contact_relationship|default:"—" }}</dd>
+
+            <dt>{% trans "SIN last 4 digits" %}</dt>
+            <dd>{{ object.sin_last4|default:"—" }}</dd>
+          </dl>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         Applications (last 10)
+         ============================================================ #}
+      <section aria-labelledby="applications-heading" class="detail-section">
+        <h2 id="applications-heading">{% trans "Applications" %}</h2>
+        {% if applications %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Volunteer applications' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption class="visually-hidden">
+                {% trans "Most recent 10 applications for this volunteer" %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "ID" %}</th>
+                  <th scope="col">{% trans "Opportunity" %}</th>
+                  <th scope="col">{% trans "Status" %}</th>
+                  <th scope="col">{% trans "Applied" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for application in applications %}
+                  <tr>
+                    <td>{{ application.pk }}</td>
+                    <td>{{ application.opportunity.get_title }}</td>
+                    <td>
+                      <span class="badge badge--{{ application.status }}">
+                        {{ application.get_status_display }}
+                      </span>
+                    </td>
+                    <td>
+                      <time datetime="{{ application.created_at|date:'Y-m-d' }}">
+                        {{ application.created_at|date:"Y-m-d" }}
+                      </time>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No applications on record." %}</p>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         Shift bookings (last 10)
+         ============================================================ #}
+      <section aria-labelledby="bookings-heading" class="detail-section">
+        <h2 id="bookings-heading">{% trans "Shift Bookings" %}</h2>
+        {% if bookings %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Shift bookings' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption class="visually-hidden">
+                {% trans "Most recent 10 shift bookings for this volunteer" %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Shift" %}</th>
+                  <th scope="col">{% trans "Start date" %}</th>
+                  <th scope="col">{% trans "Status" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for booking in bookings %}
+                  <tr>
+                    <td>
+                      {% if booking.shift.title_en %}
+                        {{ booking.shift.title_en }}
+                      {% else %}
+                        {% blocktrans with date=booking.shift.start_datetime|date:"Y-m-d" %}Shift on {{ date }}{% endblocktrans %}
+                      {% endif %}
+                    </td>
+                    <td>
+                      <time datetime="{{ booking.shift.start_datetime|date:'c' }}">
+                        {{ booking.shift.start_datetime|date:"Y-m-d H:i" }}
+                      </time>
+                    </td>
+                    <td>
+                      <span class="badge badge--{{ booking.status }}">
+                        {{ booking.get_status_display }}
+                      </span>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No shift bookings on record." %}</p>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         Hours log (last 20)
+         PIPEDA: rejection_reason is never rendered here
+         ============================================================ #}
+      <section aria-labelledby="hours-heading" class="detail-section">
+        <h2 id="hours-heading">{% trans "Hours Log" %}</h2>
+        {# PIPEDA: rejection_reason is never rendered here #}
+        {% if hours_logs %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Hours log' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption class="visually-hidden">
+                {% trans "Most recent 20 hours log entries for this volunteer" %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Date" %}</th>
+                  <th scope="col">{% trans "Opportunity" %}</th>
+                  <th scope="col">{% trans "Hours" %}</th>
+                  <th scope="col">{% trans "Status" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for log in hours_logs %}
+                  <tr>
+                    <td>
+                      <time datetime="{{ log.date|date:'Y-m-d' }}">
+                        {{ log.date|date:"Y-m-d" }}
+                      </time>
+                    </td>
+                    <td>
+                      {% if log.opportunity %}
+                        {{ log.opportunity.get_title }}
+                      {% else %}
+                        <span class="text-muted">{% trans "—" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>{{ log.hours }}</td>
+                    <td>
+                      <span class="badge badge--{{ log.status }}">
+                        {{ log.get_status_display }}
+                      </span>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No hours log entries on record." %}</p>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         Screenings
+         ============================================================ #}
+      <section aria-labelledby="screenings-heading" class="detail-section">
+        <h2 id="screenings-heading">{% trans "Screenings" %}</h2>
+        {% if screenings %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Background screenings' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption class="visually-hidden">
+                {% trans "Background screening records for this volunteer" %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Check type" %}</th>
+                  <th scope="col">{% trans "Completed" %}</th>
+                  <th scope="col">{% trans "Expires" %}</th>
+                  <th scope="col">{% trans "Verified clear" %}</th>
+                  <th scope="col">{% trans "Verified by" %}</th>
+                  <th scope="col">
+                    <span class="visually-hidden">{% trans "Actions" %}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for screening in screenings %}
+                  <tr>
+                    <td>{{ screening.get_check_type_display }}</td>
+                    <td>
+                      {% if screening.completed_date %}
+                        <time datetime="{{ screening.completed_date|date:'Y-m-d' }}">
+                          {{ screening.completed_date|date:"Y-m-d" }}
+                        </time>
+                      {% else %}
+                        <span class="text-muted">{% trans "—" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if screening.expires_date %}
+                        <time datetime="{{ screening.expires_date|date:'Y-m-d' }}">
+                          {{ screening.expires_date|date:"Y-m-d" }}
+                        </time>
+                      {% else %}
+                        <span class="text-muted">{% trans "—" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if screening.verified_clear is None %}
+                        <span class="badge badge--pending">{% trans "Pending" %}</span>
+                      {% elif screening.verified_clear %}
+                        <span class="badge badge--confirmed">{% trans "Clear" %}</span>
+                      {% else %}
+                        <span class="badge badge--cancelled">{% trans "Not clear" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if screening.verified_by %}
+                        {{ screening.verified_by }}
+                      {% else %}
+                        <span class="text-muted">{% trans "—" %}</span>
+                      {% endif %}
+                    </td>
+                    <td class="actions-cell">
+                      {% if screening.verified_clear is None %}
+                        {# Inline verify result form — no JS, WCAG-safe #}
+                        <details class="confirm-panel confirm-panel--inline">
+                          <summary class="btn btn--secondary btn--small"
+                                   aria-label="{% blocktrans with type=screening.get_check_type_display %}Verify result for {{ type }} screening{% endblocktrans %}">
+                            {% trans "Verify result" %}
+                          </summary>
+                          <div class="confirm-panel__body" role="group"
+                               aria-label="{% trans 'Verify screening result' %}">
+                            <form method="post"
+                                  action="{% url 'volunteers:complete_screening' pk=screening.pk %}">
+                              {% csrf_token %}
+                              <div class="form-group">
+                                <fieldset>
+                                  <legend class="form-label">
+                                    {% trans "Result" %}
+                                    <span aria-hidden="true">*</span>
+                                    <span class="visually-hidden">{% trans "(required)" %}</span>
+                                  </legend>
+                                  <label class="form-check-label">
+                                    <input type="radio"
+                                           name="verified_clear"
+                                           value="True"
+                                           required
+                                           aria-required="true">
+                                    {% trans "Clear" %}
+                                  </label>
+                                  <label class="form-check-label">
+                                    <input type="radio"
+                                           name="verified_clear"
+                                           value="False">
+                                    {% trans "Not clear" %}
+                                  </label>
+                                </fieldset>
+                              </div>
+                              <div class="form-group">
+                                <label class="form-label" for="screening-notes-{{ screening.pk }}">
+                                  {% trans "Notes" %}
+                                </label>
+                                <textarea id="screening-notes-{{ screening.pk }}"
+                                          name="notes"
+                                          class="form-control"
+                                          maxlength="300"
+                                          rows="2"
+                                          aria-describedby="screening-notes-{{ screening.pk }}-hint">
+                                </textarea>
+                                <p id="screening-notes-{{ screening.pk }}-hint" class="hint">
+                                  {% trans "Coordinator-internal. Max 300 characters." %}
+                                </p>
+                              </div>
+                              <div class="confirm-panel__actions">
+                                <button type="submit" class="btn btn--primary btn--small">
+                                  {% trans "Save" %}
+                                </button>
+                                <button type="button"
+                                        class="btn btn--ghost btn--small"
+                                        onclick="this.closest('details').removeAttribute('open')">
+                                  {% trans "Cancel" %}
+                                </button>
+                              </div>
+                            </form>
+                          </div>
+                        </details>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No screening records on file." %}</p>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         Certifications
+         ============================================================ #}
+      <section aria-labelledby="certifications-heading" class="detail-section">
+        <h2 id="certifications-heading">{% trans "Certifications" %}</h2>
+        {% if certifications %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Certifications' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption class="visually-hidden">
+                {% trans "Certifications held by this volunteer" %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Type" %}</th>
+                  <th scope="col">{% trans "Issued" %}</th>
+                  <th scope="col">{% trans "Expires" %}</th>
+                  <th scope="col">{% trans "Verified by" %}</th>
+                  <th scope="col">{% trans "Expired?" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for cert in certifications %}
+                  <tr>
+                    <td>{{ cert.get_certification_type_display }}</td>
+                    <td>
+                      {% if cert.issued_date %}
+                        <time datetime="{{ cert.issued_date|date:'Y-m-d' }}">
+                          {{ cert.issued_date|date:"Y-m-d" }}
+                        </time>
+                      {% else %}
+                        <span class="text-muted">{% trans "—" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if cert.expires_date %}
+                        <time datetime="{{ cert.expires_date|date:'Y-m-d' }}">
+                          {{ cert.expires_date|date:"Y-m-d" }}
+                        </time>
+                      {% else %}
+                        <span class="text-muted">{% trans "—" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>{{ cert.verified_by|default:"—" }}</td>
+                    <td>
+                      {% if cert.is_expired %}
+                        <span class="badge badge--cancelled">{% trans "Yes" %}</span>
+                      {% else %}
+                        <span class="badge badge--confirmed">{% trans "No" %}</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No certifications on record." %}</p>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         Honoraria (last 10)
+         ============================================================ #}
+      <section aria-labelledby="honoraria-heading" class="detail-section">
+        <h2 id="honoraria-heading">{% trans "Honoraria" %}</h2>
+        {% if honoraria %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Honoraria records' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption class="visually-hidden">
+                {% trans "Most recent 10 honorarium records for this volunteer" %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Date" %}</th>
+                  <th scope="col">{% trans "Type" %}</th>
+                  <th scope="col">{% trans "Amount" %}</th>
+                  <th scope="col">{% trans "T4A?" %}</th>
+                  <th scope="col">{% trans "Created by" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for honorarium in honoraria %}
+                  <tr>
+                    <td>
+                      <time datetime="{{ honorarium.payment_date|date:'Y-m-d' }}">
+                        {{ honorarium.payment_date|date:"Y-m-d" }}
+                      </time>
+                    </td>
+                    <td>{{ honorarium.get_payment_type_display }}</td>
+                    <td>${{ honorarium.amount|floatformat:2 }}</td>
+                    <td>
+                      {% if honorarium.t4a_required %}
+                        <span class="badge badge--warning">{% trans "Yes" %}</span>
+                      {% else %}
+                        {% trans "No" %}
+                      {% endif %}
+                    </td>
+                    <td>{{ honorarium.created_by|default:"—" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No honoraria on record." %}</p>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         Internal notes (last 20) — COORDINATOR INTERNAL ONLY
+         NEVER shown to volunteers
+         ============================================================ #}
+      <section aria-labelledby="notes-heading" class="detail-section">
+        <h2 id="notes-heading">{% trans "Internal Notes" %}</h2>
+        <div class="callout callout--info" role="note">
+          <p>{% trans "These notes are visible to coordinators only and are never shared with volunteers." %}</p>
+        </div>
+        {% if notes %}
+          <ol class="notes-list" role="list">
+            {% for note in notes %}
+              <li class="notes-list__item">
+                <p class="notes-list__meta">
+                  <span class="text-muted">
+                    {% blocktrans with author=note.author.pk date=note.created_at|date:"Y-m-d H:i" %}
+                      Coordinator #{{ author }} — {{ date }}
+                    {% endblocktrans %}
+                  </span>
+                </p>
+                {# PIPEDA: aria-label uses date only — never the full note body which may contain PII #}
+                <p class="notes-list__body"
+                   aria-label="{% blocktrans with date=note.created_at|date:'Y-m-d' %}Full note from {{ date }}{% endblocktrans %}">
+                  {{ note.body|truncatechars:150 }}
+                </p>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No internal notes yet." %}</p>
+          </div>
+        {% endif %}
+      </section>
+
+      {# ============================================================
+         Recognition milestones
+         ============================================================ #}
+      <section aria-labelledby="milestones-heading" class="detail-section">
+        <h2 id="milestones-heading">{% trans "Recognition Milestones" %}</h2>
+        {% if milestones %}
+          <div class="table-wrapper"
+               role="region"
+               aria-label="{% trans 'Recognition milestones' %}"
+               tabindex="0">
+            <table class="data-table">
+              <caption class="visually-hidden">
+                {% trans "Hours milestones achieved by this volunteer" %}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">{% trans "Threshold (hours)" %}</th>
+                  <th scope="col">{% trans "Achieved at" %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for milestone in milestones %}
+                  <tr>
+                    <td>{{ milestone.hours_threshold }}</td>
+                    <td>
+                      <time datetime="{{ milestone.achieved_at|date:'c' }}">
+                        {{ milestone.achieved_at|date:"Y-m-d H:i" }}
+                      </time>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <p class="empty-state__message">{% trans "No milestones achieved yet." %}</p>
+          </div>
+        {% endif %}
+      </section>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

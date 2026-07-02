@@ -36,6 +36,7 @@ from apps.volunteers.signals import (
     application_approved,
     application_rejected,
     application_submitted,
+    cra_alert_threshold_reached,
     hours_approved,
     hours_rejected,
     milestone_achieved,
@@ -43,6 +44,7 @@ from apps.volunteers.signals import (
     shift_booked,
     shift_booking_cancelled,
     shift_cancelled,
+    t4a_threshold_reached,
 )
 
 logger = logging.getLogger(__name__)
@@ -796,4 +798,104 @@ def notify_volunteer_on_milestone_achieved(sender, instance, volunteer, hours_th
             getattr(instance, "pk", "?"),
             exc,
             exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Wave 4: Honorarium / CRA threshold notification receivers
+# ---------------------------------------------------------------------------
+
+@receiver(t4a_threshold_reached, sender="volunteers.Honorarium")
+def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, **kwargs):
+    """
+    Notify the coordinator when a volunteer's cumulative honoraria reach the
+    CRA $500 T4A threshold. A T4A slip must be issued.
+
+    Sender: Honorarium (the class, not an instance)
+    Signal: t4a_threshold_reached
+
+    PIPEDA: volunteer is referenced by profile PK only in log messages.
+    """
+    try:
+        try:
+            portal_url = settings.SITE_URL + reverse(
+                "volunteers:volunteer_detail",
+                kwargs={"pk": instance.volunteer_id},
+            )
+        except Exception:
+            portal_url = ""
+
+        context = {
+            "recipient": coordinator,
+            "volunteer_pk": instance.volunteer_id,
+            "volunteer_display": instance.volunteer.display_name,
+            "amount": str(instance.amount),
+            "payment_date": str(instance.payment_date),
+            "calendar_year": instance.calendar_year,
+            "portal_url": portal_url,
+        }
+        from apps.notifications.services import send_email_notification
+        send_email_notification(
+            recipient=coordinator,
+            subject_key="volunteer_honorarium_t4a_alert",
+            context=context,
+        )
+        logger.info(
+            "notify_coordinator_on_t4a_threshold: T4A alert sent for "
+            "volunteer profile #%s to coordinator user #%s",
+            instance.volunteer_id, coordinator.pk,
+        )
+    except Exception as exc:
+        logger.error(
+            "notify_coordinator_on_t4a_threshold failed for honorarium #%s: %s",
+            getattr(instance, "pk", "?"), exc, exc_info=True,
+        )
+
+
+@receiver(cra_alert_threshold_reached, sender="volunteers.Honorarium")
+def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **kwargs):
+    """
+    Notify the coordinator that a volunteer is approaching the CRA $500 T4A
+    threshold (currently at $450+ YTD honoraria). Non-blocking warning only —
+    no T4A slip is required yet.
+
+    Sender: Honorarium (the class, not an instance)
+    Signal: cra_alert_threshold_reached
+
+    PIPEDA: volunteer is referenced by profile PK only in log messages.
+    """
+    try:
+        try:
+            portal_url = settings.SITE_URL + reverse(
+                "volunteers:volunteer_detail",
+                kwargs={"pk": instance.volunteer_id},
+            )
+        except Exception:
+            portal_url = ""
+
+        context = {
+            "recipient": coordinator,
+            "volunteer_pk": instance.volunteer_id,
+            "volunteer_display": instance.volunteer.display_name,
+            "amount": str(instance.amount),
+            "payment_date": str(instance.payment_date),
+            "calendar_year": instance.calendar_year,
+            "ytd_total": str(ytd_total),
+            "portal_url": portal_url,
+        }
+        from apps.notifications.services import send_email_notification
+        send_email_notification(
+            recipient=coordinator,
+            subject_key="volunteer_honorarium_cra_near_alert",
+            context=context,
+        )
+        logger.info(
+            "notify_coordinator_on_cra_alert: CRA near-threshold alert sent for "
+            "volunteer profile #%s to coordinator user #%s (ytd_total=%s)",
+            instance.volunteer_id, coordinator.pk, ytd_total,
+        )
+    except Exception as exc:
+        logger.error(
+            "notify_coordinator_on_cra_alert failed for honorarium #%s: %s",
+            getattr(instance, "pk", "?"), exc, exc_info=True,
         )

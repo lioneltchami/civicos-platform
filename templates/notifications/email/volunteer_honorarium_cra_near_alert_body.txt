@@ -1,0 +1,32 @@
+{% load i18n %}{% autoescape off %}
+{% blocktrans with year=calendar_year vol=volunteer_display %}CRA T4A THRESHOLD WARNING — Volunteer {{ vol }} ({{ year }}){% endblocktrans %}
+{% trans "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" %}
+
+{% trans "Hello," %}
+
+{% blocktrans with vol=volunteer_display year=calendar_year total=ytd_total %}This is an advisory notice that volunteer {{ vol }} has reached ${{ total }} CAD in cumulative honoraria for calendar year {{ year }}.{% endblocktrans %}
+
+{% trans "The volunteer is approaching the $500.00 CAD threshold at which a T4A information return becomes mandatory under CRA protocol PC-025." %}
+
+{% trans "No T4A slip is required at this time. This is an advance notice only." %}
+
+{% trans "Payment Details" %}
+{% trans "━━━━━━━━━━━━━━━" %}
+{% trans "Volunteer:" %} {{ volunteer_display }} ({% trans "Profile" %} #{{ volunteer_pk }})
+{% trans "Calendar Year:" %} {{ calendar_year }}
+{% trans "Current YTD Total:" %} ${{ ytd_total }} CAD
+{% trans "This Payment Amount:" %} ${{ amount }} CAD
+{% trans "Payment Date:" %} {{ payment_date }}
+{% trans "T4A Threshold:" %} $500.00 CAD
+
+{% trans "Recommended Action" %}
+{% trans "━━━━━━━━━━━━━━━━━━" %}
+{% trans "Please be aware that any future honorarium payments to this volunteer in {{ calendar_year }} may trigger the mandatory T4A reporting requirement." %}
+
+{% if portal_url %}
+{% trans "Volunteer Record:" %}
+{{ portal_url }}
+{% endif %}
+
+{% trans "This is an automated notification from the Volunteer Management System. Please do not reply to this email." %}
+{% endautoescape %}

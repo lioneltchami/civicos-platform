@@ -29,6 +29,13 @@ Coordinator
   /coordinator/hours/                                — hours_approval_list
   /coordinator/hours/<pk>/approve/                   — hours_approve
   /coordinator/hours/<pk>/reject/                    — hours_reject
+  /coordinator/volunteers/                           — volunteer_roster
+  /coordinator/volunteers/<pk>/                      — volunteer_detail
+  /coordinator/volunteers/<pk>/status/               — volunteer_status_change
+  /coordinator/volunteers/<pk>/note/                 — volunteer_add_note
+  /coordinator/volunteers/<pk>/screening/new/        — record_screening
+  /coordinator/screening/<pk>/complete/              — complete_screening
+  /coordinator/volunteers/<pk>/honorarium/new/       — honorarium_create
 
 Security notes:
   - All portal views require login only (``LoginRequiredMixin``).
@@ -41,18 +48,25 @@ Security notes:
 from django.urls import path
 
 from apps.volunteers.views.coordinator import (
+    AddVolunteerNoteView,
     ApplicationReviewView,
     BookingCompleteView,
     BookingNoShowView,
+    CompleteScreeningView,
     CoordinatorApplicationListView,
     CoordinatorDashboardView,
+    HonorariumCreateView,
     HoursApprovalListView,
     HoursApproveView,
     HoursRejectView,
+    RecordScreeningView,
     ShiftCancelView,
     ShiftCreateView,
     ShiftDetailView,
     ShiftListView,
+    VolunteerDetailView,
+    VolunteerRosterView,
+    VolunteerStatusChangeView,
 )
 from apps.volunteers.views.portal import (
     ApplicationFormView,
@@ -238,5 +252,60 @@ urlpatterns = [
         "volunteer/bookings/<int:pk>/cancel/",
         CancelBookingView.as_view(),
         name="cancel_booking",
+    ),
+
+    # ------------------------------------------------------------------
+    # Coordinator — volunteer roster and profile management
+    # ------------------------------------------------------------------
+
+    # Paginated, filterable list of all volunteer profiles.
+    path(
+        "coordinator/volunteers/",
+        VolunteerRosterView.as_view(),
+        name="volunteer_roster",
+    ),
+
+    # Full coordinator profile view for a single volunteer (tabs: profile,
+    # applications, bookings, hours, screenings, certifications, honoraria,
+    # notes, milestones).
+    path(
+        "coordinator/volunteers/<int:pk>/",
+        VolunteerDetailView.as_view(),
+        name="volunteer_detail",
+    ),
+
+    # POST-only: change a volunteer's status (active/inactive/suspended).
+    path(
+        "coordinator/volunteers/<int:pk>/status/",
+        VolunteerStatusChangeView.as_view(),
+        name="volunteer_status_change",
+    ),
+
+    # POST-only: add an internal (append-only) note to a volunteer profile.
+    path(
+        "coordinator/volunteers/<int:pk>/note/",
+        AddVolunteerNoteView.as_view(),
+        name="volunteer_add_note",
+    ),
+
+    # GET/POST: record a new background check for a volunteer.
+    path(
+        "coordinator/volunteers/<int:pk>/screening/new/",
+        RecordScreeningView.as_view(),
+        name="record_screening",
+    ),
+
+    # POST-only: record the outcome (verified_clear) of an existing screening.
+    path(
+        "coordinator/screening/<int:pk>/complete/",
+        CompleteScreeningView.as_view(),
+        name="complete_screening",
+    ),
+
+    # GET/POST: create an honorarium or expense reimbursement for a volunteer.
+    path(
+        "coordinator/volunteers/<int:pk>/honorarium/new/",
+        HonorariumCreateView.as_view(),
+        name="honorarium_create",
     ),
 ]

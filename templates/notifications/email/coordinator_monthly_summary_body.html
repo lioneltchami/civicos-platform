@@ -1,0 +1,106 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ recipient.preferred_language|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% blocktrans with month=month_label %}Monthly Hours Summary — {{ month }}{% endblocktrans %}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #1a1a1a; background: #ffffff; margin: 0; padding: 0; }
+    .email-wrapper { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
+    .email-header { border-bottom: 2px solid #1d4e89; padding-bottom: 16px; margin-bottom: 24px; }
+    .email-header h1 { font-size: 20px; margin: 0; color: #1d4e89; }
+    .summary-banner { background: #dbeafe; border: 1px solid #1d4e89; border-radius: 4px; padding: 16px; margin: 16px 0; color: #1e3a5f; }
+    .detail-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .detail-table th { text-align: left; font-weight: bold; padding: 8px; background: #f2f4f7; width: 40%; vertical-align: top; }
+    .detail-table td { padding: 8px; vertical-align: top; }
+    .opp-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .opp-table thead th { text-align: left; font-weight: bold; padding: 8px; background: #1d4e89; color: #ffffff; }
+    .opp-table tbody td { padding: 8px; border-bottom: 1px solid #e0e4ea; vertical-align: top; }
+    .opp-table tbody tr:last-child td { border-bottom: none; }
+    .opp-table tbody tr:nth-child(even) td { background: #f9fafb; }
+    .action-btn { display: inline-block; background: #1d4e89; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 4px; font-weight: bold; margin: 16px 0; }
+    .email-footer { border-top: 1px solid #cccccc; margin-top: 24px; padding-top: 16px; font-size: 13px; color: #666666; }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper" role="main">
+
+    <div class="email-header">
+      <h1>{% blocktrans with month=month_label %}Monthly Hours Summary — {{ month }}{% endblocktrans %}</h1>
+    </div>
+
+    <p>{% trans "Hello," %}</p>
+
+    <div class="summary-banner" role="note" aria-label="{% trans "Monthly hours summary" %}">
+      <strong>{{ program_name_en }}</strong> —
+      {% blocktrans with month=month_label %}approved volunteer hours for {{ month }}.{% endblocktrans %}
+    </div>
+
+    <table class="detail-table" role="presentation">
+      <tr>
+        <th scope="row">{% trans "Program" %}</th>
+        <td>{{ program_name_en }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Reporting period" %}</th>
+        <td>{{ month_label }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Total approved hours" %}</th>
+        <td>{{ total_hours }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Distinct volunteer count" %}</th>
+        <td>{{ volunteer_count }}</td>
+      </tr>
+    </table>
+
+    {% if by_opportunity %}
+    <h2 style="font-size: 17px; color: #1d4e89; margin-top: 24px;">{% trans "Breakdown by Opportunity" %}</h2>
+    <table class="opp-table" role="table" aria-label="{% trans "Hours breakdown by opportunity" %}">
+      <thead>
+        <tr>
+          <th scope="col">{% trans "Opportunity" %}</th>
+          <th scope="col">{% trans "Hours" %}</th>
+          <th scope="col">{% trans "Volunteers" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for opp in by_opportunity %}
+        <tr>
+          <td>{{ opp.title_en }}</td>
+          <td>{{ opp.hours }}</td>
+          <td>{{ opp.volunteer_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% if portal_url %}
+    <p>
+      <a href="{{ portal_url }}"
+         class="action-btn"
+         aria-label="{% trans "View the coordinator dashboard in the volunteer portal" %}">
+        {% trans "View Coordinator Dashboard" %}
+      </a>
+    </p>
+    <p>
+      {% trans "If the button above does not work, copy and paste this link into your browser:" %}<br>
+      <a href="{{ portal_url }}">{{ portal_url }}</a>
+    </p>
+    {% else %}
+    <p>{% trans "Please log in to the coordinator portal to view the full report." %}</p>
+    {% endif %}
+
+    <p>{% trans "Thank you for your leadership of this program." %}</p>
+
+    <div class="email-footer" role="contentinfo">
+      <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+      <p>{% trans "This message was sent by the Volunteer Management System." %}</p>
+    </div>
+
+  </div>
+</body>
+</html>

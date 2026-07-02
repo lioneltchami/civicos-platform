@@ -1,0 +1,1 @@
+{% load i18n %}{% blocktrans with year=calendar_year %}T4A Required — Volunteer #{{ volunteer_pk }} ({{ year }}){% endblocktrans %}

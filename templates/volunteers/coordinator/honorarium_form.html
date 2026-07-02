@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Create Shift" %}{% endblock %}
-{% block meta_description %}{% trans "Create a new volunteer shift for this opportunity." %}{% endblock %}
+{% block title %}
+  {% blocktrans with pk=profile.pk %}Record Honorarium — Volunteer #{{ pk }}{% endblocktrans %}
+{% endblock %}
+{% block meta_description %}{% trans "Record a honorarium payment for a volunteer." %}{% endblock %}
 {% block body_class %}coordinator-layout{% endblock %}
 
 {% block breadcrumb %}
@@ -11,8 +13,13 @@
     <ol class="breadcrumb" role="list">
       <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
       <li><a href="{% url 'volunteers:coordinator_dashboard' %}">{% trans "Coordinator Dashboard" %}</a></li>
-      <li><a href="{% url 'volunteers:shift_list' %}">{% trans "Shifts" %}</a></li>
-      <li aria-current="page">{% trans "Create shift" %}</li>
+      <li><a href="{% url 'volunteers:volunteer_roster' %}">{% trans "Volunteers" %}</a></li>
+      <li>
+        <a href="{% url 'volunteers:volunteer_detail' pk=profile.pk %}">
+          {% blocktrans with pk=profile.pk %}Volunteer #{{ pk }}{% endblocktrans %}
+        </a>
+      </li>
+      <li aria-current="page">{% trans "Record Honorarium" %}</li>
     </ol>
   </div>
 </nav>
@@ -22,7 +29,7 @@
 <div class="container">
   <div class="coordinator-layout__inner">
 
-    {# Skip link — WCAG SC 2.4.1 #}
+    {# Skip link — WCAG SC 2.4.1: bypass sidebar #}
     <a class="skip-link" href="#coordinator-main-content">
       {% trans "Skip to main content" %}
     </a>
@@ -53,8 +60,7 @@
           </li>
           <li>
             <a href="{% url 'volunteers:shift_list' %}"
-               class="coordinator-nav__link coordinator-nav__link--active"
-               aria-current="page">
+               class="coordinator-nav__link">
               {% trans "Shifts" %}
             </a>
           </li>
@@ -66,7 +72,8 @@
           </li>
           <li>
             <a href="{% url 'volunteers:volunteer_roster' %}"
-               class="coordinator-nav__link">
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
               {% trans "Volunteers" %}
             </a>
           </li>
@@ -80,8 +87,27 @@
     <div class="coordinator-main" id="coordinator-main-content" role="main">
 
       <h1 class="page-title">
-        {% blocktrans with title=opportunity.get_title %}Create shift for {{ title }}{% endblocktrans %}
+        {% blocktrans with pk=profile.pk %}Record Honorarium — Volunteer #{{ pk }}{% endblocktrans %}
       </h1>
+
+      {# ============================================================
+         YTD honorarium summary and CRA threshold advisory
+         Reference: PC-025 — T4A slip requirement
+         ============================================================ #}
+      <div class="callout callout--info" role="note" aria-label="{% trans 'CRA threshold advisory' %}">
+        <p>
+          <strong>
+            {% trans "Current calendar year approved honoraria (this volunteer):" %}
+            ${{ ytd_honorarium|floatformat:2 }}
+          </strong>
+        </p>
+        <p class="hint">
+          {% trans "CRA thresholds (honorarium-type payments only):" %}
+          {% trans "$450 — advisory notice recommended." %}
+          {% trans "$500 — T4A slip required (PC-025)." %}
+          {% trans "$1,000 — hard block; contact Finance before proceeding." %}
+        </p>
+      </div>
 
       {# ============================================================
          Non-field errors (form-level validation errors)
@@ -98,11 +124,11 @@
       {% endif %}
 
       {# ============================================================
-         Shift creation form
+         Honorarium form
          ============================================================ #}
       <form method="post"
             novalidate
-            aria-label="{% trans 'Create shift form' %}">
+            aria-label="{% trans 'Record honorarium form' %}">
         {% csrf_token %}
 
         {% for field in form %}
@@ -133,7 +159,6 @@
               </ul>
             {% endif %}
 
-            {# aria-describedby is applied via ShiftForm.__init__() — no dead |attr filter needed #}
             {{ field }}
 
           </div>
@@ -144,9 +169,9 @@
            ============================================================ #}
         <div class="form-actions">
           <button type="submit" class="btn btn--primary">
-            {% trans "Save shift" %}
+            {% trans "Record Honorarium" %}
           </button>
-          <a href="{% url 'volunteers:shift_list' %}"
+          <a href="{% url 'volunteers:volunteer_detail' pk=profile.pk %}"
              class="btn btn--secondary">
             {% trans "Cancel" %}
           </a>

@@ -1,0 +1,86 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ recipient.preferred_language|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% trans "Approaching CRA T4A Threshold — Volunteer Honorarium Advisory" %}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #1a1a1a; background: #ffffff; margin: 0; padding: 0; }
+    .email-wrapper { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
+    .email-header { border-bottom: 2px solid #495057; padding-bottom: 16px; margin-bottom: 24px; }
+    .email-header h1 { font-size: 20px; margin: 0; color: #495057; }
+    .detail-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .detail-table th { text-align: left; font-weight: bold; padding: 8px; background: #f2f4f7; width: 40%; vertical-align: top; }
+    .detail-table td { padding: 8px; vertical-align: top; }
+    .warning-banner { background-color: #fff3cd; border: 2px solid #856404; border-radius: 4px; padding: 12px 16px; margin-bottom: 24px; color: #533f03; font-weight: bold; }
+    .email-footer { border-top: 1px solid #cccccc; margin-top: 24px; padding-top: 16px; font-size: 13px; color: #666666; }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper" role="main">
+
+    <div class="email-header">
+      <h1>{% trans "Approaching CRA T4A Threshold — Advisory Notice" %}</h1>
+    </div>
+
+    <p lang="{{ recipient.preferred_language|default:'en' }}">{% trans "Hello," %}</p>
+
+    <div class="warning-banner" role="alert">
+      {% blocktrans with year=calendar_year total=ytd_total %}Volunteer is approaching the CRA T4A threshold: ${{ total }} CAD of $500.00 CAD YTD ({{ year }}).{% endblocktrans %}
+    </div>
+
+    <p>
+      {% blocktrans with vol=volunteer_display year=calendar_year total=ytd_total %}Volunteer <strong>{{ vol }}</strong> (Profile #{{ volunteer_pk }}) has reached <strong>${{ total }} CAD</strong> in cumulative honoraria for <strong>{{ year }}</strong>.{% endblocktrans %}
+    </p>
+
+    <p>
+      {% trans "No T4A slip is required at this time. This is an advance notice so you can plan accordingly." %}
+    </p>
+
+    <table class="detail-table" role="presentation">
+      <tr>
+        <th scope="row">{% trans "Volunteer" %}</th>
+        <td>{{ volunteer_display }} ({% trans "Profile" %} #{{ volunteer_pk }})</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Calendar Year" %}</th>
+        <td>{{ calendar_year }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Current YTD Total" %}</th>
+        <td>${{ ytd_total }} CAD</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "This Payment Amount" %}</th>
+        <td>${{ amount }} CAD</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Payment Date" %}</th>
+        <td>{{ payment_date }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "T4A Threshold" %}</th>
+        <td>$500.00 CAD</td>
+      </tr>
+    </table>
+
+    <p>
+      {% blocktrans with year=calendar_year %}Any additional honorarium payments to this volunteer in {{ year }} may trigger the mandatory T4A reporting requirement under CRA protocol PC-025.{% endblocktrans %}
+    </p>
+
+    {% if portal_url %}
+    <p>
+      {% trans "Review the volunteer's full payment record in the portal:" %}<br>
+      <a href="{{ portal_url }}">{{ portal_url }}</a>
+    </p>
+    {% endif %}
+
+    <div class="email-footer" role="contentinfo">
+      <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+      <p>{% trans "This message was sent by the Volunteer Management System." %}</p>
+    </div>
+
+  </div>
+</body>
+</html>
