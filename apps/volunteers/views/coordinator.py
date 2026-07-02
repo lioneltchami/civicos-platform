@@ -31,7 +31,6 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
-from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -167,31 +166,22 @@ class ApplicationReviewView(LoginRequiredMixin, PermissionRequiredMixin, FormVie
         )
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            # Redirect to login rather than 403 — do NOT call handle_no_permission()
-            # here because raise_exception=True makes it return 403, which confirms
-            # the URL exists to unauthenticated crawlers.
-            # LoginRequiredMixin.dispatch() would handle this via super(), but we
-            # must set self.application before get()/post() so we intercept first.
-            return redirect_to_login(
-                request.get_full_path(),
-                self.get_login_url(),
-                self.get_redirect_field_name(),
-            )
-        # Set self.application once here so get(), post(), and get_context_data()
-        # all share the same already-fetched instance — no repeated DB queries.
-        # _get_application() raises Http404 if the PK doesn't exist or belongs
-        # to a different coordinator, which is handled by Django's 404 machinery
-        # before get()/post() are ever called.
-        self.application = self._get_application()
+        # Let LoginRequiredMixin and PermissionRequiredMixin run first via
+        # super().dispatch().  Both checks happen before get()/post() are called,
+        # so the DB query in _get_application() only fires for authenticated,
+        # permissioned users.
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
-        # self.application already set in dispatch() — no DB hit needed here.
+        # Fetch self.application here — only reached after LoginRequiredMixin
+        # and PermissionRequiredMixin have both passed.
+        self.application = self._get_application()
         return super().get(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
-        # self.application already set in dispatch() — no DB hit needed here.
+        # Fetch self.application here — only reached after LoginRequiredMixin
+        # and PermissionRequiredMixin have both passed.
+        self.application = self._get_application()
         return super().post(request, *args, **kwargs)
 
     def get_initial(self):
@@ -434,14 +424,18 @@ class ShiftCreateView(LoginRequiredMixin, PermissionRequiredMixin, CreateView):
         )
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return redirect_to_login(
-                request.get_full_path(),
-                self.get_login_url(),
-                self.get_redirect_field_name(),
-            )
-        self.opportunity = self._get_opportunity()
+        # Let LoginRequiredMixin and PermissionRequiredMixin run first via
+        # super().dispatch().  The DB query in _get_opportunity() is deferred
+        # to get()/post() so it only fires for authenticated, permissioned users.
         return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        self.opportunity = self._get_opportunity()
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        self.opportunity = self._get_opportunity()
+        return super().post(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

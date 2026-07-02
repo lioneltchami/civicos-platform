@@ -553,10 +553,11 @@ def notify_volunteer_on_booking_cancelled(sender, instance, shift, volunteer, re
             "shift_title": booking.shift.opportunity.get_title(),
             "shift_start": django_date_format(local_start, "DATETIME_FORMAT"),
             "shift_end": django_date_format(local_end, "DATETIME_FORMAT"),
-            "shift_location": booking.shift.location or "",
+            "shift_location": booking.shift.location_override or "",
             "cancellation_reason": reason or "",
             "portal_url": portal_url,
             "volunteer_display": booking.volunteer.display_name,
+            "recipient": booking.volunteer.user,
         }
 
         from apps.notifications.services import send_email_notification

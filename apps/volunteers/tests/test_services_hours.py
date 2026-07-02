@@ -305,6 +305,21 @@ class LogHoursTests(HoursBaseTestCase):
             )
         self.assertIn("shift", ctx.exception.message_dict)
 
+    def test_log_hours_future_date_raises_validation_error(self):
+        """log_hours() raises ValidationError when date is in the future."""
+        future_date = (timezone.localtime(timezone.now()) + datetime.timedelta(days=1)).date()
+
+        with self.assertRaises(ValidationError) as ctx:
+            log_hours(
+                volunteer_profile=self.volunteer_profile,
+                opportunity=self.opportunity,
+                hours=Decimal("2.0"),
+                date=future_date,
+                actor=self.volunteer_user,
+            )
+
+        self.assertIn("date", ctx.exception.message_dict)
+
     def test_log_hours_stores_description(self):
         """Description passed to log_hours() is persisted on the HoursLog."""
         log = log_hours(
@@ -650,7 +665,7 @@ class MilestoneTests(HoursBaseTestCase):
         """RecognitionMilestone.notification_sent is True after milestone receiver fires."""
         from unittest.mock import patch
 
-        with patch("apps.volunteers.receivers.send_email_notification") as mock_send:
+        with patch("apps.notifications.services.send_email_notification") as mock_send:
             mock_send.return_value = None
             # _approve_n_hours already wraps each approval in captureOnCommitCallbacks
             # so the on_commit signal path (and the receiver) fires synchronously.

@@ -106,14 +106,32 @@ def send_shift_reminders_24h(self):
                 )
                 continue
 
+            # Re-fetch to get fresh data (avoids stale pre-update state)
+            try:
+                from apps.volunteers.models import ShiftBooking as _SB
+                booking = _SB.objects.select_related(
+                    "shift__opportunity__program",
+                    "shift",
+                    "volunteer__user",
+                ).get(pk=booking.pk)
+            except Exception:
+                error_count += 1
+                logger.error(
+                    "Reminder task: failed to re-fetch booking pk=%s",
+                    booking.pk,
+                    exc_info=True,
+                )
+                continue
+
             local_start = timezone.localtime(booking.shift.start_datetime)
             local_end = timezone.localtime(booking.shift.end_datetime)
             context = {
                 "shift_title": booking.shift.opportunity.get_title(),
                 "shift_start": django_date_format(local_start, "DATETIME_FORMAT"),
                 "shift_end": django_date_format(local_end, "DATETIME_FORMAT"),
-                "shift_location": booking.shift.location or "",
+                "shift_location": booking.shift.location_override or "",
                 "volunteer_display": booking.volunteer.display_name,
+                "recipient": booking.volunteer.user,
                 "portal_url": settings.SITE_URL + reverse("volunteers:my_shifts"),
             }
 
@@ -217,14 +235,32 @@ def send_shift_reminders_2h(self):
                 )
                 continue
 
+            # Re-fetch to get fresh data (avoids stale pre-update state)
+            try:
+                from apps.volunteers.models import ShiftBooking as _SB
+                booking = _SB.objects.select_related(
+                    "shift__opportunity__program",
+                    "shift",
+                    "volunteer__user",
+                ).get(pk=booking.pk)
+            except Exception:
+                error_count += 1
+                logger.error(
+                    "Reminder task: failed to re-fetch booking pk=%s",
+                    booking.pk,
+                    exc_info=True,
+                )
+                continue
+
             local_start = timezone.localtime(booking.shift.start_datetime)
             local_end = timezone.localtime(booking.shift.end_datetime)
             context = {
                 "shift_title": booking.shift.opportunity.get_title(),
                 "shift_start": django_date_format(local_start, "DATETIME_FORMAT"),
                 "shift_end": django_date_format(local_end, "DATETIME_FORMAT"),
-                "shift_location": booking.shift.location or "",
+                "shift_location": booking.shift.location_override or "",
                 "volunteer_display": booking.volunteer.display_name,
+                "recipient": booking.volunteer.user,
                 "portal_url": settings.SITE_URL + reverse("volunteers:my_shifts"),
             }
 
@@ -515,8 +551,9 @@ def create_beat_schedule():
             },
         )
         if not created:
-            # Ensure task name and crontab are up to date if re-run.
+            # Ensure task name, crontab, args, and enabled are up to date if re-run.
             obj.task = spec["task"]
             obj.crontab = spec["crontab"]
             obj.enabled = True
-            obj.save(update_fields=["task", "crontab", "enabled"])
+            obj.args = json.dumps([])   # clear any accidentally set args from prior migrations
+            obj.save(update_fields=["task", "crontab", "enabled", "args", "description"])

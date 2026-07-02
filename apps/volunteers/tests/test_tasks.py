@@ -165,7 +165,7 @@ class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
 
     def test_send_shift_reminders_24h_marks_flag(self):
         """Task sets reminder_24h_sent=True on matching bookings."""
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_24h()
 
         self.booking.refresh_from_db()
@@ -174,7 +174,7 @@ class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
 
     def test_send_shift_reminders_24h_idempotent(self):
         """Running the task twice does not double-send (flag already True)."""
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_24h()
             send_shift_reminders_24h()
 
@@ -185,7 +185,7 @@ class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
         self.shift.is_cancelled = True
         self.shift.save(update_fields=["is_cancelled"])
 
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_24h()
 
         m.assert_not_called()
@@ -196,7 +196,7 @@ class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
         """Task skips bookings where reminder_24h_sent is already True."""
         ShiftBooking.objects.filter(pk=self.booking.pk).update(reminder_24h_sent=True)
 
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_24h()
 
         m.assert_not_called()
@@ -207,7 +207,7 @@ class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
         far_shift = _make_shift(self.opportunity, start_offset_hours=48)
         _make_booking(far_shift, self.volunteer_profile, reminder_24h_sent=False)
 
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             # Only count calls for the far-future shift.
             send_shift_reminders_24h()
 
@@ -221,18 +221,47 @@ class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
         ShiftBooking.objects.filter(pk=self.booking.pk).update(
             status=ShiftBooking.STATUS_WAITLISTED
         )
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_24h()
         m.assert_not_called()
 
     def test_send_shift_reminders_24h_returns_counts(self):
         """Task returns a dict with 'sent' and 'skipped' counters."""
-        with mock.patch("apps.volunteers.tasks.send_email_notification"):
+        with mock.patch("apps.notifications.services.send_email_notification"):
             result = send_shift_reminders_24h()
         self.assertIn("sent", result)
         self.assertIn("skipped", result)
         self.assertEqual(result["sent"], 1)
         self.assertEqual(result["skipped"], 0)
+
+    def test_shift_just_outside_early_window_boundary_is_skipped(self):
+        """A shift starting in 22h59m (just before the 23h window open) is NOT reminded."""
+        now = timezone.now()
+        # Shift starts 22h59m from now — just before the 23h window opens
+        self.shift.start_datetime = now + datetime.timedelta(hours=22, minutes=59)
+        self.shift.end_datetime = self.shift.start_datetime + datetime.timedelta(hours=2)
+        self.shift.save(update_fields=["start_datetime", "end_datetime"])
+
+        with mock.patch("apps.notifications.services.send_email_notification") as mock_send:
+            send_shift_reminders_24h()
+
+        mock_send.assert_not_called()
+
+    def test_shift_just_inside_early_window_boundary_is_reminded(self):
+        """A shift starting in 23h01m (just inside the 23h window open) IS reminded."""
+        now = timezone.now()
+        # Shift starts 23h01m from now — just inside the window
+        self.shift.start_datetime = now + datetime.timedelta(hours=23, minutes=1)
+        self.shift.end_datetime = self.shift.start_datetime + datetime.timedelta(hours=2)
+        self.shift.save(update_fields=["start_datetime", "end_datetime"])
+        # Reset reminder flag to ensure it's eligible
+        self.booking.reminder_24h_sent = False
+        self.booking.save(update_fields=["reminder_24h_sent"])
+
+        with mock.patch("apps.notifications.services.send_email_notification") as mock_send:
+            send_shift_reminders_24h()
+
+        mock_send.assert_called_once()
 
 
 # ===========================================================================
@@ -254,7 +283,7 @@ class ShiftReminderTask2hTests(ReminderTaskBaseTestCase):
 
     def test_send_shift_reminders_2h_marks_flag(self):
         """Task sets reminder_2h_sent=True on matching bookings."""
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_2h()
 
         self.booking.refresh_from_db()
@@ -263,7 +292,7 @@ class ShiftReminderTask2hTests(ReminderTaskBaseTestCase):
 
     def test_send_shift_reminders_2h_idempotent(self):
         """Running the task twice does not double-send."""
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_2h()
             send_shift_reminders_2h()
         self.assertEqual(m.call_count, 1)
@@ -272,7 +301,7 @@ class ShiftReminderTask2hTests(ReminderTaskBaseTestCase):
         """Task skips bookings whose shift is cancelled."""
         self.shift.is_cancelled = True
         self.shift.save(update_fields=["is_cancelled"])
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_2h()
         m.assert_not_called()
 
@@ -288,7 +317,7 @@ class ShiftReminderTask2hTests(ReminderTaskBaseTestCase):
         )
         _make_booking(far_shift, far_profile, reminder_2h_sent=False)
 
-        with mock.patch("apps.volunteers.tasks.send_email_notification") as m:
+        with mock.patch("apps.notifications.services.send_email_notification") as m:
             send_shift_reminders_2h()
 
         # Only self.booking (2h window) should trigger; far_shift should not.
@@ -297,10 +326,39 @@ class ShiftReminderTask2hTests(ReminderTaskBaseTestCase):
 
     def test_send_shift_reminders_2h_returns_counts(self):
         """Task returns a dict with 'sent' and 'skipped' counters."""
-        with mock.patch("apps.volunteers.tasks.send_email_notification"):
+        with mock.patch("apps.notifications.services.send_email_notification"):
             result = send_shift_reminders_2h()
         self.assertIn("sent", result)
         self.assertEqual(result["sent"], 1)
+
+    def test_2h_shift_just_outside_early_window_boundary_is_skipped(self):
+        """A shift starting in 59m (just before the 1h window open) is NOT reminded."""
+        now = timezone.now()
+        # Shift starts 59m from now — just before the 1h window opens
+        self.shift.start_datetime = now + datetime.timedelta(minutes=59)
+        self.shift.end_datetime = self.shift.start_datetime + datetime.timedelta(hours=2)
+        self.shift.save(update_fields=["start_datetime", "end_datetime"])
+
+        with mock.patch("apps.notifications.services.send_email_notification") as mock_send:
+            send_shift_reminders_2h()
+
+        mock_send.assert_not_called()
+
+    def test_2h_shift_just_inside_early_window_boundary_is_reminded(self):
+        """A shift starting in 1h01m (just inside the 1h window open) IS reminded."""
+        now = timezone.now()
+        # Shift starts 1h01m from now — just inside the window
+        self.shift.start_datetime = now + datetime.timedelta(hours=1, minutes=1)
+        self.shift.end_datetime = self.shift.start_datetime + datetime.timedelta(hours=2)
+        self.shift.save(update_fields=["start_datetime", "end_datetime"])
+        # Reset reminder flag to ensure it's eligible
+        self.booking.reminder_2h_sent = False
+        self.booking.save(update_fields=["reminder_2h_sent"])
+
+        with mock.patch("apps.notifications.services.send_email_notification") as mock_send:
+            send_shift_reminders_2h()
+
+        mock_send.assert_called_once()
 
 
 # ===========================================================================
@@ -521,3 +579,107 @@ class ExpiringCertificationsTaskTests(TestCase):
             check_expiring_certifications()
 
         m.assert_not_called()
+
+
+# ===========================================================================
+# create_beat_schedule() helper tests
+# ===========================================================================
+
+class CreateBeatScheduleTests(TestCase):
+    """Tests for the create_beat_schedule() data-migration helper."""
+
+    def test_creates_four_periodic_tasks(self):
+        """create_beat_schedule() registers exactly 4 periodic tasks."""
+        from apps.volunteers.tasks import create_beat_schedule
+        from django_celery_beat.models import PeriodicTask
+
+        initial_count = PeriodicTask.objects.count()
+        create_beat_schedule()
+
+        # Should have created 4 new tasks
+        self.assertEqual(PeriodicTask.objects.count(), initial_count + 4)
+
+    def test_idempotent_second_call_does_not_duplicate(self):
+        """Calling create_beat_schedule() twice does not duplicate PeriodicTask rows."""
+        from apps.volunteers.tasks import create_beat_schedule
+        from django_celery_beat.models import PeriodicTask
+
+        create_beat_schedule()
+        count_after_first = PeriodicTask.objects.count()
+        create_beat_schedule()
+        count_after_second = PeriodicTask.objects.count()
+
+        self.assertEqual(count_after_first, count_after_second)
+
+    def test_second_call_clears_args_field(self):
+        """create_beat_schedule() clears any stale args on existing tasks."""
+        import json
+        from apps.volunteers.tasks import create_beat_schedule
+        from django_celery_beat.models import PeriodicTask
+
+        # First call to create tasks
+        create_beat_schedule()
+
+        # Manually corrupt the args field on all volunteer tasks
+        PeriodicTask.objects.filter(
+            task__startswith="apps.volunteers.tasks."
+        ).update(args=json.dumps(["stale_arg"]))
+
+        # Second call should clear them
+        create_beat_schedule()
+
+        for task in PeriodicTask.objects.filter(task__startswith="apps.volunteers.tasks."):
+            self.assertEqual(json.loads(task.args), [])
+
+    def test_task_names_are_correct(self):
+        """create_beat_schedule() registers the four expected task names."""
+        from apps.volunteers.tasks import create_beat_schedule
+        from django_celery_beat.models import PeriodicTask
+
+        create_beat_schedule()
+
+        expected_tasks = {
+            "apps.volunteers.tasks.send_shift_reminders_24h",
+            "apps.volunteers.tasks.send_shift_reminders_2h",
+            "apps.volunteers.tasks.check_expiring_screenings",
+            "apps.volunteers.tasks.check_expiring_certifications",
+        }
+        registered = set(
+            PeriodicTask.objects.filter(
+                task__startswith="apps.volunteers.tasks."
+            ).values_list("task", flat=True)
+        )
+        self.assertEqual(registered, expected_tasks)
+
+    def test_periodic_task_display_names_are_correct(self):
+        """create_beat_schedule() sets the expected human-readable PeriodicTask names."""
+        from apps.volunteers.tasks import create_beat_schedule
+        from django_celery_beat.models import PeriodicTask
+
+        create_beat_schedule()
+
+        expected_names = {
+            "volunteers: 24h shift reminders (hourly)",
+            "volunteers: 2h shift reminders (hourly)",
+            "volunteers: check expiring screenings (daily 08:00 ET)",
+            "volunteers: check expiring certifications (daily 08:00 ET)",
+        }
+        registered_names = set(
+            PeriodicTask.objects.filter(
+                task__startswith="apps.volunteers.tasks."
+            ).values_list("name", flat=True)
+        )
+        self.assertEqual(registered_names, expected_names)
+
+    def test_all_tasks_enabled_after_create(self):
+        """All registered periodic tasks have enabled=True after create_beat_schedule()."""
+        from apps.volunteers.tasks import create_beat_schedule
+        from django_celery_beat.models import PeriodicTask
+
+        create_beat_schedule()
+
+        disabled = PeriodicTask.objects.filter(
+            task__startswith="apps.volunteers.tasks.",
+            enabled=False,
+        )
+        self.assertEqual(disabled.count(), 0, "All volunteer tasks should be enabled.")

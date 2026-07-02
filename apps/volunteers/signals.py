@@ -23,7 +23,9 @@ shift_cancelled         = Signal()   # sender=Shift; kwargs: opportunity, reason
 # --- Hours lifecycle ---
 hours_logged   = Signal()   # sender=HoursLog; kwargs: volunteer, opportunity
 hours_approved = Signal()   # sender=HoursLog; kwargs: approved_by
-hours_rejected = Signal()   # sender=HoursLog; kwargs: rejected_by, reason
+hours_rejected = Signal()   # sender=HoursLog; kwargs: rejected_by
+# NOTE: rejection_reason is intentionally omitted from this signal (PIPEDA data-minimisation).
+# The reason is coordinator-internal only and must not appear in volunteer-facing notifications.
 
 # --- Screening / certification expiry ---
 screening_expiring     = Signal()   # sender=ScreeningRecord; kwargs: volunteer, check_type

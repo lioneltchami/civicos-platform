@@ -271,10 +271,24 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
 
     def dispatch(self, request, *args, **kwargs):
         """
-        Guard: redirect to profile creation if user has no VolunteerProfile.
+        Let LoginRequiredMixin run first — it redirects unauthenticated users
+        before any DB query is issued.  The opportunity and profile are resolved
+        in get() and post() (called only after auth has been verified).
+        """
+        return super().dispatch(request, *args, **kwargs)
 
-        We do this in dispatch() (before get/post) so neither branch has to
-        repeat the check.
+    def _setup_opportunity_and_profile(self, request):
+        """
+        Resolve and cache ``self.opportunity`` and ``self.volunteer_profile``.
+
+        Called at the top of ``get()`` and ``post()`` — both of which are only
+        reached after ``LoginRequiredMixin.dispatch()`` has verified
+        authentication.  This guarantees ``request.user`` is an authenticated
+        User, not ``AnonymousUser``.
+
+        Returns ``True`` if setup succeeded and the caller may continue, or
+        ``False`` if the caller should return the redirect response stored in
+        ``self._profile_missing_response``.
         """
         self.opportunity = self._get_opportunity()
         self.volunteer_profile = self._get_profile()
@@ -284,9 +298,20 @@ class ApplicationFormView(LoginRequiredMixin, CreateView):
                 request,
                 "Please create your volunteer profile before applying for an opportunity.",
             )
-            return redirect(reverse("volunteers:opportunity_list"))
+            self._profile_missing_response = redirect(reverse("volunteers:opportunity_list"))
+            return False
 
-        return super().dispatch(request, *args, **kwargs)
+        return True
+
+    def get(self, request, *args, **kwargs):
+        if not self._setup_opportunity_and_profile(request):
+            return self._profile_missing_response
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        if not self._setup_opportunity_and_profile(request):
+            return self._profile_missing_response
+        return super().post(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
