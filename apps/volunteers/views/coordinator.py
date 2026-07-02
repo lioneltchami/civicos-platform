@@ -731,6 +731,8 @@ class VolunteerRosterView(LoginRequiredMixin, PermissionRequiredMixin, ListView)
     def get_queryset(self):
         qs = (
             VolunteerProfile.objects
+            .filter(applications__opportunity__program__coordinator=self.request.user)
+            .distinct()
             .select_related("user")
             .prefetch_related("skills")
             .order_by("-created_at")
@@ -774,61 +776,65 @@ class VolunteerDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailVie
     template_name = "volunteers/coordinator/volunteer_detail.html"
 
     def get_queryset(self):
-        return VolunteerProfile.objects.select_related(
-            "user", "status_changed_by"
-        ).prefetch_related(
-            Prefetch(
-                "applications",
-                queryset=VolunteerApplication.objects.select_related(
-                    "opportunity__program"
-                ).order_by("-created_at")[:10],
-                to_attr="_prefetched_applications",
-            ),
-            Prefetch(
-                "bookings",
-                queryset=ShiftBooking.objects.select_related(
-                    "shift__opportunity"
-                ).order_by("-created_at")[:10],
-                to_attr="_prefetched_bookings",
-            ),
-            Prefetch(
-                "hours_logs",
-                queryset=HoursLog.objects.defer("rejection_reason").select_related(
-                    "opportunity"
-                ).order_by("-date")[:20],
-                to_attr="_prefetched_hours_logs",
-            ),
-            Prefetch(
-                "screening_records",
-                queryset=ScreeningRecord.objects.select_related(
-                    "opportunity", "verified_by"
-                ).order_by("-completed_date"),
-                to_attr="_prefetched_screenings",
-            ),
-            Prefetch(
-                "certifications",
-                queryset=Certification.objects.select_related(
-                    "verified_by"
-                ).order_by("-issued_date"),
-                to_attr="_prefetched_certifications",
-            ),
-            Prefetch(
-                "honoraria",
-                queryset=Honorarium.objects.select_related(
-                    "created_by"
-                ).order_by("-payment_date")[:10],
-                to_attr="_prefetched_honoraria",
-            ),
-            Prefetch(
-                "notes",
-                queryset=VolunteerNote.objects.select_related("author").order_by("-created_at")[:20],
-                to_attr="_prefetched_notes",
-            ),
-            Prefetch(
-                "milestones",
-                queryset=RecognitionMilestone.objects.order_by("hours_threshold"),
-                to_attr="_prefetched_milestones",
-            ),
+        return (
+            VolunteerProfile.objects
+            .filter(applications__opportunity__program__coordinator=self.request.user)
+            .distinct()
+            .select_related("user", "status_changed_by")
+            .prefetch_related(
+                Prefetch(
+                    "applications",
+                    queryset=VolunteerApplication.objects.select_related(
+                        "opportunity__program"
+                    ).order_by("-created_at")[:10],
+                    to_attr="_prefetched_applications",
+                ),
+                Prefetch(
+                    "bookings",
+                    queryset=ShiftBooking.objects.select_related(
+                        "shift__opportunity"
+                    ).order_by("-created_at")[:10],
+                    to_attr="_prefetched_bookings",
+                ),
+                Prefetch(
+                    "hours_logs",
+                    queryset=HoursLog.objects.defer("rejection_reason").select_related(
+                        "opportunity"
+                    ).order_by("-date")[:20],
+                    to_attr="_prefetched_hours_logs",
+                ),
+                Prefetch(
+                    "screening_records",
+                    queryset=ScreeningRecord.objects.select_related(
+                        "opportunity", "verified_by"
+                    ).order_by("-completed_date"),
+                    to_attr="_prefetched_screenings",
+                ),
+                Prefetch(
+                    "certifications",
+                    queryset=Certification.objects.select_related(
+                        "verified_by"
+                    ).order_by("-issued_date"),
+                    to_attr="_prefetched_certifications",
+                ),
+                Prefetch(
+                    "honoraria",
+                    queryset=Honorarium.objects.select_related(
+                        "created_by"
+                    ).order_by("-payment_date")[:10],
+                    to_attr="_prefetched_honoraria",
+                ),
+                Prefetch(
+                    "notes",
+                    queryset=VolunteerNote.objects.select_related("author").order_by("-created_at")[:20],
+                    to_attr="_prefetched_notes",
+                ),
+                Prefetch(
+                    "milestones",
+                    queryset=RecognitionMilestone.objects.order_by("hours_threshold"),
+                    to_attr="_prefetched_milestones",
+                ),
+            )
         )
 
     def get_context_data(self, **kwargs):
@@ -1052,10 +1058,17 @@ class CompleteScreeningView(LoginRequiredMixin, PermissionRequiredMixin, View):
         from apps.volunteers.models import ScreeningRecord
         from apps.volunteers.forms import CompleteScreeningForm
         from apps.volunteers.services.screening import complete_check
+        from django.db.models import Q
 
+        # Scope: the screening's own opportunity must belong to this coordinator's
+        # programs (when opportunity is set), OR the volunteer must have an
+        # application in this coordinator's programs (when opportunity is null/general).
+        # This prevents coordinator A completing a screening created by coordinator B
+        # for the same volunteer across programs.
         screening = get_object_or_404(
             ScreeningRecord.objects.filter(
-                volunteer__applications__opportunity__program__coordinator=request.user
+                Q(opportunity__program__coordinator=request.user) |
+                Q(opportunity__isnull=True, volunteer__applications__opportunity__program__coordinator=request.user)
             ).distinct(),
             pk=self.kwargs["pk"],
         )
@@ -1098,7 +1111,12 @@ class HonorariumCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
     raise_exception = True
 
     def _get_profile(self):
-        return get_object_or_404(VolunteerProfile, pk=self.kwargs["pk"])
+        return get_object_or_404(
+            VolunteerProfile.objects.filter(
+                applications__opportunity__program__coordinator=self.request.user
+            ).distinct(),
+            pk=self.kwargs["pk"],
+        )
 
     def get(self, request, *args, **kwargs):
         profile = self._get_profile()

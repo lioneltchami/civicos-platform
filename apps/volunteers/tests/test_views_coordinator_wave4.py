@@ -257,6 +257,26 @@ class VolunteerRosterViewTests(Wave4BaseTestCase):
         self.assertIn(self.profile.pk, profile_pks)
         self.assertNotIn(other_profile.pk, profile_pks)
 
+    def test_does_not_show_other_program_volunteers(self):
+        """Roster must not include volunteers whose applications are only in other coordinators' programs."""
+        url = self._url()
+        self._skip_if_url_missing(url, "volunteer_roster")
+
+        coord_b = _make_coordinator("roster-coord-b@wave4.gc.ca")
+        prog_b = _make_program(slug="w4-roster-prog-b")
+        prog_b.coordinator = coord_b
+        prog_b.save(update_fields=["coordinator"])
+        opp_b = _make_opportunity(prog_b, slug="w4-roster-opp-b")
+        vol_b_user = _make_user("roster-vol-b@wave4.gc.ca")
+        profile_b = _make_profile(vol_b_user)
+        _make_application(profile_b, opp_b)
+
+        self.login_as_coordinator()
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        profile_pks = [p.pk for p in response.context["profiles"]]
+        self.assertNotIn(profile_b.pk, profile_pks)
+
 
 # ===========================================================================
 # VolunteerDetailView — GET /coordinator/volunteers/<pk>/
@@ -325,6 +345,57 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Low-vision screen reader required")
+
+    def test_all_sensitive_fields_hidden_without_permission(self):
+        """All five PIPEDA-sensitive fields must be absent from response when coordinator lacks permission."""
+        url = self._url()
+        self._skip_if_url_missing(url, "volunteer_detail")
+
+        self.profile.accommodation_notes = "Needs elevator access"
+        self.profile.emergency_contact_name = "Jane Doe"
+        self.profile.emergency_contact_phone = "613-555-0100"
+        self.profile.emergency_contact_relation = "Spouse"
+        self.profile.sin_last4 = "1234"
+        self.profile.save(update_fields=[
+            "accommodation_notes", "emergency_contact_name",
+            "emergency_contact_phone", "emergency_contact_relation", "sin_last4",
+        ])
+
+        self.login_as_coordinator()  # does NOT have view_accommodation_notes
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn("Needs elevator access", content)
+        self.assertNotIn("Jane Doe", content)
+        self.assertNotIn("613-555-0100", content)
+        self.assertNotIn("Spouse", content)
+        self.assertNotIn("1234", content)
+
+    def test_all_sensitive_fields_visible_with_permission(self):
+        """All five PIPEDA-sensitive fields must be visible when coordinator has view_accommodation_notes."""
+        url = self._url()
+        self._skip_if_url_missing(url, "volunteer_detail")
+
+        self.profile.accommodation_notes = "Needs elevator access"
+        self.profile.emergency_contact_name = "Jane Doe"
+        self.profile.emergency_contact_phone = "613-555-0100"
+        self.profile.emergency_contact_relation = "Spouse"
+        self.profile.sin_last4 = "5678"
+        self.profile.save(update_fields=[
+            "accommodation_notes", "emergency_contact_name",
+            "emergency_contact_phone", "emergency_contact_relation", "sin_last4",
+        ])
+
+        coordinator_with_perm = _grant_perm(self.coordinator, "view_accommodation_notes")
+        self.client.force_login(coordinator_with_perm)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Needs elevator access", content)
+        self.assertIn("Jane Doe", content)
+        self.assertIn("613-555-0100", content)
+        self.assertIn("Spouse", content)
+        self.assertIn("5678", content)
 
 
 # ===========================================================================
@@ -656,6 +727,26 @@ class HonorariumCreateViewTests(Wave4BaseTestCase):
         h = Honorarium.objects.filter(volunteer=self.profile).first()
         self.assertIsNotNone(h)
         self.assertEqual(h.amount, Decimal("100.00"))
+
+    def test_idor_other_program_volunteer_returns_404(self):
+        """Coordinator cannot create an honorarium for a volunteer belonging to another coordinator's program."""
+        url = self._url()
+        self._skip_if_url_missing(url, "honorarium_create")
+
+        coord_b = _make_coordinator("w4coord-b-hon@wave4.gc.ca")
+        coord_b = _grant_perm(coord_b, "add_honorarium")
+        prog_b = _make_program(slug="w4-hon-prog-b")
+        prog_b.coordinator = coord_b
+        prog_b.save(update_fields=["coordinator"])
+        opp_b = _make_opportunity(prog_b, slug="w4-hon-opp-b")
+        vol_b_user = _make_user("w4vol-b-hon@wave4.gc.ca")
+        profile_b = _make_profile(vol_b_user)
+        _make_application(profile_b, opp_b)
+
+        idor_url = _url("honorarium_create", pk=profile_b.pk)
+        self.login_as_coordinator()
+        response = self.client.get(idor_url)
+        self.assertEqual(response.status_code, 404)
 
     def test_cra_hard_block_raises_error_in_form(self):
         """

@@ -1692,7 +1692,7 @@ class VolunteerNote(TimestampedModel):
         related_name="volunteer_notes",
         verbose_name=_("Author"),
     )
-    body = models.TextField(verbose_name=_("Note body"))
+    body = models.TextField(max_length=2000, verbose_name=_("Note body"))
 
     class Meta:
         ordering = ["-created_at"]

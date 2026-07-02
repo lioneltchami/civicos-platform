@@ -384,9 +384,10 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 h = self._create_via_service("100.00")
             self.assertEqual(len(received), 1)
-            # sender is the refreshed Honorarium instance from on_commit
-            sender, kwargs = received[0]
-            self.assertEqual(sender.pk, h.pk)
+            # sender is the Honorarium class; instance kwarg holds the ORM object
+            self.assertIs(received[0][0], Honorarium)
+            self.assertEqual(received[0][1]["instance"].pk, h.pk)
+            self.assertEqual(received[0][1]["created_by"], self.coordinator)
         finally:
             honorarium_created.disconnect(handler)
 
