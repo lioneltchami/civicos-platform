@@ -32,7 +32,7 @@
     </div>
 
     <p>
-      {% blocktrans with vol=volunteer_display year=calendar_year %}Volunteer <strong>{{ vol }}</strong> (Profile #{{ volunteer_pk }}) has now reached or exceeded the $500.00 CAD cumulative honorarium threshold for <strong>{{ year }}</strong> under CRA protocol PC-025.{% endblocktrans %}
+      {% blocktrans with vol=volunteer_display year=calendar_year pk=volunteer_pk %}Volunteer <strong>{{ vol }}</strong> (Profile #{{ pk }}) has now reached or exceeded the $500.00 CAD cumulative honorarium threshold for <strong>{{ year }}</strong> under CRA protocol PC-025.{% endblocktrans %}
     </p>
 
     <table class="detail-table" role="presentation">

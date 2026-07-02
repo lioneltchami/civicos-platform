@@ -489,6 +489,29 @@ class CheckExpiringSoonTests(ScreeningBaseTestCase):
         self.assertIn(near.pk, pks)
         self.assertNotIn(far.pk, pks)
 
+    def test_default_window_is_30_days(self):
+        """check_expiring_soon() with no args uses a 30-day window by default."""
+        # Record at 29 days — inside the default 30-day window.
+        rec_29 = self._cleared_record(
+            expires_date=self._today + datetime.timedelta(days=29)
+        )
+        # Record at 31 days — outside the default 30-day window.
+        vol2_user = _make_user()
+        vol2 = _make_profile(vol2_user)
+        rec_31 = ScreeningRecord.objects.create(
+            volunteer=vol2,
+            check_type=ScreeningRecord.CHECK_TYPE_PRC,
+            completed_date=self._today,
+            expires_date=self._today + datetime.timedelta(days=31),
+            verified_clear=True,
+            verified_by=self.coordinator,
+            verified_at=self._frozen_now,
+        )
+        qs = check_expiring_soon()  # no days_ahead arg — uses default of 30
+        pks = list(qs.values_list("pk", flat=True))
+        self.assertIn(rec_29.pk, pks)
+        self.assertNotIn(rec_31.pk, pks)
+
     def test_ordering_by_expires_date_asc(self):
         """Results are ordered by expires_date ascending (soonest expiry first)."""
         vol2_user = _make_user()

@@ -786,21 +786,21 @@ class VolunteerDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailVie
                     "applications",
                     queryset=VolunteerApplication.objects.select_related(
                         "opportunity__program"
-                    ).order_by("-created_at")[:10],
+                    ).order_by("-created_at"),
                     to_attr="_prefetched_applications",
                 ),
                 Prefetch(
                     "bookings",
                     queryset=ShiftBooking.objects.select_related(
                         "shift__opportunity"
-                    ).order_by("-created_at")[:10],
+                    ).order_by("-created_at"),
                     to_attr="_prefetched_bookings",
                 ),
                 Prefetch(
                     "hours_logs",
                     queryset=HoursLog.objects.defer("rejection_reason").select_related(
                         "opportunity"
-                    ).order_by("-date")[:20],
+                    ).order_by("-date"),
                     to_attr="_prefetched_hours_logs",
                 ),
                 Prefetch(
@@ -821,12 +821,12 @@ class VolunteerDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailVie
                     "honoraria",
                     queryset=Honorarium.objects.select_related(
                         "created_by"
-                    ).order_by("-payment_date")[:10],
+                    ).order_by("-payment_date"),
                     to_attr="_prefetched_honoraria",
                 ),
                 Prefetch(
                     "notes",
-                    queryset=VolunteerNote.objects.select_related("author").order_by("-created_at")[:20],
+                    queryset=VolunteerNote.objects.select_related("author").order_by("-created_at"),
                     to_attr="_prefetched_notes",
                 ),
                 Prefetch(
@@ -853,18 +853,21 @@ class VolunteerDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailVie
             profile.emergency_contact_phone = None
             profile.emergency_contact_relation = None
             profile.sin_last4 = None
-            # sin_encrypted is never exposed — already absent from template
+            profile.sin_encrypted = b""  # clear encrypted blob; prevents exposure via template bug
 
         # Use prefetched data (loaded by get_queryset) to avoid N+1 DB queries.
         # Each _prefetched_* attribute is a list populated by the Prefetch objects
         # in get_queryset(); accessing them costs zero additional DB round-trips.
-        ctx["applications"] = profile._prefetched_applications
-        ctx["bookings"] = profile._prefetched_bookings
-        ctx["hours_logs"] = profile._prefetched_hours_logs  # rejection_reason deferred (PIPEDA)
+        # Slicing happens here on the Python list — NOT in the Prefetch queryset
+        # (Django raises ValueError: Cannot filter a query once a slice has been taken
+        # when a sliced queryset is used with to_attr).
+        ctx["applications"] = profile._prefetched_applications[:10]
+        ctx["bookings"] = profile._prefetched_bookings[:10]
+        ctx["hours_logs"] = profile._prefetched_hours_logs[:20]  # rejection_reason deferred (PIPEDA)
         ctx["screenings"] = profile._prefetched_screenings
         ctx["certifications"] = profile._prefetched_certifications
-        ctx["honoraria"] = profile._prefetched_honoraria
-        ctx["notes"] = profile._prefetched_notes
+        ctx["honoraria"] = profile._prefetched_honoraria[:10]
+        ctx["notes"] = profile._prefetched_notes[:20]
         ctx["milestones"] = profile._prefetched_milestones
 
         # Forms for inline actions

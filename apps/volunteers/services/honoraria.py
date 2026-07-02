@@ -158,14 +158,14 @@ def create_honorarium(
         # by the time on_commit fires.
         _honorarium_pk = honorarium.pk
         _t4a_required = honorarium.t4a_required
-        _ytd_after = existing_total + amount
+        _ytd_after = existing_total + honorarium.amount
 
         from apps.volunteers.signals import (
             cra_alert_threshold_reached,
             honorarium_created,
             t4a_threshold_reached,
         )
-        _alert_threshold = Decimal(str(getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450.00)))
+        _alert_threshold = Decimal(str(getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450)))
 
         def _post_commit():
             from apps.volunteers.models import Honorarium as _H

@@ -31,7 +31,7 @@
     </div>
 
     <p>
-      {% blocktrans with vol=volunteer_display year=calendar_year total=ytd_total %}Volunteer <strong>{{ vol }}</strong> (Profile #{{ volunteer_pk }}) has reached <strong>${{ total }} CAD</strong> in cumulative honoraria for <strong>{{ year }}</strong>.{% endblocktrans %}
+      {% blocktrans with vol=volunteer_display year=calendar_year total=ytd_total pk=volunteer_pk %}Volunteer <strong>{{ vol }}</strong> (Profile #{{ pk }}) has reached <strong>${{ total }} CAD</strong> in cumulative honoraria for <strong>{{ year }}</strong>.{% endblocktrans %}
     </p>
 
     <p>

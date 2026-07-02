@@ -586,11 +586,13 @@ class CompleteScreeningForm(forms.Form):
     trained accordingly).
     """
 
+    VERIFIED_CLEAR_CHOICES = [
+        ("True", _("Clear — result confirmed clear")),
+        ("False", _("Not clear — result not clear")),
+    ]
+
     verified_clear = forms.ChoiceField(
-        choices=[
-            (True, _("Clear — result confirmed clear")),
-            (False, _("Not clear — result not clear")),
-        ],
+        choices=VERIFIED_CLEAR_CHOICES,
         widget=forms.RadioSelect,
         label=_("Verification result"),
     )
@@ -616,12 +618,12 @@ class CompleteScreeningForm(forms.Form):
 
     def clean_verified_clear(self):
         """Convert HTML radio string to Python bool."""
-        val = self.cleaned_data.get("verified_clear")
-        if val in (True, "True", "true", "1"):
+        val = self.cleaned_data.get("verified_clear", "")
+        if val in ("True", "true", "1", "yes"):
             return True
-        if val in (False, "False", "false", "0"):
+        if val in ("False", "false", "0", "no"):
             return False
-        raise forms.ValidationError(_("Please select a verification result."))
+        raise forms.ValidationError(_("Please select an outcome."))
 
 
 # ---------------------------------------------------------------------------

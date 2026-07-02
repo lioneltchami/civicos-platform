@@ -391,7 +391,8 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
         finally:
             honorarium_created.disconnect(handler)
 
-    def test_t4a_signal_fired_when_threshold_reached(self):
+    @patch("apps.notifications.services.send_email_notification")
+    def test_t4a_signal_fired_when_threshold_reached(self, mock_send):
         """t4a_threshold_reached fires when YTD crosses $500."""
         from apps.volunteers.signals import t4a_threshold_reached
         _make_honorarium(self.volunteer_profile, "400.00")
@@ -408,26 +409,35 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
         finally:
             t4a_threshold_reached.disconnect(handler)
 
-    def test_cra_alert_signal_fired_when_near_threshold(self):
-        """cra_alert_threshold_reached fires when YTD reaches $450 but is below $500."""
-        from apps.volunteers.signals import cra_alert_threshold_reached
+    @patch("apps.notifications.services.send_email_notification")
+    def test_cra_alert_signal_fired_when_near_threshold(self, mock_send):
+        """CRA alert fires at $450; T4A must NOT also fire (mutually exclusive via elif)."""
+        from apps.volunteers.signals import cra_alert_threshold_reached, t4a_threshold_reached
         _make_honorarium(self.volunteer_profile, "400.00")
-        received = []
+        alert_received = []
+        t4a_received = []
 
-        def handler(sender, **kwargs):
-            received.append((sender, kwargs))
+        def _alert_handler(sender, **kwargs):
+            alert_received.append(kwargs)
 
-        cra_alert_threshold_reached.connect(handler, weak=False)
+        def _t4a_handler(sender, **kwargs):
+            t4a_received.append(kwargs)
+
+        cra_alert_threshold_reached.connect(_alert_handler, weak=False)
+        t4a_threshold_reached.connect(_t4a_handler, weak=False)
         try:
             with self.captureOnCommitCallbacks(execute=True):
                 self._create_via_service("50.00")  # total = $450 — alert, not T4A
-            self.assertEqual(len(received), 1)
+            self.assertEqual(len(alert_received), 1)
             # ytd_total should be included in the signal kwargs
-            self.assertIn("ytd_total", received[0][1])
+            self.assertIn("ytd_total", alert_received[0])
             # H-3 fix: assert the exact YTD value ($400 pre-existing + $50 new = $450)
-            self.assertEqual(received[0][1]["ytd_total"], Decimal("450.00"))
+            self.assertEqual(alert_received[0]["ytd_total"], Decimal("450.00"))
+            self.assertEqual(len(t4a_received), 0,
+                             "T4A signal must NOT fire when only alert threshold reached")
         finally:
-            cra_alert_threshold_reached.disconnect(handler)
+            cra_alert_threshold_reached.disconnect(_alert_handler)
+            t4a_threshold_reached.disconnect(_t4a_handler)
 
     def test_no_alert_signal_below_alert_threshold(self):
         """No cra_alert_threshold_reached or t4a_threshold_reached for $100 honorarium."""
@@ -499,7 +509,8 @@ class HonorariumSignalTests(HonorariumBaseTestCase):
         finally:
             honorarium_created.disconnect(handler)
 
-    def test_t4a_signal_fires_cra_alert_does_not(self):
+    @patch("apps.notifications.services.send_email_notification")
+    def test_t4a_signal_fires_cra_alert_does_not(self, mock_send):
         """
         H-2: When T4A threshold is reached, cra_alert signal must NOT also fire
         (they are mutually exclusive via elif in the service logic).
@@ -671,3 +682,69 @@ class ConcurrentHonorariumTests(TransactionTestCase):
         ).count()
         # 1 setup row + 1 successful concurrent row = 2
         self.assertEqual(count, 2)
+
+
+# ===========================================================================
+# Honorarium receiver integration tests
+# ===========================================================================
+
+class HonorariumReceiverTests(HonorariumBaseTestCase):
+    """
+    Tests for honorarium email notification receivers.
+
+    Calls receivers directly (bypassing the signal) with mocked
+    send_email_notification so these tests verify receiver logic independently
+    of signal dispatch and without real email sends.
+    """
+
+    def _make_hon(self, amount="100.00"):
+        """Create a bare Honorarium for use as receiver 'instance', with select_related loaded."""
+        h = Honorarium(
+            volunteer=self.volunteer_profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal(amount),
+            description="Test",
+            payment_date=date.today(),
+            created_by=self.coordinator,
+        )
+        h.save(skip_clean=True)
+        # Re-fetch with select_related so instance.volunteer.display_name works
+        return Honorarium.objects.select_related("volunteer__user", "created_by").get(pk=h.pk)
+
+    @patch("apps.notifications.services.send_email_notification")
+    def test_t4a_alert_receiver_sends_email(self, mock_send):
+        """notify_coordinator_on_t4a_threshold calls send_email_notification with correct context."""
+        from apps.volunteers.receivers import notify_coordinator_on_t4a_threshold
+        hon = self._make_hon("500.00")
+        notify_coordinator_on_t4a_threshold(
+            sender=type(hon),
+            instance=hon,
+            coordinator=self.coordinator,
+        )
+        self.assertTrue(mock_send.called, "send_email_notification must be called by the receiver")
+        _args, call_kwargs = mock_send.call_args
+        ctx = call_kwargs.get("context", {})
+        self.assertIn("volunteer_pk", ctx)
+        self.assertIn("amount", ctx)
+        self.assertEqual(call_kwargs.get("recipient"), self.coordinator)
+        self.assertEqual(call_kwargs.get("subject_key"), "volunteer_honorarium_t4a_alert")
+
+    @patch("apps.notifications.services.send_email_notification")
+    def test_cra_alert_receiver_includes_ytd_total(self, mock_send):
+        """notify_coordinator_on_cra_alert includes ytd_total in context."""
+        from apps.volunteers.receivers import notify_coordinator_on_cra_alert
+        hon = self._make_hon("450.00")
+        notify_coordinator_on_cra_alert(
+            sender=type(hon),
+            instance=hon,
+            coordinator=self.coordinator,
+            ytd_total=Decimal("450.00"),
+        )
+        self.assertTrue(mock_send.called, "send_email_notification must be called by the receiver")
+        _args, call_kwargs = mock_send.call_args
+        ctx = call_kwargs.get("context", {})
+        self.assertIn("ytd_total", ctx)
+        # The receiver stores ytd_total as str(ytd_total) in the context dict.
+        self.assertEqual(ctx["ytd_total"], str(Decimal("450.00")))
+        self.assertEqual(call_kwargs.get("recipient"), self.coordinator)
+        self.assertEqual(call_kwargs.get("subject_key"), "volunteer_honorarium_cra_near_alert")

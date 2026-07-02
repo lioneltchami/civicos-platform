@@ -397,6 +397,26 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         self.assertIn("Spouse", content)
         self.assertIn("5678", content)
 
+    def test_idor_other_program_volunteer_returns_404(self):
+        """Coordinator cannot view detail for a volunteer belonging to another coordinator's program."""
+        url = self._url()
+        self._skip_if_url_missing(url, "volunteer_detail")
+
+        coord_b = _make_coordinator("detail-coord-b@wave4.gc.ca")
+        prog_b = _make_program(slug="detail-prog-b")
+        prog_b.coordinator = coord_b
+        prog_b.save(update_fields=["coordinator"])
+        opp_b = _make_opportunity(prog_b, slug="detail-opp-b")
+        vol_b_user = _make_user("detail-vol-b@wave4.gc.ca")
+        profile_b = _make_profile(vol_b_user)
+        _make_application(profile_b, opp_b)
+
+        self.login_as_coordinator()
+        response = self.client.get(
+            reverse("volunteers:volunteer_detail", kwargs={"pk": profile_b.pk})
+        )
+        self.assertEqual(response.status_code, 404)
+
 
 # ===========================================================================
 # VolunteerStatusChangeView — POST /coordinator/volunteers/<pk>/status/
@@ -832,3 +852,25 @@ class Wave4SecurityInvariantsTests(Wave4BaseTestCase):
                 if response.status_code == 302:
                     self.assertIn("login", response["Location"].lower(),
                                   f"Redirect from {url} does not go to login")
+
+    def test_anonymous_post_to_status_change_redirects_to_login(self):
+        """Anonymous POST to volunteer_status_change must redirect to login, not 405."""
+        self.client.logout()  # ensure anonymous
+        url = _url("volunteer_status_change", pk=self.profile.pk)
+        if url is None:
+            self.skipTest("URL 'volunteers:volunteer_status_change' not yet registered.")
+        response = self.client.post(url, {"status": "active"})
+        self.assertIn(response.status_code, [302, 403])
+        if response.status_code == 302:
+            self.assertIn("/login/", response["Location"])
+
+    def test_anonymous_post_to_add_note_redirects_to_login(self):
+        """Anonymous POST to volunteer_add_note must redirect to login."""
+        self.client.logout()
+        url = _url("volunteer_add_note", pk=self.profile.pk)
+        if url is None:
+            self.skipTest("URL 'volunteers:volunteer_add_note' not yet registered.")
+        response = self.client.post(url, {"body": "Test note"})
+        self.assertIn(response.status_code, [302, 403])
+        if response.status_code == 302:
+            self.assertIn("/login/", response["Location"])

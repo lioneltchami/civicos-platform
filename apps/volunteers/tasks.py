@@ -730,4 +730,4 @@ def create_beat_schedule():
             obj.crontab = spec["crontab"]
             obj.enabled = True
             obj.args = json.dumps([])   # clear any accidentally set args from prior migrations
-            obj.save(update_fields=["task", "crontab", "enabled", "args", "description"])
+            obj.save(update_fields=["task", "crontab", "enabled", "args"])

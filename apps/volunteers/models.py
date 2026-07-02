@@ -1600,9 +1600,9 @@ class Honorarium(TimestampedModel):
         from django.core.exceptions import ValidationError
         from django.db.models import Sum
 
-        alert_threshold = getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450.00)
-        t4a_threshold = getattr(settings, "VOLUNTEER_CRA_T4A_THRESHOLD", 500.00)
-        hard_block = getattr(settings, "VOLUNTEER_CRA_HARD_BLOCK", 1_000.00)
+        alert_threshold = getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450)
+        t4a_threshold = getattr(settings, "VOLUNTEER_CRA_T4A_THRESHOLD", 500)
+        hard_block = getattr(settings, "VOLUNTEER_CRA_HARD_BLOCK", 1_000)
 
         if self.payment_type != self.PAYMENT_TYPE_HONORARIUM:
             return  # CRA PC-025 thresholds apply to honoraria only, not expense reimbursements
