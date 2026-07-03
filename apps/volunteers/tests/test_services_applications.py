@@ -320,13 +320,49 @@ class ApplyTests(BaseApplicationTestCase):
         # it is persisted; if not, no error is raised (service handles missing gracefully).
         self.assertIsNotNone(app.pk)
 
-    # T3: volunteer_capacity capacity test is intentionally omitted.
-    # Opportunity.volunteer_capacity exists on the model but apply() explicitly
-    # does not enforce it (see apps/volunteers/models.py Opportunity.is_accepting_applications
-    # docstring: "Does NOT check volunteer_capacity"). Capacity enforcement is a
-    # ShiftBooking-level concern (book_shift() uses select_for_update() for capacity).
-    # A test that asserts apply() raises ValidationError for a full opportunity
-    # would be incorrect — it would fail because no such enforcement exists in the service.
+    def test_apply_succeeds_regardless_of_volunteer_capacity(self):
+        """
+        T3: apply() does NOT enforce volunteer_capacity — this is intentional design.
+
+        Opportunity.volunteer_capacity is an informational field.  The actual
+        capacity gate is at ShiftBooking level (book_shift() uses select_for_update()
+        to guard shift.capacity).  Applications are always accepted at the apply()
+        layer regardless of how many volunteers are already approved.
+
+        This test documents the non-enforcement explicitly so future developers
+        don't accidentally add capacity-enforcement here.
+        """
+        # Fill capacity: create approved applications up to volunteer_capacity
+        # using *different* volunteers so the unique_together constraint doesn't fire.
+        from apps.auth_extension.models import User
+
+        capacity = self.opportunity.volunteer_capacity or 1
+        for i in range(capacity):
+            other_user = User.objects.create_user(
+                username=f"cap_vol_{i}@example.gc.ca",
+                email=f"cap_vol_{i}@example.gc.ca",
+                password="x",
+            )
+            from apps.volunteers.models import VolunteerProfile
+            other_profile = VolunteerProfile.objects.create(
+                user=other_user, display_name=f"Cap Vol {i}"
+            )
+            VolunteerApplication.objects.create(
+                volunteer=other_profile,
+                opportunity=self.opportunity,
+                status=VolunteerApplication.STATUS_APPROVED,
+            )
+
+        # Our volunteer should still be able to apply even though capacity is full.
+        with self.captureOnCommitCallbacks(execute=True):
+            app = apply(
+                volunteer=self.profile,
+                opportunity=self.opportunity,
+                actor=self.user,
+            )
+
+        app.refresh_from_db()
+        self.assertEqual(app.status, VolunteerApplication.STATUS_PENDING)
 
     def test_apply_raises_if_approved_application_exists(self):
         """apply() must raise when volunteer already has STATUS_APPROVED for the same opportunity."""
@@ -439,10 +475,11 @@ class WithdrawTests(BaseApplicationTestCase):
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]["actor"], self.user)
 
-    def test_withdraw_raises_if_not_pending_approved(self):
+    def test_withdraw_succeeds_from_approved(self):
         """
-        withdraw() raises ValidationError when the application is already
-        approved. Volunteers cannot self-withdraw approved applications.
+        H7 fix: withdraw() must succeed when the application is STATUS_APPROVED.
+        A volunteer who changes their mind after being accepted should be able to
+        cancel — coordinators are notified via the application_withdrawn signal.
         """
         app = VolunteerApplication.objects.create(
             volunteer=self.profile,
@@ -450,11 +487,11 @@ class WithdrawTests(BaseApplicationTestCase):
             status=VolunteerApplication.STATUS_APPROVED,
         )
 
-        with self.assertRaises(ValidationError) as ctx:
-            withdraw(application=app, actor=self.user)
+        with self.captureOnCommitCallbacks(execute=True):
+            result = withdraw(application=app, actor=self.user)
 
-        errors = ctx.exception.message_dict
-        self.assertIn("status", errors)
+        result.refresh_from_db()
+        self.assertEqual(result.status, VolunteerApplication.STATUS_WITHDRAWN)
 
     def test_withdraw_raises_if_not_pending_rejected(self):
         """
@@ -485,7 +522,7 @@ class WithdrawTests(BaseApplicationTestCase):
     def test_withdraw_raises_if_in_review(self):
         """
         withdraw() raises ValidationError when the application is in_review.
-        Only STATUS_PENDING may be self-withdrawn.
+        Only STATUS_PENDING and STATUS_APPROVED may be self-withdrawn.
         """
         app = VolunteerApplication.objects.create(
             volunteer=self.profile,

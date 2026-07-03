@@ -1280,7 +1280,23 @@ class ScreeningRecord(TimestampedModel):
     )
 
     def clean(self):
+        from datetime import timedelta
+
         from django.core.exceptions import ValidationError
+
+        # H8 fix: auto-compute a 3-year expiry for VSC records that have a
+        # completed_date but no explicit expires_date set by the coordinator.
+        # Canadian VSC clearances are valid for 3 years (RCMP policy).  We
+        # only fill this in when the record is cleared (verified_clear=True)
+        # so that unverified/failed records keep expires_date=None and never
+        # show up in the expiry-alert task.
+        if (
+            self.check_type == self.CHECK_TYPE_VSC
+            and self.verified_clear is True
+            and self.completed_date
+            and not self.expires_date
+        ):
+            self.expires_date = self.completed_date + timedelta(days=3 * 365)
 
         if not self.notes:
             return

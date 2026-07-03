@@ -287,11 +287,11 @@ def withdraw(
     actor,
 ) -> "VolunteerApplication":
     """
-    Volunteer withdraws their own pending application.
+    Volunteer withdraws their own pending or approved application.
 
-    Only STATUS_PENDING applications may be withdrawn. Once an application
-    is in review, approved, or already withdrawn/rejected, it cannot be
-    self-withdrawn (the coordinator must handle those states).
+    STATUS_PENDING and STATUS_APPROVED applications may be withdrawn.
+    STATUS_WITHDRAWN and STATUS_REJECTED are terminal — re-withdrawing or
+    withdrawing a rejected application makes no sense.
 
     Args:
         application: VolunteerApplication instance to withdraw.
@@ -302,7 +302,7 @@ def withdraw(
 
     Raises:
         PermissionDenied: actor is not the volunteer's User.
-        ValidationError:  application is not in STATUS_PENDING.
+        ValidationError:  application is not in STATUS_PENDING or STATUS_APPROVED.
     """
     from apps.volunteers.models import VolunteerApplication
     from apps.volunteers.signals import application_withdrawn
@@ -328,8 +328,15 @@ def withdraw(
             .get(pk=application.pk)
         )
 
-        # --- Business rule: only pending applications can be self-withdrawn ---
-        if application.status != VolunteerApplication.STATUS_PENDING:
+        # --- Business rule: only pending or approved applications can be withdrawn ---
+        # H7 fix: volunteers should also be able to cancel after being approved
+        # (e.g. change of availability).  Terminal states (withdrawn, rejected)
+        # raise immediately.
+        _WITHDRAWABLE = {
+            VolunteerApplication.STATUS_PENDING,
+            VolunteerApplication.STATUS_APPROVED,
+        }
+        if application.status not in _WITHDRAWABLE:
             raise ValidationError(
                 {
                     "status": (

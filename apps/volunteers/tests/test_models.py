@@ -864,6 +864,118 @@ class ScreeningRecordTests(TestCase):
         s = self._make_screening(expires_delta_days=-1)
         self.assertFalse(s.expires_within_30_days)
 
+    # ------------------------------------------------------------------
+    # H8: VSC expiry auto-computation
+    # ------------------------------------------------------------------
+
+    def test_vsc_verified_clear_auto_sets_expires_date(self):
+        """
+        H8: When a VSC record is saved with verified_clear=True and no
+        expires_date, clean() should auto-set expires_date to
+        completed_date + 3 years (RCMP policy).
+        """
+        import datetime as dt
+        from apps.volunteers.models import ScreeningRecord
+
+        record = ScreeningRecord(
+            volunteer=self.profile,
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,
+            completed_date=self.today,
+            verified_clear=True,
+            expires_date=None,
+        )
+        record.full_clean()  # triggers clean()
+
+        expected = self.today + dt.timedelta(days=3 * 365)
+        self.assertEqual(
+            record.expires_date,
+            expected,
+            "VSC records verified clear should auto-receive a 3-year expiry.",
+        )
+
+    def test_vsc_pending_does_not_auto_set_expires_date(self):
+        """
+        H8: A VSC record with verified_clear=None (pending) must NOT get an
+        auto-computed expiry — the check hasn't been verified yet.
+        """
+        from apps.volunteers.models import ScreeningRecord
+
+        record = ScreeningRecord(
+            volunteer=self.profile,
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,
+            completed_date=self.today,
+            verified_clear=None,
+            expires_date=None,
+        )
+        record.full_clean()
+        self.assertIsNone(
+            record.expires_date,
+            "Unverified VSC records must not get an auto-expiry date.",
+        )
+
+    def test_vsc_failed_does_not_auto_set_expires_date(self):
+        """
+        H8: A VSC record with verified_clear=False must NOT get an expiry —
+        failed checks should never appear in the expiry-alert task.
+        """
+        from apps.volunteers.models import ScreeningRecord
+
+        record = ScreeningRecord(
+            volunteer=self.profile,
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,
+            completed_date=self.today,
+            verified_clear=False,
+            expires_date=None,
+        )
+        record.full_clean()
+        self.assertIsNone(
+            record.expires_date,
+            "Failed VSC records must not get an auto-expiry date.",
+        )
+
+    def test_vsc_explicit_expires_date_not_overwritten(self):
+        """
+        H8: If a coordinator explicitly sets expires_date, clean() must not
+        overwrite it with the 3-year default.
+        """
+        import datetime as dt
+        from apps.volunteers.models import ScreeningRecord
+
+        custom_expiry = self.today + dt.timedelta(days=500)
+        record = ScreeningRecord(
+            volunteer=self.profile,
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,
+            completed_date=self.today,
+            verified_clear=True,
+            expires_date=custom_expiry,
+        )
+        record.full_clean()
+        self.assertEqual(
+            record.expires_date,
+            custom_expiry,
+            "clean() must not overwrite an explicitly set expires_date.",
+        )
+
+    def test_non_vsc_check_type_not_affected(self):
+        """
+        H8: Auto-expiry only applies to VSC records; other check types
+        must remain expires_date=None when not explicitly set.
+        """
+        from apps.volunteers.models import ScreeningRecord
+
+        record = ScreeningRecord(
+            volunteer=self.profile,
+            check_type="reference_check",
+            completed_date=self.today,
+            verified_clear=True,
+            expires_date=None,
+        )
+        record.full_clean()
+        self.assertIsNone(
+            record.expires_date,
+            "Non-VSC check types must not receive an auto-expiry.",
+        )
+
     def test_check_type_choices(self):
         valid = [c[0] for c in ScreeningRecord.CHECK_TYPE_CHOICES]
         self.assertIn("vulnerable_sector_check", valid)
