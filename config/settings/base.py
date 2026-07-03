@@ -114,6 +114,7 @@ LOCAL_APPS = [
     "apps.payments",
     "apps.reports",
     "apps.volunteers",
+    "apps.documents",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -342,6 +343,8 @@ CELERY_TASK_ROUTES = {
     "apps.reports.tasks.*": {"queue": "reports"},
     # Volunteer Management BB — shift reminders, expiry checks, impact snapshots
     "apps.volunteers.tasks.*": {"queue": "volunteers"},
+    # Document Management BB — ClamAV scan, retention disposal, token purge
+    "apps.documents.tasks.*": {"queue": "documents"},
     # Webhook-triggered tasks — fast, latency-sensitive.
     # Must reach workers within Stripe's 30-second retry window.
     "apps.payments.tasks.process_stripe_webhook": {"queue": "webhooks"},
@@ -514,6 +517,70 @@ CIVICOS = {
     "MAX_LOGIN_ATTEMPTS": env.int("MAX_LOGIN_ATTEMPTS", default=5),
     # GC Notify API key (used by notifications app)
     "GC_NOTIFY_API_KEY": env("GC_NOTIFY_API_KEY", default=""),
+
+    # ── Document Management BB ────────────────────────────────────────────────
+
+    # ClamAV daemon connection settings.
+    # CLAMAV_HOST: empty string → ClamAV unavailable; uploads still accepted but skipped in dev.
+    # CLAMAV_REQUIRED=True in production.py will raise ImproperlyConfigured if host unset.
+    "CLAMAV_HOST": env("CLAMAV_HOST", default=""),
+    "CLAMAV_PORT": env.int("CLAMAV_PORT", default=3310),
+    # If True, startup fails when CLAMAV_HOST is not set (enforced in apps.documents.apps).
+    # Set to True in production.py. False in dev (ClamAV is optional locally).
+    "CLAMAV_REQUIRED": env.bool("CLAMAV_REQUIRED", default=False),
+
+    # Maximum file upload sizes (bytes).
+    # Citizens: 10 MB default. Staff uploads (backoffice): 50 MB.
+    # Per-category overrides available via DocumentCategory.max_size_bytes.
+    "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES": env.int(
+        "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES", default=10 * 1024 * 1024
+    ),
+    "DOCUMENT_MAX_STAFF_UPLOAD_BYTES": env.int(
+        "DOCUMENT_MAX_STAFF_UPLOAD_BYTES", default=50 * 1024 * 1024
+    ),
+
+    # Presigned POST URL TTL in seconds (how long the browser has to POST to S3).
+    # Must be long enough for slow connections; short enough to limit replay attacks.
+    "DOCUMENT_PRESIGNED_POST_TTL_SECONDS": env.int(
+        "DOCUMENT_PRESIGNED_POST_TTL_SECONDS", default=900  # 15 minutes
+    ),
+
+    # Presigned download URL TTL in seconds (S3 GET URL returned to browser).
+    # Short to limit sharing. Default 300 s = 5 minutes.
+    "DOCUMENT_PRESIGNED_URL_TTL_SECONDS": env.int(
+        "DOCUMENT_PRESIGNED_URL_TTL_SECONDS", default=300
+    ),
+
+    # DocumentAccessToken TTL in seconds (opaque token issued by Django download view).
+    # Must be ≤ DOCUMENT_PRESIGNED_URL_TTL_SECONDS.
+    "DOCUMENT_ACCESS_TOKEN_TTL_SECONDS": env.int(
+        "DOCUMENT_ACCESS_TOKEN_TTL_SECONDS", default=300
+    ),
+
+    # Grace period (days) between soft-delete and hard-delete.
+    # Hard deletion is irreversible. 30 days allows recovery from mistakes.
+    # NIST SP 800-88 / OPC guidance: hard deletion must be irreversible.
+    "DOCUMENT_HARD_DELETE_GRACE_DAYS": env.int(
+        "DOCUMENT_HARD_DELETE_GRACE_DAYS", default=30
+    ),
+
+    # S3 prefix for document storage. Must NOT include a trailing slash.
+    # Layout under this prefix: quarantine/{uuid}/{uuid}.bin
+    #                           active/{uuid}/{uuid}.bin
+    #                           deleted/{uuid}/{uuid}.bin
+    "DOCUMENT_STORAGE_PREFIX": env("DOCUMENT_STORAGE_PREFIX", default="documents"),
+
+    # ZIP bomb detection thresholds (CVE-2024-0450, Sep 2024).
+    # Reject if a ZIP/DOCX/XLSX has more entries than this limit.
+    "DOCUMENT_ZIP_MAX_ENTRIES": env.int("DOCUMENT_ZIP_MAX_ENTRIES", default=1000),
+    # Reject if any ZIP entry's compression ratio exceeds this (uncompressed / compressed).
+    "DOCUMENT_ZIP_MAX_RATIO": env.int("DOCUMENT_ZIP_MAX_RATIO", default=100),
+
+    # Proxy threshold: files <= this size are proxied through Django (as file response).
+    # Files > this size get a presigned URL redirect. Avoids memory pressure on workers.
+    "DOCUMENT_PROXY_MAX_BYTES": env.int(
+        "DOCUMENT_PROXY_MAX_BYTES", default=1 * 1024 * 1024  # 1 MB
+    ),
 }
 
 # ---------------------------------------------------------------------------

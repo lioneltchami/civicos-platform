@@ -55,6 +55,15 @@ class AuditEventType(models.TextChoices):
     SETTINGS_CHANGED = "system.settings.changed", _("Settings changed")
     USER_CREATED = "system.user.created", _("User created")
 
+    # Security events (Document Management BB)
+    # Fired when ClamAV detects a virus in an uploaded document.
+    # event_detail: {"document_pk": str}  — no filename, no uploader PII (PIPEDA)
+    THREAT_DETECTED = "security.threat_detected", _("Threat detected")
+
+    # Data lifecycle — irreversible hard-delete (Document Management BB)
+    # event_detail: {"document_pk": str, "category_slug": str}
+    RECORD_PURGED = "data.purged", _("Record purged")
+
 
 class AuditLogEntry(models.Model):
     """
