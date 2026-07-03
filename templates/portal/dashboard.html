@@ -21,10 +21,13 @@
      Page heading
      ============================================================ #}
   <h1 class="page-title">
+    {# XSS-C1/C2: blocktrans `with` clause does NOT auto-escape — force_escape required
+       so that a mark_safe()'d display_name or email cannot inject raw HTML into the h1.
+       This is a Django-documented footgun: blocktrans `with` variables bypass autoescape. #}
     {% if user.display_name %}
-      {% blocktrans with name=user.display_name %}Welcome, {{ name }}{% endblocktrans %}
+      {% blocktrans with name=user.display_name|force_escape %}Welcome, {{ name }}{% endblocktrans %}
     {% else %}
-      {% blocktrans with email=user.email %}Welcome, {{ email }}{% endblocktrans %}
+      {% blocktrans with email=user.email|force_escape %}Welcome, {{ email }}{% endblocktrans %}
     {% endif %}
   </h1>
 
@@ -121,18 +124,24 @@
   {# ============================================================
      Donation giving widget
      ============================================================ #}
-  {% if donation_summary is not None %}
+  {# PIPEDA-C5: donation financial data (YTD amount, receipt serial, eligible amount)
+     must never render for an unauthenticated session. The view already requires login,
+     but caching middleware or a context-processor bug could populate donation_summary on
+     a public path. This explicit is_authenticated guard is defence-in-depth. #}
+  {% if user.is_authenticated and donation_summary is not None %}
   <section aria-labelledby="donation-widget-heading" class="dashboard-section">
     <h2 id="donation-widget-heading">
       {% trans "My Giving / Mes dons" %}
     </h2>
     <ul class="stats-row" role="list">
       <li class="stats-card">
-        <span class="stats-card__number" aria-label="{% blocktrans with total=donation_summary.ytd_total|floatformat:2 year=donation_summary.year %}${{ total }} donated in {{ year }}{% endblocktrans %}">
+        {# blocktrans `with` variables are not auto-escaped — force_escape year (user-derived int
+           but could become a string; defensive escape adds no overhead). #}
+        <span class="stats-card__number" aria-label="{% blocktrans with total=donation_summary.ytd_total|floatformat:2 year=donation_summary.year|force_escape %}${{ total }} donated in {{ year }}{% endblocktrans %}">
           ${{ donation_summary.ytd_total|floatformat:2 }}
         </span>
         <span class="stats-card__label">
-          {% blocktrans with year=donation_summary.year %}{{ year }} Giving Total{% endblocktrans %}
+          {% blocktrans with year=donation_summary.year|force_escape %}{{ year }} Giving Total{% endblocktrans %}
         </span>
       </li>
       <li class="stats-card">
@@ -143,7 +152,8 @@
     {% if donation_summary.last_receipt %}
       <p class="dashboard-hint">
         {% trans "Last receipt:" %}
-        <strong>{{ donation_summary.last_receipt.serial_number }}</strong>
+        {# XSS: serial_number is a DB string — force_escape for defence-in-depth. #}
+        <strong>{{ donation_summary.last_receipt.serial_number|force_escape }}</strong>
         —
         ${{ donation_summary.last_receipt.eligible_amount|floatformat:2 }}
         (<time datetime="{{ donation_summary.last_receipt.issued_at|date:'c' }}">{{ donation_summary.last_receipt.issued_at|date:"Y-m-d" }}</time>)
@@ -190,12 +200,18 @@
             {% for req in recent_requests %}
               <tr>
                 <th scope="row">
-                  <code class="reference-number">{{ req.reference_number }}</code>
+                  {# XSS-C3: reference_number is a DB string; force_escape prevents stored XSS
+                     if the field is ever set via an API path that calls mark_safe(). #}
+                  <code class="reference-number">{{ req.reference_number|force_escape }}</code>
                 </th>
-                <td>{{ req.service_name }}</td>
+                {# XSS-C2: service_name is a DB string; same defence-in-depth rationale. #}
+                <td>{{ req.service_name|force_escape }}</td>
                 <td>
-                  <span class="status-badge status-badge--{{ req.status }}">
-                    {{ req.get_status_display }}
+                  {# XSS-C4: req.status is interpolated into a CSS class attribute.
+                     Attribute injection is possible if choices= validation is ever bypassed.
+                     req.get_status_display is also a DB-derived string. #}
+                  <span class="status-badge status-badge--{{ req.status|force_escape }}">
+                    {{ req.get_status_display|force_escape }}
                   </span>
                 </td>
                 <td>
@@ -204,9 +220,10 @@
                   </time>
                 </td>
                 <td>
+                  {# blocktrans `with` ref= needs force_escape for the same reason as h1 above. #}
                   <a href="{% url 'portal:request-detail' req.pk %}"
                      class="link-action"
-                     aria-label="{% blocktrans with ref=req.reference_number %}View request {{ ref }}{% endblocktrans %}">
+                     aria-label="{% blocktrans with ref=req.reference_number|force_escape %}View request {{ ref }}{% endblocktrans %}">
                     {% trans "View" %}
                   </a>
                 </td>

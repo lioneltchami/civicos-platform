@@ -729,6 +729,7 @@ class HonorariumReceiverTests(HonorariumBaseTestCase):
             sender=type(hon),
             instance=hon,
             coordinator=self.coordinator,
+            ytd_total=Decimal("500.00"),
         )
         self.assertTrue(mock_send.called, "send_email_notification must be called by the receiver")
         _args, call_kwargs = mock_send.call_args

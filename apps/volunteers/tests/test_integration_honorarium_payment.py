@@ -519,12 +519,16 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
         self.assertEqual(len(alert_calls), 0,
             "cra_alert_threshold_reached must NOT fire when T4A threshold is reached "
             "(T4A supersedes the advisory alert — VN-5)")
-        # M9: Verify ytd_total kwarg is present and is a Decimal — the signal
-        # contract requires receivers can use it without further DB queries.
+        # M9 / CRIT-2: Verify ytd_total kwarg is present, is a Decimal, AND equals the
+        # correct post-commit live YTD value. assertIsInstance alone is insufficient —
+        # a wrong YTD (e.g. Decimal("0.00") from a mis-filtered query) would still pass
+        # the type check. The alert-path test asserts the exact value; this must too.
         self.assertIn("ytd_total", t4a_calls[0],
             "t4a_threshold_reached must include ytd_total= kwarg (signal contract)")
         self.assertIsInstance(t4a_calls[0]["ytd_total"], Decimal,
             "ytd_total must be a Decimal, not a string or int")
+        self.assertEqual(t4a_calls[0]["ytd_total"], Decimal("500.00"),
+            "ytd_total must equal the post-commit live YTD (0 + 500 = 500.00)")
 
     def test_alert_fires_not_t4a_when_ytd_crosses_450(self):
         """
@@ -748,6 +752,53 @@ class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
                 )
             # ValidationError is acceptable (amount below thresholds but guard passed).
 
+    def test_create_honorarium_outside_atomic_does_not_raise_transaction_error(self):
+        """
+        CRIT-3: Verify that the select_for_update() guard in the SERVICE LAYER
+        (create_honorarium) also does not raise when called outside a transaction.
+
+        The previous M10 test only exercised Honorarium.full_clean() directly.
+        The actual guard that matters lives in create_honorarium(), which wraps
+        the service call in transaction.atomic() — so select_for_update() is
+        always called INSIDE that atomic block, not outside it. This test verifies
+        that the service's own atomic() wrapper correctly establishes the transaction
+        context so that select_for_update() (in clean()) works without raising.
+
+        This is a TransactionTestCase so we start genuinely outside any transaction;
+        the service's own atomic() is the only wrapper.
+        """
+        from django.db import connection
+
+        self.assertFalse(connection.in_atomic_block,
+            "Must start outside any transaction for this test to be meaningful")
+
+        # create_honorarium wraps in transaction.atomic() internally, so
+        # connection.in_atomic_block will be True INSIDE the service call.
+        # If the guard is broken, the service would raise TransactionManagementError
+        # before even reaching the DB write.
+        try:
+            honorarium = _create_honorarium(
+                self.profile,
+                amount="75.00",  # below all thresholds — no signal, just DB write
+                created_by=self.coordinator,
+                payment_date=datetime.date.today(),
+            )
+        except Exception as e:
+            from django.db import utils as _db_utils
+            if isinstance(e, _db_utils.Error):
+                self.fail(
+                    f"create_honorarium() raised a DB error — likely select_for_update() "
+                    f"called outside transaction (guard broken): {type(e).__name__}: {e}"
+                )
+            raise  # propagate unexpected non-DB exceptions
+
+        # Verify the honorarium was actually persisted (not silently swallowed).
+        from apps.volunteers.models import Honorarium
+        self.assertTrue(
+            Honorarium.objects.filter(pk=honorarium.pk).exists(),
+            "Honorarium must be persisted after create_honorarium() completes",
+        )
+
 
 # ---------------------------------------------------------------------------
 # HonorariumPIPEDALogTests
@@ -798,6 +849,30 @@ class HonorariumPIPEDALogTests(TransactionTestCase):
             self.assertNotIn(
                 "250", line,
                 f"PIPEDA: amount '250' must not appear in INFO log — found in: {line}",
+            )
+            self.assertNotIn(
+                "250.00", line,
+                f"PIPEDA: formatted amount '250.00' must not appear in INFO log — found in: {line}",
+            )
+            # CRIT-1: PIPEDA requires that the INFO log does NOT correlate the volunteer
+            # profile PK with a financial record. We enforce this with an ANCHORED full-line
+            # format assertion: the entire log line must match the expected pattern exactly.
+            # Any addition to the format (volunteer_profile.pk, amount, payment_type)
+            # causes the anchor to fail — this is stronger than a bare assertNotIn check
+            # and avoids false positives when profile.pk coincidentally equals honorarium.pk.
+            import re as _re
+            _expected_anchored = (
+                rf"^INFO:apps\.volunteers\.services\.honoraria:"
+                rf"volunteers\.services\.honoraria: "
+                rf"Honorarium #{_re.escape(str(honorarium.pk))} created"
+                rf" — created_by user #{_re.escape(str(self.coordinator.pk))}$"
+            )
+            self.assertRegex(
+                line, _expected_anchored,
+                f"PIPEDA: INFO log line must match the exact expected format with no "
+                f"extra fields. The format 'Honorarium #N created — created_by user #M' "
+                f"must not be extended with volunteer_pk, amount, or payment_type. "
+                f"Actual line: {line!r}",
             )
             # Verify the actor PK IS present (operational requirement, not PII).
             self.assertIn(
