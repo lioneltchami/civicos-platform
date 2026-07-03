@@ -9,6 +9,8 @@ Extends base.py with developer-friendly defaults:
 - No S3 — local file storage
 """
 
+import sys
+
 from .base import *  # noqa: F401, F403
 from .base import INSTALLED_APPS, MIDDLEWARE, env
 
@@ -27,25 +29,23 @@ SITE_URL = env("SITE_URL", default="http://localhost:8000")
 # Dev apps & middleware
 # ---------------------------------------------------------------------------
 
-INSTALLED_APPS += [
-    "debug_toolbar",
-    "django_extensions",
-]
+_TESTING = "test" in sys.argv
 
-MIDDLEWARE = [
-    "debug_toolbar.middleware.DebugToolbarMiddleware",
-] + MIDDLEWARE
+INSTALLED_APPS += [
+    "django_extensions",
+] + ([] if _TESTING else ["debug_toolbar"])
+
+MIDDLEWARE = (
+    [] if _TESTING else ["debug_toolbar.middleware.DebugToolbarMiddleware"]
+) + MIDDLEWARE
 
 INTERNAL_IPS = ["127.0.0.1", "::1"]
 
-DEBUG_TOOLBAR_CONFIG = {
-    "SHOW_COLLAPSED": True,
-    "SHOW_TOOLBAR_CALLBACK": lambda request: DEBUG,
-    # Suppress the E001 system-check error when running the test suite.
-    # Django sets DEBUG=False during tests, so the toolbar would never
-    # actually render; this flag just keeps the check from aborting.
-    "IS_RUNNING_TESTS": False,
-}
+if not _TESTING:
+    DEBUG_TOOLBAR_CONFIG = {
+        "SHOW_COLLAPSED": True,
+        "SHOW_TOOLBAR_CALLBACK": lambda request: DEBUG,
+    }
 
 # ---------------------------------------------------------------------------
 # Email — print to console
