@@ -22,10 +22,20 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # ── 1. Drop index that references actor_pk before removing the column ──
+        # Required for SQLite compatibility: SQLite cannot drop a column while
+        # an index still references it (OperationalError: error in index … after
+        # drop column: no such column: actor_pk).
+        migrations.RemoveIndex(
+            model_name="exportrecord",
+            name="rpt_exp_actor_ts_idx",
+        ),
+        # ── 2. Drop the old UUID column ───────────────────────────────────────
         migrations.RemoveField(
             model_name="exportrecord",
             name="actor_pk",
         ),
+        # ── 3. Add the new BigIntegerField column ─────────────────────────────
         migrations.AddField(
             model_name="exportrecord",
             name="actor_pk",
@@ -36,6 +46,14 @@ class Migration(migrations.Migration):
                     "Never stores email, name, or any other PII."
                 ),
                 verbose_name="Actor PK",
+            ),
+        ),
+        # ── 4. Recreate the index on the new column ───────────────────────────
+        migrations.AddIndex(
+            model_name="exportrecord",
+            index=models.Index(
+                fields=["actor_pk", "created_at"],
+                name="rpt_exp_actor_ts_idx",
             ),
         ),
     ]

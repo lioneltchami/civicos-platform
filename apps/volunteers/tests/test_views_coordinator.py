@@ -1573,3 +1573,275 @@ class HoursRejectViewTests(TestCase):
         self.log.refresh_from_db()
         self.assertEqual(self.log.status, HoursLog.STATUS_REJECTED)
         self.assertEqual(self.log.rejection_reason, reason)
+
+
+# ===========================================================================
+# T5 — ImpactReportView: coordinator for Program A cannot see Program B data
+# ===========================================================================
+
+class ImpactReportScopeIsolationTests(TestCase):
+    """
+    T5: Verify that the impact report is scoped to the coordinator's own
+    programs. A coordinator for Program A must not see hours data from
+    Program B.
+
+    The view calls hours_by_program(..., program_ids=...) with the list of
+    PKs for the current coordinator's programs (or None for superusers).
+    We verify this by creating approved HoursLog entries under two distinct
+    programs and checking that each coordinator's impact report only contains
+    data from their own program.
+    """
+
+    def setUp(self):
+        self.client = Client()
+
+        # Coordinator A
+        self.coord_a = _make_user("impact_coord_a@cviews.gc.ca", is_staff=True)
+        self.coord_a = _grant_perm(self.coord_a, "volunteers", "change_volunteerapplication")
+
+        # Coordinator B
+        self.coord_b = _make_user("impact_coord_b@cviews.gc.ca", is_staff=True)
+        self.coord_b = _grant_perm(self.coord_b, "volunteers", "change_volunteerapplication")
+
+        # Program A (owned by coord_a)
+        self.prog_a = _make_program(slug="impact-prog-a")
+        self.prog_a.coordinator = self.coord_a
+        self.prog_a.save(update_fields=["coordinator"])
+
+        # Program B (owned by coord_b)
+        self.prog_b = _make_program(slug="impact-prog-b")
+        self.prog_b.coordinator = self.coord_b
+        self.prog_b.save(update_fields=["coordinator"])
+
+        # Opportunities under each program
+        self.opp_a = _make_opportunity(self.prog_a, slug="impact-opp-a")
+        self.opp_b = _make_opportunity(self.prog_b, slug="impact-opp-b")
+
+        # Volunteers with approved hours in each program
+        vol_a_user = _make_user("impact_vol_a@cviews.gc.ca")
+        self.vol_a = _make_profile(vol_a_user)
+        VolunteerApplication.objects.create(
+            volunteer=self.vol_a,
+            opportunity=self.opp_a,
+            status=VolunteerApplication.STATUS_APPROVED,
+        )
+        _make_hours_log(self.vol_a, self.opp_a, hours=Decimal("5"), status=HoursLog.STATUS_APPROVED)
+
+        vol_b_user = _make_user("impact_vol_b@cviews.gc.ca")
+        self.vol_b = _make_profile(vol_b_user)
+        VolunteerApplication.objects.create(
+            volunteer=self.vol_b,
+            opportunity=self.opp_b,
+            status=VolunteerApplication.STATUS_APPROVED,
+        )
+        _make_hours_log(self.vol_b, self.opp_b, hours=Decimal("7"), status=HoursLog.STATUS_APPROVED)
+
+    def _url(self):
+        return _url("impact_report")
+
+    def test_coord_a_impact_report_excludes_prog_b_data(self):
+        """
+        T5: Coordinator A's impact report must not contain program B's slug.
+
+        The view scopes hours_by_program() to program_ids for the authenticated
+        coordinator. Program B's data must not appear for coordinator A.
+        """
+        url = self._url()
+        if url is None:
+            self.skipTest("impact_report URL not registered")
+
+        self.client.force_login(self.coord_a)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        hours_by_prog = response.context.get("hours_by_program", [])
+        program_slugs = [row.get("program_slug", "") for row in hours_by_prog]
+        self.assertNotIn(
+            "impact-prog-b",
+            program_slugs,
+            "T5: Coordinator A must not see Program B's data in the impact report.",
+        )
+
+    def test_coord_b_impact_report_excludes_prog_a_data(self):
+        """
+        T5: Coordinator B's impact report must not contain program A's slug.
+        """
+        url = self._url()
+        if url is None:
+            self.skipTest("impact_report URL not registered")
+
+        self.client.force_login(self.coord_b)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        hours_by_prog = response.context.get("hours_by_program", [])
+        program_slugs = [row.get("program_slug", "") for row in hours_by_prog]
+        self.assertNotIn(
+            "impact-prog-a",
+            program_slugs,
+            "T5: Coordinator B must not see Program A's data in the impact report.",
+        )
+
+    def test_coord_a_sees_own_prog_a_data(self):
+        """
+        T5 positive: Coordinator A's impact report DOES contain program A's data.
+        """
+        url = self._url()
+        if url is None:
+            self.skipTest("impact_report URL not registered")
+
+        self.client.force_login(self.coord_a)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        hours_by_prog = response.context.get("hours_by_program", [])
+        program_slugs = [row.get("program_slug", "") for row in hours_by_prog]
+        self.assertIn(
+            "impact-prog-a",
+            program_slugs,
+            "T5: Coordinator A must see their own Program A data.",
+        )
+
+
+# ===========================================================================
+# T6 — VolunteerDetailView: coordinator without view_accommodation_notes
+#       does NOT see sin_last4 or accommodation_notes
+# ===========================================================================
+
+class VolunteerDetailSensitiveFieldGateTests(TestCase):
+    """
+    T6: Coordinator without volunteers.view_accommodation_notes must have
+    sin_last4 and accommodation_notes nulled out in the view's context.
+
+    The view's get_context_data() sets these to None when the coordinator
+    lacks the permission (server-side PIPEDA enforcement). We assert that
+    the profile in context has None for sensitive fields.
+    """
+
+    def setUp(self):
+        self.client = Client()
+
+        # Coordinator WITH change_volunteerapplication but WITHOUT view_accommodation_notes
+        self.coordinator = _make_user("vdetail_coord@cviews.gc.ca", is_staff=True)
+        self.coordinator = _grant_perm(
+            self.coordinator, "volunteers", "change_volunteerapplication"
+        )
+        # Deliberately do NOT grant view_accommodation_notes.
+
+        # Program scoped to coordinator
+        self.program = _make_program(slug="vdetail-prog")
+        self.program.coordinator = self.coordinator
+        self.program.save(update_fields=["coordinator"])
+
+        self.opportunity = _make_opportunity(self.program, slug="vdetail-opp")
+
+        # Volunteer profile with sensitive data populated
+        self.vol_user = _make_user("vdetail_vol@cviews.gc.ca")
+        self.profile = _make_profile(self.vol_user)
+        # Populate sensitive fields directly on the model
+        from apps.volunteers.models import VolunteerProfile
+        VolunteerProfile.objects.filter(pk=self.profile.pk).update(
+            sin_last4="1234",
+            accommodation_notes="Requires wheelchair access",
+            emergency_contact_name="Jane Doe",
+            emergency_contact_phone="613-555-9999",
+            emergency_contact_relationship="Spouse",
+        )
+        self.profile.refresh_from_db()
+
+        # Volunteer must have an application in the coordinator's program
+        VolunteerApplication.objects.create(
+            volunteer=self.profile,
+            opportunity=self.opportunity,
+            status=VolunteerApplication.STATUS_APPROVED,
+        )
+
+    def _url(self, pk=None):
+        return _url("volunteer_detail", pk=pk or self.profile.pk)
+
+    def test_coordinator_without_perm_sees_nulled_sin_last4(self):
+        """
+        T6: sin_last4 is None in the view context when coordinator lacks
+        volunteers.view_accommodation_notes.
+        """
+        url = self._url()
+        if url is None:
+            self.skipTest("volunteer_detail URL not registered")
+
+        self.client.force_login(self.coordinator)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # The view sets can_view_sensitive=False when the coordinator lacks the
+        # view_accommodation_notes permission, and then nulls out sensitive fields
+        # on the profile object before passing it to the template.
+        can_view = response.context.get("can_view_sensitive")
+        self.assertFalse(
+            can_view,
+            "T6: coordinator without view_accommodation_notes must have can_view_sensitive=False.",
+        )
+
+    def test_coordinator_without_perm_does_not_see_accommodation_notes_in_response(self):
+        """
+        T6: The accommodation notes value must not appear in the HTTP response
+        body when the coordinator lacks view_accommodation_notes.
+        """
+        url = self._url()
+        if url is None:
+            self.skipTest("volunteer_detail URL not registered")
+
+        self.client.force_login(self.coordinator)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # The literal note content must not be rendered in the HTML.
+        self.assertNotContains(
+            response,
+            "Requires wheelchair access",
+            msg_prefix="T6: accommodation_notes content must not appear in response "
+                        "for coordinator without view_accommodation_notes.",
+        )
+
+    def test_coordinator_without_perm_does_not_see_sin_last4_in_response(self):
+        """
+        T6: The sin_last4 value must not appear in the HTTP response body
+        when the coordinator lacks view_accommodation_notes.
+        """
+        url = self._url()
+        if url is None:
+            self.skipTest("volunteer_detail URL not registered")
+
+        self.client.force_login(self.coordinator)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # The sin_last4 digits must not be rendered.
+        self.assertNotContains(
+            response,
+            "1234",
+            msg_prefix="T6: sin_last4 value must not appear in response "
+                        "for coordinator without view_accommodation_notes.",
+        )
+
+    def test_coordinator_with_perm_sees_sensitive_fields(self):
+        """
+        T6 positive: A coordinator who HAS view_accommodation_notes gets
+        can_view_sensitive=True and the sensitive data IS accessible.
+        """
+        url = self._url()
+        if url is None:
+            self.skipTest("volunteer_detail URL not registered")
+
+        # Grant the sensitive-field permission to this coordinator.
+        coordinator_with_perm = _grant_perm(
+            self.coordinator, "volunteers", "view_accommodation_notes"
+        )
+        self.client.force_login(coordinator_with_perm)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        can_view = response.context.get("can_view_sensitive")
+        self.assertTrue(
+            can_view,
+            "T6: coordinator with view_accommodation_notes must have can_view_sensitive=True.",
+        )

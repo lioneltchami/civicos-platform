@@ -327,7 +327,9 @@ def check_expiring_screenings(self):
 
     records = (
         ScreeningRecord.objects.filter(
-            verified_clear=True,          # H5 fix: only alert on verified-clear records
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,  # H5 fix: only VSC checks have auto-expiry
+            verified_clear=True,                        # H5 fix: only alert on verified-clear records
+            expires_date__isnull=False,                 # H5 fix: exclude records with no expiry date
             expires_date__gte=today,
             expires_date__lte=expiry_window,
         )

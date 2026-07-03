@@ -14,9 +14,10 @@ Patching strategy:
   way the mock is picked up by Python's module cache.
 """
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, call, patch
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
@@ -1125,9 +1126,8 @@ class AnnualReceiptsLocalTimezoneFilterTests(TestCase):
         Returns:
             The refreshed Donation instance with the overridden timestamp.
         """
-        import pytz
-        tz = pytz.timezone(tz_name)
-        dt_utc = tz.localize(local_dt_naive).astimezone(pytz.UTC)
+        tz = ZoneInfo(tz_name)
+        dt_utc = local_dt_naive.replace(tzinfo=tz).astimezone(dt_timezone.utc)
         donation = make_donation(user, intent)
         # Force-set the auto_now_add field via update() — create() ignores it.
         Donation.objects.filter(pk=donation.pk).update(created_at=dt_utc)
@@ -1239,9 +1239,8 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         22:00 PST Dec 31 2024 = 06:00 UTC Jan 1 2025 — must be included in the
         2024 run because it is Dec 31 in the donor's local (Pacific) time.
         """
-        import pytz
-        pst = pytz.timezone("America/Vancouver")
-        dt_utc = pst.localize(datetime(2024, 12, 31, 22, 0, 0)).astimezone(pytz.UTC)
+        pst = ZoneInfo("America/Vancouver")
+        dt_utc = datetime(2024, 12, 31, 22, 0, 0).replace(tzinfo=pst).astimezone(dt_timezone.utc)
 
         user = make_user()
         intent = make_payment_intent(user)
@@ -1261,9 +1260,8 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         00:01 PST Jan 1 2025 = 08:01 UTC Jan 1 2025 — must NOT be in the 2024 run
         because it is already January 1 in the donor's local (Pacific) time.
         """
-        import pytz
-        pst = pytz.timezone("America/Vancouver")
-        dt_utc = pst.localize(datetime(2025, 1, 1, 0, 1, 0)).astimezone(pytz.UTC)
+        pst = ZoneInfo("America/Vancouver")
+        dt_utc = datetime(2025, 1, 1, 0, 1, 0).replace(tzinfo=pst).astimezone(dt_timezone.utc)
 
         user = make_user()
         intent = make_payment_intent(user)
@@ -1293,9 +1291,8 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         ambiguity is real.  Including it guarantees CRA compliance; issuing a
         duplicate is rectifiable, but a missing receipt is not.
         """
-        import pytz
-        nst = pytz.timezone("America/St_Johns")
-        dt_utc = nst.localize(datetime(2025, 1, 1, 0, 1, 0)).astimezone(pytz.UTC)
+        nst = ZoneInfo("America/St_Johns")
+        dt_utc = datetime(2025, 1, 1, 0, 1, 0).replace(tzinfo=nst).astimezone(dt_timezone.utc)
 
         user = make_user()
         intent = make_payment_intent(user)
@@ -1315,9 +1312,8 @@ class AnnualReceiptsBCTimezoneTest(TestCase):
         Previously-fixed M7 case: 23:00 ET Dec 31 (= 04:00 UTC Jan 1) must still
         be included in the current-year run — regression guard.
         """
-        import pytz
-        et = pytz.timezone("America/Toronto")
-        dt_utc = et.localize(datetime(2024, 12, 31, 23, 0, 0)).astimezone(pytz.UTC)
+        et = ZoneInfo("America/Toronto")
+        dt_utc = datetime(2024, 12, 31, 23, 0, 0).replace(tzinfo=et).astimezone(dt_timezone.utc)
 
         user = make_user()
         intent = make_payment_intent(user)

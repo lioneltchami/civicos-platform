@@ -588,12 +588,14 @@ def get_receipt_list_queryset(start: date, end: date):
     donor_province, donor_postal_code, donor email. These fields must never
     appear in a streamed administrative export.
     """
-    import pytz
     from datetime import datetime as dt
+    from zoneinfo import ZoneInfo
+
     from django.utils.timezone import make_aware
+
     from apps.payments.models import OfficialDonationReceipt
 
-    toronto = pytz.timezone("America/Toronto")
+    toronto = ZoneInfo("America/Toronto")
     dt_start = make_aware(dt.combine(start, dt.min.time()), toronto)
     dt_end = make_aware(dt.combine(end + timedelta(days=1), dt.min.time()), toronto)
 

@@ -13,7 +13,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import patch
 
-import pytz
+from zoneinfo import ZoneInfo
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils.timezone import make_aware
@@ -28,7 +29,7 @@ from apps.payments.models import (
 
 User = get_user_model()
 
-EASTERN = pytz.timezone("America/Toronto")
+EASTERN = ZoneInfo("America/Toronto")
 
 # ---------------------------------------------------------------------------
 # Fixture helpers (mirrors test_immutable_fields.py pattern)
@@ -132,7 +133,7 @@ class SerialNumberYearTest(TestCase):
         not the UTC year (2025), so it matches receipt_date = 2024-12-31.
         """
         # 2024-12-31 22:00:00 EST = 2025-01-01 03:00:00 UTC
-        utc_midnight_crossover = make_aware(datetime(2025, 1, 1, 3, 0, 0), pytz.UTC)
+        utc_midnight_crossover = make_aware(datetime(2025, 1, 1, 3, 0, 0), ZoneInfo("UTC"))
 
         # Patch the DB sequence call so we don't need a real PostgreSQL sequence
         def fake_nextval(sql):
@@ -161,7 +162,7 @@ class SerialNumberYearTest(TestCase):
         test runs cleanly on SQLite in CI. The key assertion is that the year
         computation in save() would yield 2024, not 2025.
         """
-        utc_midnight_crossover = make_aware(datetime(2025, 1, 1, 3, 0, 0), pytz.UTC)
+        utc_midnight_crossover = make_aware(datetime(2025, 1, 1, 3, 0, 0), ZoneInfo("UTC"))
 
         with patch("django.utils.timezone.now", return_value=utc_midnight_crossover):
             from django.utils.timezone import localtime

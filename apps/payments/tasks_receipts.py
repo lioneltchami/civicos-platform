@@ -14,7 +14,7 @@ from datetime import datetime
 from decimal import Decimal
 from operator import attrgetter
 
-import pytz
+from zoneinfo import ZoneInfo
 
 from celery import shared_task
 from django.conf import settings
@@ -224,15 +224,13 @@ def generate_annual_receipts(self, tax_year: int) -> dict:
     # where Dec 31 ends latest.  A BC donor giving at 22:30 PST = 06:30 UTC Jan 1
     # would be missed if we used Eastern time (UTC-5) for the end.
     #   2024-12-31 23:59:59 PST = 2025-01-01 07:59:59 UTC
-    _CANADA_NL_TZ = pytz.timezone("America/St_Johns")
-    _CANADA_WESTERN_TZ = pytz.timezone("America/Vancouver")
+    from datetime import timezone as _tz
 
-    _year_start_utc = _CANADA_NL_TZ.localize(
-        datetime(tax_year, 1, 1, 0, 0, 0)
-    ).astimezone(pytz.UTC)
-    _year_end_utc = _CANADA_WESTERN_TZ.localize(
-        datetime(tax_year, 12, 31, 23, 59, 59, 999999)
-    ).astimezone(pytz.UTC)
+    _CANADA_NL_TZ = ZoneInfo("America/St_Johns")
+    _CANADA_WESTERN_TZ = ZoneInfo("America/Vancouver")
+
+    _year_start_utc = datetime(tax_year, 1, 1, 0, 0, 0, tzinfo=_CANADA_NL_TZ).astimezone(_tz.utc)
+    _year_end_utc = datetime(tax_year, 12, 31, 23, 59, 59, 999999, tzinfo=_CANADA_WESTERN_TZ).astimezone(_tz.utc)
 
     # All completed donations in the tax year
     completed_donations = (

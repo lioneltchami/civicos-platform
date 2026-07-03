@@ -46,10 +46,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Runtime system dependencies
+# Runtime system dependencies (includes WeasyPrint GTK/Pango/Cairo stack)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    libglib2.0-0 \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libpangocairo-1.0-0 \
+    libcairo2 \
+    libgdk-pixbuf-2.0-0 \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
@@ -86,10 +93,17 @@ WORKDIR /app
 RUN groupadd --gid 1001 appgroup && \
     useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
 
-# Runtime system dependencies only
+# Runtime system dependencies only (includes WeasyPrint GTK/Pango/Cairo stack)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    libglib2.0-0 \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libpangocairo-1.0-0 \
+    libcairo2 \
+    libgdk-pixbuf-2.0-0 \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder

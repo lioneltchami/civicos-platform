@@ -254,13 +254,13 @@ def get_reconciliation_queryset(start, end):
     caller to avoid Django's dependent-annotation ordering ambiguity.
     """
     from datetime import date as date_type, datetime as dt, timedelta
+    from zoneinfo import ZoneInfo
 
-    import pytz
     from django.utils.timezone import make_aware
 
     from apps.payments.models import Payment, Refund
 
-    toronto = pytz.timezone("America/Toronto")
+    toronto = ZoneInfo("America/Toronto")
     dt_start = make_aware(dt.combine(start, dt.min.time()), toronto)
     # Exclusive upper bound: midnight at start of the day AFTER end in Toronto.
     dt_end = make_aware(

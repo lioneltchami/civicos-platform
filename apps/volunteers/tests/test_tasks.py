@@ -373,7 +373,7 @@ class ExpiringScreeningTaskTests(TestCase):
         self.volunteer_user = _make_user("screen_vol@example.gc.ca")
         self.volunteer_profile = _make_profile(self.volunteer_user)
 
-    def _make_screening_record(self, expires_days_from_now, check_type=ScreeningRecord.CHECK_TYPE_PRC):
+    def _make_screening_record(self, expires_days_from_now, check_type=ScreeningRecord.CHECK_TYPE_VSC):
         """Create a verified-clear ScreeningRecord expiring in `expires_days_from_now` days."""
         today = timezone.localtime(timezone.now()).date()
         return ScreeningRecord.objects.create(
@@ -456,7 +456,7 @@ class ExpiringScreeningTaskTests(TestCase):
         for profile in [profile_a, profile_b]:
             ScreeningRecord.objects.create(
                 volunteer=profile,
-                check_type=ScreeningRecord.CHECK_TYPE_PRC,
+                check_type=ScreeningRecord.CHECK_TYPE_VSC,
                 completed_date=today - datetime.timedelta(days=30),
                 expires_date=today + datetime.timedelta(days=20),
                 verified_clear=True,
@@ -485,6 +485,121 @@ class ExpiringScreeningTaskTests(TestCase):
             result = check_expiring_screenings()
 
         self.assertEqual(result["receiver_errors"], 1)
+
+    # ------------------------------------------------------------------
+    # T4 — check_expiring_screenings only processes VSC + verified_clear
+    # ------------------------------------------------------------------
+
+    def test_expiring_screenings_ignores_non_vsc_check_types(self):
+        """
+        T4a: check_expiring_screenings must NOT alert for records whose
+        check_type is not CHECK_TYPE_VSC, even if they are verified-clear
+        and near expiry.
+
+        The task filter `check_type=ScreeningRecord.CHECK_TYPE_VSC` (H5 fix)
+        intentionally excludes PRC / REFERENCE / CUSTOM records.
+        """
+        today = timezone.localtime(timezone.now()).date()
+        # Create a verified-clear PRC record expiring in 10 days (not VSC).
+        ScreeningRecord.objects.create(
+            volunteer=self.volunteer_profile,
+            check_type=ScreeningRecord.CHECK_TYPE_PRC,  # NOT VSC
+            completed_date=today - datetime.timedelta(days=30),
+            expires_date=today + datetime.timedelta(days=10),
+            verified_clear=True,
+            verified_by=self.coordinator,
+            verified_at=timezone.now(),
+        )
+
+        with mock.patch(
+            "apps.volunteers.signals.screening_expiring.send_robust"
+        ) as m:
+            result = check_expiring_screenings()
+
+        m.assert_not_called()
+        self.assertEqual(result["fired"], 0,
+                         "Non-VSC record near expiry must not trigger check_expiring_screenings.")
+
+    def test_expiring_screenings_ignores_pending_vsc_records(self):
+        """
+        T4b: check_expiring_screenings must NOT alert for VSC records whose
+        verified_clear is None (pending — coordinator has not yet confirmed
+        the result). Only verified-clear (verified_clear=True) VSC records
+        should trigger the expiry alert.
+        """
+        today = timezone.localtime(timezone.now()).date()
+        # Create a pending VSC record (verified_clear=None) expiring soon.
+        ScreeningRecord.objects.create(
+            volunteer=self.volunteer_profile,
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,
+            completed_date=today - datetime.timedelta(days=30),
+            expires_date=today + datetime.timedelta(days=10),
+            verified_clear=None,  # pending — not yet verified
+            verified_by=self.coordinator,
+            verified_at=timezone.now(),
+        )
+
+        with mock.patch(
+            "apps.volunteers.signals.screening_expiring.send_robust"
+        ) as m:
+            result = check_expiring_screenings()
+
+        m.assert_not_called()
+        self.assertEqual(result["fired"], 0,
+                         "Pending (verified_clear=None) VSC record must not trigger alert.")
+
+    def test_expiring_screenings_ignores_failed_vsc_records(self):
+        """
+        T4c: check_expiring_screenings must NOT alert for VSC records whose
+        verified_clear is False (not clear — volunteer failed the check).
+        Expiry of a failed check is irrelevant.
+        """
+        today = timezone.localtime(timezone.now()).date()
+        # Create a failed VSC record (verified_clear=False) expiring soon.
+        ScreeningRecord.objects.create(
+            volunteer=self.volunteer_profile,
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,
+            completed_date=today - datetime.timedelta(days=30),
+            expires_date=today + datetime.timedelta(days=10),
+            verified_clear=False,  # not clear — failed check
+            verified_by=self.coordinator,
+            verified_at=timezone.now(),
+        )
+
+        with mock.patch(
+            "apps.volunteers.signals.screening_expiring.send_robust"
+        ) as m:
+            result = check_expiring_screenings()
+
+        m.assert_not_called()
+        self.assertEqual(result["fired"], 0,
+                         "Failed (verified_clear=False) VSC record must not trigger alert.")
+
+    def test_expiring_screenings_vsc_cleared_is_alerted(self):
+        """
+        T4d: Positive check — a VSC record with verified_clear=True expiring
+        within 30 days SHOULD trigger the signal. This confirms the filters
+        above are not over-excluding.
+        """
+        today = timezone.localtime(timezone.now()).date()
+        ScreeningRecord.objects.create(
+            volunteer=self.volunteer_profile,
+            check_type=ScreeningRecord.CHECK_TYPE_VSC,
+            completed_date=today - datetime.timedelta(days=365),
+            expires_date=today + datetime.timedelta(days=10),
+            verified_clear=True,
+            verified_by=self.coordinator,
+            verified_at=timezone.now(),
+        )
+
+        with mock.patch(
+            "apps.volunteers.signals.screening_expiring.send_robust",
+            return_value=[],
+        ) as m:
+            result = check_expiring_screenings()
+
+        m.assert_called_once()
+        self.assertEqual(result["fired"], 1)
 
 
 # ===========================================================================

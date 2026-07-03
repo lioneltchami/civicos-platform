@@ -455,6 +455,32 @@ class ApproveHoursTests(HoursBaseTestCase):
         result.refresh_from_db()
         self.assertEqual(result.status, HoursLog.STATUS_APPROVED)
 
+    # ------------------------------------------------------------------
+    # T2 — approve_hours() on an already-approved log raises
+    # ------------------------------------------------------------------
+
+    def test_approve_hours_already_approved_raises_validation_error(self):
+        """
+        T2: approve_hours() on a HoursLog that is already STATUS_APPROVED
+        must raise ValidationError — the non-pending guard (H2) prevents
+        double-approval from silently overwriting the record.
+
+        This test explicitly verifies the guard path, distinct from the
+        existing test_approve_hours_non_pending_raises which also tests
+        rejection → approve. Here the sequence is approve → approve.
+        """
+        log = self._pending_log()
+        # First approval must succeed.
+        approve_hours(hours_log=log, actor=self.coordinator)
+        log.refresh_from_db()
+        self.assertEqual(log.status, HoursLog.STATUS_APPROVED)
+
+        # Second approval must raise ValidationError with 'status' in message_dict.
+        with self.assertRaises(ValidationError) as ctx:
+            approve_hours(hours_log=log, actor=self.coordinator)
+        self.assertIn("status", ctx.exception.message_dict,
+                      "approve_hours() must identify 'status' as the invalid field.")
+
 
 # ===========================================================================
 # reject_hours() tests

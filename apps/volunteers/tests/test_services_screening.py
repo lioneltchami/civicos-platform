@@ -371,6 +371,39 @@ class CompleteCheckTests(ScreeningBaseTestCase):
         result.refresh_from_db()
         self.assertTrue(result.verified_clear)
 
+    # ------------------------------------------------------------------
+    # T1 — Concurrent / duplicate complete_check() is idempotent
+    # ------------------------------------------------------------------
+
+    def test_complete_check_twice_raises_validation_error(self):
+        """
+        T1: Calling complete_check() a second time on an already-verified
+        ScreeningRecord must raise ValidationError (not silently overwrite).
+
+        The guard `if screening_record.verified_clear is not None: raise`
+        in complete_check() ensures idempotency — a concurrent or duplicate
+        call sees the already-set value and raises rather than overwriting.
+        """
+        record = self._pending_record(check_type=ScreeningRecord.CHECK_TYPE_VSC)
+
+        # First completion — must succeed.
+        complete_check(
+            screening_record=record,
+            verified_clear=True,
+            completed_by=self.coordinator,
+        )
+
+        # Second completion — must raise ValidationError because verified_clear
+        # is already set (not None).
+        record.refresh_from_db()
+        with self.assertRaises(ValidationError) as ctx:
+            complete_check(
+                screening_record=record,
+                verified_clear=True,
+                completed_by=self.coordinator,
+            )
+        self.assertIn("verified_clear", ctx.exception.message_dict)
+
 
 # ===========================================================================
 # check_expiring_soon() tests

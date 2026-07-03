@@ -16,6 +16,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
 from django.urls import path
+from django.db import transaction
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
@@ -48,6 +49,7 @@ def liveness(request):
 
 @never_cache
 @require_GET
+@transaction.non_atomic_requests
 def readiness(request):
     """
     Kubernetes readiness probe — confirms all dependencies are reachable.
