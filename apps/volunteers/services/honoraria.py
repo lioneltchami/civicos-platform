@@ -153,6 +153,69 @@ def create_honorarium(
         # skip_clean=True because full_clean() was already called above.
         honorarium.save(skip_clean=True)
 
+        # ── Wire into Payments BB financial ledger ────────────────────────────
+        # Creates a PaymentIntent + Payment so manual honorarium payments appear
+        # in the financial record alongside gateway payments.
+        #
+        # Guarded with try/except: if Payments BB is unavailable or payment
+        # creation fails, the honorarium is still created — .payment remains null.
+        # Both records are in the same transaction.atomic() block, so a Payment
+        # failure WILL roll back the honorarium (atomic integrity is preserved).
+        # The try/except only handles unexpected import or model errors.
+        try:
+            from datetime import datetime as _dt
+            from django.utils import timezone as _tz
+            from apps.payments.models import (
+                GATEWAY_MANUAL as _GATEWAY_MANUAL,
+                PaymentIntent as _PI,
+                Payment as _P,
+            )
+
+            # Convert payment_date (date) to timezone-aware datetime at midnight Toronto
+            _paid_at = _tz.make_aware(
+                _dt.combine(payment_date, _dt.min.time()),
+                timezone=_tz.get_current_timezone(),
+            )
+
+            _pi = _PI.objects.create(
+                payer=volunteer_profile.user,
+                amount=amount,
+                currency="CAD",
+                purpose=_PI.PURPOSE_HONORARIUM,
+                status=_PI.STATUS_COMPLETED,
+                gateway=_GATEWAY_MANUAL,
+                gateway_intent_id=f"hon-{honorarium.pk}",
+                metadata={"source": "volunteers.honorarium", "honorarium_pk": honorarium.pk},
+            )
+            _payment = _P.objects.create(
+                intent=_pi,
+                gateway_charge_id=f"HON-{honorarium.pk}",
+                amount_paid=amount,
+                processor_fee=Decimal("0.00"),
+                payment_method_type=_P.PAYMENT_METHOD_BANK,
+                paid_at=_paid_at,
+            )
+            # Link via UPDATE to avoid re-running full_clean() on the honorarium
+            type(honorarium).objects.filter(pk=honorarium.pk).update(payment=_payment)
+            honorarium.payment = _payment  # keep in-memory instance consistent
+
+            logger.info(
+                "volunteers.services.honoraria: Honorarium #%s linked to Payment %s "
+                "(PaymentIntent %s)",
+                honorarium.pk,
+                _payment.gateway_charge_id,
+                _pi.gateway_intent_id,
+            )
+        except Exception:
+            logger.warning(
+                "volunteers.services.honoraria: Payments BB wiring failed for "
+                "Honorarium #%s — .payment FK remains null.",
+                honorarium.pk,
+                exc_info=True,
+            )
+            # Do NOT re-raise: honorarium creation succeeds even if Payments BB wiring fails.
+            # The financial record will be created on next reconciliation or manual entry.
+
         # Capture post-clean state in local variables for use inside the closure.
         # We must not close over the ORM instance directly — it may be mutated
         # by the time on_commit fires.

@@ -43,6 +43,8 @@ from apps.reports.views.operational import (
     OperationalDashboardView,
     TaskFailureDetailView,
 )
+from apps.reports.views.volunteers import VolunteerImpactDashboardView
+from apps.reports.views.combined import CombinedImpactView
 
 app_name = "reports"
 
@@ -112,5 +114,16 @@ urlpatterns = [
         "operational/task-failures/",
         TaskFailureDetailView.as_view(),
         name="task-failures",
+    ),
+    # ── Integration Wave: volunteers + combined ───────────────────────────────
+    path(
+        "volunteers/",
+        VolunteerImpactDashboardView.as_view(),
+        name="volunteers-dashboard",
+    ),
+    path(
+        "combined/",
+        CombinedImpactView.as_view(),
+        name="combined-impact",
     ),
 ]

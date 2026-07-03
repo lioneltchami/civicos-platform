@@ -118,6 +118,61 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             ).count()
         except Exception:
             ctx["unread_notification_count"] = 0
+
+        # ── Volunteer summary widget ──────────────────────────────────────────────
+        from django.db.models import Count as _Count
+        try:
+            from apps.volunteers.models import VolunteerProfile, VolunteerApplication, ShiftBooking
+            from django.utils import timezone as _tz_vol
+            try:
+                _profile = VolunteerProfile.objects.get(user=self.request.user)
+                _active_apps = VolunteerApplication.objects.filter(
+                    applicant=_profile,
+                    status__in=["pending", "under_review", "approved"],
+                ).count()
+                _upcoming_shifts = ShiftBooking.objects.filter(
+                    volunteer=_profile,
+                    status=ShiftBooking.STATUS_CONFIRMED,
+                    shift__start_datetime__gte=_tz_vol.now(),
+                ).count()
+                ctx["volunteer_summary"] = {
+                    "has_profile": True,
+                    "active_application_count": _active_apps,
+                    "upcoming_shift_count": _upcoming_shifts,
+                }
+            except VolunteerProfile.DoesNotExist:
+                ctx["volunteer_summary"] = {"has_profile": False}
+        except Exception:
+            ctx["volunteer_summary"] = None
+
+        # ── Donation summary widget ───────────────────────────────────────────────
+        try:
+            from decimal import Decimal as _Dec
+            from django.db.models import Sum as _Sum
+            from django.utils import timezone as _tz_don
+            from apps.payments.models import Donation, OfficialDonationReceipt
+            _current_year = _tz_don.localtime(_tz_don.now()).year
+            _ytd = Donation.objects.filter(
+                donor=self.request.user,
+                status="completed",
+                created_at__year=_current_year,
+            ).aggregate(total=_Sum("amount"), count=_Count("id"))
+            _last_receipt = (
+                OfficialDonationReceipt.objects
+                .filter(donation__donor=self.request.user, status="issued")
+                .order_by("-issued_at")
+                .values("serial_number", "issued_at", "eligible_amount")
+                .first()
+            )
+            ctx["donation_summary"] = {
+                "ytd_total": _ytd["total"] or _Dec("0.00"),
+                "ytd_count": _ytd["count"] or 0,
+                "year": _current_year,
+                "last_receipt": _last_receipt,
+            }
+        except Exception:
+            ctx["donation_summary"] = None
+
         return ctx
 
 

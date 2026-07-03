@@ -836,16 +836,17 @@ class ComputeSingleSnapshotTest(TestCase):
 # ---------------------------------------------------------------------------
 
 class ComputeAllSnapshotsIntegrationTest(TestCase):
-    """_compute_all_snapshots writes all three snapshot types."""
+    """_compute_all_snapshots writes all four snapshot types."""
 
     def test_writes_all_three_types(self):
         written = _compute_all_snapshots(2025, 3)
-        self.assertEqual(written, 3, "Expected 3 snapshots written (financial, donations, operational)")
+        self.assertEqual(written, 4, "Expected 4 snapshots written (financial, donations, operational, volunteers)")
 
         for report_type in (
             ReportSnapshot.REPORT_TYPE_FINANCIAL,
             ReportSnapshot.REPORT_TYPE_DONATIONS,
             ReportSnapshot.REPORT_TYPE_OPERATIONAL,
+            ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
         ):
             self.assertTrue(
                 ReportSnapshot.objects.filter(
@@ -861,13 +862,13 @@ class ComputeAllSnapshotsIntegrationTest(TestCase):
         _compute_all_snapshots(2025, 8)
         _compute_all_snapshots(2025, 8)
         total = ReportSnapshot.objects.filter(period_year=2025, period_month=8).count()
-        self.assertEqual(total, 3)  # exactly 3 types, no duplicates
+        self.assertEqual(total, 4)  # exactly 4 types, no duplicates
 
     def test_returns_count_of_written_snapshots(self):
         written = _compute_all_snapshots(2024, 12)
         self.assertIsInstance(written, int)
         self.assertGreaterEqual(written, 0)
-        self.assertLessEqual(written, 3)
+        self.assertLessEqual(written, 4)
 
     def test_updates_existing_snapshots(self):
         """Second call updates the data field, not creates a new row."""

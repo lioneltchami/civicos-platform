@@ -74,6 +74,92 @@
   </div>
 
   {# ============================================================
+     Volunteer status widget
+     ============================================================ #}
+  {% if volunteer_summary is not None %}
+  <section aria-labelledby="volunteer-widget-heading" class="dashboard-section">
+    <h2 id="volunteer-widget-heading">
+      {% trans "My Volunteering / Mon bénévolat" %}
+    </h2>
+    {% if volunteer_summary.has_profile %}
+      <ul class="stats-row" role="list">
+        <li class="stats-card">
+          <span class="stats-card__number">{{ volunteer_summary.active_application_count|default:"0" }}</span>
+          <span class="stats-card__label">{% trans "Active Applications" %}</span>
+        </li>
+        <li class="stats-card stats-card--active">
+          <span class="stats-card__number">{{ volunteer_summary.upcoming_shift_count|default:"0" }}</span>
+          <span class="stats-card__label">{% trans "Upcoming Shifts" %}</span>
+        </li>
+      </ul>
+      <div class="dashboard-cta dashboard-cta--secondary">
+        <a href="{% url 'volunteers:my_applications' %}"
+           class="btn btn--secondary"
+           aria-label="{% trans 'View my volunteer applications and shifts' %}">
+          {% trans "View my volunteer activity" %} &rarr;
+        </a>
+      </div>
+    {% else %}
+      <div class="dashboard-card dashboard-card--volunteer">
+        <div class="dashboard-card__body">
+          <p class="dashboard-card__description">
+            {% trans "You are not yet registered as a volunteer. Browse opportunities to get started." %}
+          </p>
+        </div>
+        <div class="dashboard-card__action">
+          <a href="{% url 'volunteers:opportunity_list' %}"
+             class="btn btn--secondary"
+             aria-label="{% trans 'Browse volunteer opportunities' %}">
+            {% trans "Browse volunteer opportunities" %} &rarr;
+          </a>
+        </div>
+      </div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {# ============================================================
+     Donation giving widget
+     ============================================================ #}
+  {% if donation_summary is not None %}
+  <section aria-labelledby="donation-widget-heading" class="dashboard-section">
+    <h2 id="donation-widget-heading">
+      {% trans "My Giving / Mes dons" %}
+    </h2>
+    <ul class="stats-row" role="list">
+      <li class="stats-card">
+        <span class="stats-card__number" aria-label="{% blocktrans with total=donation_summary.ytd_total|floatformat:2 year=donation_summary.year %}${{ total }} donated in {{ year }}{% endblocktrans %}">
+          ${{ donation_summary.ytd_total|floatformat:2 }}
+        </span>
+        <span class="stats-card__label">
+          {% blocktrans with year=donation_summary.year %}{{ year }} Giving Total{% endblocktrans %}
+        </span>
+      </li>
+      <li class="stats-card">
+        <span class="stats-card__number">{{ donation_summary.ytd_count|default:"0" }}</span>
+        <span class="stats-card__label">{% trans "Gifts This Year" %}</span>
+      </li>
+    </ul>
+    {% if donation_summary.last_receipt %}
+      <p class="dashboard-hint">
+        {% trans "Last receipt:" %}
+        <strong>{{ donation_summary.last_receipt.serial_number }}</strong>
+        —
+        ${{ donation_summary.last_receipt.eligible_amount|floatformat:2 }}
+        (<time datetime="{{ donation_summary.last_receipt.issued_at|date:'c' }}">{{ donation_summary.last_receipt.issued_at|date:"Y-m-d" }}</time>)
+      </p>
+    {% endif %}
+    <div class="dashboard-cta dashboard-cta--secondary">
+      <a href="{% url 'donor_portal:dashboard' %}"
+         class="btn btn--secondary"
+         aria-label="{% trans 'View your full donation history and download receipts' %}">
+        {% trans "View donation history &amp; receipts" %} &rarr;
+      </a>
+    </div>
+  </section>
+  {% endif %}
+
+  {# ============================================================
      Recent requests table
      ============================================================ #}
   <section aria-labelledby="recent-heading" class="dashboard-section">
@@ -180,6 +266,20 @@
           {% trans "Privacy & Your Data" %} &rarr;
         </a>
       </li>
+      {% if volunteer_summary is not None %}
+      <li>
+        <a href="{% url 'volunteers:opportunity_list' %}" class="quick-nav__link">
+          {% trans "Volunteer Opportunities" %} &rarr;
+        </a>
+      </li>
+      {% endif %}
+      {% if donation_summary is not None %}
+      <li>
+        <a href="{% url 'donor_portal:dashboard' %}" class="quick-nav__link">
+          {% trans "Donation History" %} &rarr;
+        </a>
+      </li>
+      {% endif %}
     </ul>
   </nav>
 

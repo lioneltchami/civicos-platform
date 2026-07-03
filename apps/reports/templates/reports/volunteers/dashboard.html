@@ -1,0 +1,217 @@
+{% extends "reports/base.html" %}
+{% load i18n humanize %}
+{# Volunteer Impact — Reports BB dashboard.
+   Context keys: year, month, month_label, is_current_month, data_source,
+                 volunteer_summary (dict), recent_snapshots.
+   PIPEDA: programme-level aggregates only — no volunteer PII. #}
+
+{% block reports_title %}{% trans "Volunteer Impact Dashboard" %}{% endblock %}
+
+{% block reports_content %}
+{# ── Header row ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-0" id="page-heading">{% trans "Volunteer Impact Dashboard" %}</h1>
+    <p class="text-muted mb-0">
+      {{ month_label }}
+      {% if is_current_month %}
+        <span class="badge bg-info ms-2">{% trans "Live" %}</span>
+      {% elif data_source == "snapshot" %}
+        <span class="badge bg-secondary ms-2">{% trans "Snapshot" %}</span>
+      {% else %}
+        <span class="badge bg-warning text-dark ms-2">{% trans "Computed" %}</span>
+      {% endif %}
+    </p>
+  </div>
+
+  {# ── Month picker ──────────────────────────────────────────────────────── #}
+  <form method="get" class="d-flex gap-2 align-items-end"
+        aria-label="{% trans 'Select reporting month' %}">
+    <div>
+      <label for="id_year" class="form-label visually-hidden">{% trans "Year" %}</label>
+      <input type="number" id="id_year" name="year" class="form-control form-control-sm"
+             value="{{ year }}" min="2000" max="2100" style="width:90px"
+             aria-label="{% trans 'Year' %}">
+    </div>
+    <div>
+      <label for="id_month" class="form-label visually-hidden">{% trans "Month (1-12)" %}</label>
+      <input type="number" id="id_month" name="month" class="form-control form-control-sm"
+             value="{{ month }}" min="1" max="12" style="width:75px"
+             aria-label="{% trans 'Month 1 to 12' %}">
+    </div>
+    <button type="submit" class="btn btn-sm btn-outline-primary">
+      {% trans "Go" %}
+    </button>
+  </form>
+</div>
+
+{# ── Primary KPI cards ──────────────────────────────────────────────────── #}
+<div class="row g-3 mb-3" role="region" aria-labelledby="kpi-heading">
+  <h2 class="visually-hidden" id="kpi-heading">{% trans "Key volunteer metrics" %}</h2>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Total Approved Hours" %}</p>
+        <p class="card-title h4 mb-0">
+          {{ volunteer_summary.total_approved_hours|floatformat:1|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {% trans "Approved volunteer hours" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Volunteer Count" %}</p>
+        <p class="card-title h4 mb-0">
+          {{ volunteer_summary.volunteer_count|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {% trans "Distinct volunteers with approved hours" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Opportunities" %}</p>
+        <p class="card-title h4 mb-0">
+          {{ volunteer_summary.opportunity_count|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {{ volunteer_summary.program_count|intcomma }}&nbsp;{% trans "programme(s)" %}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-xl-3">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="card-text text-muted small mb-1">{% trans "Estimated Value (CAD)" %}</p>
+        <p class="card-title h4 mb-0">
+          ${{ volunteer_summary.estimated_value_cad|floatformat:2|intcomma }}
+        </p>
+        <p class="card-text small text-muted mb-0">
+          {% trans "Annual estimate @ $" %}{{ volunteer_summary.hourly_rate|floatformat:2 }}/{% trans "hr" %}
+          ({{ volunteer_summary.province }})
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── By-programme table ──────────────────────────────────────────────────── #}
+{% if volunteer_summary.by_program %}
+<section aria-labelledby="by-program-heading" class="mb-5">
+  <h2 class="h5 mb-3" id="by-program-heading">{% trans "Hours by Programme" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped table-hover align-middle"
+           aria-label="{% trans 'Volunteer hours breakdown by programme' %}">
+      <caption class="visually-hidden">
+        {% trans "Volunteer hours by programme for" %} {{ month_label }}
+      </caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Programme" %}</th>
+          <th scope="col">{% trans "Opportunity" %}</th>
+          <th scope="col" class="text-end">{% trans "Approved Hours" %}</th>
+          <th scope="col" class="text-end">{% trans "Volunteers" %}</th>
+          <th scope="col" class="text-end">{% trans "Shifts" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in volunteer_summary.by_program %}
+        <tr>
+          <td>{{ row.program_title_en|default:row.program_slug }}</td>
+          <td>{{ row.opportunity_title_en|default:row.opportunity_slug }}</td>
+          <td class="text-end">{{ row.approved_hours|floatformat:1|intcomma }}</td>
+          <td class="text-end">{{ row.volunteer_count|intcomma }}</td>
+          <td class="text-end">{{ row.shift_count|intcomma }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-semibold">
+        <tr>
+          <td colspan="2">{% trans "Total" %}</td>
+          <td class="text-end">{{ volunteer_summary.total_approved_hours|floatformat:1|intcomma }}</td>
+          <td class="text-end">{{ volunteer_summary.volunteer_count|intcomma }}</td>
+          <td class="text-end">&mdash;</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% else %}
+<div class="alert alert-secondary mb-4" role="alert">
+  {% trans "No approved volunteer hours in this period." %}
+</div>
+{% endif %}
+
+{# ── Quick actions ────────────────────────────────────────────────────────── #}
+<div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Navigation actions' %}">
+  <a href="{% url 'reports:combined-impact' %}?year={{ year }}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Combined Impact →" %}
+  </a>
+</div>
+
+{# ── Recent snapshots ─────────────────────────────────────────────────────── #}
+{% if recent_snapshots %}
+<section aria-labelledby="recent-snapshots-heading" class="mb-4">
+  <h2 class="h5 mb-3" id="recent-snapshots-heading">{% trans "Recent Months" %}</h2>
+  <div class="table-responsive">
+    <table class="table table-sm"
+           aria-label="{% trans 'Recent volunteer snapshots' %}">
+      <caption class="visually-hidden">{% trans "Last 12 months of volunteer snapshots" %}</caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "Period" %}</th>
+          <th scope="col" class="text-end">{% trans "Approved Hours" %}</th>
+          <th scope="col" class="text-end">{% trans "Volunteers" %}</th>
+          <th scope="col"><span class="visually-hidden">{% trans "Actions" %}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for snap in recent_snapshots %}
+        <tr>
+          <td>{{ snap.period_label }}</td>
+          <td class="text-end">
+            {% with h=snap.data.hours %}
+              {% if h %}{{ h.total_approved_hours|floatformat:1|intcomma }}{% else %}&mdash;{% endif %}
+            {% endwith %}
+          </td>
+          <td class="text-end">
+            {% with h=snap.data.hours %}
+              {% if h %}{{ h.volunteer_count|intcomma }}{% else %}&mdash;{% endif %}
+            {% endwith %}
+          </td>
+          <td class="text-end">
+            <a href="{% url 'reports:volunteers-dashboard' %}?year={{ snap.period_year }}&month={{ snap.period_month }}"
+               class="btn btn-sm btn-link p-0 small"
+               aria-label="{% trans 'View' %} {{ snap.period_label }}">
+              {% trans "View" %}
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ── PIPEDA footer note ───────────────────────────────────────────────────── #}
+<footer class="mt-4 pt-3 border-top">
+  <p class="text-muted small mb-0">
+    <span class="visually-hidden">{% trans "Privacy notice: " %}</span>
+    {% trans "No volunteer names are displayed. Programme-level aggregates only." %}
+  </p>
+</footer>
+{% endblock reports_content %}

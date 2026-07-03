@@ -199,6 +199,27 @@ def _compute_all_snapshots(year: int, month: int) -> int:
             year, month,
         )
 
+    # ── Integration Wave: volunteers ──────────────────────────────────────────
+    try:
+        from apps.reports.services.volunteers import compute_volunteer_snapshot
+        vol_data = compute_volunteer_snapshot(year, month)
+        ReportSnapshot.objects.update_or_create(
+            report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
+            period_year=year,
+            period_month=month,
+            defaults={"data": vol_data, "row_count": vol_data.get("row_count", 0)},
+        )
+        written += 1
+        logger.info(
+            "reports.tasks._compute_all_snapshots.volunteers_ok year=%s month=%s",
+            year, month,
+        )
+    except Exception:
+        logger.exception(
+            "reports.tasks._compute_all_snapshots.volunteers_failed year=%s month=%s",
+            year, month,
+        )
+
     return written
 
 
@@ -221,6 +242,9 @@ def _compute_single_snapshot(report_type: str, year: int, month: int) -> tuple[d
     elif report_type == ReportSnapshot.REPORT_TYPE_OPERATIONAL:
         from apps.reports.services.operational import compute_operational_snapshot
         data = compute_operational_snapshot(year, month)
+    elif report_type == ReportSnapshot.REPORT_TYPE_VOLUNTEERS:
+        from apps.reports.services.volunteers import compute_volunteer_snapshot
+        data = compute_volunteer_snapshot(year, month)
     else:
         raise ValueError(f"Unknown report_type: {report_type!r}")
 

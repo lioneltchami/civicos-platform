@@ -1,0 +1,174 @@
+{% extends "reports/base.html" %}
+{% load i18n humanize %}
+{# Combined Non-Profit Impact — Reports BB.
+   Context keys: year, impact (dict from combined_nonprofit_impact).
+   impact keys: year, volunteer (dict), donations (dict),
+                combined_value_cad (Decimal), t3010_notes (str).
+   PIPEDA: no volunteer or donor PII — economic aggregates only. #}
+
+{% block reports_title %}{% trans "Combined Non-Profit Impact" %}{% endblock %}
+
+{% block reports_content %}
+{# ── Header row ─────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+  <div>
+    <h1 class="h3 mb-0" id="page-heading">
+      {% trans "Combined Non-Profit Impact" %} / {% trans "Impact combiné" %}
+    </h1>
+    <p class="text-muted mb-0">
+      {% trans "Calendar year" %} {{ year }}
+    </p>
+  </div>
+
+  {# ── Year picker ──────────────────────────────────────────────────────── #}
+  <form method="get" class="d-flex gap-2 align-items-end"
+        aria-label="{% trans 'Select reporting year' %}">
+    <div>
+      <label for="id_year" class="form-label visually-hidden">{% trans "Year" %}</label>
+      <input type="number" id="id_year" name="year" class="form-control form-control-sm"
+             value="{{ year }}" min="2000" max="2100" style="width:100px"
+             aria-label="{% trans 'Year' %}">
+    </div>
+    <button type="submit" class="btn btn-sm btn-outline-primary">
+      {% trans "Go" %}
+    </button>
+  </form>
+</div>
+
+{# ── Combined value highlight ────────────────────────────────────────────── #}
+<div class="alert alert-primary mb-4" role="region" aria-labelledby="combined-value-heading">
+  <h2 class="h5 mb-1" id="combined-value-heading">{% trans "Total Community Value" %}</h2>
+  <p class="display-6 fw-bold mb-1">
+    ${{ impact.combined_value_cad|floatformat:2|intcomma }}
+  </p>
+  <p class="mb-0 small">
+    {% trans "Volunteer Value + Eligible Donations" %} &mdash; {% trans "Calendar year" %} {{ year }}
+  </p>
+</div>
+
+{# ── Side-by-side cards ──────────────────────────────────────────────────── #}
+<div class="row g-4 mb-4">
+
+  {# ── Volunteer Impact card ──────────────────────────────────────────────── #}
+  <div class="col-md-6">
+    <section aria-labelledby="volunteer-card-heading" class="h-100">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2 class="h5 mb-0" id="volunteer-card-heading">
+            {% trans "Volunteer Impact" %}
+          </h2>
+        </div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-sm-7">{% trans "Total Approved Hours" %}</dt>
+            <dd class="col-sm-5 text-end">
+              {{ impact.volunteer.total_approved_hours|floatformat:1|intcomma }}
+            </dd>
+
+            <dt class="col-sm-7">{% trans "Estimated Value (CAD)" %}</dt>
+            <dd class="col-sm-5 text-end fw-bold">
+              ${{ impact.volunteer.estimated_value_cad|floatformat:2|intcomma }}
+            </dd>
+
+            <dt class="col-sm-7">{% trans "Volunteer Count" %}</dt>
+            <dd class="col-sm-5 text-end">
+              {{ impact.volunteer.volunteer_count|intcomma }}
+            </dd>
+
+            <dt class="col-sm-7">{% trans "Hourly Rate" %}</dt>
+            <dd class="col-sm-5 text-end">
+              ${{ impact.volunteer.hourly_rate|floatformat:2 }}/{% trans "hr" %}
+              ({{ impact.volunteer.province }})
+            </dd>
+          </dl>
+        </div>
+        <div class="card-footer text-muted small">
+          {% trans "CRA T3010 Schedule 2 — Volunteer labour value" %}
+        </div>
+      </div>
+    </section>
+  </div>
+
+  {# ── Donation Giving card ──────────────────────────────────────────────── #}
+  <div class="col-md-6">
+    <section aria-labelledby="donations-card-heading" class="h-100">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2 class="h5 mb-0" id="donations-card-heading">
+            {% trans "Donation Giving" %}
+          </h2>
+        </div>
+        <div class="card-body">
+          <dl class="row mb-0">
+            <dt class="col-sm-7">{% trans "Total Donations" %}</dt>
+            <dd class="col-sm-5 text-end">
+              ${{ impact.donations.total_donations|floatformat:2|intcomma }}
+            </dd>
+
+            <dt class="col-sm-7">{% trans "Eligible Amount" %}</dt>
+            <dd class="col-sm-5 text-end fw-bold">
+              ${{ impact.donations.total_eligible_amount|floatformat:2|intcomma }}
+            </dd>
+
+            <dt class="col-sm-7">{% trans "Donor Count" %}</dt>
+            <dd class="col-sm-5 text-end">
+              {{ impact.donations.unique_donor_count|intcomma }}
+            </dd>
+
+            <dt class="col-sm-7">{% trans "Donation Count" %}</dt>
+            <dd class="col-sm-5 text-end">
+              {{ impact.donations.donation_count|intcomma }}
+            </dd>
+
+            <dt class="col-sm-7">{% trans "Receipts Issued" %}</dt>
+            <dd class="col-sm-5 text-end">
+              {{ impact.donations.receipts_issued|intcomma }}
+            </dd>
+          </dl>
+        </div>
+        <div class="card-footer text-muted small">
+          {% trans "CRA T3010 line 4500 — Eligible donations amount" %}
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+{# ── CRA T3010 note ───────────────────────────────────────────────────────── #}
+<div class="card border-info mb-4" role="note" aria-label="{% trans 'CRA filing note' %}">
+  <div class="card-body">
+    <h2 class="h6 card-title text-info-emphasis">{% trans "CRA T3010 Reference" %}</h2>
+    <p class="card-text mb-0">
+      {{ impact.t3010_notes }}
+    </p>
+    <p class="card-text small text-muted mt-2 mb-0">
+      {% trans "This view provides data for T3010 Schedule 2 (volunteers) and line 4500 (donations)." %}
+      {% trans "Consult your charity's accountant before filing." %}
+    </p>
+  </div>
+</div>
+
+{# ── Navigation ───────────────────────────────────────────────────────────── #}
+<div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Navigation actions' %}">
+  <a href="{% url 'reports:volunteers-dashboard' %}?year={{ year }}&month=1"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Volunteer Dashboard →" %}
+  </a>
+  <a href="{% url 'reports:donations-annual' %}?year={{ year }}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "Annual Donations →" %}
+  </a>
+  <a href="{% url 'reports:t3010-prep' %}"
+     class="btn btn-sm btn-outline-secondary">
+    {% trans "T3010 Prep Report →" %}
+  </a>
+</div>
+
+{# ── PIPEDA footer note ───────────────────────────────────────────────────── #}
+<footer class="mt-4 pt-3 border-top">
+  <p class="text-muted small mb-0">
+    <span class="visually-hidden">{% trans "Privacy notice: " %}</span>
+    {% trans "No volunteer or donor names are displayed. Economic aggregates only." %}
+  </p>
+</footer>
+{% endblock reports_content %}

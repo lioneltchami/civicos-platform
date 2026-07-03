@@ -129,9 +129,11 @@ class EncryptedCharField(models.BinaryField):
 
 GATEWAY_STRIPE = "stripe"
 GATEWAY_MONERIS = "moneris"
+GATEWAY_MANUAL = "manual"       # offline / manual payments (honoraria, bank transfers)
 GATEWAY_CHOICES = [
     (GATEWAY_STRIPE, "Stripe"),
     (GATEWAY_MONERIS, "Moneris"),
+    (GATEWAY_MANUAL, "Manual / Offline"),
 ]
 
 
@@ -165,17 +167,20 @@ class PaymentIntent(TimestampedModel):
     # Gateway constants
     GATEWAY_STRIPE = GATEWAY_STRIPE
     GATEWAY_MONERIS = GATEWAY_MONERIS
+    GATEWAY_MANUAL = GATEWAY_MANUAL
     GATEWAY_CHOICES = GATEWAY_CHOICES
 
     # Purpose constants
     PURPOSE_SERVICE_FEE = "service_fee"
     PURPOSE_DONATION = "donation"
     PURPOSE_FINE = "fine"
+    PURPOSE_HONORARIUM = "honorarium"
 
     PURPOSE_CHOICES = [
         (PURPOSE_SERVICE_FEE, "Service Fee"),
         (PURPOSE_DONATION, "Donation"),
         (PURPOSE_FINE, "Fine / Penalty"),
+        (PURPOSE_HONORARIUM, "Volunteer Honorarium"),
     ]
 
     # Allowed status transitions
