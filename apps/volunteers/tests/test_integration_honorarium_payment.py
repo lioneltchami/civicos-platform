@@ -374,15 +374,15 @@ class HonorariumCRAThresholdTests(TestCase):
         """When ValidationError is raised, NO PaymentIntent must be created for that amount."""
         from apps.payments.models import PaymentIntent
         pi_count_before = PaymentIntent.objects.filter(payer=self.vol_user).count()
-        try:
+        # T1: assertRaises makes the test fail if ValidationError is NOT raised (silent pass
+        # via try/except would mask a regression where the hard block stopped working).
+        with self.assertRaises(ValidationError):
             _create_honorarium(
                 self.profile,
                 amount="200.00",
                 created_by=self.coordinator,
                 payment_date=datetime.date.today(),
             )
-        except ValidationError:
-            pass
         pi_count_after = PaymentIntent.objects.filter(payer=self.vol_user).count()
         self.assertEqual(pi_count_before, pi_count_after)
 
@@ -392,15 +392,14 @@ class HonorariumCRAThresholdTests(TestCase):
         payment_count_before = Payment.objects.filter(
             intent__payer=self.vol_user,
         ).count()
-        try:
+        # T1: assertRaises enforces that the hard block actually fires.
+        with self.assertRaises(ValidationError):
             _create_honorarium(
                 self.profile,
                 amount="200.00",
                 created_by=self.coordinator,
                 payment_date=datetime.date.today(),
             )
-        except ValidationError:
-            pass
         payment_count_after = Payment.objects.filter(
             intent__payer=self.vol_user,
         ).count()
@@ -410,15 +409,14 @@ class HonorariumCRAThresholdTests(TestCase):
         """When hard block fires, no new Honorarium row should be created."""
         from apps.volunteers.models import Honorarium
         count_before = Honorarium.objects.filter(volunteer=self.profile).count()
-        try:
+        # T1: assertRaises enforces that the hard block actually fires.
+        with self.assertRaises(ValidationError):
             _create_honorarium(
                 self.profile,
                 amount="200.00",
                 created_by=self.coordinator,
                 payment_date=datetime.date.today(),
             )
-        except ValidationError:
-            pass
         count_after = Honorarium.objects.filter(volunteer=self.profile).count()
         self.assertEqual(count_before, count_after)
 
@@ -797,6 +795,114 @@ class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
         self.assertTrue(
             Honorarium.objects.filter(pk=honorarium.pk).exists(),
             "Honorarium must be persisted after create_honorarium() completes",
+        )
+
+
+# ---------------------------------------------------------------------------
+# HonorariumPostCommitOuterGuardTests — T2
+# ---------------------------------------------------------------------------
+
+class HonorariumPostCommitOuterGuardTests(TransactionTestCase):
+    """
+    T2: Coverage for the outer try/except Exception guard in _post_commit.
+
+    The _post_commit closure in create_honorarium wraps its entire body in a
+    try/except Exception that logs at ERROR and swallows the exception.  Without
+    this guard, unexpected errors from the signal dispatch path are silently
+    discarded by Django's on_commit queue with no log entry.
+
+    Strategy: patch honorarium_created.send_robust to raise RuntimeError.
+    The DB lookup (`Honorarium.objects.select_related(...).get(...)`) succeeds,
+    so we reach send_robust, which raises, bypasses the inner except DoesNotExist,
+    and is caught by the outer except Exception.
+
+    TransactionTestCase is required because on_commit only fires on real commits.
+    """
+
+    def setUp(self):
+        self.vol_user = _make_user()
+        self.profile = _make_profile(self.vol_user)
+        self.coordinator = _grant_add_honorarium(_make_user())
+
+    def test_post_commit_outer_guard_swallows_exception_and_logs_error(self):
+        """
+        T2: When an unexpected exception occurs inside _post_commit, it is
+        caught by the outer except Exception block, logged at ERROR, and
+        create_honorarium() still returns successfully with the Honorarium saved.
+        """
+        from apps.volunteers.models import Honorarium
+        from apps.volunteers.signals import honorarium_created
+
+        # Patch send_robust to raise an unexpected RuntimeError.
+        # This bypasses the inner DoesNotExist guard and hits the outer guard.
+        with patch.object(
+            honorarium_created,
+            "send_robust",
+            side_effect=RuntimeError("T2: unexpected _post_commit error"),
+        ):
+            logger_name = "apps.volunteers.services.honoraria"
+            with self.assertLogs(logger_name, level="ERROR") as log_ctx:
+                # create_honorarium must NOT raise — the exception must be swallowed
+                # by the outer guard in _post_commit.
+                honorarium = _create_honorarium(
+                    self.profile,
+                    amount="75.00",
+                    created_by=self.coordinator,
+                )
+
+        # 1. Honorarium must be persisted despite the _post_commit failure.
+        self.assertTrue(
+            Honorarium.objects.filter(pk=honorarium.pk).exists(),
+            "T2: Honorarium must be saved even when _post_commit raises unexpectedly",
+        )
+
+        # 2. An ERROR log must be emitted referencing the honorarium PK.
+        error_msgs = [
+            m for m in log_ctx.output
+            if "ERROR" in m and "_post_commit failed" in m
+        ]
+        self.assertTrue(
+            error_msgs,
+            "T2: Outer guard must emit an ERROR log when _post_commit raises. "
+            "Without this guard, on_commit failures are silently discarded.",
+        )
+
+        # 3. The ERROR log must reference the honorarium PK (not just a generic message).
+        self.assertTrue(
+            any(str(honorarium.pk) in m for m in error_msgs),
+            f"T2: ERROR log must include the honorarium PK ({honorarium.pk}) "
+            f"for observability — found messages: {error_msgs}",
+        )
+
+    def test_post_commit_outer_guard_honorarium_pk_survives_exception(self):
+        """
+        T2 (complement): Verify that the honorarium PK used in the outer guard's
+        log message is captured correctly before the exception — the closure must
+        capture _honorarium_pk before any failure, not read it from an ORM attribute
+        that might be unavailable post-rollback.
+        """
+        from apps.volunteers.models import Honorarium
+        from apps.volunteers.signals import honorarium_created
+
+        with patch.object(
+            honorarium_created,
+            "send_robust",
+            side_effect=RuntimeError("T2: outer guard pk capture test"),
+        ):
+            with self.assertLogs("apps.volunteers.services.honoraria", level="ERROR") as log_ctx:
+                honorarium = _create_honorarium(
+                    self.profile,
+                    amount="80.00",
+                    created_by=self.coordinator,
+                )
+
+        # The error log MUST reference the actual pk, proving _honorarium_pk was
+        # captured inside the closure before the failure.
+        pk_str = str(honorarium.pk)
+        self.assertTrue(
+            any(pk_str in m for m in log_ctx.output if "ERROR" in m),
+            f"T2: ERROR log must reference honorarium PK {pk_str} — "
+            f"proves the closure captures _honorarium_pk before any exception",
         )
 
 

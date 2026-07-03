@@ -319,6 +319,71 @@ class VolunteerServiceTests(TestCase):
             for item in obj:
                 self._assert_no_decimal(item)
 
+    # ── compute_volunteer_snapshot M4 isolation paths (T3) ───────────────────
+
+    def test_snapshot_summary_failure_returns_zero_hours_dict(self):
+        """
+        T3 / M4: If get_monthly_volunteer_summary raises, compute_volunteer_snapshot
+        must still return a valid snapshot with zero hours values.  The failure must
+        NOT propagate to the caller (Celery recompute_snapshot task).
+
+        The independent try/except around each upstream call means impact_value can
+        still run successfully even when the hours source fails.
+        """
+        with patch(
+            "apps.reports.services.volunteers.get_monthly_volunteer_summary",
+            side_effect=RuntimeError("T3: hours source failure"),
+        ):
+            snapshot = compute_volunteer_snapshot(2025, 1)
+
+        # Function must return without raising.
+        self.assertIsInstance(snapshot, dict)
+        hours = snapshot["hours"]
+        # All numeric hours fields must fall back to zero sentinels.
+        self.assertEqual(hours["total_approved_hours"], "0.00",
+            "T3: hours.total_approved_hours must be '0.00' when hours source fails")
+        self.assertEqual(hours["volunteer_count"], 0,
+            "T3: hours.volunteer_count must be 0 sentinel when hours source fails")
+        self.assertEqual(hours["opportunity_count"], 0,
+            "T3: hours.opportunity_count must be 0 sentinel when hours source fails")
+        self.assertEqual(hours["program_count"], 0,
+            "T3: hours.program_count must be 0 sentinel when hours source fails")
+        self.assertEqual(hours["by_program"], [],
+            "T3: hours.by_program must be [] sentinel when hours source fails")
+        self.assertEqual(snapshot["row_count"], 0,
+            "T3: row_count must be 0 when hours source fails")
+
+    def test_snapshot_impact_failure_returns_zero_impact_dict(self):
+        """
+        T3 / M4: If impact_value raises, compute_volunteer_snapshot must still
+        return a valid snapshot with zero impact values.  Failure isolation means
+        the hours data IS returned even when the impact computation fails.
+        """
+        # impact_value is lazily imported inside compute_volunteer_snapshot:
+        #   from apps.volunteers.services.reporting import impact_value
+        # Patch the source module attribute so the in-function import resolves
+        # to the mock (lazy imports pick up the patched attribute at call time).
+        with patch(
+            "apps.volunteers.services.reporting.impact_value",
+            side_effect=RuntimeError("T3: impact source failure"),
+        ):
+            snapshot = compute_volunteer_snapshot(2025, 1)
+
+        # Function must return without raising.
+        self.assertIsInstance(snapshot, dict)
+        impact = snapshot["impact"]
+        # All numeric impact fields must fall back to zero sentinels.
+        self.assertEqual(impact["total_approved_hours"], "0.00",
+            "T3: impact.total_approved_hours must be '0.00' when impact source fails")
+        self.assertEqual(impact["estimated_value_cad"], "0.00",
+            "T3: impact.estimated_value_cad must be '0.00' when impact source fails")
+        self.assertEqual(impact["volunteer_count"], 0,
+            "T3: impact.volunteer_count must be 0 sentinel when impact source fails")
+        self.assertEqual(impact["hourly_rate"], "0.00",
+            "T3: impact.hourly_rate must be '0.00' when impact source fails")
+        self.assertEqual(impact["province"], "",
+            "T3: impact.province must be '' when impact source fails")
+
 
 # ---------------------------------------------------------------------------
 # CombinedServiceTests
@@ -582,8 +647,20 @@ class CombinedServiceTests(TestCase):
         self.assertEqual(result["year"], 2025)
         self.assertIsInstance(result["t3010_notes"], str,
             "t3010_notes must be a string even when donations module raises")
-        self.assertIn("volunteer", result,
-            "volunteer sub-dict must be present even when donations path fails")
+        # T4: Strengthen from assertIn to value assertions — a key being present
+        # with a None or exception value would pass assertIn but mask a regression
+        # in the error-path zero-sentinel fallback for the volunteer sub-dict.
+        vol_on_donations_error = result["volunteer"]
+        self.assertIsInstance(vol_on_donations_error, dict,
+            "T4: volunteer sub-dict must be a dict even when donations path fails")
+        self.assertIn("volunteer_count", vol_on_donations_error,
+            "T4: volunteer sub-dict must contain volunteer_count on donations error path")
+        self.assertEqual(vol_on_donations_error["volunteer_count"], 0,
+            "T4: volunteer_count must be 0 sentinel (not None/exception) on donations error path")
+        self.assertIn("estimated_value_cad", vol_on_donations_error,
+            "T4: volunteer sub-dict must contain estimated_value_cad on donations error path")
+        self.assertEqual(vol_on_donations_error["estimated_value_cad"], Decimal("0.00"),
+            "T4: estimated_value_cad must be Decimal('0.00') sentinel on donations error path")
         self.assertIsInstance(result["combined_value_cad"], Decimal,
             "combined_value_cad must be a Decimal on the donations-error path")
         self.assertEqual(

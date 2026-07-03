@@ -13,7 +13,10 @@
   <div>
     <h1 class="h3 mb-0" id="page-heading">{% trans "Volunteer Impact Dashboard" %}</h1>
     <p class="text-muted mb-0">
-      {{ month_label }}
+      {# H9: month_label derives from URL ?year=&month= params (integer-validated in the view,
+         then passed through calendar.month_name). force_escape for defence-in-depth and
+         consistency with lines 134 and 208 where month_label is already escaped. #}
+      {{ month_label|force_escape }}
       {% if is_current_month %}
         <span class="badge bg-info ms-2">{% trans "Live" %}</span>
       {% elif data_source == "snapshot" %}

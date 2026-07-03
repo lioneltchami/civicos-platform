@@ -9,7 +9,9 @@
   <div>
     <h1 class="h3 mb-0">{% trans "Financial Dashboard" %}</h1>
     <p class="text-muted mb-0">
-      {{ month_label }}
+      {# H9: month_label derives from URL ?year=&month= params — force_escape for
+         defence-in-depth and consistency with usages further down this template. #}
+      {{ month_label|force_escape }}
       {% if is_current_month %}
         <span class="badge bg-info ms-2">{% trans "Live" %}</span>
       {% elif data_source == "snapshot" %}

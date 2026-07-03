@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n report_tags %}
 
 {% block title %}{% trans "My Dashboard" %}{% endblock %}
 {% block meta_description %}{% trans "View your service requests and account information." %}{% endblock %}
@@ -137,8 +137,10 @@
       <li class="stats-card">
         {# blocktrans `with` variables are not auto-escaped — force_escape year (user-derived int
            but could become a string; defensive escape adds no overhead). #}
-        <span class="stats-card__number" aria-label="{% blocktrans with total=donation_summary.ytd_total|floatformat:2 year=donation_summary.year|force_escape %}${{ total }} donated in {{ year }}{% endblocktrans %}">
-          ${{ donation_summary.ytd_total|floatformat:2 }}
+        {# H8: cad_money uses number_format(use_l10n=True) — locale-aware decimal separator
+           (fr-CA: "500,00" not "500.00"). floatformat:2 is not locale-aware. #}
+        <span class="stats-card__number" aria-label="{% blocktrans with total=donation_summary.ytd_total|cad_money year=donation_summary.year|force_escape %}${{ total }} donated in {{ year }}{% endblocktrans %}">
+          ${{ donation_summary.ytd_total|cad_money }}
         </span>
         <span class="stats-card__label">
           {% blocktrans with year=donation_summary.year|force_escape %}{{ year }} Giving Total{% endblocktrans %}
@@ -155,7 +157,7 @@
         {# XSS: serial_number is a DB string — force_escape for defence-in-depth. #}
         <strong>{{ donation_summary.last_receipt.serial_number|force_escape }}</strong>
         —
-        ${{ donation_summary.last_receipt.eligible_amount|floatformat:2 }}
+        ${{ donation_summary.last_receipt.eligible_amount|cad_money }}
         (<time datetime="{{ donation_summary.last_receipt.issued_at|date:'c' }}">{{ donation_summary.last_receipt.issued_at|date:"Y-m-d" }}</time>)
       </p>
     {% endif %}
