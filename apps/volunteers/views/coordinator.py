@@ -36,7 +36,8 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
-from django.utils.translation import gettext_lazy as _
+from django.utils.formats import date_format
+from django.utils.translation import gettext as _t, gettext_lazy as _
 from django.views import View
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
 
@@ -1206,6 +1207,7 @@ class ImpactReportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView
 
         try:
             year = int(year_str) if year_str.isdigit() else current_year
+            year = max(2000, min(year, current_year + 1))
         except (ValueError, AttributeError):
             year = current_year
 
@@ -1261,6 +1263,7 @@ class VolunteerHoursExportView(LoginRequiredMixin, PermissionRequiredMixin, View
 
         try:
             year = int(year_str) if year_str.isdigit() else current_year
+            year = max(2000, min(year, current_year + 1))
         except (ValueError, AttributeError):
             year = current_year
 
@@ -1329,6 +1332,7 @@ class VolunteerT3010ExportView(LoginRequiredMixin, PermissionRequiredMixin, View
 
         try:
             year = int(year_str) if year_str.isdigit() else current_year
+            year = max(2000, min(year, current_year + 1))
         except (ValueError, AttributeError):
             year = current_year
 
@@ -1393,10 +1397,16 @@ class ReferenceLetterPDFView(LoginRequiredMixin, PermissionRequiredMixin, View):
             pk=pk,
         )
 
-        # Approved hours per opportunity for this volunteer
+        # Approved hours per opportunity for this volunteer — scoped to
+        # coordinator's own programs (IDOR: prevents including hours earned
+        # under other coordinators' programs in this reference letter).
+        hours_qs = HoursLog.objects.filter(
+            volunteer=profile,
+            status=HoursLog.STATUS_APPROVED,
+            opportunity__program__coordinator=request.user,
+        )
         service_rows_qs = (
-            HoursLog.objects
-            .filter(volunteer=profile, status=HoursLog.STATUS_APPROVED)
+            hours_qs
             .values("opportunity__title_en", "date__year")
             .annotate(approved_hours=Sum("hours"))
             .order_by("date__year", "opportunity__title_en")
@@ -1409,11 +1419,7 @@ class ReferenceLetterPDFView(LoginRequiredMixin, PermissionRequiredMixin, View):
             }
             for row in service_rows_qs
         ]
-        total_agg = (
-            HoursLog.objects
-            .filter(volunteer=profile, status=HoursLog.STATUS_APPROVED)
-            .aggregate(t=Sum("hours"))
-        )
+        total_agg = hours_qs.aggregate(t=Sum("hours"))
         total_hours = str(total_agg["t"] or 0)
 
         context = {
@@ -1421,11 +1427,11 @@ class ReferenceLetterPDFView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "org_name": "CivicOS",
             "org_address": "",
             "org_email": "",
-            "letter_date": timezone.now().strftime("%B %d, %Y"),
+            "letter_date": date_format(timezone.localdate(), format="N j, Y"),
             "service_rows": formatted_rows,
             "total_hours": total_hours,
-            "coordinator_name": request.user.get_full_name() or request.user.email,
-            "coordinator_title": "Program Coordinator",
+            "coordinator_name": request.user.get_full_name() or f"Coordinator #{request.user.pk}",
+            "coordinator_title": _t("Program Coordinator"),
             "reference_id": str(uuid.uuid4())[:8].upper(),
         }
 

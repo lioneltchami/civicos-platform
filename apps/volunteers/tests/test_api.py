@@ -320,6 +320,34 @@ class ApplicationEndpointTests(APIBaseTestCase):
         for row in resp.data.get("results", resp.data):
             self.assertNotIn("rejection_reason", row)
 
+    def test_rejection_reason_absent_from_detail_for_rejected_application(self):
+        """Volunteer must not see rejection_reason even on rejected application detail."""
+        application = VolunteerApplication.objects.create(
+            volunteer=self.vol_profile,
+            opportunity=self.opportunity,
+            status=VolunteerApplication.STATUS_REJECTED,
+        )
+        # Set rejection_reason directly (bypassing service to test serializer)
+        VolunteerApplication.objects.filter(pk=application.pk).update(
+            rejection_reason="Not qualified"
+        )
+
+        url = f"{BASE}/applications/{application.pk}/"
+        resp = self.client.get(url, **self._auth())
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("rejection_reason", resp.json())
+
+    def test_submit_application_without_profile_returns_404(self):
+        """Authenticated user with no VolunteerProfile gets 404, not 500."""
+        profileless_user = _make_user(email="noprofile@test.gc.ca")
+        resp = self.client.post(
+            f"{BASE}/applications/",
+            {"opportunity_slug": self.opportunity.slug},
+            content_type="application/json",
+            **self._auth(profileless_user),
+        )
+        self.assertEqual(resp.status_code, 404)
+
     def test_anonymous_returns_401(self):
         resp = self.client.get(f"{BASE}/applications/")
         self.assertEqual(resp.status_code, 401)
@@ -366,8 +394,8 @@ class ShiftEndpointTests(APIBaseTestCase):
             f"{BASE}/shifts/{full_shift.pk}/book/",
             **self._auth(),
         )
-        # Should not be 201 (shift is full), should be 400 or validation error
-        self.assertNotEqual(resp.status_code, 201)
+        # Should be 400/422 (shift full) or 403 (no approved application) — not 201 or 5xx
+        self.assertIn(resp.status_code, [400, 422, 403])
 
     def test_cancel_booking_returns_204(self):
         """Volunteer can cancel their own confirmed booking."""
@@ -437,6 +465,20 @@ class HoursEndpointTests(APIBaseTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("total_approved_hours", resp.data)
         self.assertEqual(Decimal(resp.data["total_approved_hours"]), Decimal("5.00"))
+
+    def test_log_hours_invalid_date_returns_400(self):
+        """Passing a non-ISO date string returns 400."""
+        resp = self.client.post(
+            f"{BASE}/hours/",
+            {
+                "opportunity_slug": self.opportunity.slug,
+                "hours": "3.0",
+                "date": "not-a-date",
+            },
+            content_type="application/json",
+            **self._auth(),
+        )
+        self.assertEqual(resp.status_code, 400)
 
     def test_anonymous_returns_401(self):
         resp = self.client.get(f"{BASE}/hours/")

@@ -826,7 +826,6 @@ def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
         with transaction.atomic():
             hours_data = hours_by_program(year, month)
             impact = impact_value(year)
-            t3010 = t3010_volunteer_metrics(year)
 
             # Serialise Decimal values for JSON storage.
             hours_data_serialised = [
@@ -834,32 +833,52 @@ def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
                 for row in hours_data
             ]
 
-            impact_serialised = {
-                k: _serialise_decimal(v) for k, v in impact.items()
-            }
-
-            # t3010 has nested "categories" list — handle recursively.
-            t3010_serialised = {}
-            for k, v in t3010.items():
-                if k == "categories":
-                    t3010_serialised[k] = [
-                        {ck: _serialise_decimal(cv) for ck, cv in cat.items()}
-                        for cat in v
-                    ]
-                else:
-                    t3010_serialised[k] = _serialise_decimal(v)
-
             data = {
                 "hours_by_program": hours_data_serialised,
-                "impact_value": impact_serialised,
-                "t3010": t3010_serialised,
             }
+
+            if month == 12:
+                # December snapshot: store full-year aggregates (authoritative for T3010 filing).
+                impact_serialised = {
+                    k: _serialise_decimal(v) for k, v in impact.items()
+                }
+
+                t3010 = t3010_volunteer_metrics(year)
+                # t3010 has nested "categories" list — handle recursively.
+                t3010_serialised = {}
+                for k, v in t3010.items():
+                    if k == "categories":
+                        t3010_serialised[k] = [
+                            {ck: _serialise_decimal(cv) for ck, cv in cat.items()}
+                            for cat in v
+                        ]
+                    else:
+                        t3010_serialised[k] = _serialise_decimal(v)
+
+                data["impact_value"] = impact_serialised
+                data["t3010"] = t3010_serialised
+            else:
+                # Interim months: store YTD summary only — full-year data is in the
+                # December snapshot. Storing full impact_value/t3010 here would be
+                # misleading (they aggregate the entire year-to-date, not just this month).
+                data["impact_ytd"] = {
+                    "note": (
+                        f"YTD through {year}-{month:02d}. "
+                        f"Final annual data in month=12 snapshot."
+                    ),
+                    "estimated_value_cad": _serialise_decimal(impact["estimated_value_cad"]),
+                    "total_approved_hours": _serialise_decimal(impact["total_approved_hours"]),
+                    "province": impact["province"],
+                }
 
             snapshot, created = ReportSnapshot.objects.update_or_create(
                 report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
                 period_year=year,
                 period_month=month,
-                defaults={"data": data},
+                defaults={
+                    "data": data,
+                    "row_count": len(hours_data),
+                },
             )
 
         logger.info(

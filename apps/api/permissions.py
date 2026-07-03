@@ -55,3 +55,19 @@ class IsOwnerOrStaff(BasePermission):
         if request.user.is_staff:
             return True
         return hasattr(obj, "citizen_id") and obj.citizen_id == request.user.pk
+
+
+class IsCoordinator(BasePermission):
+    """
+    Grants access to users in the 'volunteer_coordinator' or 'volunteer_admin' group.
+    Used by coordinator-facing volunteer API endpoints.
+    """
+
+    message = "Coordinator or admin group membership required."
+
+    def has_permission(self, request, view) -> bool:
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return request.user.groups.filter(
+            name__in=["volunteer_coordinator", "volunteer_admin"]
+        ).exists()

@@ -313,6 +313,29 @@ class ImpactValueTests(TestCase):
         overlap = _PII_KEYS & set(result.keys())
         self.assertEqual(overlap, set(), f"PII keys found: {overlap}")
 
+    def test_lowercase_province_code_falls_back_to_ontario(self):
+        """Lowercase province code like 'on' (instead of 'ON') should not raise and falls back."""
+        vol = _make_profile(_make_user())
+        _make_approved_hours(vol, self.opp, Decimal("10.00"), datetime.date(2025, 6, 1))
+        result = impact_value(2025, province="on")  # lowercase — not in VOLUNTEER_MINIMUM_WAGES
+        # Should not raise; should fall back to Ontario rate
+        self.assertIsNotNone(result["hourly_rate"])
+        # Falls back to ON rate (17.20 per override_settings)
+        self.assertEqual(result["hourly_rate"], Decimal("17.20"))
+
+    def test_unknown_province_logs_warning(self):
+        """Unknown province code should log a WARNING."""
+        vol = _make_profile(_make_user())
+        _make_approved_hours(vol, self.opp, Decimal("5.00"), datetime.date(2025, 6, 1))
+        with self.assertLogs("apps.volunteers.services.reporting", level="WARNING") as cm:
+            result = impact_value(2025, province="ZZ")
+        self.assertTrue(
+            any("ZZ" in msg or "unknown" in msg.lower() for msg in cm.output),
+            f"Expected WARNING mentioning 'ZZ' or 'unknown', got: {cm.output}",
+        )
+        # Verify fallback to Ontario rate
+        self.assertEqual(result["hourly_rate"], Decimal("17.20"))
+
 
 # ===========================================================================
 # T3010VolunteerMetricsTests

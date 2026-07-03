@@ -30,12 +30,13 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from apps.api.pagination import StandardPagination
+from apps.api.permissions import IsCoordinator
 from apps.api.throttling import CitizenRateThrottle, StaffRateThrottle
 from apps.volunteers.models import (
     HoursLog,
@@ -65,27 +66,6 @@ def _raise_from_django_validation(exc: DjangoValidationError) -> None:
     if hasattr(exc, "message_dict"):
         raise DRFValidationError(detail=exc.message_dict)
     raise DRFValidationError(detail=str(exc))
-
-
-# ---------------------------------------------------------------------------
-# Permission classes
-# ---------------------------------------------------------------------------
-
-class IsCoordinator(BasePermission):
-    """
-    Allows access only to authenticated users who are members of the
-    'volunteer_coordinator' or 'volunteer_admin' group.
-    """
-    message = "Coordinator or admin group membership required."
-
-    def has_permission(self, request, view) -> bool:
-        return bool(
-            request.user
-            and request.user.is_authenticated
-            and request.user.groups.filter(
-                name__in=["volunteer_coordinator", "volunteer_admin"]
-            ).exists()
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +148,8 @@ class SubmitApplicationView(APIView):
                 motivation=motivation,
                 actor=request.user,
             )
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
@@ -210,22 +187,62 @@ class MyApplicationsView(generics.ListAPIView):
 
 class ApplicationListCreateView(APIView):
     """
-    GET  /api/v1/volunteers/applications/  → MyApplicationsView
-    POST /api/v1/volunteers/applications/  → SubmitApplicationView
+    GET  /api/v1/volunteers/applications/  — list own applications
+    POST /api/v1/volunteers/applications/  — submit a new application
 
-    Dispatches to the appropriate handler based on HTTP method.
+    Both methods handled inline (no sub-dispatch via request._request) so that
+    the DRF Request wrapper and authenticated user are preserved correctly.
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [CitizenRateThrottle]
 
     def get(self, request, *args, **kwargs):
-        view = MyApplicationsView.as_view()
-        return view(request._request, *args, **kwargs)
+        """List own applications."""
+        profile = get_object_or_404(VolunteerProfile, user=request.user)
+        qs = (
+            VolunteerApplication.objects
+            .filter(volunteer=profile)
+            .select_related("opportunity", "opportunity__program")
+            .order_by("-created_at")
+        )
+        serializer = VolunteerApplicationSerializer(qs, many=True, context={"request": request})
+        return Response(serializer.data)
 
     def post(self, request, *args, **kwargs):
-        view = SubmitApplicationView.as_view()
-        return view(request._request, *args, **kwargs)
+        """Submit a new application."""
+        from apps.volunteers.services.applications import apply
+
+        opportunity_slug = request.data.get("opportunity_slug", "")
+        if not opportunity_slug:
+            raise DRFValidationError({"opportunity_slug": "This field is required."})
+
+        opportunity = get_object_or_404(
+            Opportunity,
+            slug=opportunity_slug,
+            status=Opportunity.STATUS_PUBLISHED,
+        )
+        profile = get_object_or_404(VolunteerProfile, user=request.user)
+        motivation = request.data.get("motivation", "")
+
+        try:
+            application = apply(
+                volunteer_profile=profile,
+                opportunity=opportunity,
+                motivation=motivation,
+                actor=request.user,
+            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+        except DjangoValidationError as exc:
+            _raise_from_django_validation(exc)
+
+        logger.info(
+            "Application submitted: application_id=%s user_id=%s opportunity=%s",
+            application.pk, request.user.pk, opportunity_slug,
+        )
+        serializer = VolunteerApplicationSerializer(application, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class ApplicationDetailView(generics.RetrieveAPIView):
@@ -269,11 +286,8 @@ class WithdrawApplicationView(APIView):
 
         try:
             withdraw(application=application, actor=request.user)
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
@@ -298,7 +312,13 @@ class ShiftListView(generics.ListAPIView):
 
     def get_queryset(self):
         opp_slug = self.request.query_params.get("opportunity", "")
-        qs = Shift.objects.select_related("opportunity")
+        # Baseline: only shifts for published opportunities (prevents leaking
+        # draft/archived/closed program data to volunteers).
+        qs = (
+            Shift.objects
+            .select_related("opportunity", "opportunity__program")
+            .filter(opportunity__status=Opportunity.STATUS_PUBLISHED)
+        )
         if opp_slug:
             qs = qs.filter(opportunity__slug=opp_slug)
         return qs.order_by("start_datetime")
@@ -326,11 +346,8 @@ class BookShiftView(APIView):
                 volunteer_profile=profile,
                 actor=request.user,
             )
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
@@ -364,11 +381,8 @@ class CancelBookingView(APIView):
 
         try:
             cancel_booking(booking=booking, actor=request.user)
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
@@ -443,11 +457,8 @@ class LogHoursView(APIView):
                 description=description,
                 actor=request.user,
             )
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
@@ -461,22 +472,72 @@ class LogHoursView(APIView):
 
 class HoursListCreateView(APIView):
     """
-    GET  /api/v1/volunteers/hours/  → MyHoursView
-    POST /api/v1/volunteers/hours/  → LogHoursView
+    GET  /api/v1/volunteers/hours/  — list own hours log
+    POST /api/v1/volunteers/hours/  — log new hours
 
-    Dispatches based on HTTP method.
+    Both methods handled inline (no sub-dispatch via request._request) so that
+    the DRF Request wrapper and authenticated user are preserved correctly.
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [CitizenRateThrottle]
 
     def get(self, request, *args, **kwargs):
-        view = MyHoursView.as_view()
-        return view(request._request, *args, **kwargs)
+        """List own hours log."""
+        profile = get_object_or_404(VolunteerProfile, user=request.user)
+        qs = (
+            HoursLog.objects
+            .filter(volunteer=profile)
+            .select_related("opportunity")
+            .order_by("-date")
+        )
+        serializer = HoursLogSerializer(qs, many=True, context={"request": request})
+        return Response(serializer.data)
 
     def post(self, request, *args, **kwargs):
-        view = LogHoursView.as_view()
-        return view(request._request, *args, **kwargs)
+        """Log hours against an opportunity."""
+        from datetime import date as date_type
+        from apps.volunteers.services.hours import log_hours
+
+        profile = get_object_or_404(VolunteerProfile, user=request.user)
+        opp_slug = request.data.get("opportunity_slug", "")
+        if not opp_slug:
+            raise DRFValidationError({"opportunity_slug": "This field is required."})
+
+        opportunity = get_object_or_404(Opportunity, slug=opp_slug)
+
+        hours_raw = request.data.get("hours")
+        if hours_raw is None:
+            raise DRFValidationError({"hours": "This field is required."})
+
+        log_date_str = request.data.get("date") or request.data.get("log_date")
+        description = request.data.get("description", "")
+
+        try:
+            log_date = date_type.fromisoformat(log_date_str) if log_date_str else date_type.today()
+        except (ValueError, TypeError):
+            raise DRFValidationError({"date": "Enter a valid date in YYYY-MM-DD format."})
+
+        try:
+            entry = log_hours(
+                volunteer_profile=profile,
+                opportunity=opportunity,
+                hours=hours_raw,
+                date=log_date,
+                description=description,
+                actor=request.user,
+            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+        except DjangoValidationError as exc:
+            _raise_from_django_validation(exc)
+
+        logger.info(
+            "Hours logged: hours_log_id=%s user_id=%s hours=%s",
+            entry.pk, request.user.pk, hours_raw,
+        )
+        serializer = HoursLogSerializer(entry, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class MyHoursSummaryView(APIView):
@@ -574,14 +635,12 @@ class ApproveApplicationView(APIView):
 
         try:
             approve_application(application=application, actor=request.user)
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
+        application.refresh_from_db()
         logger.info(
             "Application approved: application_id=%s coordinator_id=%s",
             pk, request.user.pk,
@@ -615,14 +674,12 @@ class RejectApplicationView(APIView):
                 actor=request.user,
                 rejection_reason=rejection_reason,
             )
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
+        application.refresh_from_db()
         logger.info(
             "Application rejected: application_id=%s coordinator_id=%s",
             pk, request.user.pk,
@@ -646,11 +703,10 @@ class PendingHoursView(generics.ListAPIView):
         return (
             HoursLog.objects
             .filter(
-                volunteer__applications__opportunity__program__coordinator=self.request.user,
+                opportunity__program__coordinator=self.request.user,
                 status=HoursLog.STATUS_PENDING,
             )
-            .distinct()
-            .select_related("volunteer", "opportunity")
+            .select_related("volunteer", "volunteer__user", "opportunity")
             .order_by("date")
         )
 
@@ -669,25 +725,17 @@ class ApproveHoursView(APIView):
     def patch(self, request, pk):
         from apps.volunteers.services.hours import approve_hours
 
-        qs = (
-            HoursLog.objects
-            .filter(
-                volunteer__applications__opportunity__program__coordinator=request.user,
-            )
-            .distinct()
-        )
+        qs = HoursLog.objects.filter(opportunity__program__coordinator=request.user)
         hours_log = get_object_or_404(qs, pk=pk)
 
         try:
             approve_hours(hours_log=hours_log, actor=request.user)
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
+        hours_log.refresh_from_db()
         logger.info(
             "Hours approved: hours_log_id=%s coordinator_id=%s",
             pk, request.user.pk,
@@ -709,26 +757,18 @@ class RejectHoursView(APIView):
     def patch(self, request, pk):
         from apps.volunteers.services.hours import reject_hours
 
-        qs = (
-            HoursLog.objects
-            .filter(
-                volunteer__applications__opportunity__program__coordinator=request.user,
-            )
-            .distinct()
-        )
+        qs = HoursLog.objects.filter(opportunity__program__coordinator=request.user)
         hours_log = get_object_or_404(qs, pk=pk)
         reason = request.data.get("reason", "")
 
         try:
             reject_hours(hours_log=hours_log, actor=request.user, reason=reason)
-        except PermissionDenied as exc:
-            return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        except PermissionDenied:
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
         except DjangoValidationError as exc:
             _raise_from_django_validation(exc)
 
+        hours_log.refresh_from_db()
         logger.info(
             "Hours rejected: hours_log_id=%s coordinator_id=%s",
             pk, request.user.pk,
@@ -742,16 +782,20 @@ class HoursReportView(APIView):
 
     Returns aggregated hours-by-program for the specified year (and optional month).
     Decimal values are stringified for safe JSON transport.
+
+    Requires staff access — returns org-wide data not scoped to coordinator's programs.
     """
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
+    permission_classes = [IsAuthenticated, IsAdminUser]  # org-wide report, admin only
     throttle_classes = [StaffRateThrottle]
 
     def get(self, request):
         from apps.volunteers.services.reporting import hours_by_program
 
+        current_year = timezone.now().year
         try:
-            year = int(request.query_params.get("year", timezone.now().year))
+            year = int(request.query_params.get("year", current_year))
+            year = max(2000, min(year, current_year + 1))
         except (ValueError, TypeError):
             raise DRFValidationError({"year": "Enter a valid 4-digit year."})
 
@@ -766,16 +810,18 @@ class HoursReportView(APIView):
                 raise DRFValidationError({"month": "Enter a valid month (1–12)."})
 
         data = hours_by_program(year, month)
-        # Stringify any Decimal values in rows for safe JSON transport
-        safe_data = []
-        for row in data:
-            safe_row = {
-                k: str(v) if isinstance(v, Decimal) else v
-                for k, v in row.items()
-            }
-            safe_data.append(safe_row)
 
-        return Response({"year": year, "month": month, "data": safe_data})
+        def _stringify_decimals(obj):
+            """Recursively convert Decimal values to str for JSON serialization."""
+            if isinstance(obj, dict):
+                return {k: _stringify_decimals(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_stringify_decimals(item) for item in obj]
+            if isinstance(obj, Decimal):
+                return str(obj)
+            return obj
+
+        return Response({"year": year, "month": month, "data": _stringify_decimals(data)})
 
 
 class ImpactReportView(APIView):
@@ -784,24 +830,35 @@ class ImpactReportView(APIView):
 
     Returns impact value and CRA T3010 volunteer metrics for the given year.
     Decimal values are stringified.
+
+    Requires staff access — returns org-wide T3010 data not scoped to coordinator's programs.
     """
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
+    permission_classes = [IsAuthenticated, IsAdminUser]  # org-wide T3010 data, admin only
     throttle_classes = [StaffRateThrottle]
 
     def get(self, request):
         from apps.volunteers.services.reporting import impact_value, t3010_volunteer_metrics
 
+        current_year = timezone.now().year
         try:
-            year = int(request.query_params.get("year", timezone.now().year))
+            year = int(request.query_params.get("year", current_year))
+            year = max(2000, min(year, current_year + 1))
         except (ValueError, TypeError):
             raise DRFValidationError({"year": "Enter a valid 4-digit year."})
 
         impact = impact_value(year)
         t3010 = t3010_volunteer_metrics(year)
 
-        def _stringify_decimals(d: dict) -> dict:
-            return {k: str(v) if isinstance(v, Decimal) else v for k, v in d.items()}
+        def _stringify_decimals(obj):
+            """Recursively convert Decimal values to str for JSON serialization."""
+            if isinstance(obj, dict):
+                return {k: _stringify_decimals(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_stringify_decimals(item) for item in obj]
+            if isinstance(obj, Decimal):
+                return str(obj)
+            return obj
 
         return Response({
             "year": year,

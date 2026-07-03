@@ -8,6 +8,7 @@ This file is automatically discovered by Wagtail when it is present in an
 installed app's package directory — no import in apps.py is required
 (Wagtail imports all wagtail_hooks.py modules at startup via AppConfig.ready()).
 """
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from wagtail import hooks
 from wagtail.admin.menu import MenuItem
@@ -26,7 +27,7 @@ def register_volunteers_menu_item():
     """
     return MenuItem(
         label=_("Volunteers"),
-        url="/volunteers/coordinator/",
+        url=reverse("volunteers:coordinator_dashboard"),
         icon_name="group",
         order=500,
     )

@@ -260,6 +260,11 @@ class VolunteerProfileSerializer(serializers.ModelSerializer):
             data.pop("emergency_contact_relationship", None)
             data.pop("sin_last4", None)
 
+        # phone_number: shown to profile owner (self-service only via MyProfileView).
+        # If a coordinator-facing profile endpoint is ever added, phone_number must
+        # be gated here too (PIPEDA: PII under Canadian law).
+        # data.pop("phone_number", None)  # uncomment if coordinator-facing access added
+
         # NEVER expose sin_encrypted regardless of permissions
         data.pop("sin_encrypted", None)
 

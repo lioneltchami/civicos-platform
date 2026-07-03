@@ -20,6 +20,7 @@ Model field notes (discovered by reading models.py):
 from __future__ import annotations
 
 import logging
+import re
 from decimal import Decimal
 
 from django.conf import settings
@@ -32,11 +33,14 @@ logger = logging.getLogger(__name__)
 # Category mapping helpers
 # ---------------------------------------------------------------------------
 
-# Maps SkillTag slug / name substrings (lower-cased) to T3010 volunteer categories.
-# Checked against SkillTag.slug and SkillTag.category (both lower-cased).
-_GOVERNANCE_KEYWORDS = {"governance", "board", "director", "trustee", "bylaws"}
-_FUNDRAISING_KEYWORDS = {"fundraising", "donor", "fund", "campaign", "grant"}
-_PROGRAM_DELIVERY_KEYWORDS = {"program", "delivery", "programme", "service"}
+# Whole-word regex patterns for T3010 volunteer category classification.
+# Uses word boundaries to avoid false positives (e.g. "fund" matching "fundamental",
+# "program" matching "programming").
+_CATEGORY_PATTERNS = [
+    ("governance", re.compile(r'\b(governance|board|director|trustee|bylaws)\b', re.IGNORECASE)),
+    ("fundraising", re.compile(r'\b(fundraising|fundraiser|donor|donation|campaign|grant)\b', re.IGNORECASE)),
+    ("program_delivery", re.compile(r'\b(program[\s_-]delivery|programme[\s_-]delivery|service[\s_-]delivery|delivery)\b', re.IGNORECASE)),
+]
 
 
 def _classify_skill_tags(tag_slugs: list[str], tag_names: list[str]) -> str:
@@ -46,18 +50,19 @@ def _classify_skill_tags(tag_slugs: list[str], tag_names: list[str]) -> str:
     Returns one of: "governance" | "fundraising" | "program_delivery" | "general"
 
     Priority order: governance > fundraising > program_delivery > general.
+
+    Uses whole-word regex matching to avoid false positives from substring checks
+    (e.g. "fund" in "fundamental", "program" in "programming").
+    Slug hyphens and underscores are converted to spaces before matching.
     """
-    combined = {t.lower() for t in tag_slugs + tag_names}
+    # Normalise slugs: replace hyphens and underscores with spaces for word-boundary matching
+    normalised_slugs = [s.replace("-", " ").replace("_", " ") for s in tag_slugs]
+    combined = " ".join(normalised_slugs + tag_names)
 
-    def _hits(keywords: set[str]) -> bool:
-        return any(kw in term for kw in keywords for term in combined)
+    for category, pattern in _CATEGORY_PATTERNS:
+        if pattern.search(combined):
+            return category
 
-    if _hits(_GOVERNANCE_KEYWORDS):
-        return "governance"
-    if _hits(_FUNDRAISING_KEYWORDS):
-        return "fundraising"
-    if _hits(_PROGRAM_DELIVERY_KEYWORDS):
-        return "program_delivery"
     return "general"
 
 
