@@ -354,11 +354,11 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         self.profile.accommodation_notes = "Needs elevator access"
         self.profile.emergency_contact_name = "Jane Doe"
         self.profile.emergency_contact_phone = "613-555-0100"
-        self.profile.emergency_contact_relation = "Spouse"
+        self.profile.emergency_contact_relationship = "Spouse"
         self.profile.sin_last4 = "1234"
         self.profile.save(update_fields=[
             "accommodation_notes", "emergency_contact_name",
-            "emergency_contact_phone", "emergency_contact_relation", "sin_last4",
+            "emergency_contact_phone", "emergency_contact_relationship", "sin_last4",
         ])
 
         self.login_as_coordinator()  # does NOT have view_accommodation_notes
@@ -379,11 +379,11 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         self.profile.accommodation_notes = "Needs elevator access"
         self.profile.emergency_contact_name = "Jane Doe"
         self.profile.emergency_contact_phone = "613-555-0100"
-        self.profile.emergency_contact_relation = "Spouse"
+        self.profile.emergency_contact_relationship = "Spouse"
         self.profile.sin_last4 = "5678"
         self.profile.save(update_fields=[
             "accommodation_notes", "emergency_contact_name",
-            "emergency_contact_phone", "emergency_contact_relation", "sin_last4",
+            "emergency_contact_phone", "emergency_contact_relationship", "sin_last4",
         ])
 
         coordinator_with_perm = _grant_perm(self.coordinator, "view_accommodation_notes")
@@ -665,7 +665,7 @@ class CompleteScreeningViewTests(Wave4BaseTestCase):
         url = self._url()
         self._skip_if_url_missing(url, "complete_screening")
         self.login_as_coordinator()
-        response = self.client.post(url, {"verified_clear": "true"})
+        response = self.client.post(url, {"verified_clear": "True"})
         self.assertEqual(response.status_code, 302)
         self.screening.refresh_from_db()
         self.assertTrue(self.screening.verified_clear)

@@ -14,6 +14,7 @@ Conventions:
 from __future__ import annotations
 
 import threading
+import unittest
 from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -21,6 +22,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import connection
 from django.test import TestCase, TransactionTestCase, override_settings
 
 from apps.volunteers.models import (
@@ -611,6 +613,10 @@ class HonorariumFieldPersistenceTests(HonorariumBaseTestCase):
     VOLUNTEER_CRA_ALERT_THRESHOLD=450,
     VOLUNTEER_CRA_T4A_THRESHOLD=500,
     VOLUNTEER_CRA_HARD_BLOCK=1000,
+)
+@unittest.skipIf(
+    connection.vendor == "sqlite",
+    "select_for_update() requires PostgreSQL row-level locking; SQLite cannot serialise concurrent threads",
 )
 class ConcurrentHonorariumTests(TransactionTestCase):
     """

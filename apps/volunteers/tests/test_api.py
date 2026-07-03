@@ -817,7 +817,7 @@ class HoursBoundaryValidationTests(APIBaseTestCase):
             **self._auth(),
         )
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("opportunity_slug", resp.data)
+        self.assertIn("opportunity_slug", resp.data["error"]["detail"])
 
     def test_log_hours_invalid_calendar_date_returns_400(self):
         resp = self.client.post(

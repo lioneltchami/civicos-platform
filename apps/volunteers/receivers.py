@@ -731,7 +731,7 @@ def notify_volunteer_on_hours_rejected(sender, instance, rejected_by, **kwargs):
         )
 
 
-@receiver(milestone_achieved, sender="volunteers.RecognitionMilestone")
+@receiver(milestone_achieved)
 def notify_volunteer_on_milestone_achieved(sender, instance, volunteer, hours_threshold, **kwargs):
     """
     Celebrate a volunteer's cumulative hours milestone.

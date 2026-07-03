@@ -242,7 +242,8 @@ class BookShiftTests(SchedulingBaseTestCase):
     def test_book_shift_past_shift_raises(self):
         """book_shift() raises ValidationError when the shift has already started."""
         past_shift = _make_past_shift(self.opportunity)
-        _approve_application(self.volunteer_profile, self.opportunity)  # already approved; OK
+        # Volunteer already has an application from setUp (STATUS_APPROVED) — no need to create another.
+        # Ensure it is approved (it is by default in base setUp via _approve_application).
         with self.assertRaises(ValidationError) as ctx:
             book_shift(
                 shift=past_shift,
@@ -721,18 +722,19 @@ class CompleteBookingTests(SchedulingBaseTestCase):
 
     def test_complete_booking_zero_duration_skips_hours_log(self):
         """complete_booking on a zero-duration shift does not create a HoursLog."""
-        # Set end_datetime == start_datetime to make duration zero.
-        self.ended_shift.end_datetime = self.ended_shift.start_datetime
-        self.ended_shift.save(update_fields=["end_datetime", "updated_at"])
-
+        # The DB CHECK constraint (end_datetime > start_datetime) prevents saving equal
+        # datetimes, so we mock duration_hours to return 0 instead of modifying the DB.
         booking = ShiftBooking.objects.create(
             shift=self.ended_shift,
             volunteer=self.volunteer_profile,
             status=ShiftBooking.STATUS_CONFIRMED,
         )
 
-        with self.captureOnCommitCallbacks(execute=True):
-            result = complete_booking(booking=booking, actor=self.coordinator)
+        with mock.patch.object(
+            type(self.ended_shift), "duration_hours", new_callable=mock.PropertyMock, return_value=0
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                result = complete_booking(booking=booking, actor=self.coordinator)
 
         self.assertEqual(result.status, ShiftBooking.STATUS_COMPLETED)
         self.assertFalse(

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Applications" %}{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1>{% trans "Volunteer Applications" %}</h1>
+
+  <form method="get" class="mb-3">
+    <label for="status-filter">{% trans "Filter by status" %}</label>
+    <select name="status" id="status-filter" onchange="this.form.submit()">
+      <option value="">{% trans "All statuses" %}</option>
+      {% for value, label in status_choices %}
+        <option value="{{ value }}"{% if value == current_status %} selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {% if applications %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>{% trans "Volunteer" %}</th>
+          <th>{% trans "Opportunity" %}</th>
+          <th>{% trans "Status" %}</th>
+          <th>{% trans "Applied" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for app in applications %}
+          <tr>
+            <td>{{ app.volunteer.pk }}</td>
+            <td>{{ app.opportunity.title }}</td>
+            <td>{{ app.get_status_display }}</td>
+            <td>{{ app.created_at|date:"Y-m-d" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>{% trans "No applications found." %}</p>
+  {% endif %}
+</div>
+{% endblock %}

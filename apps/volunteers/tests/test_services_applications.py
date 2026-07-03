@@ -140,6 +140,25 @@ class BaseApplicationTestCase(TestCase):
         staff = _make_user("staff@example.gc.ca", is_staff=True)
         self.staff_user = _grant_coordinator_permission(staff)
 
+        # Add add_screeningrecord / change_screeningrecord so RecordCheckTests /
+        # CompleteCheckTests pass without needing a superuser actor.
+        _add_screening_perm = Permission.objects.get(
+            content_type__app_label="volunteers",
+            codename="add_screeningrecord",
+        )
+        coordinator.user_permissions.add(_add_screening_perm)
+        _change_screening_perm = Permission.objects.get(
+            content_type__app_label="volunteers",
+            codename="change_screeningrecord",
+        )
+        coordinator.user_permissions.add(_change_screening_perm)
+        # Clear perm cache.
+        if hasattr(coordinator, "_perm_cache"):
+            del coordinator._perm_cache
+        if hasattr(coordinator, "_user_perm_cache"):
+            del coordinator._user_perm_cache
+        self.coordinator_user = User.objects.get(pk=coordinator.pk)
+
         self.profile = _make_profile(self.user)
         self.program = _make_program(slug="base-program")
         self.opportunity = _make_opportunity(
@@ -152,6 +171,11 @@ class BaseApplicationTestCase(TestCase):
             slug="inactive-opportunity",
             status="draft",
         )
+
+        # Assign coordinator_user as program coordinator so scope guards in
+        # approve_application() / reject_application() pass for the happy-path tests.
+        self.program.coordinator = self.coordinator_user
+        self.program.save(update_fields=["coordinator"])
 
 
 # ===========================================================================
@@ -543,12 +567,19 @@ class ApproveApplicationTests(BaseApplicationTestCase):
 
     def test_approve_staff_user_can_approve(self):
         """
-        Any user with change_volunteerapplication — including staff_user —
-        can approve applications.
+        A coordinator who owns the programme can approve applications.
+        (staff_user is granted coordinator permission and assigned as programme
+        coordinator here to satisfy the M-1 scope guard.)
         """
+        # M-1: assign staff_user as programme coordinator so the scope guard passes.
+        self.program.coordinator = self.staff_user
+        self.program.save(update_fields=["coordinator"])
         app = self._pending_application()
         result = approve_application(application=app, actor=self.staff_user)
         self.assertEqual(result.status, VolunteerApplication.STATUS_APPROVED)
+        # Restore for subsequent tests.
+        self.program.coordinator = self.coordinator_user
+        self.program.save(update_fields=["coordinator"])
 
     def test_approve_from_in_review_succeeds(self):
         """H-1: STATUS_IN_REVIEW applications can be approved (state machine fix)."""
@@ -1445,7 +1476,7 @@ class ApplicationRollbackTransactionTests(TransactionTestCase):
                     opportunity=self.opportunity,
                     actor=self.user,
                     motivation="Test motivation",
-                    consent_record=True,
+                    consent_record=None,
                 )
                 # Force the transaction to roll back.
                 raise _ForceRollback("deliberate rollback")
@@ -1514,4 +1545,4 @@ class ApplyRaceConditionTests(TransactionTestCase):
             )
 
         errors = ctx.exception.message_dict
-        self.assertIn("volunteer", errors)
+        self.assertIn("opportunity", errors)

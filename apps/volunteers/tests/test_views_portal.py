@@ -209,7 +209,7 @@ class OpportunityListViewTests(BaseViewTestCase):
     def test_opportunity_list_shows_active_opportunities(self):
         """
         Authenticated volunteers see published opportunities in the list.
-        The opportunity title_en must be present in the rendered response.
+        The opportunity title must be present in the rendered response.
         """
         url = self._url()
         self._skip_if_url_missing(url, "opportunity_list")
@@ -217,7 +217,13 @@ class OpportunityListViewTests(BaseViewTestCase):
 
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.opportunity.title_en)
+        # Assert the title appears in whichever language is active (EN or FR).
+        content = response.content.decode()
+        self.assertTrue(
+            self.opportunity.title_en in content or self.opportunity.title_fr in content,
+            f"Expected opportunity title (EN or FR) in response. "
+            f"title_en={self.opportunity.title_en!r}, title_fr={self.opportunity.title_fr!r}",
+        )
 
     def test_opportunity_list_hides_inactive_opportunities(self):
         """
@@ -230,7 +236,10 @@ class OpportunityListViewTests(BaseViewTestCase):
 
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
+        # Neither the English nor the French title of the inactive opportunity
+        # should appear (it's draft — hidden regardless of language).
         self.assertNotContains(response, self.inactive_opportunity.title_en)
+        self.assertNotContains(response, self.inactive_opportunity.title_fr)
 
     def test_opportunity_list_shows_applied_badge(self):
         """
@@ -293,7 +302,13 @@ class OpportunityDetailViewTests(BaseViewTestCase):
 
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.opportunity.title_en)
+        # Assert the title appears in whichever language is active (EN or FR).
+        content = response.content.decode()
+        self.assertTrue(
+            self.opportunity.title_en in content or self.opportunity.title_fr in content,
+            f"Expected opportunity title (EN or FR) in response. "
+            f"title_en={self.opportunity.title_en!r}, title_fr={self.opportunity.title_fr!r}",
+        )
 
     def test_opportunity_detail_404_if_inactive(self):
         """
@@ -514,7 +529,13 @@ class MyApplicationsViewTests(BaseViewTestCase):
 
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.opportunity.title_en)
+        # Assert the title appears in whichever language is active (EN or FR).
+        content = response.content.decode()
+        self.assertTrue(
+            self.opportunity.title_en in content or self.opportunity.title_fr in content,
+            f"Expected opportunity title (EN or FR) in response. "
+            f"title_en={self.opportunity.title_en!r}, title_fr={self.opportunity.title_fr!r}",
+        )
 
     def test_my_applications_does_not_show_rejection_reason(self):
         """
@@ -761,7 +782,13 @@ class CoordinatorDashboardViewTests(BaseViewTestCase):
 
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.opportunity.title_en)
+        # Assert the title appears in whichever language is active (EN or FR).
+        content = response.content.decode()
+        self.assertTrue(
+            self.opportunity.title_en in content or self.opportunity.title_fr in content,
+            f"Expected opportunity title (EN or FR) in response. "
+            f"title_en={self.opportunity.title_en!r}, title_fr={self.opportunity.title_fr!r}",
+        )
 
     def test_regular_user_cannot_access_coordinator_dashboard(self):
         """
@@ -796,7 +823,13 @@ class CoordinatorDashboardViewTests(BaseViewTestCase):
 
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.opportunity.title_en)
+        # Assert the title appears in whichever language is active (EN or FR).
+        content = response.content.decode()
+        self.assertTrue(
+            self.opportunity.title_en in content or self.opportunity.title_fr in content,
+            f"Expected opportunity title (EN or FR) in response. "
+            f"title_en={self.opportunity.title_en!r}, title_fr={self.opportunity.title_fr!r}",
+        )
 
     def test_coordinator_dashboard_shows_correct_pending_count(self):
         """

@@ -396,7 +396,7 @@ def approve_application(
     # Program-scope ownership check: actor must coordinate this specific programme.
     # The global Django permission is necessary but not sufficient.
     # Also stays outside atomic() for the same reason as above.
-    if application.opportunity.program.coordinator_id != actor.pk:
+    if not actor.is_superuser and application.opportunity.program.coordinator_id != actor.pk:
         raise PermissionDenied(
             f"User #{actor.pk} does not coordinate the programme for "
             f"application #{application.pk}."
@@ -505,7 +505,7 @@ def reject_application(
     # Program-scope ownership check: actor must coordinate this specific programme.
     # The global Django permission is necessary but not sufficient.
     # Also stays outside atomic() for the same reason as above.
-    if application.opportunity.program.coordinator_id != actor.pk:
+    if not actor.is_superuser and application.opportunity.program.coordinator_id != actor.pk:
         raise PermissionDenied(
             f"User #{actor.pk} does not coordinate the programme for "
             f"application #{application.pk}."

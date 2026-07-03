@@ -64,10 +64,31 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Django 5.x LoginRequiredMixin compatibility
+# ---------------------------------------------------------------------------
+
+class _RedirectUnauthenticatedMixin(LoginRequiredMixin):
+    """
+    Django 5.x compatibility: raise_exception=True on PermissionRequiredMixin causes
+    LoginRequiredMixin to also return 403 for unauthenticated users. Override to
+    always redirect unauthenticated users to login regardless of raise_exception.
+    """
+    def handle_no_permission(self):
+        from django.contrib.auth.views import redirect_to_login
+        if not self.request.user.is_authenticated:
+            return redirect_to_login(
+                self.request.get_full_path(),
+                self.get_login_url(),
+                self.get_redirect_field_name(),
+            )
+        return super().handle_no_permission()
+
+
+# ---------------------------------------------------------------------------
 # CoordinatorDashboardView
 # ---------------------------------------------------------------------------
 
-class CoordinatorDashboardView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+class CoordinatorDashboardView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """
     Coordinator's at-a-glance dashboard: pending applications for their opportunities.
 
@@ -131,7 +152,7 @@ class CoordinatorDashboardView(LoginRequiredMixin, PermissionRequiredMixin, List
 # ApplicationReviewView
 # ---------------------------------------------------------------------------
 
-class ApplicationReviewView(LoginRequiredMixin, PermissionRequiredMixin, FormView):
+class ApplicationReviewView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, FormView):
     """
     Coordinator reviews (approves or rejects) a single application.
 
@@ -289,7 +310,7 @@ class ApplicationReviewView(LoginRequiredMixin, PermissionRequiredMixin, FormVie
 # CoordinatorApplicationListView
 # ---------------------------------------------------------------------------
 
-class CoordinatorApplicationListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+class CoordinatorApplicationListView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """
     Full application list for coordinator/programme-manager use.
 
@@ -360,7 +381,7 @@ class CoordinatorApplicationListView(LoginRequiredMixin, PermissionRequiredMixin
 # ShiftListView
 # ---------------------------------------------------------------------------
 
-class ShiftListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+class ShiftListView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """List all shifts across the coordinator's opportunities."""
 
     # MRO: LoginRequiredMixin → PermissionRequiredMixin (login redirect before 403 check)
@@ -383,7 +404,7 @@ class ShiftListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
 # ShiftDetailView
 # ---------------------------------------------------------------------------
 
-class ShiftDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailView):
+class ShiftDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, DetailView):
     """
     Detail page for a single shift with full booking roster.
 
@@ -424,7 +445,7 @@ class ShiftDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailView):
 # ShiftCreateView
 # ---------------------------------------------------------------------------
 
-class ShiftCreateView(LoginRequiredMixin, PermissionRequiredMixin, CreateView):
+class ShiftCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, CreateView):
     """
     Coordinator creates a new shift under one of their opportunities.
 
@@ -487,7 +508,7 @@ class ShiftCreateView(LoginRequiredMixin, PermissionRequiredMixin, CreateView):
 # ShiftCancelView
 # ---------------------------------------------------------------------------
 
-class ShiftCancelView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class ShiftCancelView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only. Coordinator cancels an entire shift via the cancel_shift() service.
 
@@ -523,7 +544,7 @@ class ShiftCancelView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # BookingNoShowView
 # ---------------------------------------------------------------------------
 
-class BookingNoShowView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class BookingNoShowView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only. Coordinator marks a confirmed booking as no-show after the shift
     start time.
@@ -558,7 +579,7 @@ class BookingNoShowView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # BookingCompleteView
 # ---------------------------------------------------------------------------
 
-class BookingCompleteView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class BookingCompleteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only. Coordinator marks a confirmed booking as completed.
 
@@ -594,7 +615,7 @@ class BookingCompleteView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # HoursApprovalListView
 # ---------------------------------------------------------------------------
 
-class HoursApprovalListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+class HoursApprovalListView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """
     Pending hours logs queued for the coordinator's review.
 
@@ -625,7 +646,7 @@ class HoursApprovalListView(LoginRequiredMixin, PermissionRequiredMixin, ListVie
 # HoursApproveView
 # ---------------------------------------------------------------------------
 
-class HoursApproveView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class HoursApproveView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only. Coordinator approves a pending HoursLog via approve_hours() service.
 
@@ -661,7 +682,7 @@ class HoursApproveView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # HoursRejectView
 # ---------------------------------------------------------------------------
 
-class HoursRejectView(LoginRequiredMixin, PermissionRequiredMixin, FormView):
+class HoursRejectView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, FormView):
     """
     POST with reason. Coordinator rejects a pending HoursLog via reject_hours().
 
@@ -717,7 +738,7 @@ class HoursRejectView(LoginRequiredMixin, PermissionRequiredMixin, FormView):
 # VolunteerRosterView
 # ---------------------------------------------------------------------------
 
-class VolunteerRosterView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+class VolunteerRosterView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """
     Coordinator view of all volunteer profiles.
     Paginated, filterable by status and skill tag.
@@ -761,7 +782,7 @@ class VolunteerRosterView(LoginRequiredMixin, PermissionRequiredMixin, ListView)
 # VolunteerDetailView
 # ---------------------------------------------------------------------------
 
-class VolunteerDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailView):
+class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, DetailView):
     """
     Full coordinator profile view for a single volunteer.
 
@@ -855,7 +876,6 @@ class VolunteerDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailVie
             profile.emergency_contact_phone = None
             profile.emergency_contact_relation = None
             profile.sin_last4 = None
-            profile.sin_encrypted = b""  # clear encrypted blob; prevents exposure via template bug
 
         # Use prefetched data (loaded by get_queryset) to avoid N+1 DB queries.
         # Each _prefetched_* attribute is a list populated by the Prefetch objects
@@ -893,7 +913,7 @@ class VolunteerDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailVie
 # VolunteerStatusChangeView
 # ---------------------------------------------------------------------------
 
-class VolunteerStatusChangeView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only: coordinator changes a volunteer's status (active/inactive/suspended).
     Logs the change with status_changed_by and status_changed_at.
@@ -943,7 +963,7 @@ class VolunteerStatusChangeView(LoginRequiredMixin, PermissionRequiredMixin, Vie
 # AddVolunteerNoteView
 # ---------------------------------------------------------------------------
 
-class AddVolunteerNoteView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class AddVolunteerNoteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only: coordinator adds an internal (append-only) note to a volunteer profile.
     Notes are NEVER shown to the volunteer.
@@ -984,7 +1004,7 @@ class AddVolunteerNoteView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # RecordScreeningView
 # ---------------------------------------------------------------------------
 
-class RecordScreeningView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class RecordScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     GET: show form to record a new background check for a volunteer.
     POST: create ScreeningRecord via record_check() service.
@@ -1047,7 +1067,7 @@ class RecordScreeningView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # CompleteScreeningView
 # ---------------------------------------------------------------------------
 
-class CompleteScreeningView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class CompleteScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only: coordinator records the outcome (verified_clear) of a screening.
 
@@ -1103,7 +1123,7 @@ class CompleteScreeningView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # HonorariumCreateView
 # ---------------------------------------------------------------------------
 
-class HonorariumCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class HonorariumCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     GET: show form to create an honorarium for a volunteer.
     POST: create Honorarium via create_honorarium() service (CRA threshold enforcement).
@@ -1138,8 +1158,9 @@ class HonorariumCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         profile = self._get_profile()
         from apps.volunteers.forms import HonorariumForm
+        from apps.volunteers.models import Honorarium as HonorariumModel
         from apps.volunteers.services.honoraria import create_honorarium, cumulative_ytd
-        form = HonorariumForm(request.POST)
+        form = HonorariumForm(request.POST, instance=HonorariumModel(volunteer=profile))
         if not form.is_valid():
             ytd = cumulative_ytd(profile, year=timezone.localtime(timezone.now()).year)
             return render(request, "volunteers/coordinator/honorarium_form.html", {
@@ -1172,7 +1193,7 @@ class HonorariumCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
 # ImpactReportView — Wave 5 Phase A
 # ---------------------------------------------------------------------------
 
-class ImpactReportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
+class ImpactReportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, TemplateView):
     """
     Monthly volunteer impact report — coordinator and admin only.
 
@@ -1236,7 +1257,7 @@ class ImpactReportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView
 # Volunteer CSV export views — Wave 5 Phase A
 # ---------------------------------------------------------------------------
 
-class VolunteerHoursExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class VolunteerHoursExportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     Stream approved volunteer hours as a PIPEDA-safe CSV.
 
@@ -1308,7 +1329,7 @@ class VolunteerHoursExportView(LoginRequiredMixin, PermissionRequiredMixin, View
         return export_volunteer_hours_csv(year, month, rows=rows)
 
 
-class VolunteerT3010ExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class VolunteerT3010ExportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     Stream T3010 Schedule 2 volunteer section as a PIPEDA-safe CSV.
 
@@ -1369,7 +1390,7 @@ class VolunteerT3010ExportView(LoginRequiredMixin, PermissionRequiredMixin, View
 # ReferenceLetterPDFView
 # ---------------------------------------------------------------------------
 
-class ReferenceLetterPDFView(LoginRequiredMixin, PermissionRequiredMixin, View):
+class ReferenceLetterPDFView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     Generate a volunteer reference letter PDF for a specific volunteer profile.
 

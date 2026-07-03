@@ -391,7 +391,7 @@ class ExpiringScreeningTaskTests(TestCase):
         self._make_screening_record(expires_days_from_now=15)
 
         with mock.patch(
-            "apps.volunteers.tasks.screening_expiring.send_robust"
+            "apps.volunteers.signals.screening_expiring.send_robust"
         ) as m:
             m.return_value = []  # No receivers registered in this test.
             check_expiring_screenings()
@@ -412,7 +412,7 @@ class ExpiringScreeningTaskTests(TestCase):
         )
 
         with mock.patch(
-            "apps.volunteers.tasks.screening_expiring.send_robust"
+            "apps.volunteers.signals.screening_expiring.send_robust"
         ) as m:
             check_expiring_screenings()
 
@@ -423,7 +423,7 @@ class ExpiringScreeningTaskTests(TestCase):
         self._make_screening_record(expires_days_from_now=45)
 
         with mock.patch(
-            "apps.volunteers.tasks.screening_expiring.send_robust"
+            "apps.volunteers.signals.screening_expiring.send_robust"
         ) as m:
             check_expiring_screenings()
 
@@ -434,7 +434,7 @@ class ExpiringScreeningTaskTests(TestCase):
         self._make_screening_record(expires_days_from_now=10)
 
         with mock.patch(
-            "apps.volunteers.tasks.screening_expiring.send_robust",
+            "apps.volunteers.signals.screening_expiring.send_robust",
             return_value=[],
         ):
             result = check_expiring_screenings()
@@ -465,7 +465,7 @@ class ExpiringScreeningTaskTests(TestCase):
             )
 
         with mock.patch(
-            "apps.volunteers.tasks.screening_expiring.send_robust",
+            "apps.volunteers.signals.screening_expiring.send_robust",
             return_value=[],
         ) as m:
             result = check_expiring_screenings()
@@ -479,7 +479,7 @@ class ExpiringScreeningTaskTests(TestCase):
 
         failing_exception = Exception("Notification service down")
         with mock.patch(
-            "apps.volunteers.tasks.screening_expiring.send_robust",
+            "apps.volunteers.signals.screening_expiring.send_robust",
             return_value=[("some_receiver", failing_exception)],
         ):
             result = check_expiring_screenings()
@@ -514,7 +514,7 @@ class ExpiringCertificationsTaskTests(TestCase):
         self._make_certification(expires_days_from_now=10)
 
         with mock.patch(
-            "apps.volunteers.tasks.certification_expiring.send_robust"
+            "apps.volunteers.signals.certification_expiring.send_robust"
         ) as m:
             m.return_value = []
             check_expiring_certifications()
@@ -532,7 +532,7 @@ class ExpiringCertificationsTaskTests(TestCase):
         )
 
         with mock.patch(
-            "apps.volunteers.tasks.certification_expiring.send_robust"
+            "apps.volunteers.signals.certification_expiring.send_robust"
         ) as m:
             check_expiring_certifications()
 
@@ -543,7 +543,7 @@ class ExpiringCertificationsTaskTests(TestCase):
         self._make_certification(expires_days_from_now=60)
 
         with mock.patch(
-            "apps.volunteers.tasks.certification_expiring.send_robust"
+            "apps.volunteers.signals.certification_expiring.send_robust"
         ) as m:
             check_expiring_certifications()
 
@@ -554,7 +554,7 @@ class ExpiringCertificationsTaskTests(TestCase):
         self._make_certification(expires_days_from_now=7)
 
         with mock.patch(
-            "apps.volunteers.tasks.certification_expiring.send_robust",
+            "apps.volunteers.signals.certification_expiring.send_robust",
             return_value=[],
         ):
             result = check_expiring_certifications()
@@ -574,7 +574,7 @@ class ExpiringCertificationsTaskTests(TestCase):
         )
 
         with mock.patch(
-            "apps.volunteers.tasks.certification_expiring.send_robust"
+            "apps.volunteers.signals.certification_expiring.send_robust"
         ) as m:
             check_expiring_certifications()
 
@@ -589,15 +589,15 @@ class CreateBeatScheduleTests(TestCase):
     """Tests for the create_beat_schedule() data-migration helper."""
 
     def test_creates_four_periodic_tasks(self):
-        """create_beat_schedule() registers exactly 4 periodic tasks."""
+        """create_beat_schedule() registers exactly 6 periodic tasks."""
         from apps.volunteers.tasks import create_beat_schedule
         from django_celery_beat.models import PeriodicTask
 
         initial_count = PeriodicTask.objects.count()
         create_beat_schedule()
 
-        # Should have created 4 new tasks
-        self.assertEqual(PeriodicTask.objects.count(), initial_count + 4)
+        # Should have created 6 new tasks (4 shift/expiry + 2 monthly tasks)
+        self.assertEqual(PeriodicTask.objects.count(), initial_count + 6)
 
     def test_idempotent_second_call_does_not_duplicate(self):
         """Calling create_beat_schedule() twice does not duplicate PeriodicTask rows."""

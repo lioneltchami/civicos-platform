@@ -44,7 +44,7 @@ _counter = [0]
 
 # Path at which send_email_notification is imported inside receivers.py.
 # Must match the exact import: ``from apps.notifications.services import send_email_notification``
-_SEND_NOTIFICATION_PATH = "apps.volunteers.receivers.send_email_notification"
+_SEND_NOTIFICATION_PATH = "apps.notifications.services.send_email_notification"
 
 
 # ---------------------------------------------------------------------------

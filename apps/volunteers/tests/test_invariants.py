@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import threading
+import unittest
 from datetime import timedelta
 from decimal import Decimal
 
@@ -28,6 +29,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import RequestFactory, SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
@@ -128,8 +130,7 @@ def _make_shift(opportunity, *, minutes_from_now=60, duration_minutes=120, capac
         opportunity=opportunity,
         start_datetime=start,
         end_datetime=end,
-        location_en=f"Location {n}",
-        location_fr=f"Emplacement {n}",
+        location_override=f"Location {n}",
         capacity=capacity,
         waitlist_enabled=False,
     )
@@ -338,14 +339,15 @@ class PIPEDAAuditLogTests(TestCase):
         Admin helper _write_audit_entry must not include volunteer email in event_detail.
         Tests the contract at the audit-write callsite.
         """
-        from apps.volunteers.admin import _write_audit_entry
+        from apps.volunteers.admin import _write_volunteer_audit
         factory = RequestFactory()
         request = factory.post("/admin/volunteers/")
         request.user = self.coordinator
         request.META["REMOTE_ADDR"] = "127.0.0.1"
+        request.session = {}  # RequestFactory requests have no session by default
         # Simulate a coordinator viewing a volunteer profile — event_detail should
         # only contain the profile PK, not the volunteer's email.
-        _write_audit_entry(
+        _write_volunteer_audit(
             request=request,
             event_type="data.viewed",
             resource_id=str(self.volunteer_profile.pk),
@@ -358,15 +360,16 @@ class PIPEDAAuditLogTests(TestCase):
         When an honorarium is created via the admin helper, event_detail must
         reference the volunteer by PK only — not email.
         """
-        from apps.volunteers.admin import _write_audit_entry
+        from apps.volunteers.admin import _write_volunteer_audit
         factory = RequestFactory()
         request = factory.post("/admin/volunteers/honorarium/add/")
         request.user = self.coordinator
         request.META["REMOTE_ADDR"] = "127.0.0.1"
+        request.session = {}  # RequestFactory requests have no session by default
         hon = _make_honorarium(
             self.volunteer_profile, "100.00", created_by=self.coordinator
         )
-        _write_audit_entry(
+        _write_volunteer_audit(
             request=request,
             event_type="honorarium.created",
             resource_id=str(hon.pk),
@@ -383,12 +386,13 @@ class PIPEDAAuditLogTests(TestCase):
         Positive control: volunteer profile PK IS acceptable in event_detail
         and must not be scrubbed.
         """
-        from apps.volunteers.admin import _write_audit_entry
+        from apps.volunteers.admin import _write_volunteer_audit
         factory = RequestFactory()
         request = factory.post("/admin/volunteers/")
         request.user = self.coordinator
         request.META["REMOTE_ADDR"] = "127.0.0.1"
-        _write_audit_entry(
+        request.session = {}  # RequestFactory requests have no session by default
+        _write_volunteer_audit(
             request=request,
             event_type="data.viewed",
             resource_id=str(self.volunteer_profile.pk),
@@ -406,12 +410,13 @@ class PIPEDAAuditLogTests(TestCase):
         For data.viewed events, actor_email must be blank (PIPEDA minimum-data
         principle: only authentication events snapshot the email).
         """
-        from apps.volunteers.admin import _write_audit_entry
+        from apps.volunteers.admin import _write_volunteer_audit
         factory = RequestFactory()
         request = factory.post("/admin/volunteers/")
         request.user = self.coordinator
         request.META["REMOTE_ADDR"] = "127.0.0.1"
-        _write_audit_entry(
+        request.session = {}  # RequestFactory requests have no session by default
+        _write_volunteer_audit(
             request=request,
             event_type="data.viewed",
             resource_id=str(self.volunteer_profile.pk),
@@ -604,6 +609,10 @@ class CRAThresholdBoundaryTests(TestCase):
 # Class 4: Concurrent Overbooking (TransactionTestCase)
 # ===========================================================================
 
+@unittest.skipIf(
+    connection.vendor == "sqlite",
+    "select_for_update() requires PostgreSQL row-level locking; SQLite cannot serialise concurrent threads",
+)
 class ConcurrentOverbookingTests(TransactionTestCase):
     """
     Two concurrent book_shift() calls on a shift with capacity=1 — exactly
@@ -902,10 +911,10 @@ class BilingualResponseTests(TestCase):
         return self.client
 
     def test_opportunity_list_fr_returns_200(self):
-        """GET /fr/volunteer/opportunities/ returns HTTP 200."""
+        """GET /fr/volunteers/volunteer/opportunities/ returns HTTP 200."""
         client = self._fr_client()
         response = client.get(
-            "/fr/volunteer/opportunities/",
+            "/fr/volunteers/volunteer/opportunities/",
             HTTP_ACCEPT_LANGUAGE="fr",
         )
         self.assertEqual(
@@ -916,24 +925,34 @@ class BilingualResponseTests(TestCase):
 
     def test_opportunity_list_fr_contains_french_title(self):
         """Opportunity list served in French must contain the French opportunity title."""
+        import html as html_module
         client = self._fr_client()
         response = client.get(
-            "/fr/volunteer/opportunities/",
+            "/fr/volunteers/volunteer/opportunities/",
             HTTP_ACCEPT_LANGUAGE="fr",
         )
-        self.assertContains(
-            response,
+        # Unescape HTML entities (e.g. &#x27; → ‘) before checking for the French title.
+        content = html_module.unescape(response.content.decode())
+        self.assertIn(
             "Titre d'opportunité en français",
-            msg_prefix="French opportunity title must appear in /fr/ opportunity list response.",
+            content,
+            "French opportunity title must appear in /fr/ opportunity list response.",
         )
 
     def test_opportunity_list_en_contains_english_title(self):
         """Opportunity list served in English must contain the English opportunity title."""
+        from django.urls import reverse
+        from django.utils.translation import override as lang_override
         client = self._fr_client()
-        response = client.get(
-            "/volunteer/opportunities/",
-            HTTP_ACCEPT_LANGUAGE="en",
-        )
+        # Clear any session language that may have been set by prior FR requests in this test.
+        session = client.session
+        session.pop("_language", None)
+        session.save()
+        with lang_override("en"):
+            response = client.get(
+                reverse("volunteers:opportunity_list"),
+                HTTP_ACCEPT_LANGUAGE="en",
+            )
         self.assertContains(
             response,
             "English Opportunity Title",
@@ -941,10 +960,10 @@ class BilingualResponseTests(TestCase):
         )
 
     def test_opportunity_detail_fr_returns_200(self):
-        """GET /fr/volunteer/opportunities/<pk>/ returns HTTP 200."""
+        """GET /fr/volunteers/volunteer/opportunities/<pk>/ returns HTTP 200."""
         client = self._fr_client()
         response = client.get(
-            f"/fr/volunteer/opportunities/{self.opportunity.pk}/",
+            f"/fr/volunteers/volunteer/opportunities/{self.opportunity.pk}/",
             HTTP_ACCEPT_LANGUAGE="fr",
         )
         self.assertEqual(
@@ -955,24 +974,34 @@ class BilingualResponseTests(TestCase):
 
     def test_opportunity_detail_fr_contains_french_title(self):
         """Opportunity detail served in French must contain the French title."""
+        import html as html_module
         client = self._fr_client()
         response = client.get(
-            f"/fr/volunteer/opportunities/{self.opportunity.pk}/",
+            f"/fr/volunteers/volunteer/opportunities/{self.opportunity.pk}/",
             HTTP_ACCEPT_LANGUAGE="fr",
         )
-        self.assertContains(
-            response,
+        # Unescape HTML entities (e.g. &#x27; → ') before checking for the French title.
+        content = html_module.unescape(response.content.decode())
+        self.assertIn(
             "Titre d'opportunité en français",
-            msg_prefix="French title must appear in /fr/ opportunity detail response.",
+            content,
+            "French title must appear in /fr/ opportunity detail response.",
         )
 
     def test_opportunity_detail_en_contains_english_title(self):
         """Opportunity detail served in English must contain the English title."""
+        from django.urls import reverse
+        from django.utils.translation import override as lang_override
         client = self._fr_client()
-        response = client.get(
-            f"/volunteer/opportunities/{self.opportunity.pk}/",
-            HTTP_ACCEPT_LANGUAGE="en",
-        )
+        # Clear any session language that may have been set by prior FR requests in this test.
+        session = client.session
+        session.pop("_language", None)
+        session.save()
+        with lang_override("en"):
+            response = client.get(
+                reverse("volunteers:opportunity_detail", kwargs={"pk": self.opportunity.pk}),
+                HTTP_ACCEPT_LANGUAGE="en",
+            )
         self.assertContains(
             response,
             "English Opportunity Title",
@@ -981,12 +1010,12 @@ class BilingualResponseTests(TestCase):
 
     def test_apply_view_fr_returns_200_for_logged_in_volunteer(self):
         """
-        GET /fr/volunteer/opportunities/<pk>/apply/ returns 200 for a logged-in
-        volunteer with a profile.
+        GET /fr/volunteers/volunteer/opportunities/<pk>/apply/ returns 200 for a
+        logged-in volunteer with a profile.
         """
         client = self._fr_client()
         response = client.get(
-            f"/fr/volunteer/opportunities/{self.opportunity.pk}/apply/",
+            f"/fr/volunteers/volunteer/opportunities/{self.opportunity.pk}/apply/",
             HTTP_ACCEPT_LANGUAGE="fr",
         )
         self.assertEqual(

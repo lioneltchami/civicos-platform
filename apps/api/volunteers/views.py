@@ -32,6 +32,7 @@ from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.generics import GenericAPIView
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
@@ -125,7 +126,7 @@ class OpportunityDetailView(generics.RetrieveAPIView):
         )
 
 
-class ApplicationListCreateView(APIView):
+class ApplicationListCreateView(GenericAPIView):
     """
     GET  /api/v1/volunteers/applications/  — list own applications
     POST /api/v1/volunteers/applications/  — submit a new application
@@ -341,7 +342,7 @@ class CancelBookingView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class HoursListCreateView(APIView):
+class HoursListCreateView(GenericAPIView):
     """
     GET  /api/v1/volunteers/hours/  — list own hours log
     POST /api/v1/volunteers/hours/  — log new hours
