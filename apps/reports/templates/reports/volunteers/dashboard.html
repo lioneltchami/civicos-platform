@@ -29,15 +29,17 @@
         aria-label="{% trans 'Select reporting month' %}">
     <div>
       <label for="id_year" class="form-label visually-hidden">{% trans "Year" %}</label>
+      {# M-6: aria-label silently overrides <label for> per ARIA spec — remove aria-label
+         so screen readers read the visible <label> text ("Year"), not a duplicate. #}
       <input type="number" id="id_year" name="year" class="form-control form-control-sm"
-             value="{{ year }}" min="2000" max="2100" style="width:90px"
-             aria-label="{% trans 'Year' %}">
+             value="{{ year }}" min="2000" max="2100" style="width:90px">
     </div>
     <div>
+      {# M-6: standardise label text — remove inconsistent aria-label ("Month 1 to 12")
+         that conflicted with the <label> ("Month (1-12)") and would have overridden it. #}
       <label for="id_month" class="form-label visually-hidden">{% trans "Month (1-12)" %}</label>
       <input type="number" id="id_month" name="month" class="form-control form-control-sm"
-             value="{{ month }}" min="1" max="12" style="width:75px"
-             aria-label="{% trans 'Month 1 to 12' %}">
+             value="{{ month }}" min="1" max="12" style="width:75px">
     </div>
     <button type="submit" class="btn btn-sm btn-outline-primary">
       {% trans "Go" %}
@@ -46,7 +48,9 @@
 </div>
 
 {# ── Primary KPI cards ──────────────────────────────────────────────────── #}
-<div class="row g-3 mb-3" role="region" aria-labelledby="kpi-heading">
+{# M-5: <div role="region"> requires an accessible name but is not a landmark; use <section
+   aria-labelledby> instead — <section> with a heading is the correct HTML5 landmark. #}
+<section class="row g-3 mb-3" aria-labelledby="kpi-heading">
   <h2 class="visually-hidden" id="kpi-heading">{% trans "Key volunteer metrics" %}</h2>
 
   <div class="col-sm-6 col-xl-3">
@@ -107,7 +111,7 @@
       </div>
     </div>
   </div>
-</div>
+</section>
 
 {# ── By-programme table ──────────────────────────────────────────────────── #}
 {% if volunteer_summary.by_program %}
@@ -141,7 +145,8 @@
       </tbody>
       <tfoot class="table-light fw-semibold">
         <tr>
-          <td colspan="2">{% trans "Total" %}</td>
+          {# M-7: "Total" is a row header (labels the aggregate row), not a data cell. #}
+          <th scope="row" colspan="2">{% trans "Total" %}</th>
           <td class="text-end">{{ volunteer_summary.total_approved_hours|floatformat:1|intcomma }}</td>
           <td class="text-end">{{ volunteer_summary.volunteer_count|intcomma }}</td>
           <td class="text-end">&mdash;</td>

@@ -120,7 +120,10 @@ def compute_volunteer_snapshot(year: int, month: int) -> dict:
             "hourly_rate": impact["hourly_rate"],
             "province": impact["province"],
         }),
-        "row_count": int(summary["total_approved_hours"]),
+        # M-1: row_count documents number of source records aggregated, not hours.
+        # Use volunteer_count (distinct volunteers with approved hours) — a true
+        # record count consistent with the ReportSnapshot.row_count field semantics.
+        "row_count": summary["volunteer_count"],
     }
 
     logger.info(

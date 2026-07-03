@@ -608,3 +608,108 @@ class DashboardTemplateRenderTests(TestCase):
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.context["active_requests"], 0)
+
+
+# ---------------------------------------------------------------------------
+# DashboardReceiptPipedaTests — M-10
+# ---------------------------------------------------------------------------
+
+class DashboardReceiptPipedaTests(TestCase):
+    """
+    PIPEDA compliance: last_receipt must expose ONLY the three fields fetched
+    by .values("serial_number", "issued_at", "eligible_amount") in DashboardView.
+    No donor PII (name, address, postal code, etc.) must leak into the context.
+    """
+
+    # Full set of PII field names that must never appear in last_receipt.
+    _PII_FIELDS = {
+        "donor_legal_name",
+        "donor_address_line1",
+        "donor_address_line2",
+        "donor_city",
+        "donor_province",
+        "donor_postal_code",
+        "donor_email",
+        "charity_legal_name",
+        "charity_registration_number",
+        "charity_address",
+        "authorized_signatory_name",
+        "authorized_signatory_title",
+    }
+
+    _ALLOWED_KEYS = {"serial_number", "issued_at", "eligible_amount"}
+
+    def test_last_receipt_exposes_only_three_allowed_keys(self):
+        """last_receipt dict must have exactly the three .values() fields — no more, no less."""
+        user = _make_user()
+        donation = _make_donation(user, amount="100.00", status="completed")
+        _make_receipt(donation, serial_number="2026-000042", eligible_amount=Decimal("100.00"))
+        self.client.force_login(user)
+        response = self.client.get(DASHBOARD_URL)
+        don_sum = response.context.get("donation_summary")
+        self.assertIsNotNone(don_sum, "donation_summary must not be None when Payments BB is installed")
+        last_receipt = don_sum.get("last_receipt")
+        self.assertIsNotNone(last_receipt, "last_receipt must be present when a receipt exists")
+        actual_keys = set(last_receipt.keys())
+        self.assertEqual(
+            actual_keys,
+            self._ALLOWED_KEYS,
+            f"last_receipt must expose only {self._ALLOWED_KEYS!r}, got {actual_keys!r}",
+        )
+
+    def test_last_receipt_contains_no_pii_fields(self):
+        """None of the donor PII fields must appear as keys in last_receipt."""
+        user = _make_user()
+        donation = _make_donation(user, amount="50.00", status="completed")
+        _make_receipt(donation, serial_number="2026-000043", eligible_amount=Decimal("50.00"))
+        self.client.force_login(user)
+        response = self.client.get(DASHBOARD_URL)
+        don_sum = response.context.get("donation_summary")
+        self.assertIsNotNone(don_sum)
+        last_receipt = don_sum.get("last_receipt")
+        self.assertIsNotNone(last_receipt)
+        leaked = self._PII_FIELDS & set(last_receipt.keys())
+        self.assertFalse(
+            leaked,
+            f"PIPEDA violation: last_receipt leaks PII fields: {leaked!r}",
+        )
+
+    def test_last_receipt_serial_number_value_is_correct(self):
+        """serial_number value must match what was stored."""
+        user = _make_user()
+        donation = _make_donation(user, amount="75.00", status="completed")
+        _make_receipt(donation, serial_number="2026-000099", eligible_amount=Decimal("75.00"))
+        self.client.force_login(user)
+        response = self.client.get(DASHBOARD_URL)
+        don_sum = response.context.get("donation_summary")
+        self.assertIsNotNone(don_sum)
+        last_receipt = don_sum.get("last_receipt")
+        self.assertIsNotNone(last_receipt)
+        self.assertEqual(last_receipt["serial_number"], "2026-000099")
+
+    def test_last_receipt_eligible_amount_value_is_correct(self):
+        """eligible_amount value must match what was stored."""
+        user = _make_user()
+        donation = _make_donation(user, amount="250.00", status="completed")
+        _make_receipt(donation, serial_number="2026-000100", eligible_amount=Decimal("250.00"))
+        self.client.force_login(user)
+        response = self.client.get(DASHBOARD_URL)
+        don_sum = response.context.get("donation_summary")
+        self.assertIsNotNone(don_sum)
+        last_receipt = don_sum.get("last_receipt")
+        self.assertIsNotNone(last_receipt)
+        self.assertEqual(last_receipt["eligible_amount"], Decimal("250.00"))
+
+    def test_last_receipt_none_when_no_receipts_issued(self):
+        """No issued receipt → last_receipt must be None (no empty dict, no crash)."""
+        user = _make_user()
+        _make_donation(user, amount="50.00", status="completed")
+        # Deliberately no receipt created
+        self.client.force_login(user)
+        response = self.client.get(DASHBOARD_URL)
+        don_sum = response.context.get("donation_summary")
+        self.assertIsNotNone(don_sum)
+        self.assertIsNone(
+            don_sum["last_receipt"],
+            "last_receipt must be None when no issued receipt exists",
+        )

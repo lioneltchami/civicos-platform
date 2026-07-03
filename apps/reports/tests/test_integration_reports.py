@@ -168,9 +168,10 @@ class VolunteerServiceTests(TestCase):
         profile = _make_profile(vol_user)
         _make_hours_log(profile, shift_a, approved_hours="3.50")
         _make_hours_log(profile, shift_b, approved_hours="1.50")
-        # Backdate to the target month using the correct field name `date`
+        # M-8: scope to this test's profile only — not HoursLog.objects.all() which
+        # could contaminate rows created by other test methods in the same transaction.
         from apps.volunteers.models import HoursLog
-        HoursLog.objects.all().update(date=date(2025, 6, 15))
+        HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 6, 15))
         result = get_monthly_volunteer_summary(2025, 6)
         self.assertEqual(result["total_approved_hours"], Decimal("5.00"))
 
@@ -178,12 +179,15 @@ class VolunteerServiceTests(TestCase):
         program = _make_program()
         opp = _make_opportunity(program)
         shift = _make_shift(opp)
+        # M-8: collect profiles so we can scope the update to only this test's rows.
+        profiles = []
         for _ in range(3):
             vol_user = _make_user()
             profile = _make_profile(vol_user)
             _make_hours_log(profile, shift, approved_hours="1.00")
+            profiles.append(profile)
         from apps.volunteers.models import HoursLog
-        HoursLog.objects.all().update(date=date(2025, 7, 10))
+        HoursLog.objects.filter(volunteer__in=profiles).update(date=date(2025, 7, 10))
         result = get_monthly_volunteer_summary(2025, 7)
         self.assertGreaterEqual(result["volunteer_count"], 3)
 
@@ -199,7 +203,7 @@ class VolunteerServiceTests(TestCase):
         _make_hours_log(profile, shift_a, approved_hours="2.00")
         _make_hours_log(profile, shift_b, approved_hours="3.00")
         from apps.volunteers.models import HoursLog
-        HoursLog.objects.all().update(date=date(2025, 8, 20))
+        HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 8, 20))
         result = get_monthly_volunteer_summary(2025, 8)
         self.assertEqual(result["total_approved_hours"], Decimal("5.00"))
         self.assertGreaterEqual(result["program_count"], 2)
@@ -213,7 +217,7 @@ class VolunteerServiceTests(TestCase):
         profile = _make_profile(vol_user)
         _make_hours_log(profile, shift, approved_hours="1.00")
         from apps.volunteers.models import HoursLog
-        HoursLog.objects.all().update(date=date(2025, 9, 5))
+        HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 9, 5))
         result = get_monthly_volunteer_summary(2025, 9)
         for row in result["by_program"]:
             self.assertNotIn("email", row)
@@ -229,7 +233,7 @@ class VolunteerServiceTests(TestCase):
         profile = _make_profile(vol_user)
         _make_hours_log(profile, shift, approved_hours="1.00")
         from apps.volunteers.models import HoursLog
-        HoursLog.objects.all().update(date=date(2025, 9, 6))
+        HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 9, 6))
         result = get_monthly_volunteer_summary(2025, 9)
         for row in result["by_program"]:
             for key in row:
@@ -246,7 +250,7 @@ class VolunteerServiceTests(TestCase):
         profile = _make_profile(vol_user)
         _make_hours_log(profile, shift, approved_hours="5.00", status="pending")
         from apps.volunteers.models import HoursLog
-        HoursLog.objects.all().update(date=date(2025, 10, 1))
+        HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 10, 1))
         result = get_monthly_volunteer_summary(2025, 10)
         self.assertEqual(result["total_approved_hours"], Decimal("0.00"))
 
@@ -747,22 +751,32 @@ class ReportsTaskTests(TestCase):
         self.assertEqual(count, 1)
 
     def test_compute_all_snapshots_second_run_updates_data(self):
-        """Second run (update_or_create) updates the existing row."""
+        """Second run (update_or_create) updates the existing row — same PK, no duplicate."""
         _compute_all_snapshots(2025, 4)
         snap_v1 = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
             period_year=2025,
             period_month=4,
         )
-        computed_at_v1 = snap_v1.computed_at
         _compute_all_snapshots(2025, 4)
         snap_v2 = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
             period_year=2025,
             period_month=4,
         )
-        # computed_at is auto_now=True, so after update it should be >= v1
-        self.assertGreaterEqual(snap_v2.computed_at, computed_at_v1)
+        # M-9: assertGreaterEqual(snap_v2.computed_at, snap_v1.computed_at) is
+        # tautologically true since both could be equal. The meaningful invariant
+        # is that the SAME row was updated (same PK) and no duplicate was created.
+        self.assertEqual(
+            snap_v1.pk, snap_v2.pk,
+            "Second run must UPDATE the existing row, not insert a new one",
+        )
+        total = ReportSnapshot.objects.filter(
+            report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
+            period_year=2025,
+            period_month=4,
+        ).count()
+        self.assertEqual(total, 1, "Exactly one snapshot row must exist after two runs")
 
     def test_compute_single_snapshot_volunteers_returns_tuple(self):
         result = _compute_single_snapshot(ReportSnapshot.REPORT_TYPE_VOLUNTEERS, 2025, 5)

@@ -36,7 +36,9 @@
 </div>
 
 {# ── Combined value highlight ────────────────────────────────────────────── #}
-<div class="alert alert-primary mb-4" role="region" aria-labelledby="combined-value-heading">
+{# M-5: <div role="region"> requires an accessible name but is not a landmark; use <section
+   aria-labelledby> instead — <section> with a heading is the correct HTML5 landmark. #}
+<section class="alert alert-primary mb-4" aria-labelledby="combined-value-heading">
   <h2 class="h5 mb-1" id="combined-value-heading">{% trans "Total Community Value" %}</h2>
   <p class="display-6 fw-bold mb-1">
     {# H-6: blocktrans lets fr-CA translators reorder the $ symbol;
@@ -46,7 +48,7 @@
   <p class="mb-0 small">
     {% trans "Volunteer Value + Eligible Donations" %} &mdash; {% trans "Calendar year" %} {{ year }}
   </p>
-</div>
+</section>
 
 {# ── Side-by-side cards ──────────────────────────────────────────────────── #}
 <div class="row g-4 mb-4">

@@ -157,15 +157,22 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # Imports are lazy (inside try) to prevent circular imports with apps.payments.
         # C-2: bare except logs at exception level so DB/import failures are observable.
         try:
+            from datetime import datetime as _dt  # noqa: PLC0415
             from decimal import Decimal as _Dec  # noqa: PLC0415
             from django.db.models import Count as _Count, Sum as _Sum  # noqa: PLC0415
             from django.utils import timezone as _tz_don  # noqa: PLC0415
             from apps.payments.models import Donation, OfficialDonationReceipt  # noqa: PLC0415
             _current_year = _tz_don.localtime(_tz_don.now()).year
+            # M-4: created_at__year forces EXTRACT(year FROM ...) which prevents
+            # the DB from using the created_at index. Use an explicit date range
+            # (gte / lt) so the query planner can use an index range scan.
+            _jan_1 = _tz_don.make_aware(_dt(_current_year, 1, 1))
+            _jan_1_next = _tz_don.make_aware(_dt(_current_year + 1, 1, 1))
             _ytd = Donation.objects.filter(
                 donor=self.request.user,
                 status="completed",
-                created_at__year=_current_year,
+                created_at__gte=_jan_1,
+                created_at__lt=_jan_1_next,
             ).aggregate(total=_Sum("amount"), count=_Count("id"))
             _last_receipt = (
                 OfficialDonationReceipt.objects

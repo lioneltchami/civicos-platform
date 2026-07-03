@@ -199,12 +199,14 @@ def create_honorarium(
             type(honorarium).objects.filter(pk=honorarium.pk).update(payment=_payment)
             honorarium.payment = _payment  # keep in-memory instance consistent
 
-            logger.info(
-                "volunteers.services.honoraria: Honorarium #%s linked to Payment %s "
-                "(PaymentIntent %s)",
+            # M-3: Do not log gateway_charge_id or gateway_intent_id.
+            # Both embed honorarium.pk (f"HON-{pk}" / f"hon-{pk}"), so including
+            # them in a log line that already contains honorarium.pk creates a
+            # redundant financial fingerprint without operational value.
+            # PIPEDA: logging pk → payment ID pairs constitutes financial profiling.
+            logger.debug(
+                "volunteers.services.honoraria: Honorarium #%s wired to Payments BB",
                 honorarium.pk,
-                _payment.gateway_charge_id,
-                _pi.gateway_intent_id,
             )
         except Exception:
             logger.warning(
