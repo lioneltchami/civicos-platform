@@ -41,6 +41,10 @@ INTERNAL_IPS = ["127.0.0.1", "::1"]
 DEBUG_TOOLBAR_CONFIG = {
     "SHOW_COLLAPSED": True,
     "SHOW_TOOLBAR_CALLBACK": lambda request: DEBUG,
+    # Suppress the E001 system-check error when running the test suite.
+    # Django sets DEBUG=False during tests, so the toolbar would never
+    # actually render; this flag just keeps the check from aborting.
+    "IS_RUNNING_TESTS": False,
 }
 
 # ---------------------------------------------------------------------------
