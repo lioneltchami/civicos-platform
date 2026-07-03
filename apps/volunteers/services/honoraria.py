@@ -162,8 +162,10 @@ def create_honorarium(
         # Both records are in the same transaction.atomic() block, so a Payment
         # failure WILL roll back the honorarium (atomic integrity is preserved).
         # The try/except only handles unexpected import or model errors.
+        # L-3: datetime is a stdlib module that cannot raise ImportError — move it
+        # outside the try block so only the app import warrants lazy loading.
+        from datetime import datetime as _dt  # noqa: PLC0415
         try:
-            from datetime import datetime as _dt
             from django.utils import timezone as _tz
             from apps.payments.models import (
                 GATEWAY_MANUAL as _GATEWAY_MANUAL,

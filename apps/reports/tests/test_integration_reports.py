@@ -168,8 +168,11 @@ class VolunteerServiceTests(TestCase):
         profile = _make_profile(vol_user)
         _make_hours_log(profile, shift_a, approved_hours="3.50")
         _make_hours_log(profile, shift_b, approved_hours="1.50")
-        # M-8: scope to this test's profile only — not HoursLog.objects.all() which
-        # could contaminate rows created by other test methods in the same transaction.
+        # L-5 / M-8: Scope the update to this test's profile only — not
+        # HoursLog.objects.all(). Under TestCase (savepoint-per-test) contamination
+        # between sibling tests is unlikely, but the scoped filter is required for
+        # correctness if this class is ever converted to TransactionTestCase
+        # (which does NOT wrap each test in a savepoint).
         from apps.volunteers.models import HoursLog
         HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 6, 15))
         result = get_monthly_volunteer_summary(2025, 6)
@@ -179,7 +182,7 @@ class VolunteerServiceTests(TestCase):
         program = _make_program()
         opp = _make_opportunity(program)
         shift = _make_shift(opp)
-        # M-8: collect profiles so we can scope the update to only this test's rows.
+        # L-5 / M-8: Collect profiles to scope the update — same rationale as above.
         profiles = []
         for _ in range(3):
             vol_user = _make_user()

@@ -1933,6 +1933,13 @@ class OfficialDonationReceipt(TimestampedModel):
             with connection.cursor() as cursor:
                 cursor.execute("SELECT nextval('payments_receipt_serial_seq')")
                 seq = cursor.fetchone()[0]
+            # L-2: A global DB sequence exposes approximate receipt issuance rate —
+            # a donor with serial numbers 2026-000042 and 2026-000045 can infer
+            # ~3 other receipts were issued between theirs. This is an accepted
+            # trade-off: sequential serials are CRA-auditable and tamper-evident
+            # (no gaps = no deleted receipts). For a privacy-first redesign,
+            # replace with a random opaque token while keeping a separate
+            # monotonic internal counter for CRA audit purposes.
             self.serial_number = f"{year}-{str(seq).zfill(6)}"
 
         if self.receipt_date and self.donation_date and self.receipt_date < self.donation_date:

@@ -16,6 +16,26 @@ from decimal import Decimal
 
 logger = logging.getLogger("apps.reports.services.combined")
 
+# L-4: Module-level constants — not re-created on every call.
+# Defining them inside the function body re-allocates these dicts on every
+# invocation and obscures the intent (they are fixed zero-valued fallbacks,
+# not derived values). Module-level placement also prevents accidental mutation
+# from ever affecting callers (they receive the same immutable-ish reference).
+_VOLUNTEER_ZERO: dict = {
+    "total_approved_hours": Decimal("0.00"),
+    "estimated_value_cad": Decimal("0.00"),
+    "volunteer_count": 0,
+    "hourly_rate": Decimal("0.00"),
+    "province": "ON",
+}
+_DONATIONS_ZERO: dict = {
+    "total_donations": Decimal("0.00"),
+    "total_eligible_amount": Decimal("0.00"),
+    "donation_count": 0,
+    "unique_donor_count": 0,
+    "receipts_issued": 0,
+}
+
 
 def combined_nonprofit_impact(year: int) -> dict:
     """
@@ -53,13 +73,6 @@ def combined_nonprofit_impact(year: int) -> dict:
     PIPEDA: no volunteer or donor names, emails, or addresses.
     """
     # ── Volunteer impact ──────────────────────────────────────────────────────
-    _volunteer_zero = {
-        "total_approved_hours": Decimal("0.00"),
-        "estimated_value_cad": Decimal("0.00"),
-        "volunteer_count": 0,
-        "hourly_rate": Decimal("0.00"),
-        "province": "ON",
-    }
     try:
         from apps.volunteers.services.reporting import impact_value
         vol_raw = impact_value(year)
@@ -78,7 +91,7 @@ def combined_nonprofit_impact(year: int) -> dict:
             "volunteers BB not installed — returning zero volunteer impact (year=%s)",
             year,
         )
-        volunteer = _volunteer_zero
+        volunteer = _VOLUNTEER_ZERO
     except Exception:
         # H-2: exc_info=True so the full traceback is available in logs/Sentry.
         # Without this, a bug in impact_value() silently zeros T3010 Schedule 2
@@ -89,16 +102,9 @@ def combined_nonprofit_impact(year: int) -> dict:
             year,
             exc_info=True,
         )
-        volunteer = _volunteer_zero
+        volunteer = _VOLUNTEER_ZERO
 
     # ── Donation summary ──────────────────────────────────────────────────────
-    _donations_zero = {
-        "total_donations": Decimal("0.00"),
-        "total_eligible_amount": Decimal("0.00"),
-        "donation_count": 0,
-        "unique_donor_count": 0,
-        "receipts_issued": 0,
-    }
     try:
         from apps.reports.services.donations import get_annual_donation_summary
         don_raw = get_annual_donation_summary(year)
@@ -122,7 +128,7 @@ def combined_nonprofit_impact(year: int) -> dict:
             year,
             exc_info=True,
         )
-        donations = _donations_zero
+        donations = _DONATIONS_ZERO
 
     combined_value_cad = (
         volunteer["estimated_value_cad"] + donations["total_eligible_amount"]

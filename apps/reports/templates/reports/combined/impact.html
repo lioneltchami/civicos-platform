@@ -42,9 +42,10 @@
 <section class="alert alert-primary mb-4" aria-labelledby="combined-value-heading">
   <h2 class="h5 mb-1" id="combined-value-heading">{% trans "Total Community Value" %}</h2>
   <p class="display-6 fw-bold mb-1">
-    {# H-6: blocktrans lets fr-CA translators reorder the $ symbol;
-       floatformat:"2g" uses locale-aware grouping (1 234,56 in fr-CA). #}
-    {% blocktrans with amount=impact.combined_value_cad|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
+    {# H-6: blocktrans lets fr-CA translators reorder the $ symbol.
+       L-1: floatformat:2 forces exactly 2 decimal places (so $0.00 not $0);
+       intcomma adds locale-aware thousands grouping (1,234.56 en / 1 234,56 fr). #}
+    {% blocktrans with amount=impact.combined_value_cad|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
   </p>
   <p class="mb-0 small">
     {% trans "Volunteer Value + Eligible Donations" %} &mdash; {% trans "Calendar year" %} {{ year }}
@@ -72,8 +73,8 @@
 
             <dt class="col-sm-7">{% trans "Estimated Value (CAD)" %}</dt>
             <dd class="col-sm-5 text-end fw-bold">
-              {# H-6: blocktrans for locale-aware currency ordering #}
-              {% blocktrans with amount=impact.volunteer.estimated_value_cad|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
+              {# H-6 / L-1: floatformat:2 + intcomma — 2 decimal places always, locale grouping #}
+              {% blocktrans with amount=impact.volunteer.estimated_value_cad|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Volunteer Count" %}</dt>
@@ -83,8 +84,8 @@
 
             <dt class="col-sm-7">{% trans "Hourly Rate" %}</dt>
             <dd class="col-sm-5 text-end">
-              {# H-6: single blocktrans so translators can reorder $, rate, and /hr together #}
-              {% blocktrans with rate=impact.volunteer.hourly_rate|floatformat:"2g" province=impact.volunteer.province %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
+              {# H-6 / L-1: floatformat:2 + intcomma so translators can reorder $, rate, /hr together #}
+              {% blocktrans with rate=impact.volunteer.hourly_rate|floatformat:2|intcomma province=impact.volunteer.province %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
             </dd>
           </dl>
         </div>
@@ -108,14 +109,14 @@
           <dl class="row mb-0">
             <dt class="col-sm-7">{% trans "Total Donations" %}</dt>
             <dd class="col-sm-5 text-end">
-              {# H-6: blocktrans for locale-aware currency #}
-              {% blocktrans with amount=impact.donations.total_donations|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
+              {# H-6 / L-1: floatformat:2 + intcomma — 2 decimal places always, locale grouping #}
+              {% blocktrans with amount=impact.donations.total_donations|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Eligible Amount" %}</dt>
             <dd class="col-sm-5 text-end fw-bold">
-              {# H-6: blocktrans for locale-aware currency #}
-              {% blocktrans with amount=impact.donations.total_eligible_amount|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
+              {# H-6 / L-1: floatformat:2 + intcomma — 2 decimal places always, locale grouping #}
+              {% blocktrans with amount=impact.donations.total_eligible_amount|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Donor Count" %}</dt>

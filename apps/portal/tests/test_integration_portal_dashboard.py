@@ -637,6 +637,13 @@ class DashboardReceiptPipedaTests(TestCase):
         self.assertIsNotNone(don_sum, "donation_summary must not be None when Payments BB is installed")
         last_receipt = don_sum.get("last_receipt")
         self.assertIsNotNone(last_receipt, "last_receipt must be present when a receipt exists")
+        # L-6: assertIsInstance catches the case where a developer replaces
+        # .values("serial_number", ...) with a full ORM instance — last_receipt.keys()
+        # would raise AttributeError rather than a clean AssertionError without this guard.
+        self.assertIsInstance(
+            last_receipt, dict,
+            "last_receipt must be a plain dict from .values(), not an ORM instance",
+        )
         actual_keys = set(last_receipt.keys())
         self.assertEqual(
             actual_keys,

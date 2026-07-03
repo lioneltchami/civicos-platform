@@ -100,13 +100,13 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Estimated Value (CAD)" %}</p>
         <p class="card-title h4 mb-0">
-          {# H-6: blocktrans lets fr-CA translators reorder the $ symbol;
-             floatformat:"2g" uses locale-aware grouping (1 234,56 in fr-CA). #}
-          {% blocktrans with amount=volunteer_summary.estimated_value_cad|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
+          {# H-6 / L-1: floatformat:2 forces exactly 2 decimal places (so $0.00 not $0);
+             intcomma adds locale-aware thousands grouping (1,234.56 en / 1 234,56 fr). #}
+          {% blocktrans with amount=volunteer_summary.estimated_value_cad|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
         </p>
         <p class="card-text small text-muted mb-0">
-          {# H-6: single blocktrans so translators can reorder rate, $/hr, and province together. #}
-          {% blocktrans with rate=volunteer_summary.hourly_rate|floatformat:"2g" province=volunteer_summary.province %}Annual estimate @ ${{ rate }}/hr ({{ province }}){% endblocktrans %}
+          {# H-6 / L-1: floatformat:2 + intcomma so translators can reorder rate, $/hr, and province together. #}
+          {% blocktrans with rate=volunteer_summary.hourly_rate|floatformat:2|intcomma province=volunteer_summary.province %}Annual estimate @ ${{ rate }}/hr ({{ province }}){% endblocktrans %}
         </p>
       </div>
     </div>
