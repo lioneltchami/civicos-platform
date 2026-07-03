@@ -118,8 +118,9 @@
 <section aria-labelledby="by-program-heading" class="mb-5">
   <h2 class="h5 mb-3" id="by-program-heading">{% trans "Hours by Programme" %}</h2>
   <div class="table-responsive">
-    <table class="table table-sm table-striped table-hover align-middle"
-           aria-label="{% trans 'Volunteer hours breakdown by programme' %}">
+    {# M-F: Remove aria-label — it silently overrides <caption> as the accessible
+       name per ARIA spec. Keep only <caption> (WCAG H39 preferred technique). #}
+    <table class="table table-sm table-striped table-hover align-middle">
       <caption class="visually-hidden">
         {% trans "Volunteer hours by programme for" %} {{ month_label }}
       </caption>
@@ -162,20 +163,23 @@
 {% endif %}
 
 {# ── Quick actions ────────────────────────────────────────────────────────── #}
-<div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Navigation actions' %}">
+{# M-I: role="group" is the implicit ARIA role of <fieldset> — correct for form
+   controls, not for navigation links. Some AT announce "group" before the links,
+   which is misleading. Use <nav> with aria-label instead. #}
+<nav class="d-flex gap-2 flex-wrap mb-5" aria-label="{% trans 'Navigation actions' %}">
   <a href="{% url 'reports:combined-impact' %}?year={{ year }}"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Combined Impact →" %}
   </a>
-</div>
+</nav>
 
 {# ── Recent snapshots ─────────────────────────────────────────────────────── #}
 {% if recent_snapshots %}
 <section aria-labelledby="recent-snapshots-heading" class="mb-4">
   <h2 class="h5 mb-3" id="recent-snapshots-heading">{% trans "Recent Months" %}</h2>
   <div class="table-responsive">
-    <table class="table table-sm"
-           aria-label="{% trans 'Recent volunteer snapshots' %}">
+    {# M-F: Remove aria-label — caption is the correct accessible name per WCAG H39. #}
+    <table class="table table-sm">
       <caption class="visually-hidden">{% trans "Last 12 months of volunteer snapshots" %}</caption>
       <thead class="table-light">
         <tr>

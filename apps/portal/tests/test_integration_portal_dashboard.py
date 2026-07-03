@@ -6,15 +6,8 @@ Covers:
   - volunteer_summary widget context (has_profile, active_application_count,
     upcoming_shift_count)
   - donation_summary widget context (ytd_total, ytd_count, last_receipt)
+  - PIPEDA receipt isolation (cross-user, ordering)
   - Template rendering of widget sections
-
-NOTE ON volunteer_summary BEHAVIOUR:
-  The DashboardView queries shift__start_time which is a field name mismatch
-  (the Shift model uses start_datetime). This causes a FieldError inside the
-  outer try/except, so the whole volunteer widget block falls back to:
-      ctx["volunteer_summary"] = None
-  Tests document this actual runtime behaviour; see DashboardVolunteerWidgetTests
-  for the cases that are testable as-is and those that exercise the fallback path.
 
 Settings: --settings=config.settings.test
 """
@@ -238,41 +231,35 @@ class DashboardVolunteerWidgetTests(TestCase):
     """
     Tests for the volunteer_summary widget.
 
-    The portal view currently has a field name bug (shift__start_time vs
-    shift__start_datetime) which causes a FieldError inside the inner try/except,
-    making the outer except catch it and set volunteer_summary = None.
-
-    Tests document both the no-profile path (VolunteerProfile.DoesNotExist
-    is caught inside the inner try, but the FieldError from ShiftBooking is
-    NOT caught there — it propagates to the outer except) and the overall
-    fallback behaviour.
+    M-E: The original docstring referenced a shift__start_time field-name bug
+    that caused a FieldError and set volunteer_summary=None. That bug is fixed
+    (the view now uses shift__start_datetime). Tests are now unconditional:
+    volunteer_summary must be a dict, not None, for authenticated users.
     """
 
-    def test_user_with_no_volunteer_profile_volunteer_summary_is_none(self):
+    def test_user_with_no_volunteer_profile_volunteer_summary_has_profile_false(self):
         """
-        When the user has no VolunteerProfile, the inner try catches
-        DoesNotExist and sets has_profile=False. However, the FieldError
-        from the shift__start_time lookup may still propagate depending on
-        execution path. We verify the context key exists.
+        M-E: User with no VolunteerProfile must receive volunteer_summary with
+        has_profile=False — NOT None. The inner DoesNotExist handler sets the
+        fallback and the outer try must not swallow it as an exception.
         """
         user = _make_user()
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
-        # volunteer_summary is either None (outer exception) or {"has_profile": False}
         vol_sum = response.context.get("volunteer_summary")
-        # Either None (fallback) or a dict without has_profile=True
-        if vol_sum is not None:
-            self.assertFalse(vol_sum.get("has_profile", False))
+        # M-E: must be a dict (not None) with has_profile=False
+        self.assertIsNotNone(vol_sum, "volunteer_summary must not be None for authenticated user")
+        self.assertFalse(vol_sum.get("has_profile", True), "has_profile must be False when no profile exists")
 
-    def test_user_without_profile_volunteer_summary_has_profile_false_or_none(self):
-        """No VolunteerProfile: summary either None or has_profile=False."""
+    def test_user_without_profile_volunteer_summary_has_profile_false(self):
+        """No VolunteerProfile → has_profile=False (unconditional)."""
         user = _make_user()
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         vol_sum = response.context.get("volunteer_summary")
-        if vol_sum is not None:
-            self.assertFalse(vol_sum["has_profile"])
+        self.assertIsNotNone(vol_sum)
+        self.assertFalse(vol_sum["has_profile"])
 
     def test_volunteer_summary_key_present_in_context(self):
         user = _make_user()
@@ -713,6 +700,59 @@ class DashboardReceiptPipedaTests(TestCase):
             don_sum["last_receipt"],
             "last_receipt must be None when no issued receipt exists",
         )
+
+    def test_last_receipt_ordering_returns_most_recent(self):
+        """
+        M-J: When a donor has multiple issued receipts, last_receipt must be the
+        most recently issued one (order_by("-issued_at").first()).
+
+        This is the most operationally important behaviour in the donation widget:
+        showing the wrong (older) receipt to a citizen is a UX defect and may
+        cause confusion during tax filing. Yet it was previously untested.
+        """
+        from apps.payments.models import OfficialDonationReceipt
+        from datetime import date as _date, timedelta as _td
+
+        user = _make_user()
+        donation_old = _make_donation(user, amount="100.00", status="completed")
+        donation_new = _make_donation(user, amount="200.00", status="completed")
+
+        from django.utils import timezone as _tz
+        today = _tz.now()
+        # Older receipt
+        older = _make_receipt(
+            donation_old,
+            serial_number="2026-000010",
+            eligible_amount=Decimal("100.00"),
+        )
+        # Use _base_manager to bypass the custom QuerySet.update() guard —
+        # the same technique used by OfficialDonationReceipt.cancel().
+        OfficialDonationReceipt._base_manager.filter(pk=older.pk).update(
+            issued_at=today - _td(days=30)
+        )
+        # Newer receipt — must be the one returned
+        newer = _make_receipt(
+            donation_new,
+            serial_number="2026-000020",
+            eligible_amount=Decimal("200.00"),
+        )
+        OfficialDonationReceipt._base_manager.filter(pk=newer.pk).update(
+            issued_at=today
+        )
+
+        self.client.force_login(user)
+        response = self.client.get(DASHBOARD_URL)
+        don_sum = response.context.get("donation_summary")
+        self.assertIsNotNone(don_sum)
+        last_receipt = don_sum.get("last_receipt")
+        self.assertIsNotNone(last_receipt, "last_receipt must not be None when receipts exist")
+        self.assertEqual(
+            last_receipt["serial_number"],
+            "2026-000020",
+            "last_receipt must be the most recently issued receipt (serial 2026-000020), "
+            "not the older one (2026-000010)",
+        )
+        self.assertEqual(last_receipt["eligible_amount"], Decimal("200.00"))
 
     def test_cross_user_receipt_isolation(self):
         """

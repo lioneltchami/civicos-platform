@@ -88,8 +88,14 @@ def compute_volunteer_snapshot(year: int, month: int) -> dict:
     Called by the Celery Beat task. Must be idempotent.
     Decimal values are serialised to strings for JSONB storage.
 
-    Returns a dict with key ``row_count`` (total_approved_hours as int)
-    consumed by the Celery task for monitoring.
+    Returns a dict with key ``row_count`` (distinct volunteer count for the
+    month, as int) consumed by the Celery task for monitoring.
+
+    ``row_count`` uses ``summary["volunteer_count"]`` — the number of distinct
+    volunteers with approved hours in this specific month — rather than
+    ``impact["volunteer_count"]`` (annual cumulative count from impact_value).
+    A monthly snapshot's record count is the monthly figure; the annual figure
+    belongs to the "impact" sub-dict for YTD reporting (T3010 Schedule 2).
 
     Calls:
     - get_monthly_volunteer_summary(year, month) for monthly programme data.

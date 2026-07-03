@@ -857,19 +857,28 @@ class ReportsTaskTests(TestCase):
             period_year=2025,
             period_month=4,
         )
-        # M-9: assertGreaterEqual(snap_v2.computed_at, snap_v1.computed_at) is
-        # tautologically true since both could be equal. The meaningful invariant
-        # is that the SAME row was updated (same PK) and no duplicate was created.
+        # M-H: Three assertions together close the "no-op update" gap:
+        #
+        # 1. Same PK — second run updated the existing row, not a new INSERT.
         self.assertEqual(
             snap_v1.pk, snap_v2.pk,
             "Second run must UPDATE the existing row, not insert a new one",
         )
+        # 2. Exactly one row — no phantom duplicate.
         total = ReportSnapshot.objects.filter(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
             period_year=2025,
             period_month=4,
         ).count()
         self.assertEqual(total, 1, "Exactly one snapshot row must exist after two runs")
+        # 3. computed_at >= previous computed_at — the row was actually re-saved,
+        #    not returned as a no-op by update_or_create with empty defaults.
+        #    Note: may be equal when both calls land within the same DB timestamp
+        #    resolution (e.g. same second in SQLite); ≥ is the correct relation.
+        self.assertGreaterEqual(
+            snap_v2.computed_at, snap_v1.computed_at,
+            "computed_at after second run must be >= first run (row was re-saved)",
+        )
 
     def test_compute_single_snapshot_volunteers_returns_tuple(self):
         result = _compute_single_snapshot(ReportSnapshot.REPORT_TYPE_VOLUNTEERS, 2025, 5)

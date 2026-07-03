@@ -263,28 +263,45 @@ def create_honorarium(
                                 "t4a_threshold_reached receiver %s raised %s",
                                 recv, exc, exc_info=exc,
                             )
-                elif _ytd_after >= _alert_threshold:
-                    results = cra_alert_threshold_reached.send_robust(
-                        sender=_H,
-                        instance=hon,
-                        coordinator=hon.created_by,
-                        ytd_total=_ytd_after,
-                    )
-                    for recv, exc in results:
-                        if isinstance(exc, Exception):
-                            logger.error(
-                                "cra_alert_threshold_reached receiver %s raised %s",
-                                recv, exc, exc_info=exc,
-                            )
+                else:
+                    # M-D: _ytd_after was captured at closure-creation time (before
+                    # on_commit) and could be stale if another signal handler mutated
+                    # honorarium.amount between save and commit. Recompute the true
+                    # YTD total from the DB now that the transaction is committed.
+                    from django.db.models import Sum as _Sum  # noqa: PLC0415
+                    # Honorarium has no status field — match cumulative_ytd() filter
+                    # exactly: all PAYMENT_TYPE_HONORARIUM rows for this volunteer
+                    # in this calendar year.
+                    _ytd_live = _H.objects.filter(
+                        volunteer=hon.volunteer,
+                        payment_type=_H.PAYMENT_TYPE_HONORARIUM,
+                        payment_date__year=hon.payment_date.year,
+                    ).aggregate(total=_Sum("amount"))["total"] or Decimal("0.00")
+                    if _ytd_live >= _alert_threshold:
+                        results = cra_alert_threshold_reached.send_robust(
+                            sender=_H,
+                            instance=hon,
+                            coordinator=hon.created_by,
+                            ytd_total=_ytd_live,
+                        )
+                        for recv, exc in results:
+                            if isinstance(exc, Exception):
+                                logger.error(
+                                    "cra_alert_threshold_reached receiver %s raised %s",
+                                    recv, exc, exc_info=exc,
+                                )
 
         transaction.on_commit(_post_commit)
 
+    # M-A: PIPEDA — do not log amount together with volunteer_profile.pk.
+    # Correlating a financial amount with a volunteer's PK creates a profiling
+    # record visible to anyone with log access (no DB access required).
+    # The amount is stored in the DB audit trail; omit it from operational logs.
     logger.info(
         "volunteers.services.honoraria: Honorarium #%s created — "
-        "payment_type=%s, amount=%s, volunteer profile #%s, created_by user #%s",
+        "payment_type=%s, volunteer profile #%s, created_by user #%s",
         honorarium.pk,
         payment_type,
-        amount,
         volunteer_profile.pk,
         created_by.pk,
     )

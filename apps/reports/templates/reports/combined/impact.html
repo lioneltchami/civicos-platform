@@ -147,8 +147,11 @@
 <section class="card border-info mb-4" aria-labelledby="cra-t3010-heading">
   <div class="card-body">
     <h2 class="h6 card-title text-info-emphasis" id="cra-t3010-heading">{% trans "CRA T3010 Reference" %}</h2>
+    {# M-G: |escape for defense-in-depth — t3010_notes is currently a hardcoded
+       string but if the service ever embeds dynamic values (province, year) this
+       becomes an XSS vector without explicit escaping. #}
     <p class="card-text mb-0">
-      {{ impact.t3010_notes }}
+      {{ impact.t3010_notes|escape }}
     </p>
     <p class="card-text small text-muted mt-2 mb-0">
       {% trans "This view provides data for T3010 Schedule 2 (volunteers) and line 4500 (donations)." %}
@@ -158,7 +161,9 @@
 </section>
 
 {# ── Navigation ───────────────────────────────────────────────────────────── #}
-<div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Navigation actions' %}">
+{# M-I: role="group" is for form controls (implicit role of <fieldset>), not links.
+   Some AT announce "group" before link sets, which is misleading. Use <nav>. #}
+<nav class="d-flex gap-2 flex-wrap mb-5" aria-label="{% trans 'Navigation actions' %}">
   <a href="{% url 'reports:volunteers-dashboard' %}?year={{ year }}&month=1"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Volunteer Dashboard →" %}
@@ -171,7 +176,7 @@
      class="btn btn-sm btn-outline-secondary">
     {% trans "T3010 Prep Report →" %}
   </a>
-</div>
+</nav>
 
 {# ── PIPEDA footer note ───────────────────────────────────────────────────── #}
 <footer class="mt-4 pt-3 border-top">
