@@ -51,6 +51,8 @@ VOLUNTEER_T3010_COLUMNS = [
 def export_volunteer_hours_csv(
     year: int,
     month: int | None = None,
+    *,
+    rows=None,
 ) -> "django.http.StreamingHttpResponse":
     """
     Stream approved volunteer hours as CSV, grouped by (program, opportunity).
@@ -61,14 +63,19 @@ def export_volunteer_hours_csv(
     Args:
         year:  Calendar year (e.g. 2026).
         month: Optional calendar month 1–12. If omitted, all months in year are included.
+        rows:  Optional pre-fetched list of rows from hours_by_program(). If None,
+               hours_by_program() is called internally. Pass pre-fetched rows to avoid
+               a duplicate DB call when the caller already has the data (e.g. for audit
+               record row count).
 
     Returns:
         StreamingHttpResponse — suitable for direct return from a Django view.
         Content-Disposition filename: volunteer_hours_<year>[-<month>].csv
     """
-    from apps.volunteers.services.reporting import hours_by_program
-
-    rows_data = hours_by_program(year, month)
+    if rows is None:
+        from apps.volunteers.services.reporting import hours_by_program
+        rows = hours_by_program(year, month)
+    rows_data = rows
     month_label = f"{month:02d}" if month else "all"
 
     def _rows():

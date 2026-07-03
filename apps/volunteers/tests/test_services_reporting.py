@@ -406,6 +406,8 @@ class T3010VolunteerMetricsTests(TestCase):
             name_en="Governance",
             name_fr="Gouvernance",
             slug="governance-tag",
+            # NOTE: category= field is irrelevant to classification — _classify_skill_tags uses
+            # slug/name_en via regex, not the SkillTag.category field.
             category="governance",
         )
         opp_gov = _make_opportunity(self.program)

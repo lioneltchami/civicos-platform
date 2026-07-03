@@ -30,7 +30,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -66,6 +66,17 @@ def _raise_from_django_validation(exc: DjangoValidationError) -> None:
     if hasattr(exc, "message_dict"):
         raise DRFValidationError(detail=exc.message_dict)
     raise DRFValidationError(detail=str(exc))
+
+
+def _stringify_decimals(obj):
+    """Recursively convert Decimal instances to str for JSON serialization."""
+    if isinstance(obj, dict):
+        return {k: _stringify_decimals(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_stringify_decimals(item) for item in obj]
+    if isinstance(obj, Decimal):
+        return str(obj)
+    return obj
 
 
 # ---------------------------------------------------------------------------
@@ -114,77 +125,6 @@ class OpportunityDetailView(generics.RetrieveAPIView):
         )
 
 
-class SubmitApplicationView(APIView):
-    """
-    POST /api/v1/volunteers/applications/
-
-    Volunteer submits an application to an open opportunity.
-    Delegates to services.applications.apply().
-    """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
-
-    def post(self, request):
-        from apps.volunteers.services.applications import apply
-
-        opportunity_slug = request.data.get("opportunity_slug")
-        if not opportunity_slug:
-            raise DRFValidationError({"opportunity_slug": "This field is required."})
-
-        opportunity = get_object_or_404(
-            Opportunity,
-            slug=opportunity_slug,
-            status=Opportunity.STATUS_PUBLISHED,
-        )
-        profile = get_object_or_404(VolunteerProfile, user=request.user)
-
-        motivation = request.data.get("motivation", "")
-
-        try:
-            application = apply(
-                volunteer_profile=profile,
-                opportunity=opportunity,
-                motivation=motivation,
-                actor=request.user,
-            )
-        except PermissionDenied:
-            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
-        except DjangoValidationError as exc:
-            _raise_from_django_validation(exc)
-
-        logger.info(
-            "Application submitted: application_id=%s user_id=%s opportunity=%s",
-            application.pk, request.user.pk, opportunity_slug,
-        )
-        serializer = VolunteerApplicationSerializer(
-            application, context={"request": request}
-        )
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-class MyApplicationsView(generics.ListAPIView):
-    """
-    GET /api/v1/volunteers/applications/
-
-    Returns the authenticated volunteer's own applications (IDOR: scoped to request.user).
-    """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
-    pagination_class = StandardPagination
-    serializer_class = VolunteerApplicationSerializer
-
-    def get_queryset(self):
-        profile = get_object_or_404(VolunteerProfile, user=self.request.user)
-        return (
-            VolunteerApplication.objects
-            .filter(volunteer=profile)
-            .select_related("opportunity", "opportunity__program")
-            .order_by("-created_at")
-        )
-
-
 class ApplicationListCreateView(APIView):
     """
     GET  /api/v1/volunteers/applications/  — list own applications
@@ -196,16 +136,20 @@ class ApplicationListCreateView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [CitizenRateThrottle]
+    pagination_class = StandardPagination
 
     def get(self, request, *args, **kwargs):
         """List own applications."""
         profile = get_object_or_404(VolunteerProfile, user=request.user)
-        qs = (
-            VolunteerApplication.objects
-            .filter(volunteer=profile)
-            .select_related("opportunity", "opportunity__program")
-            .order_by("-created_at")
-        )
+        qs = VolunteerApplication.objects.filter(
+            volunteer=profile
+        ).select_related(
+            "opportunity", "opportunity__program"
+        ).order_by("-created_at")
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = VolunteerApplicationSerializer(page, many=True, context={"request": request})
+            return self.get_paginated_response(serializer.data)
         serializer = VolunteerApplicationSerializer(qs, many=True, context={"request": request})
         return Response(serializer.data)
 
@@ -337,7 +281,11 @@ class BookShiftView(APIView):
     def post(self, request, pk):
         from apps.volunteers.services.scheduling import book_shift
 
-        shift = get_object_or_404(Shift, pk=pk)
+        shift = get_object_or_404(
+            Shift,
+            pk=pk,
+            opportunity__status=Opportunity.STATUS_PUBLISHED,
+        )
         profile = get_object_or_404(VolunteerProfile, user=request.user)
 
         try:
@@ -393,83 +341,6 @@ class CancelBookingView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class MyHoursView(generics.ListAPIView):
-    """
-    GET /api/v1/volunteers/hours/
-
-    Returns the authenticated volunteer's own hours log (IDOR: scoped to request.user).
-    """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
-    pagination_class = StandardPagination
-    serializer_class = HoursLogSerializer
-
-    def get_queryset(self):
-        profile = get_object_or_404(VolunteerProfile, user=self.request.user)
-        return (
-            HoursLog.objects
-            .filter(volunteer=profile)
-            .select_related("opportunity")
-            .order_by("-date")
-        )
-
-
-class LogHoursView(APIView):
-    """
-    POST /api/v1/volunteers/hours/
-
-    Volunteer logs hours against an approved opportunity.
-    """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
-
-    def post(self, request):
-        from datetime import date as date_type
-        from apps.volunteers.services.hours import log_hours
-
-        profile = get_object_or_404(VolunteerProfile, user=request.user)
-        opp_slug = request.data.get("opportunity_slug")
-        if not opp_slug:
-            raise DRFValidationError({"opportunity_slug": "This field is required."})
-
-        opportunity = get_object_or_404(Opportunity, slug=opp_slug)
-
-        hours_raw = request.data.get("hours")
-        if hours_raw is None:
-            raise DRFValidationError({"hours": "This field is required."})
-
-        log_date_str = request.data.get("date") or request.data.get("log_date")
-        description = request.data.get("description", "")
-
-        try:
-            log_date = date_type.fromisoformat(log_date_str) if log_date_str else date_type.today()
-        except (ValueError, TypeError):
-            raise DRFValidationError({"date": "Enter a valid date in YYYY-MM-DD format."})
-
-        try:
-            entry = log_hours(
-                volunteer_profile=profile,
-                opportunity=opportunity,
-                hours=hours_raw,
-                date=log_date,
-                description=description,
-                actor=request.user,
-            )
-        except PermissionDenied:
-            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
-        except DjangoValidationError as exc:
-            _raise_from_django_validation(exc)
-
-        logger.info(
-            "Hours logged: hours_log_id=%s user_id=%s hours=%s",
-            entry.pk, request.user.pk, hours_raw,
-        )
-        serializer = HoursLogSerializer(entry, context={"request": request})
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
 class HoursListCreateView(APIView):
     """
     GET  /api/v1/volunteers/hours/  — list own hours log
@@ -481,16 +352,18 @@ class HoursListCreateView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [CitizenRateThrottle]
+    pagination_class = StandardPagination
 
     def get(self, request, *args, **kwargs):
         """List own hours log."""
         profile = get_object_or_404(VolunteerProfile, user=request.user)
-        qs = (
-            HoursLog.objects
-            .filter(volunteer=profile)
-            .select_related("opportunity")
-            .order_by("-date")
-        )
+        qs = HoursLog.objects.filter(
+            volunteer=profile
+        ).select_related("opportunity").order_by("-date")
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = HoursLogSerializer(page, many=True, context={"request": request})
+            return self.get_paginated_response(serializer.data)
         serializer = HoursLogSerializer(qs, many=True, context={"request": request})
         return Response(serializer.data)
 
@@ -609,7 +482,7 @@ class AllApplicationsView(generics.ListAPIView):
         return (
             VolunteerApplication.objects
             .filter(opportunity__program__coordinator=self.request.user)
-            .select_related("volunteer", "opportunity", "opportunity__program")
+            .select_related("volunteer", "volunteer__user", "opportunity", "opportunity__program")
             .order_by("-created_at")
         )
 
@@ -759,7 +632,12 @@ class RejectHoursView(APIView):
 
         qs = HoursLog.objects.filter(opportunity__program__coordinator=request.user)
         hours_log = get_object_or_404(qs, pk=pk)
-        reason = request.data.get("reason", "")
+        reason = request.data.get("reason", "").strip()
+        if not reason:
+            return Response(
+                {"reason": "A rejection reason is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             reject_hours(hours_log=hours_log, actor=request.user, reason=reason)
@@ -786,7 +664,7 @@ class HoursReportView(APIView):
     Requires staff access — returns org-wide data not scoped to coordinator's programs.
     """
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUser]  # org-wide report, admin only
+    permission_classes = [IsAuthenticated, IsCoordinator]
     throttle_classes = [StaffRateThrottle]
 
     def get(self, request):
@@ -811,16 +689,6 @@ class HoursReportView(APIView):
 
         data = hours_by_program(year, month)
 
-        def _stringify_decimals(obj):
-            """Recursively convert Decimal values to str for JSON serialization."""
-            if isinstance(obj, dict):
-                return {k: _stringify_decimals(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_stringify_decimals(item) for item in obj]
-            if isinstance(obj, Decimal):
-                return str(obj)
-            return obj
-
         return Response({"year": year, "month": month, "data": _stringify_decimals(data)})
 
 
@@ -834,7 +702,7 @@ class ImpactReportView(APIView):
     Requires staff access — returns org-wide T3010 data not scoped to coordinator's programs.
     """
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAdminUser]  # org-wide T3010 data, admin only
+    permission_classes = [IsAuthenticated, IsCoordinator]
     throttle_classes = [StaffRateThrottle]
 
     def get(self, request):
@@ -849,16 +717,6 @@ class ImpactReportView(APIView):
 
         impact = impact_value(year)
         t3010 = t3010_volunteer_metrics(year)
-
-        def _stringify_decimals(obj):
-            """Recursively convert Decimal values to str for JSON serialization."""
-            if isinstance(obj, dict):
-                return {k: _stringify_decimals(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_stringify_decimals(item) for item in obj]
-            if isinstance(obj, Decimal):
-                return str(obj)
-            return obj
 
         return Response({
             "year": year,

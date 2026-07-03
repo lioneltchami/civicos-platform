@@ -74,8 +74,8 @@
   </div>
 
   <div class="footer">
-    {% trans "This letter is issued by" %} {{ org_name }}.
-    {% trans "Volunteer hours are approved and recorded in CivicOS." %}
+    {% blocktrans with org=org_name %}This letter is issued by {{ org }}.{% endblocktrans %}
+    {% blocktrans with org=org_name %}Volunteer hours are approved and recorded in {{ org }}.{% endblocktrans %}
     {% trans "Reference ID:" %} {{ reference_id }}
   </div>
 </body>

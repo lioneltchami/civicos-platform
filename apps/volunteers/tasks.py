@@ -719,14 +719,14 @@ def create_beat_schedule():
         },
         {
             "name": "volunteers: monthly hours summary to coordinators (1st of month 08:00 ET)",
-            "task": "apps.volunteers.tasks.send_monthly_hours_summary",
+            "task": "volunteers.send_monthly_hours_summary",
             "crontab": first_of_month_morning,
         },
         {
             # Runs at 02:30 UTC on the 1st of each month — after nightly data jobs
             # but before the 08:00 ET coordinator summary.
             "name": "volunteers: monthly impact snapshot (1st of month 02:30 UTC)",
-            "task": "apps.volunteers.tasks.trigger_monthly_volunteer_snapshot",
+            "task": "volunteers.trigger_monthly_volunteer_snapshot",
             "crontab": first_of_month_0230_utc,
         },
     ]

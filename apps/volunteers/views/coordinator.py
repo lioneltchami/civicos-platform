@@ -38,6 +38,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.translation import gettext as _t, gettext_lazy as _
+from django.conf import settings
 from django.views import View
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
 
@@ -1183,12 +1184,12 @@ class ImpactReportView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView
 
     Filtering: GET params ?year=YYYY and optionally ?month=M.
 
-    Permission: volunteers.view_volunteerprofile
+    Permission: volunteers.change_volunteerapplication
     Template:   volunteers/coordinator/impact_report.html
     WCAG 2.1 AA: all tables have <caption>; filter controls have labels.
     """
 
-    permission_required = "volunteers.view_volunteerprofile"
+    permission_required = "volunteers.change_volunteerapplication"
     raise_exception = True
     template_name = "volunteers/coordinator/impact_report.html"
 
@@ -1241,11 +1242,11 @@ class VolunteerHoursExportView(LoginRequiredMixin, PermissionRequiredMixin, View
 
     GET params: ?year=YYYY and optionally ?month=M.
 
-    Permission: volunteers.view_volunteerprofile
+    Permission: volunteers.change_volunteerapplication
     Audit: records download in ExportRecord (actor_pk, masked IP, row count).
     """
 
-    permission_required = "volunteers.view_volunteerprofile"
+    permission_required = "volunteers.change_volunteerapplication"
     raise_exception = True
     http_method_names = ["get"]
 
@@ -1304,7 +1305,7 @@ class VolunteerHoursExportView(LoginRequiredMixin, PermissionRequiredMixin, View
             request.user.pk, year, month, row_count,
         )
 
-        return export_volunteer_hours_csv(year, month)
+        return export_volunteer_hours_csv(year, month, rows=rows)
 
 
 class VolunteerT3010ExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
@@ -1313,11 +1314,11 @@ class VolunteerT3010ExportView(LoginRequiredMixin, PermissionRequiredMixin, View
 
     GET param: ?year=YYYY.
 
-    Permission: volunteers.view_volunteerprofile
+    Permission: volunteers.change_volunteerapplication
     Audit: records download in ExportRecord.
     """
 
-    permission_required = "volunteers.view_volunteerprofile"
+    permission_required = "volunteers.change_volunteerapplication"
     raise_exception = True
     http_method_names = ["get"]
 
@@ -1424,7 +1425,7 @@ class ReferenceLetterPDFView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
         context = {
             "volunteer_display_name": profile.display_name,
-            "org_name": "CivicOS",
+            "org_name": getattr(settings, "WAGTAIL_SITE_NAME", "CivicOS"),
             "org_address": "",
             "org_email": "",
             "letter_date": date_format(timezone.localdate(), format="N j, Y"),
