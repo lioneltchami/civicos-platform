@@ -1,8 +1,8 @@
 # CivicOS — Codebase Handoff for AI
 
-**Last updated:** 2026-07-01  
+**Last updated:** 2026-07-02  
 **Git HEAD:** 9f86c52  
-**Test count:** 2,424 (all green)
+**Test count:** 3,131 collected (707 volunteers app)
 
 This document is a complete technical reference for an AI agent or developer picking up this codebase. Read this before touching anything.
 
@@ -22,7 +22,7 @@ civicos/
 │   ├── urls.py                 # Root URL conf
 │   └── wsgi.py
 ├── apps/
-│   ├── api/                    # REST API BB
+│   ├── api/                    # REST API BB (includes api/volunteers/)
 │   ├── audit/                  # Audit log
 │   ├── auth/                   # (unused stub — real auth is auth_extension)
 │   ├── auth_extension/         # Custom User model + MFA + allauth adapter
@@ -35,6 +35,7 @@ civicos/
 │   ├── payments/               # Payments BB (fees + donations + receipts)
 │   ├── portal/                 # Citizen portal BB
 │   ├── reports/                # Analytics & Reporting BB
+│   ├── volunteers/             # Volunteer Management BB
 │   └── workflows/              # Staff workflows BB
 ├── docs/
 ├── nginx/                      # nginx config for production
@@ -71,6 +72,9 @@ class MyView(LoginRequiredMixin, PermissionRequiredMixin, View):
 - No donor name, email, address, or SIN in logs, filenames, or audit records.
 - `WebhookEvent.payload` never logged or accessed outside the webhook handler.
 - PDF files never written to disk — WeasyPrint → `BytesIO` → `StreamingHttpResponse`.
+- Volunteer `sin_encrypted` must **never** appear in any API response, log, or serializer output.
+- `rejection_reason` on `VolunteerApplication` is coordinator-only; blocked from volunteer-role API responses.
+- `accommodation_notes` on `VolunteerProfile` is permission-gated (`volunteers.view_accommodation`).
 
 ### 2.4 Dates
 - `TIME_ZONE = "America/Toronto"`.
@@ -80,6 +84,12 @@ class MyView(LoginRequiredMixin, PermissionRequiredMixin, View):
 ### 2.5 CSV injection
 - Any cell value that starts with `=`, `+`, `-`, `@`, `\t`, or `\r` must be prefixed with `\t`.
 - Use `_sanitize_csv_cell()` from `apps/reports/exports/csv_export.py` — never roll your own.
+
+### 2.6 CRA honorarium thresholds (volunteers)
+- Single honorarium payment: hard cap $450.
+- Annual YTD soft limit: $500 (requires coordinator override flag to exceed).
+- Annual YTD hard cap: $1,000 (raises `ValidationError` unconditionally).
+- Threshold checks use `select_for_update()` inside an atomic block to prevent race conditions.
 
 ---
 
@@ -119,6 +129,7 @@ Key settings to know:
 | `/donate/portal/` | `donor_portal` | `apps.payments.portal_urls` |
 | `/reports/` | `reports` | `apps.reports` |
 | `/backoffice/` | `backoffice` | `apps.backoffice` |
+| `/volunteers/` | `volunteers` | `apps.volunteers` |
 | `/api/v1/` | `api-v1` | `apps.api` |
 | `/health/` | (none) | `apps.core.urls.health` |
 | `/` (catch-all) | (wagtail) | Wagtail CMS |
@@ -168,7 +179,7 @@ Staff-only views for: service request queue, work item queue, citizen management
 ### 5.11 `apps/api`
 DRF REST API at `/api/v1/`. JWT authentication (RS256, 15-min access token). Token endpoint throttled at 5 req/min (anonymous). Standard CivicOS error envelope: `{"error": {"code": "...", "message": "...", "details": {}}}`. OpenAPI schema at `/api/v1/schema/`.
 
-Endpoints: portal (service requests), notifications, workflows, consent.
+Endpoints: portal (service requests), notifications, workflows, consent, volunteers (20 endpoints under `/api/v1/volunteers/`).
 
 `UNAUTHENTICATED_USER` is NOT set to `None` — this would cause 403 instead of 401; leave as default.
 
@@ -239,6 +250,79 @@ Permissions (all defined on `payments.Permission`):
 - `payments.view_donationreport`, `payments.export_donationreport`
 - `payments.view_operationalreport`
 
+### 5.14 `apps/volunteers`
+
+**Purpose:** Volunteer Management Building Block — complete lifecycle from profile creation through application screening, scheduling, hours logging, honoraria payments, and reporting.
+
+#### Models (`models.py`)
+- `VolunteerProfile` — extends `User` (1-to-1). Fields include `sin_encrypted` (Fernet-encrypted, never exposed), `accommodation_notes` (permission-gated).
+- `Opportunity` — volunteer opportunity with capacity, dates, coordinator FK.
+- `VolunteerApplication` — application from a volunteer to an opportunity. Fields: `status`, `rejection_reason` (coordinator-only), `screening_notes`.
+- `ScreeningRecord` — criminal record check / reference decision log per application.
+- `Shift` — scheduled block of volunteer time linked to an `Opportunity`. Capacity-constrained.
+- `ShiftBooking` — volunteer-to-shift assignment. One active booking per volunteer per shift.
+- `HoursLog` — logged hours per booking; states: `pending` → `approved` / `rejected`.
+- `Honorarium` — payment record per volunteer per period; enforces CRA thresholds.
+- `HonorariumMonthlySummary` — pre-aggregated monthly totals per volunteer (generated by Beat task).
+
+#### Services (`services/`)
+- `applications.py` — `submit_application()`, `withdraw_application()`, duplicate-application guard.
+- `screening.py` — `record_screening_decision()`, approval/rejection with audit trail.
+- `scheduling.py` — `create_shift()`, `book_shift()`, `cancel_booking()`, capacity enforcement, conflict detection.
+- `hours.py` — `log_hours()`, `approve_hours()`, `reject_hours()`.
+- `honoraria.py` — `create_honorarium()`, `void_honorarium()`, CRA threshold checks (`select_for_update()` inside atomic block).
+- `reporting.py` — volunteer activity aggregates, coordinator summary querysets.
+
+#### REST API (`apps/api/volunteers/`)
+20 endpoints under `/api/v1/volunteers/`. JWT-authenticated (same RS256 tokens as rest of API). PIPEDA-safe serializers — `sin_encrypted` field excluded unconditionally; `rejection_reason` excluded for non-coordinator roles; `accommodation_notes` excluded without `volunteers.view_accommodation` permission.
+
+Key endpoint groups:
+- `/api/v1/volunteers/profiles/` — list/detail (coordinator only for list)
+- `/api/v1/volunteers/applications/` — CRUD scoped to `request.user` for volunteers; full access for coordinators
+- `/api/v1/volunteers/opportunities/` — public list, coordinator write
+- `/api/v1/volunteers/shifts/` — list/book/cancel
+- `/api/v1/volunteers/hours/` — log, approve, reject
+- `/api/v1/volunteers/honoraria/` — create, void, list (coordinator only)
+- `/api/v1/volunteers/screening/` — record decision (coordinator only)
+
+#### Views
+- Volunteer portal views (`views/portal.py`) — `ApplicationListView`, `ApplicationCreateView`, `ApplicationWithdrawView`, `ShiftListView`, `ShiftBookView`, `HoursLogCreateView`.
+- Coordinator views (`views/coordinator.py`) — application queue, screening form, shift management, hours approval queue, honorarium management, monthly summary.
+- All CBVs: `LoginRequiredMixin` before `PermissionRequiredMixin` (global invariant 2.1).
+
+#### Celery Tasks (`tasks.py`)
+- `send_monthly_honorarium_summary` — Beat task, queue `volunteers`, 1st of month 08:00 Toronto.
+- `send_hours_reminder` — weekly reminder to volunteers with pending hours to log.
+- `notify_shift_booking_confirmed` / `notify_shift_cancelled` — on_commit-wrapped after booking changes.
+
+#### Key Constraints (never violate)
+- `sin_encrypted` is write-only via service layer; **never** included in any serializer `fields` list or log output.
+- `rejection_reason` visible only to users with `volunteers.view_application_rejection`.
+- `accommodation_notes` visible only to users with `volunteers.view_accommodation`.
+- Honorarium CRA caps: $450 per payment (hard), $500 YTD (soft — requires `override_soft_cap=True`), $1,000 YTD (hard unconditional).
+- `select_for_update()` used in `create_honorarium()` to prevent concurrent cap bypass.
+
+#### Test Files
+| File | Coverage |
+|---|---|
+| `test_models.py` | Model validation, constraints, field behaviour |
+| `test_services_applications.py` | Application lifecycle, duplicate guard |
+| `test_services_screening.py` | Screening decision flow, audit trail |
+| `test_services_scheduling.py` | Shift creation, booking, capacity, conflict detection |
+| `test_services_hours.py` | Hours log states, approval/rejection |
+| `test_services_honoraria.py` | CRA threshold enforcement, concurrent cap bypass prevention |
+| `test_services_reporting.py` | Reporting aggregates |
+| `test_views_portal.py` | Volunteer-facing views, auth, IDOR protection |
+| `test_views_coordinator.py` | Coordinator views, permission checks |
+| `test_views_coordinator_wave4.py` | Honorarium and monthly summary coordinator views |
+| `test_api.py` | All 20 REST endpoints, PIPEDA field exclusions |
+| `test_tasks.py` | Celery tasks (synchronous via `task.apply()`) |
+| `test_forms.py` | Django form validation |
+| `test_receivers.py` | Signal handler behaviour |
+| `test_invariants.py` | Key security invariants: sin_encrypted never exposed, rejection_reason gated, accommodation_notes gated |
+
+**Current wave:** 6 (hardening complete). **707 tests** collected.
+
 ---
 
 ## 6. Cross-Cutting Patterns
@@ -301,6 +385,7 @@ python manage.py test --settings=config.settings.test
 
 # Single app
 python manage.py test apps.reports --settings=config.settings.test
+python manage.py test apps.volunteers --settings=config.settings.test
 
 # Single test class
 python manage.py test apps.reports.tests.test_wave5_suite.SanitizeCsvCellTest \
@@ -317,6 +402,8 @@ Reports BB test files:
 - `tests/test_wave3_donations.py` — donations service + views
 - `tests/test_wave4_operational.py` — operational service + PDF + Celery
 - `tests/test_wave5_suite.py` — model tests, CSV utilities, task dispatch, regression (65 tests)
+
+Volunteers BB test files: see Section 5.14 table above.
 
 ---
 
@@ -347,6 +434,8 @@ Key admin registrations:
 - `TaxReceipt` — no delete once `issued_at` is set.
 - `AuditLogEntry` — read-only; no delete.
 - `TenantPaymentConfig` — edit restricted; webhook secret re-entry required post-Wave-9 migration.
+- `VolunteerProfile` — `sin_encrypted` excluded from all admin fieldsets.
+- `Honorarium` — no delete once `paid_at` is set.
 
 ---
 

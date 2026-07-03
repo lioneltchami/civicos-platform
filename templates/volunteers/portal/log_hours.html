@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n form_filters %}
 
 {% block title %}{% trans "Log Hours" %}{% endblock %}
 {% block meta_description %}{% trans "Submit your volunteer hours for coordinator review." %}{% endblock %}
@@ -73,7 +73,11 @@
           </ul>
         {% endif %}
 
-        {{ field }}
+        {% if field.errors %}
+          {{ field|render_field_with_error_attrs }}
+        {% else %}
+          {{ field|render_field_with_required_attrs }}
+        {% endif %}
 
       </div>
     {% endfor %}

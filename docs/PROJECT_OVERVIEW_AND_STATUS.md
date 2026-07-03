@@ -1,8 +1,8 @@
 # CivicOS — Project Overview & Status
 
-**Last updated:** 2026-07-01  
+**Last updated:** 2026-07-02  
 **Git HEAD:** 9f86c52  
-**Status:** ✅ All 12 building blocks complete — production-ready
+**Status:** ✅ All 13 building blocks complete — production-ready
 
 ---
 
@@ -32,7 +32,8 @@ The platform is structured as independent "building blocks" (BBs) — one Django
 | REST API | `apps/api` | 115 | ✅ Complete |
 | Payments (fees + donations) | `apps/payments` | 1,115 | ✅ Complete |
 | Analytics & Reporting | `apps/reports` | 356 | ✅ Complete |
-| **Total** | | **2,424** | ✅ All green |
+| **Volunteer Management** | `apps/volunteers` | **707** | ✅ Complete |
+| **Total** | | **3,131** | ✅ All collected |
 
 ### Out of scope (V1)
 
@@ -56,7 +57,7 @@ Browser / API client
     Django 5.2 / Wagtail 6
         │
     ┌───┴───────────────────────────────┐
-    │  12 building block Django apps    │
+    │  13 building block Django apps    │
     └───────────────────────────────────┘
         │                │
    PostgreSQL 16      Redis 7
@@ -96,6 +97,7 @@ These constraints apply across the entire codebase and must never be violated.
 - All CSV exports enforce a PIPEDA column whitelist; extra keys are silently dropped.
 - WeasyPrint PDFs are never persisted to disk; streamed directly in the HTTP response.
 - `WebhookEvent.payload` is never read or logged outside the webhook handler.
+- Volunteer `sin_encrypted` is never exposed via API or logs; `rejection_reason` is coordinator-only; `accommodation_notes` is permission-gated.
 
 **Security**
 - `LoginRequiredMixin` always comes before `PermissionRequiredMixin` in MRO.
@@ -109,6 +111,7 @@ These constraints apply across the entire codebase and must never be violated.
 - `ReportSnapshot` rows have `has_delete_permission = False` in admin — 7-year minimum retention.
 - `ExportRecord` is an immutable audit trail; no delete permission.
 - Tax receipt serial numbers follow CRA format and are never reused.
+- Volunteer honoraria respect CRA thresholds: $450 single-payment cap, $500 annual soft limit, $1,000 hard annual cap.
 
 **Dates and timezones**
 - `TIME_ZONE = "America/Toronto"`. Local-date logic always uses `timezone.localtime(timezone.now()).date()`.
@@ -129,6 +132,7 @@ Three named queues prevent slow batch jobs from starving latency-sensitive tasks
 | `receipts` | Annual receipt generation, PDF email delivery |
 | `reports` | Nightly snapshot computation |
 | `payments` | General payments tasks |
+| `volunteers` | Volunteer honorarium summaries, hours reminders, shift notifications |
 | `default` | Fallback for all other tasks |
 
 **Celery Beat tasks (seeded by `seed_periodic_tasks` management command):**
@@ -140,6 +144,8 @@ Three named queues prevent slow batch jobs from starving latency-sensitive tasks
 | `check_sla_breaches` | Hourly | `default` |
 | `flush_expired_tokens` | Daily | `default` |
 | `retry_pending_notifications` | Every 15 min | `default` |
+| `send_monthly_honorarium_summary` | 1st of month, 08:00 Toronto | `volunteers` |
+| `send_hours_reminder` | Weekly (configurable) | `volunteers` |
 
 ---
 
@@ -166,7 +172,31 @@ The largest and most complex building block (1,115 tests).
 
 ---
 
-## 8. Test Strategy
+## 8. Volunteer Management BB Highlights
+
+Built across six waves; 707 tests covering models, services, views, API, and key invariants.
+
+### Wave 1 — Models, Admin, Migrations (`apps/volunteers/`)
+Core models: `VolunteerProfile`, `VolunteerApplication`, `Opportunity`, `ScreeningRecord`. Fernet-encrypted `sin_encrypted` field. Full Django admin registration. Initial migrations.
+
+### Wave 2 — Applications & Screening
+`services/applications.py` — `submit_application()`, `withdraw_application()`, duplicate-application guard. `services/screening.py` — `record_screening_decision()`, approval/rejection flow with audit trail. Volunteer-facing portal views (apply, withdraw, status). Coordinator views (application queue, screening form). All views: `LoginRequiredMixin` before `PermissionRequiredMixin`.
+
+### Wave 3 — Scheduling & Hours
+`services/scheduling.py` — `create_shift()`, `book_shift()`, `cancel_booking()`, capacity enforcement, conflict detection. `services/hours.py` — `log_hours()`, `approve_hours()`, `reject_hours()`. Models: `Shift`, `ShiftBooking`, `HoursLog`. Celery tasks: shift reminders, hours approval notifications.
+
+### Wave 4 — Honoraria & Coordinator Views
+`services/honoraria.py` — `create_honorarium()`, `void_honorarium()`, CRA threshold enforcement ($450 per payment, $500/$1,000 annual soft/hard caps). `HonorariumMonthlySummary` model. Beat task `send_monthly_honorarium_summary`. Extended coordinator views: honorarium list, void, monthly summary.
+
+### Wave 5 — Reporting, REST API, CSV & PDF Export
+`services/reporting.py` — volunteer activity aggregates, coordinator summary data. REST API (`apps/api/volunteers/`) — 20 endpoints under `/api/v1/volunteers/` (profiles, applications, shifts, bookings, hours logs, honoraria, screening). JWT-authenticated, DRF serializers with PIPEDA-safe field sets. CSV export for hours and honoraria. Reference letter PDF (WeasyPrint, streamed, never persisted).
+
+### Wave 6 — Hardening
+Bilingual QA (English/French string coverage). WCAG 2.1 AA audit on all volunteer templates. Key test invariants (`test_invariants.py`): `sin_encrypted` never in API response, `rejection_reason` blocked from volunteer-role requests, `accommodation_notes` gated by permission. Documentation and inline docstrings completed.
+
+---
+
+## 9. Test Strategy
 
 All tests run with `DJANGO_SETTINGS_MODULE=config.settings.test` (SQLite, no Redis, no Celery workers).
 
@@ -178,13 +208,15 @@ All tests run with `DJANGO_SETTINGS_MODULE=config.settings.test` (SQLite, no Red
 ```bash
 # Run the full suite
 python manage.py test --settings=config.settings.test
+# Run volunteers only
+python manage.py test apps.volunteers --settings=config.settings.test
 # or via Docker
 docker compose run --rm web python manage.py test
 ```
 
 ---
 
-## 9. What Comes Next
+## 10. What Comes Next
 
 The platform is code-complete for V1. Remaining work before going live:
 

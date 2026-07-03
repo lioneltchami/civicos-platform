@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n form_filters %}
 
 {% block title %}
   {% blocktrans with pk=profile.pk %}Record Honorarium — Volunteer #{{ pk }}{% endblocktrans %}
@@ -84,7 +84,7 @@
     {# ============================================================
        Main content area
        ============================================================ #}
-    <div class="coordinator-main" id="coordinator-main-content" role="main">
+    <div class="coordinator-main" id="coordinator-main-content">
 
       <h1 class="page-title">
         {% blocktrans with pk=profile.pk %}Record Honorarium — Volunteer #{{ pk }}{% endblocktrans %}
@@ -159,7 +159,11 @@
               </ul>
             {% endif %}
 
-            {{ field }}
+            {% if field.errors %}
+              {{ field|render_field_with_error_attrs }}
+            {% else %}
+              {{ field|render_field_with_required_attrs }}
+            {% endif %}
 
           </div>
         {% endfor %}

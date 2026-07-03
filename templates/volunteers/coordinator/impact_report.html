@@ -39,6 +39,11 @@
 <div class="container">
   <div class="coordinator-layout__inner">
 
+    {# Skip link — WCAG SC 2.4.1: bypass sidebar #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
+
     {# ============================================================
        Coordinator sidebar navigation
        ============================================================ #}
@@ -95,7 +100,7 @@
     {# ============================================================
        Main content area
        ============================================================ #}
-    <div class="coordinator-main" id="main-content" role="main">
+    <div class="coordinator-main" id="coordinator-main-content">
 
       <h1 class="page-title">{% trans "Volunteer Impact Report" %}</h1>
 

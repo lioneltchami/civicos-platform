@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n form_filters %}
 
 {% block title %}{% trans "Apply for" %} {{ opportunity.get_title }}{% endblock %}
 {% block meta_description %}{% blocktrans with title=opportunity.get_title %}Submit your volunteer application for {{ title }}.{% endblocktrans %}{% endblock %}
@@ -110,11 +110,11 @@
           </div>
         {% endif %}
 
-        {# Render the widget with ARIA attributes for error/hint linkage #}
-        {% if field.errors or field.help_text %}
-          {{ field|add_class:"form__control" }}
+        {# Render the widget with ARIA attributes for hint/required linkage #}
+        {% if field.errors %}
+          {{ field|render_field_with_error_attrs }}
         {% else %}
-          {{ field }}
+          {{ field|render_field_with_required_attrs }}
         {% endif %}
 
         {# Character hint for motivation textarea #}

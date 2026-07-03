@@ -60,7 +60,7 @@
     {# ============================================================
        Main dashboard area
        ============================================================ #}
-    <main class="coordinator-main" id="coordinator-main-content">
+    <div class="coordinator-main" id="coordinator-main-content">
 
       <h1 class="page-title">{% trans "Coordinator Dashboard" %}</h1>
 
@@ -95,6 +95,7 @@
                aria-label="{% trans 'Pending volunteer applications' %}"
                tabindex="0">
             <table class="data-table">
+              <caption class="visually-hidden">{% trans "Pending volunteer applications" %}</caption>
               <thead>
                 <tr>
                   <th scope="col">{% trans "Applicant" %}</th>
@@ -142,7 +143,7 @@
         {% endif %}
       </section>
 
-    </main>
+    </div>
   </div>
 </div>
 {% endblock %}

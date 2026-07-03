@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n form_filters %}
 
 {% block title %}{% trans "Review Application" %} — {{ application.opportunity.get_title }}{% endblock %}
 {% block meta_description %}{% blocktrans with title=application.opportunity.get_title %}Review the volunteer application for {{ title }}.{% endblocktrans %}{% endblock %}
@@ -163,7 +163,11 @@
               </div>
             {% endif %}
 
-            {{ field }}
+            {% if field.errors %}
+              {{ field|render_field_with_error_attrs }}
+            {% else %}
+              {{ field|render_field_with_required_attrs }}
+            {% endif %}
           </div>
 
         {% else %}

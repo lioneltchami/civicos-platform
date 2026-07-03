@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load i18n %}
+{% load i18n form_filters %}
 
 {% block title %}{% trans "Create Shift" %}{% endblock %}
 {% block meta_description %}{% trans "Create a new volunteer shift for this opportunity." %}{% endblock %}
@@ -77,7 +77,7 @@
     {# ============================================================
        Main content area
        ============================================================ #}
-    <div class="coordinator-main" id="coordinator-main-content" role="main">
+    <div class="coordinator-main" id="coordinator-main-content">
 
       <h1 class="page-title">
         {% blocktrans with title=opportunity.get_title %}Create shift for {{ title }}{% endblocktrans %}
@@ -134,7 +134,11 @@
             {% endif %}
 
             {# aria-describedby is applied via ShiftForm.__init__() — no dead |attr filter needed #}
-            {{ field }}
+            {% if field.errors %}
+              {{ field|render_field_with_error_attrs }}
+            {% else %}
+              {{ field|render_field_with_required_attrs }}
+            {% endif %}
 
           </div>
         {% endfor %}
