@@ -19,8 +19,10 @@ logger = logging.getLogger("apps.reports.services.combined")
 # L-4: Module-level constants — not re-created on every call.
 # Defining them inside the function body re-allocates these dicts on every
 # invocation and obscures the intent (they are fixed zero-valued fallbacks,
-# not derived values). Module-level placement also prevents accidental mutation
-# from ever affecting callers (they receive the same immutable-ish reference).
+# not derived values).
+# VN-1: These are mutable dicts. Callers MUST receive dict() copies, not direct
+# references — see the assignments in the except blocks below. Never assign
+# `volunteer = _VOLUNTEER_ZERO` directly; always use `dict(_VOLUNTEER_ZERO)`.
 _VOLUNTEER_ZERO: dict = {
     "total_approved_hours": Decimal("0.00"),
     "estimated_value_cad": Decimal("0.00"),
@@ -91,7 +93,7 @@ def combined_nonprofit_impact(year: int) -> dict:
             "volunteers BB not installed — returning zero volunteer impact (year=%s)",
             year,
         )
-        volunteer = _VOLUNTEER_ZERO
+        volunteer = dict(_VOLUNTEER_ZERO)
     except Exception:
         # H-2: exc_info=True so the full traceback is available in logs/Sentry.
         # Without this, a bug in impact_value() silently zeros T3010 Schedule 2
@@ -102,7 +104,8 @@ def combined_nonprofit_impact(year: int) -> dict:
             year,
             exc_info=True,
         )
-        volunteer = _VOLUNTEER_ZERO
+        # VN-1: dict() copy prevents caller mutation from corrupting the module constant.
+        volunteer = dict(_VOLUNTEER_ZERO)
 
     # ── Donation summary ──────────────────────────────────────────────────────
     try:
@@ -128,7 +131,8 @@ def combined_nonprofit_impact(year: int) -> dict:
             year,
             exc_info=True,
         )
-        donations = _DONATIONS_ZERO
+        # VN-1: dict() copy prevents caller mutation from corrupting the module constant.
+        donations = dict(_DONATIONS_ZERO)
 
     combined_value_cad = (
         volunteer["estimated_value_cad"] + donations["total_eligible_amount"]

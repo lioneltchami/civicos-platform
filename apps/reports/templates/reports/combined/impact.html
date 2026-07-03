@@ -148,11 +148,13 @@
 <section class="card border-info mb-4" aria-labelledby="cra-t3010-heading">
   <div class="card-body">
     <h2 class="h6 card-title text-info-emphasis" id="cra-t3010-heading">{% trans "CRA T3010 Reference" %}</h2>
-    {# M-G: |escape for defense-in-depth — t3010_notes is currently a hardcoded
-       string but if the service ever embeds dynamic values (province, year) this
-       becomes an XSS vector without explicit escaping. #}
+    {# M-G / VN-3: |force_escape for true defense-in-depth — unlike |escape
+       (conditional_escape), |force_escape always escapes regardless of whether
+       the value has been marked safe upstream via mark_safe(). If the service
+       ever embeds dynamic values (province, year) this prevents XSS even if a
+       developer forgets to strip the safe mark. #}
     <p class="card-text mb-0">
-      {{ impact.t3010_notes|escape }}
+      {{ impact.t3010_notes|force_escape }}
     </p>
     <p class="card-text small text-muted mt-2 mb-0">
       {% trans "This view provides data for T3010 Schedule 2 (volunteers) and line 4500 (donations)." %}

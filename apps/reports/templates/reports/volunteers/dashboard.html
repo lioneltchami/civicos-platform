@@ -206,7 +206,9 @@
           <td class="text-end">
             <a href="{% url 'reports:volunteers-dashboard' %}?year={{ snap.period_year }}&month={{ snap.period_month }}"
                class="btn btn-sm btn-link p-0 small"
-               aria-label="{% trans 'View' %} {{ snap.period_label }}">
+               aria-label="{% trans 'View' %} {{ snap.period_label|force_escape }}"
+               {# VN-3: force_escape guards against mark_safe() on period_label upstream;
+                  auto-escaping is not sufficient when a value is pre-marked safe. #}>
               {% trans "View" %}
             </a>
           </td>

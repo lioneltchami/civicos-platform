@@ -505,9 +505,20 @@ class CombinedServiceTests(TestCase):
         self.assertEqual(vol["volunteer_count"], 0)
         self.assertEqual(vol["hourly_rate"], Decimal("0.00"))
         self.assertEqual(vol["province"], "ON")
-        # The function must not raise — it must still return a complete dict
+        # VN-4: Assert full return-dict shape, not just key presence.
+        self.assertEqual(result["year"], 2025)
+        self.assertIsInstance(result["t3010_notes"], str,
+            "t3010_notes must be a string even when volunteer BB is missing")
         self.assertIn("donations", result)
-        self.assertIn("combined_value_cad", result)
+        self.assertIsInstance(result["combined_value_cad"], Decimal,
+            "combined_value_cad must be a Decimal on the volunteer-error path")
+        # combined_value_cad = volunteer.estimated_value_cad (0) + donations.total_eligible_amount
+        # In test DB with no 2025 donation data the donations path returns zeros too.
+        self.assertEqual(
+            result["combined_value_cad"],
+            result["volunteer"]["estimated_value_cad"] + result["donations"]["total_eligible_amount"],
+            "combined_value_cad must equal the sum of its two components",
+        )
 
     def test_volunteer_import_error_does_not_log_warning(self):
         """
@@ -562,6 +573,19 @@ class CombinedServiceTests(TestCase):
         self.assertEqual(don["donation_count"], 0)
         self.assertEqual(don["unique_donor_count"], 0)
         self.assertEqual(don["receipts_issued"], 0)
+        # VN-4: Assert full return-dict shape on the donations error path.
+        self.assertEqual(result["year"], 2025)
+        self.assertIsInstance(result["t3010_notes"], str,
+            "t3010_notes must be a string even when donations module raises")
+        self.assertIn("volunteer", result,
+            "volunteer sub-dict must be present even when donations path fails")
+        self.assertIsInstance(result["combined_value_cad"], Decimal,
+            "combined_value_cad must be a Decimal on the donations-error path")
+        self.assertEqual(
+            result["combined_value_cad"],
+            result["volunteer"]["estimated_value_cad"] + result["donations"]["total_eligible_amount"],
+            "combined_value_cad must equal the sum of its two components",
+        )
         # A WARNING must be present (ImportError hits except Exception → WARNING)
         warning_msgs = [m for m in log_ctx.output if "WARNING" in m and "donations_failed" in m]
         self.assertTrue(

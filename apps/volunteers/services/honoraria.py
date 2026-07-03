@@ -225,7 +225,9 @@ def create_honorarium(
         # by the time on_commit fires.
         _honorarium_pk = honorarium.pk
         _t4a_required = honorarium.t4a_required
-        _ytd_after = existing_total + honorarium.amount
+        # VN-2: _ytd_after removed — _post_commit now recomputes the live YTD from
+        # the DB after commit (M-D fix). A pre-commit value is inherently stale.
+        # See _ytd_live inside _post_commit for the authoritative post-commit total.
 
         from apps.volunteers.signals import (
             cra_alert_threshold_reached,
@@ -256,6 +258,12 @@ def create_honorarium(
 
             if payment_type == _H.PAYMENT_TYPE_HONORARIUM:
                 if _t4a_required:
+                    # VN-5: When T4A is required (YTD >= $500), only fire
+                    # t4a_threshold_reached — not cra_alert_threshold_reached.
+                    # A volunteer at the T4A threshold has necessarily exceeded the
+                    # $450 alert threshold too, but the advisory alert is superseded
+                    # by the mandatory T4A reporting obligation. Firing both would
+                    # generate duplicate coordinator notifications for the same event.
                     results = t4a_threshold_reached.send_robust(
                         sender=_H, instance=hon, coordinator=hon.created_by
                     )
