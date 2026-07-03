@@ -876,6 +876,33 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
             profile.emergency_contact_phone = None
             profile.emergency_contact_relationship = None
             profile.sin_last4 = None
+        else:
+            # H4: Write an audit log entry when a coordinator accesses sensitive fields.
+            # Sensitive field access must be recorded for PIPEDA accountability.
+            try:
+                from apps.volunteers.admin import _write_volunteer_audit
+                _write_volunteer_audit(
+                    event_type="data.viewed",
+                    request=self.request,
+                    resource_id=str(profile.pk),
+                    detail={
+                        "volunteer_profile_pk": profile.pk,
+                        "sensitive_fields_accessed": [
+                            "sin_last4",
+                            "emergency_contact_name",
+                            "emergency_contact_phone",
+                            "emergency_contact_relationship",
+                            "accommodation_notes",
+                        ],
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "VolunteerDetailView: failed to write audit log for "
+                    "sensitive field access on profile #%s by user #%s.",
+                    profile.pk,
+                    self.request.user.pk,
+                )
 
         # Use prefetched data (loaded by get_queryset) to avoid N+1 DB queries.
         # Each _prefetched_* attribute is a list populated by the Prefetch objects
@@ -1220,6 +1247,7 @@ class ImpactReportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, T
             impact_value,
             t3010_volunteer_metrics,
         )
+        from apps.volunteers.models import Program
 
         ctx = super().get_context_data(**kwargs)
 
@@ -1235,11 +1263,20 @@ class ImpactReportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, T
 
         month = int(month_str) if month_str.isdigit() and 1 <= int(month_str) <= 12 else None
 
+        # H6: Scope report data to the coordinator's own programs.
+        # Superusers see all programs; regular coordinators see only their own.
+        if self.request.user.is_superuser:
+            program_ids = None  # superuser sees all
+        else:
+            program_ids = list(
+                Program.objects.filter(coordinator=self.request.user).values_list("pk", flat=True)
+            )
+
         ctx["year"] = year
         ctx["month"] = month
-        ctx["hours_by_program"] = hours_by_program(year, month)
-        ctx["impact"] = impact_value(year)
-        ctx["t3010"] = t3010_volunteer_metrics(year)
+        ctx["hours_by_program"] = hours_by_program(year, month, program_ids=program_ids)
+        ctx["impact"] = impact_value(year, program_ids=program_ids)
+        ctx["t3010"] = t3010_volunteer_metrics(year, program_ids=program_ids)
         # Year selector: current year back 5 years
         ctx["years"] = list(range(current_year, current_year - 6, -1))
 

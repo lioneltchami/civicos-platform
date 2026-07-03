@@ -327,6 +327,7 @@ def check_expiring_screenings(self):
 
     records = (
         ScreeningRecord.objects.filter(
+            verified_clear=True,          # H5 fix: only alert on verified-clear records
             expires_date__gte=today,
             expires_date__lte=expiry_window,
         )

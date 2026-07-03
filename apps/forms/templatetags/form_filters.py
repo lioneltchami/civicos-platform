@@ -52,7 +52,7 @@ def render_field_with_error_attrs(field, describedby_id=""):
     # Auto-derive describedby_id from the error span's id when not explicitly
     # provided — keeps the template call site simple.
     if not describedby_id and field.errors:
-        describedby_id = f"{field.id_for_label}-error"
+        describedby_id = f"{field.id_for_label}-errors"
 
     if describedby_id:
         attrs["aria-describedby"] = describedby_id

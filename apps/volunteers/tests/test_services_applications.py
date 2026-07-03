@@ -320,6 +320,25 @@ class ApplyTests(BaseApplicationTestCase):
         # it is persisted; if not, no error is raised (service handles missing gracefully).
         self.assertIsNotNone(app.pk)
 
+    # T3: volunteer_capacity capacity test is intentionally omitted.
+    # Opportunity.volunteer_capacity exists on the model but apply() explicitly
+    # does not enforce it (see apps/volunteers/models.py Opportunity.is_accepting_applications
+    # docstring: "Does NOT check volunteer_capacity"). Capacity enforcement is a
+    # ShiftBooking-level concern (book_shift() uses select_for_update() for capacity).
+    # A test that asserts apply() raises ValidationError for a full opportunity
+    # would be incorrect — it would fail because no such enforcement exists in the service.
+
+    def test_apply_raises_if_approved_application_exists(self):
+        """apply() must raise when volunteer already has STATUS_APPROVED for the same opportunity."""
+        VolunteerApplication.objects.create(
+            volunteer=self.profile,
+            opportunity=self.opportunity,
+            status=VolunteerApplication.STATUS_APPROVED,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            apply(volunteer_profile=self.profile, opportunity=self.opportunity, actor=self.user)
+        self.assertIn("opportunity", ctx.exception.message_dict)
+
     def test_apply_withdrawn_then_reapply_allowed(self):
         """
         A volunteer who withdrew their application may reapply to the same
@@ -476,6 +495,16 @@ class WithdrawTests(BaseApplicationTestCase):
 
         with self.assertRaises(ValidationError):
             withdraw(application=app, actor=self.user)
+
+    def test_withdraw_raises_if_already_withdrawn(self):
+        """Calling withdraw() on an already-withdrawn application must raise ValidationError."""
+        app = self._pending_application()
+        result = withdraw(application=app, actor=self.user)
+        result.refresh_from_db()
+        self.assertEqual(result.status, VolunteerApplication.STATUS_WITHDRAWN)
+        with self.assertRaises(ValidationError) as ctx:
+            withdraw(application=result, actor=self.user)
+        self.assertIn("status", ctx.exception.message_dict)
 
 
 # ===========================================================================

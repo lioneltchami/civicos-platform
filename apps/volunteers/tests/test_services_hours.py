@@ -24,7 +24,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from apps.volunteers.models import (
@@ -676,4 +676,66 @@ class MilestoneTests(HoursBaseTestCase):
             hours_threshold=Decimal("25"),
         )
         self.assertTrue(milestone.notification_sent)
-        mock_send.assert_called_once()
+        # Approving 5 hours × 5 times fires notify_volunteer_on_hours_approved
+        # each time, plus one milestone notification — check the milestone call
+        # landed rather than asserting a fixed total call count.
+        milestone_calls = [
+            c for c in mock_send.call_args_list
+            if c.kwargs.get("subject_key") == "volunteer_milestone_achieved"
+        ]
+        self.assertEqual(len(milestone_calls), 1, "Expected exactly one milestone email")
+
+
+# ===========================================================================
+# Hours race-condition tests  (requires TransactionTestCase / PostgreSQL)
+# ===========================================================================
+
+import unittest as _unittest
+from django.db import connection as _connection
+
+
+@_unittest.skipIf(
+    _connection.vendor == "sqlite",
+    "select_for_update() requires PostgreSQL row-level locking",
+)
+class HoursRaceConditionTests(TransactionTestCase):
+    """
+    Verify that approve_hours() raises on an already-approved HoursLog.
+    Sequential (not threaded) — tests the state-machine guard, not true DB locking.
+    """
+
+    def setUp(self):
+        # Build the minimum fixture: user, volunteer profile, coordinator,
+        # program, opportunity, approved application, submitted HoursLog.
+        # Mirror the factory pattern used in the rest of this test module.
+        coord = _make_user("race_hcoord@example.gc.ca", is_staff=True)
+        self.coordinator = _grant_perm(coord, "change_hourslog")
+
+        self.volunteer_user = _make_user("race_hvol@example.gc.ca")
+        self.volunteer_profile = _make_profile(self.volunteer_user)
+
+        self.program = _make_program(slug="race-hours-prog")
+        self.opportunity = _make_opportunity(self.program, slug="race-hours-opp")
+        _approve_application(self.volunteer_profile, self.opportunity)
+
+        # Create a pending HoursLog directly (bypass log_hours() to avoid the
+        # actor permission check — we only need the record to exist in STATUS_PENDING).
+        self.hours_log = HoursLog.objects.create(
+            volunteer=self.volunteer_profile,
+            opportunity=self.opportunity,
+            date=datetime.date.today() - datetime.timedelta(days=1),
+            hours=Decimal("3.0"),
+            status=HoursLog.STATUS_PENDING,
+        )
+
+    def test_approve_hours_raises_if_already_approved(self):
+        from apps.volunteers.services.hours import approve_hours
+
+        # Approve once — must succeed.
+        result = approve_hours(hours_log=self.hours_log, actor=self.coordinator)
+        result.refresh_from_db()
+        self.assertEqual(result.status, HoursLog.STATUS_APPROVED)
+
+        # Second approval must raise (state-machine guard).
+        with self.assertRaises(Exception):
+            approve_hours(hours_log=result, actor=self.coordinator)

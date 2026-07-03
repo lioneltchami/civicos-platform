@@ -24,12 +24,31 @@
   </h1>
 
   {# ============================================================
-     Non-field errors (form-level validation errors)
+     Accessible error summary — field-level and non-field errors
      ============================================================ #}
-  {% if form.non_field_errors %}
-    <div class="error-summary" role="alert" aria-live="assertive" aria-atomic="true">
-      <h2 class="error-summary__heading">{% trans "There is a problem" %}</h2>
+  {% if form.errors %}
+    <div class="error-summary"
+         role="alert"
+         aria-labelledby="error-summary-title"
+         tabindex="-1"
+         id="error-summary">
+      <h2 id="error-summary-title" class="error-summary__title">
+        {% blocktrans count count=form.errors|length with n=form.errors|length %}
+          There is {{ n }} error in your form. Please correct it before continuing.
+        {% plural %}
+          There are {{ n }} errors in your form. Please correct them before continuing.
+        {% endblocktrans %}
+      </h2>
       <ul class="error-summary__list">
+        {% for field in form %}
+          {% for error in field.errors %}
+            <li>
+              <a href="#{{ field.id_for_label }}">
+                {% if field.label %}{{ field.label }}: {% endif %}{{ error }}
+              </a>
+            </li>
+          {% endfor %}
+        {% endfor %}
         {% for error in form.non_field_errors %}
           <li>{{ error }}</li>
         {% endfor %}

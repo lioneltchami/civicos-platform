@@ -22,9 +22,8 @@
 
   {# Back link #}
   <p class="back-link">
-    <a href="{% url 'volunteers:coordinator_dashboard' %}"
-       aria-label="{% trans 'Back to Coordinator Dashboard' %}">
-      &larr; {% trans "Back to Dashboard" %}
+    <a href="{% url 'volunteers:coordinator_dashboard' %}">
+      <span aria-hidden="true">&larr;</span> {% trans "Back to Dashboard" %}
     </a>
   </p>
 

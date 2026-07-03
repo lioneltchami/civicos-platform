@@ -211,20 +211,36 @@ def complete_check(
             "(requires 'volunteers.change_screeningrecord')."
         )
 
-    # Set fields on the instance before full_clean() so the VSC validation
-    # in ScreeningRecord.clean() can see the final state.
-    screening_record.verified_clear = verified_clear
-    screening_record.verified_at = timezone.now()
-    screening_record.verified_by = completed_by
-    screening_record.notes = notes
+    from apps.volunteers.models import ScreeningRecord
+    from django.core.exceptions import ValidationError
 
-    # A-4 fix: wrap full_clean() + save() in atomic() so that when this
-    # function is called from a Celery task or management command (no outer
-    # ATOMIC_REQUESTS transaction), any future on_commit() callbacks fire only
-    # after the write is durable. Inside an HTTP request it becomes a savepoint.
-    # full_clean() runs ScreeningRecord.clean() which enforces VSC note restrictions
-    # when verified_clear is not None. This MUST happen before save().
+    # H1 fix: wrap status-check + mutation + save in atomic() and re-fetch the
+    # record with select_for_update() to prevent two concurrent coordinators from
+    # both reading verified_clear=None and silently overwriting each other.
     with transaction.atomic():
+        # Re-fetch with a row-level lock to serialise concurrent completions.
+        screening_record = (
+            ScreeningRecord.objects
+            .select_for_update()
+            .get(pk=screening_record.pk)
+        )
+
+        # Guard against double-verification — the second writer sees the
+        # already-set value and raises rather than overwriting.
+        if screening_record.verified_clear is not None:
+            raise ValidationError(
+                {"verified_clear": "This screening record has already been verified."}
+            )
+
+        # Set fields on the freshly-locked instance before full_clean() so the
+        # VSC validation in ScreeningRecord.clean() can see the final state.
+        screening_record.verified_clear = verified_clear
+        screening_record.verified_at = timezone.now()
+        screening_record.verified_by = completed_by
+        screening_record.notes = notes
+
+        # full_clean() runs ScreeningRecord.clean() which enforces VSC note
+        # restrictions when verified_clear is not None. MUST happen before save().
         screening_record.full_clean()
         screening_record.save(
             update_fields=["verified_clear", "verified_at", "verified_by", "notes", "updated_at"]

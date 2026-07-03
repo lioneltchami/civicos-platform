@@ -433,6 +433,41 @@ class PIPEDAAuditLogTests(TestCase):
             ),
         )
 
+    def test_sin_last4_not_in_audit_event_detail(self):
+        """
+        PIPEDA: sin_last4 must never appear in AuditLogEntry.event_detail.
+
+        A legitimate audit entry references only the profile PK. The raw SIN
+        last-4-digits value must not appear in any audit log detail field.
+        """
+        sin_value = "9999"
+        self.volunteer_profile.sin_last4 = sin_value
+        self.volunteer_profile.save(update_fields=["sin_last4"])
+
+        # Create a legitimate audit entry that references only the profile PK.
+        self.AuditLogEntry.objects.create(
+            actor_id=str(self.coordinator.pk),
+            actor_email="",  # PIPEDA: blank for data events
+            actor_ip=None,
+            event_type="data.viewed",
+            outcome="success",
+            resource_type="volunteers.VolunteerProfile",
+            resource_id=str(self.volunteer_profile.pk),
+            event_detail={
+                "volunteer_profile_pk": self.volunteer_profile.pk,
+            },
+        )
+
+        # Verify no AuditLogEntry event_detail contains the sin_last4 value.
+        # JSONField supports __icontains on the serialised JSON text in PostgreSQL.
+        self.assertFalse(
+            self.AuditLogEntry.objects.filter(
+                event_detail__icontains=sin_value
+            ).exists(),
+            f"sin_last4 '{sin_value}' found in AuditLogEntry.event_detail — "
+            "PIPEDA violation: SIN digits must never be written to audit logs.",
+        )
+
 
 # ===========================================================================
 # Class 3: CRA Honorarium Threshold Boundary Tests

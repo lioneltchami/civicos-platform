@@ -1,45 +1,160 @@
 {% extends "base.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Applications" %}{% endblock %}
+{% block title %}{% trans "All Applications" %}{% endblock %}
+{% block meta_description %}{% trans "Review and filter volunteer applications by status." %}{% endblock %}
+{% block body_class %}coordinator-layout{% endblock %}
+
+{% block breadcrumb %}
+<nav aria-label="{% trans 'Breadcrumb' %}" class="breadcrumb-nav">
+  <div class="container">
+    <ol class="breadcrumb" role="list">
+      <li><a href="{% url 'portal:dashboard' %}">{% trans "My Account" %}</a></li>
+      <li><a href="{% url 'volunteers:coordinator_dashboard' %}">{% trans "Coordinator Dashboard" %}</a></li>
+      <li aria-current="page">{% trans "All Applications" %}</li>
+    </ol>
+  </div>
+</nav>
+{% endblock %}
 
 {% block content %}
 <div class="container">
-  <h1>{% trans "Volunteer Applications" %}</h1>
+  <div class="coordinator-layout__inner">
 
-  <form method="get" class="mb-3">
-    <label for="status-filter">{% trans "Filter by status" %}</label>
-    <select name="status" id="status-filter" onchange="this.form.submit()">
-      <option value="">{% trans "All statuses" %}</option>
-      {% for value, label in status_choices %}
-        <option value="{{ value }}"{% if value == current_status %} selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-  </form>
+    {# Skip link — WCAG SC 2.4.1: bypass sidebar #}
+    <a class="skip-link" href="#coordinator-main-content">
+      {% trans "Skip to main content" %}
+    </a>
 
-  {% if applications %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th>{% trans "Volunteer" %}</th>
-          <th>{% trans "Opportunity" %}</th>
-          <th>{% trans "Status" %}</th>
-          <th>{% trans "Applied" %}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for app in applications %}
-          <tr>
-            <td>{{ app.volunteer.pk }}</td>
-            <td>{{ app.opportunity.title }}</td>
-            <td>{{ app.get_status_display }}</td>
-            <td>{{ app.created_at|date:"Y-m-d" }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p>{% trans "No applications found." %}</p>
-  {% endif %}
+    {# ============================================================
+       Coordinator sidebar navigation
+       ============================================================ #}
+    <aside class="coordinator-sidebar">
+      <nav aria-label="{% trans 'Coordinator navigation' %}">
+        <ul class="coordinator-nav" role="list">
+          <li>
+            <a href="{% url 'volunteers:coordinator_dashboard' %}"
+               class="coordinator-nav__link">
+              {% trans "Dashboard" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:opportunity_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Opportunities" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:coordinator_application_list' %}"
+               class="coordinator-nav__link coordinator-nav__link--active"
+               aria-current="page">
+              {% trans "All Applications" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:shift_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Shifts" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:hours_approval_list' %}"
+               class="coordinator-nav__link">
+              {% trans "Hours Approvals" %}
+            </a>
+          </li>
+          <li>
+            <a href="{% url 'volunteers:volunteer_roster' %}"
+               class="coordinator-nav__link">
+              {% trans "Volunteers" %}
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    {# ============================================================
+       Main content area
+       ============================================================ #}
+    <div class="coordinator-main" id="coordinator-main-content">
+
+      <h1 class="page-title">{% trans "Volunteer Applications" %}</h1>
+
+      {# ============================================================
+         Status filter form — W2: no onchange JS; explicit submit button
+         ============================================================ #}
+      <form method="get" class="filter-form" aria-label="{% trans 'Filter applications by status' %}">
+        <div class="form-group">
+          <label class="form-label" for="status-filter">
+            {% trans "Filter by status" %}
+          </label>
+          <select name="status" id="status-filter" class="form-control">
+            <option value="">{% trans "All statuses" %}</option>
+            {% for value, label in status_choices %}
+              <option value="{{ value }}"{% if value == current_status %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn--secondary">{% trans "Filter" %}</button>
+      </form>
+
+      {# ============================================================
+         Applications table — W3: scope="col" on every <th>
+         PIPEDA: Volunteer PK only, never name
+         ============================================================ #}
+      {% if applications %}
+        <div class="table-wrapper"
+             role="region"
+             aria-label="{% trans 'Volunteer applications' %}"
+             tabindex="0">
+          <table class="data-table">
+            <caption class="visually-hidden">
+              {% trans "List of volunteer applications, filterable by status" %}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">{% trans "Volunteer ID" %}</th>
+                <th scope="col">{% trans "Opportunity" %}</th>
+                <th scope="col">{% trans "Status" %}</th>
+                <th scope="col">{% trans "Applied" %}</th>
+                <th scope="col">
+                  <span class="visually-hidden">{% trans "Actions" %}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for app in applications %}
+                <tr>
+                  <td>{{ app.volunteer.pk }}</td>
+                  <td>{{ app.opportunity.get_title }}</td>
+                  <td>
+                    <span class="badge badge--{{ app.status }}">
+                      {{ app.get_status_display }}
+                    </span>
+                  </td>
+                  <td>
+                    <time datetime="{{ app.created_at|date:'Y-m-d' }}">
+                      {{ app.created_at|date:"Y-m-d" }}
+                    </time>
+                  </td>
+                  <td class="actions-cell">
+                    <a href="{% url 'volunteers:application_review' pk=app.pk %}"
+                       class="btn btn--secondary btn--small">
+                      {% trans "Review" %}
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <p class="empty-state__message">{% trans "No applications found." %}</p>
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
 </div>
 {% endblock %}

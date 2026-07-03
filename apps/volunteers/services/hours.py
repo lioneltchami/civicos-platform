@@ -431,18 +431,28 @@ def _recompute_total_hours(*, volunteer_profile_pk) -> Decimal:
     from django.db.models import Sum
     from apps.volunteers.models import HoursLog, VolunteerProfile
 
-    total = (
-        HoursLog.objects
-        .filter(
-            volunteer_id=volunteer_profile_pk,
-            status=HoursLog.STATUS_APPROVED,
-        )
-        .aggregate(total=Sum("hours"))["total"]
-    ) or Decimal("0")
+    # H2 fix: wrap the SUM + UPDATE in atomic() and acquire a row-level lock on
+    # the VolunteerProfile before computing the aggregate.  Two concurrent
+    # on_commit callbacks both try to recompute the total; without the lock the
+    # second UPDATE overwrites the first using a stale partial aggregate.
+    with transaction.atomic():
+        # Serialise concurrent callers — the second caller blocks here until the
+        # first has committed its UPDATE, then proceeds with the fully-updated set
+        # of HoursLog rows visible.
+        VolunteerProfile.objects.select_for_update().get(pk=volunteer_profile_pk)
 
-    VolunteerProfile.objects.filter(pk=volunteer_profile_pk).update(
-        total_hours_approved=total
-    )
+        total = (
+            HoursLog.objects
+            .filter(
+                volunteer_id=volunteer_profile_pk,
+                status=HoursLog.STATUS_APPROVED,
+            )
+            .aggregate(total=Sum("hours"))["total"]
+        ) or Decimal("0")
+
+        VolunteerProfile.objects.filter(pk=volunteer_profile_pk).update(
+            total_hours_approved=total
+        )
 
     logger.info(
         "volunteers.hours: recomputed total volunteer=%s total=%s",

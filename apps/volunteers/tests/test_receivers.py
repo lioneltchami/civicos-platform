@@ -36,6 +36,9 @@ from apps.volunteers.signals import (
     application_approved,
     application_rejected,
     application_submitted,
+    hours_approved,
+    hours_rejected,
+    shift_booking_cancelled,
 )
 
 User = get_user_model()
@@ -538,3 +541,145 @@ class ApplicationRejectedReceiverTests(BaseReceiverTestCase):
                 self.fail(
                     f"Receiver must not propagate exceptions to the caller, but raised: {exc}"
                 )
+
+
+# ===========================================================================
+# T5 — HoursLog and ShiftBooking receiver tests
+# ===========================================================================
+
+@override_settings(SITE_URL="https://civicos.example.gc.ca")
+class HoursApprovedReceiverTests(BaseReceiverTestCase):
+    """Tests for notify_volunteer_on_hours_approved receiver."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.volunteers.models import HoursLog
+        import datetime
+        from decimal import Decimal
+        self.hours_log = HoursLog.objects.create(
+            volunteer=self.profile,
+            opportunity=self.opportunity,
+            date=datetime.date.today() - datetime.timedelta(days=1),
+            hours=Decimal("4.0"),
+            status=HoursLog.STATUS_PENDING,
+        )
+
+    def _fire(self):
+        from apps.volunteers.models import HoursLog
+        with mock.patch(_SEND_NOTIFICATION_PATH) as mock_send:
+            hours_approved.send(
+                sender=HoursLog,
+                instance=self.hours_log,
+                approved_by=self.coordinator,
+            )
+        return mock_send
+
+    def test_notify_on_hours_approved_sends_to_volunteer(self):
+        """Fire hours_approved signal; assert send_email_notification called with recipient=volunteer_user."""
+        mock_send = self._fire()
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args[1]
+        self.assertEqual(
+            call_kwargs["recipient"],
+            self.volunteer_user,
+            "hours_approved notification must be sent to the volunteer user, not the coordinator.",
+        )
+
+
+@override_settings(SITE_URL="https://civicos.example.gc.ca")
+class HoursRejectedReceiverTests(BaseReceiverTestCase):
+    """Tests for notify_volunteer_on_hours_rejected receiver — PIPEDA invariants."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.volunteers.models import HoursLog
+        import datetime
+        from decimal import Decimal
+        self.hours_log = HoursLog.objects.create(
+            volunteer=self.profile,
+            opportunity=self.opportunity,
+            date=datetime.date.today() - datetime.timedelta(days=1),
+            hours=Decimal("2.5"),
+            status=HoursLog.STATUS_REJECTED,
+            rejection_reason="INTERNAL: date discrepancy. Do not disclose.",
+        )
+
+    def _fire(self):
+        from apps.volunteers.models import HoursLog
+        with mock.patch(_SEND_NOTIFICATION_PATH) as mock_send:
+            hours_rejected.send(
+                sender=HoursLog,
+                instance=self.hours_log,
+                rejected_by=self.coordinator,
+                # NOTE: rejection_reason deliberately omitted from signal kwargs (PIPEDA).
+            )
+        return mock_send
+
+    def test_notify_on_hours_rejected_context_excludes_rejection_reason(self):
+        """
+        PIPEDA invariant: the context dict passed to send_email_notification must
+        not contain the key 'rejection_reason'. The reason is coordinator-internal.
+        """
+        mock_send = self._fire()
+        mock_send.assert_called_once()
+        context = _extract_context_from_mock(mock_send)
+        self.assertNotIn(
+            "rejection_reason",
+            context,
+            "PIPEDA violation: 'rejection_reason' found as a key in hours_rejected "
+            "notification context. This field must never reach volunteer-facing notifications.",
+        )
+
+
+@override_settings(SITE_URL="https://civicos.example.gc.ca")
+class BookingCancelledReceiverTests(BaseReceiverTestCase):
+    """Tests for notify_volunteer_on_booking_cancelled receiver."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.volunteers.models import Shift, ShiftBooking, VolunteerApplication
+        import datetime
+        from django.utils import timezone as tz
+
+        # The base class already created a pending application for this
+        # volunteer+opportunity.  Promote it to approved so the shift-booking
+        # pre-condition is satisfied without violating the unique constraint.
+        self.application.status = VolunteerApplication.STATUS_APPROVED
+        self.application.save(update_fields=["status"])
+
+        now = tz.now()
+        self.shift = Shift.objects.create(
+            opportunity=self.opportunity,
+            start_datetime=now + datetime.timedelta(hours=2),
+            end_datetime=now + datetime.timedelta(hours=4),
+            capacity=10,
+            waitlist_enabled=False,
+        )
+        self.booking = ShiftBooking.objects.create(
+            shift=self.shift,
+            volunteer=self.profile,
+            status=ShiftBooking.STATUS_CANCELLED,
+        )
+
+    def _fire(self):
+        from apps.volunteers.models import ShiftBooking
+        with mock.patch(_SEND_NOTIFICATION_PATH) as mock_send:
+            shift_booking_cancelled.send(
+                sender=ShiftBooking,
+                instance=self.booking,
+                shift=self.shift,
+                volunteer=self.profile,
+                reason="Coordinator cancelled this booking.",
+            )
+        return mock_send
+
+    def test_notify_on_booking_cancelled_sends_to_volunteer(self):
+        """Fire shift_booking_cancelled signal; assert notification sent to the volunteer user."""
+        mock_send = self._fire()
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args[1]
+        self.assertEqual(
+            call_kwargs["recipient"],
+            self.volunteer_user,
+            "shift_booking_cancelled notification must be sent to the volunteer user.",
+        )

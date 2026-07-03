@@ -70,7 +70,7 @@ def _classify_skill_tags(tag_slugs: list[str], tag_names: list[str]) -> str:
 # Function 1: hours_by_program
 # ---------------------------------------------------------------------------
 
-def hours_by_program(year: int, month: int | None = None) -> list[dict]:
+def hours_by_program(year: int, month: int | None = None, program_ids: list | None = None) -> list[dict]:
     """
     Return approved volunteer hours grouped by (program, opportunity).
 
@@ -100,9 +100,12 @@ def hours_by_program(year: int, month: int | None = None) -> list[dict]:
     if month is not None:
         filters &= Q(date__month=month)
 
+    qs = HoursLog.objects.filter(filters)
+    if program_ids is not None:
+        qs = qs.filter(opportunity__program_id__in=program_ids)
+
     rows = (
-        HoursLog.objects
-        .filter(filters)
+        qs
         .values(
             "opportunity__program__slug",
             "opportunity__program__name_en",
@@ -142,7 +145,7 @@ def hours_by_program(year: int, month: int | None = None) -> list[dict]:
 # Function 2: impact_value
 # ---------------------------------------------------------------------------
 
-def impact_value(year: int, province: str = "ON") -> dict:
+def impact_value(year: int, province: str = "ON", program_ids: list | None = None) -> dict:
     """
     Compute the estimated economic value of volunteer hours for a given year.
 
@@ -177,6 +180,8 @@ def impact_value(year: int, province: str = "ON") -> dict:
         status=HoursLog.STATUS_APPROVED,
         date__year=year,
     )
+    if program_ids is not None:
+        qs = qs.filter(opportunity__program_id__in=program_ids)
 
     agg = qs.aggregate(
         total_approved_hours=Coalesce(
@@ -206,7 +211,7 @@ def impact_value(year: int, province: str = "ON") -> dict:
 # Function 3: t3010_volunteer_metrics
 # ---------------------------------------------------------------------------
 
-def t3010_volunteer_metrics(year: int) -> dict:
+def t3010_volunteer_metrics(year: int, program_ids: list | None = None) -> dict:
     """
     Compute CRA T3010 Schedule 2 "Volunteers" section data for a given year.
 
@@ -236,6 +241,8 @@ def t3010_volunteer_metrics(year: int) -> dict:
         status=HoursLog.STATUS_APPROVED,
         date__year=year,
     )
+    if program_ids is not None:
+        approved_qs = approved_qs.filter(opportunity__program_id__in=program_ids)
 
     agg = approved_qs.aggregate(
         total_volunteers=Count("volunteer", distinct=True),

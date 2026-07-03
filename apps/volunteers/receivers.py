@@ -539,7 +539,7 @@ def notify_volunteers_on_shift_cancelled(sender, instance, opportunity, reason, 
         )
 
 
-@receiver(shift_booking_cancelled, sender="volunteers.ShiftBooking")
+@receiver(shift_booking_cancelled)
 def notify_volunteer_on_booking_cancelled(sender, instance, shift, volunteer, reason="", **kwargs):
     """
     Notify a volunteer when their individual shift booking is cancelled by a coordinator.
@@ -590,7 +590,7 @@ def notify_volunteer_on_booking_cancelled(sender, instance, shift, volunteer, re
         )
 
 
-@receiver(hours_approved, sender="volunteers.HoursLog")
+@receiver(hours_approved)
 def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs):
     """
     Notify volunteer their hours submission was approved.
@@ -672,7 +672,7 @@ def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs):
         )
 
 
-@receiver(hours_rejected, sender="volunteers.HoursLog")
+@receiver(hours_rejected)
 def notify_volunteer_on_hours_rejected(sender, instance, rejected_by, **kwargs):
     """
     Notify volunteer their hours submission was not approved. No reason given (PIPEDA).

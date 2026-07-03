@@ -21,9 +21,8 @@
 
   {# Back link #}
   <p class="back-link">
-    <a href="{% url 'volunteers:opportunity_list' %}"
-       aria-label="{% trans 'Back to Volunteer Opportunities list' %}">
-      &larr; {% trans "Back to Opportunities" %}
+    <a href="{% url 'volunteers:opportunity_list' %}">
+      <span aria-hidden="true">&larr;</span> {% trans "Back to Opportunities" %}
     </a>
   </p>
 
@@ -96,7 +95,7 @@
       </h2>
       <p>
         {% if opportunity.requires_vulnerable_sector_check %}
-          {% trans "This opportunity requires a <strong>Vulnerable Sector Check</strong> before you can begin volunteering. This is a standard government screening process to ensure the safety of the people we serve. You will be provided with further instructions after your application is approved." %}
+          {% blocktrans trimmed %}This opportunity requires a <strong>Vulnerable Sector Check</strong> before you can begin volunteering. This is a standard government screening process to ensure the safety of the people we serve. You will be provided with further instructions after your application is approved.{% endblocktrans %}
         {% else %}
           {% trans "This opportunity requires background screening before you can begin volunteering. You will be provided with further instructions after your application is approved." %}
         {% endif %}
