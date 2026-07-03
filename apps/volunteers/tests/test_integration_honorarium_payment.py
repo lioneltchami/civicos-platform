@@ -423,17 +423,43 @@ class HonorariumCRAThresholdTests(TestCase):
         self.assertEqual(count_before, count_after)
 
     def test_honorarium_exactly_at_limit_is_blocked(self):
-        """YTD at exactly $1,000 (900 + 100) should be allowed; YTD exceeding $1,000 blocked."""
-        # $900 pre-loaded; $100 more = $1,000 total (at threshold, not exceeding)
-        # The hard block is >$1,000 — at exactly $1,000 it depends on model impl.
-        # We test that $200 (which causes $1,100 total) raises ValidationError.
+        """
+        C-6 fix: the model uses >= for the hard block, so $900 + $100 = $1,000
+        is BLOCKED (not allowed). The old docstring was wrong.
+
+        Honorarium.clean() uses:
+            if projected_total >= Decimal(str(hard_block)):  raise ValidationError
+        So exactly $1,000 raises, and $1,001+ also raises.
+        """
+        # Exact boundary: $900 + $100 = $1,000 — must raise (>= blocks at exactly $1,000)
         with self.assertRaises(ValidationError):
             _create_honorarium(
                 self.profile,
-                amount="200.00",
+                amount="100.00",
                 created_by=self.coordinator,
                 payment_date=datetime.date.today(),
             )
+
+    def test_honorarium_one_cent_over_limit_is_blocked(self):
+        """$900 + $100.01 = $1,000.01 — clearly over limit, must raise."""
+        with self.assertRaises(ValidationError):
+            _create_honorarium(
+                self.profile,
+                amount="100.01",
+                created_by=self.coordinator,
+                payment_date=datetime.date.today(),
+            )
+
+    def test_honorarium_just_under_limit_is_allowed(self):
+        """$900 + $99.99 = $999.99 — just under $1,000 limit, must succeed."""
+        # No exception should be raised; a Honorarium row should be created.
+        honorarium = _create_honorarium(
+            self.profile,
+            amount="99.99",
+            created_by=self.coordinator,
+            payment_date=datetime.date.today(),
+        )
+        self.assertIsNotNone(honorarium.pk)
 
 
 # ---------------------------------------------------------------------------

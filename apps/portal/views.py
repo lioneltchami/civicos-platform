@@ -120,15 +120,19 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             ctx["unread_notification_count"] = 0
 
         # ── Volunteer summary widget ──────────────────────────────────────────────
-        from django.db.models import Count as _Count
+        # Imports are lazy (inside try) to prevent circular imports with apps.volunteers.
+        # C-2: bare except logs at exception level so DB/import failures are observable.
         try:
             from apps.volunteers.models import VolunteerProfile, VolunteerApplication, ShiftBooking
+            from django.db.models import Count as _Count  # noqa: PLC0415
             from django.utils import timezone as _tz_vol
             try:
                 _profile = VolunteerProfile.objects.get(user=self.request.user)
+                # C-1: FK field on VolunteerApplication is `volunteer`, not `applicant`.
+                # C-5: STATUS_IN_REVIEW = "in_review", not "under_review".
                 _active_apps = VolunteerApplication.objects.filter(
-                    applicant=_profile,
-                    status__in=["pending", "under_review", "approved"],
+                    volunteer=_profile,
+                    status__in=["pending", "in_review", "approved"],
                 ).count()
                 _upcoming_shifts = ShiftBooking.objects.filter(
                     volunteer=_profile,
@@ -143,14 +147,20 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             except VolunteerProfile.DoesNotExist:
                 ctx["volunteer_summary"] = {"has_profile": False}
         except Exception:
+            logger.exception(
+                "portal.views.DashboardView: volunteer_summary failed for user_pk=%s",
+                self.request.user.pk,
+            )
             ctx["volunteer_summary"] = None
 
         # ── Donation summary widget ───────────────────────────────────────────────
+        # Imports are lazy (inside try) to prevent circular imports with apps.payments.
+        # C-2: bare except logs at exception level so DB/import failures are observable.
         try:
-            from decimal import Decimal as _Dec
-            from django.db.models import Sum as _Sum
-            from django.utils import timezone as _tz_don
-            from apps.payments.models import Donation, OfficialDonationReceipt
+            from decimal import Decimal as _Dec  # noqa: PLC0415
+            from django.db.models import Count as _Count, Sum as _Sum  # noqa: PLC0415
+            from django.utils import timezone as _tz_don  # noqa: PLC0415
+            from apps.payments.models import Donation, OfficialDonationReceipt  # noqa: PLC0415
             _current_year = _tz_don.localtime(_tz_don.now()).year
             _ytd = Donation.objects.filter(
                 donor=self.request.user,
@@ -171,6 +181,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 "last_receipt": _last_receipt,
             }
         except Exception:
+            logger.exception(
+                "portal.views.DashboardView: donation_summary failed for user_pk=%s",
+                self.request.user.pk,
+            )
             ctx["donation_summary"] = None
 
         return ctx

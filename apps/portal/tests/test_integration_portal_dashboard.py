@@ -282,20 +282,19 @@ class DashboardVolunteerWidgetTests(TestCase):
 
     def test_user_with_volunteer_profile_volunteer_summary_present(self):
         """
-        User with VolunteerProfile: the outer except catches FieldError
-        (shift__start_time mismatch), so volunteer_summary = None.
-        This test documents that existing behaviour.
+        C-1 fix: with volunteer=_profile (correct FK name) and in_review status,
+        the view succeeds and volunteer_summary is a dict with has_profile=True.
         """
         user = _make_user()
         _make_profile(user)
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
-        # Due to shift__start_time FieldError in the view, the outer except fires.
-        # volunteer_summary is None (graceful degradation).
         vol_sum = response.context.get("volunteer_summary")
-        # Document actual behaviour: None due to FieldError fallback
-        self.assertIsNone(vol_sum)
+        self.assertIsNotNone(vol_sum)
+        self.assertTrue(vol_sum["has_profile"])
+        self.assertIn("active_application_count", vol_sum)
+        self.assertIn("upcoming_shift_count", vol_sum)
 
     def test_volunteer_summary_none_does_not_crash_page(self):
         """Page must render 200 even when volunteer_summary is None."""
@@ -307,9 +306,8 @@ class DashboardVolunteerWidgetTests(TestCase):
 
     def test_pending_application_counted_in_active(self):
         """
-        With VolunteerProfile + pending application, the FieldError from
-        shift__start_time propagates to outer except → volunteer_summary = None.
-        Documents current behaviour for the active_application_count path.
+        C-1 fix: with volunteer=_profile (correct FK name), a pending application
+        is correctly reflected in active_application_count.
         """
         user = _make_user()
         profile = _make_profile(user)
@@ -318,14 +316,16 @@ class DashboardVolunteerWidgetTests(TestCase):
         _make_application(profile, opp, status="pending")
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
-        # Because the FieldError fires before we can read application counts
-        # (ShiftBooking.objects.filter(... shift__start_time ...) is evaluated),
-        # the whole widget block fails → None
         vol_sum = response.context.get("volunteer_summary")
-        self.assertIsNone(vol_sum)
+        self.assertIsNotNone(vol_sum)
+        self.assertTrue(vol_sum["has_profile"])
+        self.assertEqual(vol_sum["active_application_count"], 1)
 
     def test_rejected_application_not_counted(self):
-        """Even with rejected application, volunteer_summary fallback is None."""
+        """
+        C-1 fix: rejected application must NOT appear in active_application_count.
+        Status 'rejected' is excluded from the filter (pending/in_review/approved only).
+        """
         user = _make_user()
         profile = _make_profile(user)
         program = _make_program()
@@ -334,9 +334,11 @@ class DashboardVolunteerWidgetTests(TestCase):
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
-        # Widget fails gracefully
         vol_sum = response.context.get("volunteer_summary")
-        self.assertIsNone(vol_sum)
+        self.assertIsNotNone(vol_sum)
+        self.assertTrue(vol_sum["has_profile"])
+        # Rejected application must not be counted
+        self.assertEqual(vol_sum["active_application_count"], 0)
 
     def test_volunteer_summary_none_means_no_crash(self):
         """Graceful degradation: when volunteer_summary = None, template must not raise."""
@@ -481,7 +483,7 @@ class DashboardDonationWidgetTests(TestCase):
     def test_last_receipt_has_expected_keys_when_receipt_exists(self):
         user = _make_user()
         donation = _make_donation(user, amount="100.00", status="completed")
-        _make_receipt(donation, serial_number="REC-001", eligible_amount=Decimal("100.00"))
+        _make_receipt(donation, serial_number="2024-000001", eligible_amount=Decimal("100.00"))
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         don_sum = response.context.get("donation_summary")
@@ -495,31 +497,37 @@ class DashboardDonationWidgetTests(TestCase):
     def test_last_receipt_serial_number_correct(self):
         user = _make_user()
         donation = _make_donation(user, amount="200.00", status="completed")
-        _make_receipt(donation, serial_number="REC-TEST-999")
+        # C-4: serial_number must match r"^\d{4}-\d{6}$" production constraint.
+        _make_receipt(donation, serial_number="2026-000999")
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         don_sum = response.context.get("donation_summary")
         self.assertIsNotNone(don_sum)
         last_receipt = don_sum.get("last_receipt")
         self.assertIsNotNone(last_receipt)
-        self.assertEqual(last_receipt["serial_number"], "REC-TEST-999")
+        self.assertEqual(last_receipt["serial_number"], "2026-000999")
 
     def test_donation_summary_graceful_degradation_when_exception(self):
         """
-        When the Donation model is unavailable (mocked to raise), donation_summary
-        is set to None rather than crashing the page.
+        When Donation.objects.filter raises (DB outage, etc.), the outer
+        except Exception in DashboardView sets donation_summary=None and
+        the page still renders 200.
+
+        C-3 fix: patch Donation.objects.filter (not Donation.objects) so the
+        side_effect actually fires when .filter() is called on the manager.
         """
-        from unittest.mock import patch
+        from unittest.mock import patch, MagicMock
         user = _make_user()
         self.client.force_login(user)
         with patch(
-            "apps.payments.models.Donation.objects",
+            "apps.payments.models.Donation.objects.filter",
             side_effect=Exception("DB unavailable"),
         ):
-            # The outer except in the view catches this and sets donation_summary=None
-            # However since patching at module level is tricky, we verify the 200 response
             response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
+        # The exception should have been caught; donation_summary is None.
+        don_sum = response.context.get("donation_summary")
+        self.assertIsNone(don_sum)
 
 
 # ---------------------------------------------------------------------------
