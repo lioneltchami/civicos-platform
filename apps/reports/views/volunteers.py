@@ -152,11 +152,17 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
             from apps.volunteers.services.reporting import impact_value
             impact = impact_value(year)
 
-        # Merge impact into volunteer_summary for template convenience
-        volunteer_summary["estimated_value_cad"] = impact.get(
-            "estimated_value_cad", _Dec("0.00")
-        )
-        volunteer_summary["hourly_rate"] = impact.get("hourly_rate", _Dec("0.00"))
+        # H-1 fix: impact_value(year) returns year-to-date totals, not the
+        # selected month's value. For a monthly dashboard we compute the
+        # economic value as: monthly_hours × hourly_rate (the provincial rate
+        # is time-invariant and comes from impact_value). This gives the
+        # correct per-month estimated value rather than an inflated YTD figure.
+        _hourly_rate = impact.get("hourly_rate", _Dec("0.00"))
+        _monthly_hours = volunteer_summary.get("total_approved_hours", _Dec("0.00"))
+        _monthly_value = (_monthly_hours * _hourly_rate).quantize(_Dec("0.01"))
+
+        volunteer_summary["estimated_value_cad"] = _monthly_value
+        volunteer_summary["hourly_rate"] = _hourly_rate
         volunteer_summary["province"] = impact.get("province", "ON")
 
         # ── Recent snapshots sidebar ──────────────────────────────────────────

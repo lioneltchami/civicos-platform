@@ -22,6 +22,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -372,6 +373,102 @@ class CombinedServiceTests(TestCase):
         result = combined_nonprofit_impact(2025)
         self.assertIsNotNone(result)
         self.assertIsInstance(result, dict)
+
+    # ── H-9: Exception path tests ─────────────────────────────────────────────
+
+    def test_volunteer_source_exception_returns_zero_volunteer_dict(self):
+        """
+        H-9: When impact_value() raises an exception, combined_nonprofit_impact
+        returns zero-valued defaults for the volunteer sub-dict rather than
+        propagating the exception.
+        """
+        with patch(
+            "apps.volunteers.services.reporting.impact_value",
+            side_effect=RuntimeError("volunteer service unavailable"),
+        ):
+            result = combined_nonprofit_impact(2025)
+
+        vol = result["volunteer"]
+        self.assertEqual(vol["total_approved_hours"], Decimal("0.00"))
+        self.assertEqual(vol["estimated_value_cad"], Decimal("0.00"))
+        self.assertEqual(vol["volunteer_count"], 0)
+        self.assertEqual(vol["hourly_rate"], Decimal("0.00"))
+        self.assertEqual(vol["province"], "ON")
+
+    def test_volunteer_source_exception_does_not_affect_donations(self):
+        """
+        H-9: When the volunteer source fails, the donation data is still
+        computed normally and returned (independent data sources).
+        """
+        with patch(
+            "apps.volunteers.services.reporting.impact_value",
+            side_effect=RuntimeError("volunteer service unavailable"),
+        ):
+            result = combined_nonprofit_impact(2025)
+
+        # donations sub-dict must still have all required keys, even if zeros
+        don = result["donations"]
+        for key in ("total_donations", "total_eligible_amount", "donation_count",
+                    "unique_donor_count", "receipts_issued"):
+            self.assertIn(key, don)
+
+    def test_donation_source_exception_returns_zero_donation_dict(self):
+        """
+        H-9: When get_annual_donation_summary() raises an exception,
+        combined_nonprofit_impact returns zero-valued defaults for the donations
+        sub-dict rather than propagating the exception.
+
+        Patch target: the function on its SOURCE module (not on combined.py),
+        because combined.py uses a deferred `from ... import` inside a try block.
+        """
+        with patch(
+            "apps.reports.services.donations.get_annual_donation_summary",
+            side_effect=RuntimeError("donations DB unavailable"),
+        ):
+            result = combined_nonprofit_impact(2025)
+
+        don = result["donations"]
+        self.assertEqual(don["total_donations"], Decimal("0.00"))
+        self.assertEqual(don["total_eligible_amount"], Decimal("0.00"))
+        self.assertEqual(don["donation_count"], 0)
+        self.assertEqual(don["unique_donor_count"], 0)
+        self.assertEqual(don["receipts_issued"], 0)
+
+    def test_donation_source_exception_does_not_affect_volunteer(self):
+        """
+        H-9: When the donation source fails, the volunteer data is still
+        computed normally and returned (independent data sources).
+        """
+        with patch(
+            "apps.reports.services.donations.get_annual_donation_summary",
+            side_effect=RuntimeError("donations DB unavailable"),
+        ):
+            result = combined_nonprofit_impact(2025)
+
+        # volunteer sub-dict must still have all required keys
+        vol = result["volunteer"]
+        for key in ("total_approved_hours", "estimated_value_cad", "volunteer_count",
+                    "hourly_rate", "province"):
+            self.assertIn(key, vol)
+
+    def test_both_sources_fail_returns_all_zeros(self):
+        """
+        H-9: When both sources fail independently, the function still returns a
+        valid dict with zeros and does not raise.
+        """
+        with patch(
+            "apps.volunteers.services.reporting.impact_value",
+            side_effect=RuntimeError("volunteer down"),
+        ), patch(
+            "apps.reports.services.donations.get_annual_donation_summary",
+            side_effect=RuntimeError("donations down"),
+        ):
+            result = combined_nonprofit_impact(2025)
+
+        self.assertIsInstance(result, dict)
+        self.assertEqual(result["volunteer"]["estimated_value_cad"], Decimal("0.00"))
+        self.assertEqual(result["donations"]["total_eligible_amount"], Decimal("0.00"))
+        self.assertEqual(result["combined_value_cad"], Decimal("0.00"))
 
 
 # ---------------------------------------------------------------------------

@@ -71,10 +71,14 @@ def combined_nonprofit_impact(year: int) -> dict:
             "province": vol_raw["province"],
         }
     except Exception:
+        # H-2: exc_info=True so the full traceback is available in logs/Sentry.
+        # Without this, a bug in impact_value() silently zeros T3010 Schedule 2
+        # with no way to distinguish "BB not installed" from "data error".
         logger.warning(
             "reports.services.combined.combined_nonprofit_impact.volunteer_failed "
             "year=%s — returning zeros",
             year,
+            exc_info=True,
         )
         volunteer = _volunteer_zero
 
@@ -97,10 +101,12 @@ def combined_nonprofit_impact(year: int) -> dict:
             "receipts_issued": don_raw["receipts_issued"],
         }
     except Exception:
+        # H-2: exc_info=True so the full traceback is available in logs/Sentry.
         logger.warning(
             "reports.services.combined.combined_nonprofit_impact.donations_failed "
             "year=%s — returning zeros",
             year,
+            exc_info=True,
         )
         donations = _donations_zero
 

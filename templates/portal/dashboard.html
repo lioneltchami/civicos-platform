@@ -153,7 +153,7 @@
       <a href="{% url 'donor_portal:dashboard' %}"
          class="btn btn--secondary"
          aria-label="{% trans 'View your full donation history and download receipts' %}">
-        {% trans "View donation history &amp; receipts" %} &rarr;
+        {% trans "View donation history & receipts" %} &rarr;
       </a>
     </div>
   </section>
@@ -172,7 +172,9 @@
 
     {% if recent_requests %}
       <div class="table-wrapper" role="region" aria-label="{% trans 'Recent service requests' %}" tabindex="0">
-        <table class="data-table">
+        <table class="data-table" aria-describedby="recent-heading">
+          {# H-3: caption gives the table an accessible name for screen-reader table navigation #}
+          <caption class="visually-hidden">{% trans "Recent service requests" %}</caption>
           <thead>
             <tr>
               <th scope="col">{% trans "Reference #" %}</th>

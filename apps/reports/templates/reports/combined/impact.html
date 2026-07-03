@@ -39,7 +39,9 @@
 <div class="alert alert-primary mb-4" role="region" aria-labelledby="combined-value-heading">
   <h2 class="h5 mb-1" id="combined-value-heading">{% trans "Total Community Value" %}</h2>
   <p class="display-6 fw-bold mb-1">
-    ${{ impact.combined_value_cad|floatformat:2|intcomma }}
+    {# H-6: blocktrans lets fr-CA translators reorder the $ symbol;
+       floatformat:"2g" uses locale-aware grouping (1 234,56 in fr-CA). #}
+    {% blocktrans with amount=impact.combined_value_cad|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
   </p>
   <p class="mb-0 small">
     {% trans "Volunteer Value + Eligible Donations" %} &mdash; {% trans "Calendar year" %} {{ year }}
@@ -67,7 +69,8 @@
 
             <dt class="col-sm-7">{% trans "Estimated Value (CAD)" %}</dt>
             <dd class="col-sm-5 text-end fw-bold">
-              ${{ impact.volunteer.estimated_value_cad|floatformat:2|intcomma }}
+              {# H-6: blocktrans for locale-aware currency ordering #}
+              {% blocktrans with amount=impact.volunteer.estimated_value_cad|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Volunteer Count" %}</dt>
@@ -77,8 +80,8 @@
 
             <dt class="col-sm-7">{% trans "Hourly Rate" %}</dt>
             <dd class="col-sm-5 text-end">
-              ${{ impact.volunteer.hourly_rate|floatformat:2 }}/{% trans "hr" %}
-              ({{ impact.volunteer.province }})
+              {# H-6: single blocktrans so translators can reorder $, rate, and /hr together #}
+              {% blocktrans with rate=impact.volunteer.hourly_rate|floatformat:"2g" province=impact.volunteer.province %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
             </dd>
           </dl>
         </div>
@@ -102,12 +105,14 @@
           <dl class="row mb-0">
             <dt class="col-sm-7">{% trans "Total Donations" %}</dt>
             <dd class="col-sm-5 text-end">
-              ${{ impact.donations.total_donations|floatformat:2|intcomma }}
+              {# H-6: blocktrans for locale-aware currency #}
+              {% blocktrans with amount=impact.donations.total_donations|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Eligible Amount" %}</dt>
             <dd class="col-sm-5 text-end fw-bold">
-              ${{ impact.donations.total_eligible_amount|floatformat:2|intcomma }}
+              {# H-6: blocktrans for locale-aware currency #}
+              {% blocktrans with amount=impact.donations.total_eligible_amount|floatformat:"2g" %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Donor Count" %}</dt>
@@ -135,9 +140,10 @@
 </div>
 
 {# ── CRA T3010 note ───────────────────────────────────────────────────────── #}
-<div class="card border-info mb-4" role="note" aria-label="{% trans 'CRA filing note' %}">
+{# H-5: role="note" is not a valid ARIA landmark. Use <section aria-labelledby> instead. #}
+<section class="card border-info mb-4" aria-labelledby="cra-t3010-heading">
   <div class="card-body">
-    <h2 class="h6 card-title text-info-emphasis">{% trans "CRA T3010 Reference" %}</h2>
+    <h2 class="h6 card-title text-info-emphasis" id="cra-t3010-heading">{% trans "CRA T3010 Reference" %}</h2>
     <p class="card-text mb-0">
       {{ impact.t3010_notes }}
     </p>
@@ -146,7 +152,7 @@
       {% trans "Consult your charity's accountant before filing." %}
     </p>
   </div>
-</div>
+</section>
 
 {# ── Navigation ───────────────────────────────────────────────────────────── #}
 <div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Navigation actions' %}">
