@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize %}
+{% load i18n humanize report_tags %}
 {# Combined Non-Profit Impact — Reports BB.
    Context keys: year, impact (dict from combined_nonprofit_impact).
    impact keys: year, volunteer (dict), donations (dict),
@@ -43,9 +43,9 @@
   <h2 class="h5 mb-1" id="combined-value-heading">{% trans "Total Community Value" %}</h2>
   <p class="display-6 fw-bold mb-1">
     {# H-6: blocktrans lets fr-CA translators reorder the $ symbol.
-       L-1: floatformat:2 forces exactly 2 decimal places (so $0.00 not $0);
-       intcomma adds locale-aware thousands grouping (1,234.56 en / 1 234,56 fr). #}
-    {% blocktrans with amount=impact.combined_value_cad|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
+       P3-1: cad_money uses Django's number_format(use_l10n=True, use_grouping=True)
+       for genuine locale-aware formatting: 1,234.56 en-CA / 1 234,56 fr-CA. #}
+    {% blocktrans with amount=impact.combined_value_cad|cad_money %}${{ amount }}{% endblocktrans %}
   </p>
   <p class="mb-0 small">
     {% trans "Volunteer Value + Eligible Donations" %} &mdash; {% trans "Calendar year" %} {{ year }}
@@ -73,8 +73,8 @@
 
             <dt class="col-sm-7">{% trans "Estimated Value (CAD)" %}</dt>
             <dd class="col-sm-5 text-end fw-bold">
-              {# H-6 / L-1: floatformat:2 + intcomma — 2 decimal places always, locale grouping #}
-              {% blocktrans with amount=impact.volunteer.estimated_value_cad|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
+              {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
+              {% blocktrans with amount=impact.volunteer.estimated_value_cad|cad_money %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Volunteer Count" %}</dt>
@@ -84,8 +84,8 @@
 
             <dt class="col-sm-7">{% trans "Hourly Rate" %}</dt>
             <dd class="col-sm-5 text-end">
-              {# H-6 / L-1: floatformat:2 + intcomma so translators can reorder $, rate, /hr together #}
-              {% blocktrans with rate=impact.volunteer.hourly_rate|floatformat:2|intcomma province=impact.volunteer.province %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
+              {# H-6 / P3-1: cad_money so translators can reorder $, rate, /hr together #}
+              {% blocktrans with rate=impact.volunteer.hourly_rate|cad_money province=impact.volunteer.province %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
             </dd>
           </dl>
         </div>
@@ -109,14 +109,14 @@
           <dl class="row mb-0">
             <dt class="col-sm-7">{% trans "Total Donations" %}</dt>
             <dd class="col-sm-5 text-end">
-              {# H-6 / L-1: floatformat:2 + intcomma — 2 decimal places always, locale grouping #}
-              {% blocktrans with amount=impact.donations.total_donations|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
+              {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
+              {% blocktrans with amount=impact.donations.total_donations|cad_money %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Eligible Amount" %}</dt>
             <dd class="col-sm-5 text-end fw-bold">
-              {# H-6 / L-1: floatformat:2 + intcomma — 2 decimal places always, locale grouping #}
-              {% blocktrans with amount=impact.donations.total_eligible_amount|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
+              {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
+              {% blocktrans with amount=impact.donations.total_eligible_amount|cad_money %}${{ amount }}{% endblocktrans %}
             </dd>
 
             <dt class="col-sm-7">{% trans "Donor Count" %}</dt>
@@ -181,11 +181,13 @@
   </a>
 </nav>
 
-{# ── PIPEDA footer note ───────────────────────────────────────────────────── #}
-<footer class="mt-4 pt-3 border-top">
+{# ── PIPEDA privacy notice ────────────────────────────────────────────────── #}
+{# P3-3: <footer> inside <main> loses its "contentinfo" ARIA landmark role per
+   ARIA spec (the role is only valid at document scope, not nested in <main>).
+   Use <aside aria-label> instead — "complementary" landmark is correct here. #}
+<aside class="mt-4 pt-3 border-top" aria-label="{% trans 'Privacy notice' %}">
   <p class="text-muted small mb-0">
-    <span class="visually-hidden">{% trans "Privacy notice: " %}</span>
     {% trans "No volunteer or donor names are displayed. Economic aggregates only." %}
   </p>
-</footer>
+</aside>
 {% endblock reports_content %}

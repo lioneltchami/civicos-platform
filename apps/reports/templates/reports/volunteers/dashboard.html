@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize %}
+{% load i18n humanize report_tags %}
 {# Volunteer Impact — Reports BB dashboard.
    Context keys: year, month, month_label, is_current_month, data_source,
                  volunteer_summary (dict), recent_snapshots.
@@ -50,9 +50,13 @@
 {# ── Primary KPI cards ──────────────────────────────────────────────────── #}
 {# M-5: <div role="region"> requires an accessible name but is not a landmark; use <section
    aria-labelledby> instead — <section> with a heading is the correct HTML5 landmark. #}
-<section class="row g-3 mb-3" aria-labelledby="kpi-heading">
+{# P3-3: <section class="row"> mixes HTML landmark semantics with Bootstrap layout.
+   Screen readers expose <section aria-labelledby> as a "region" landmark; the
+   Bootstrap "row" class belongs on a layout div inside that landmark, not on the
+   landmark element itself. Split into a landmark <section> + inner layout <div>. #}
+<section class="mb-3" aria-labelledby="kpi-heading">
   <h2 class="visually-hidden" id="kpi-heading">{% trans "Key volunteer metrics" %}</h2>
-
+  <div class="row g-3">
   <div class="col-sm-6 col-xl-3">
     <div class="card h-100">
       <div class="card-body">
@@ -100,17 +104,19 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Estimated Value (CAD)" %}</p>
         <p class="card-title h4 mb-0">
-          {# H-6 / L-1: floatformat:2 forces exactly 2 decimal places (so $0.00 not $0);
-             intcomma adds locale-aware thousands grouping (1,234.56 en / 1 234,56 fr). #}
-          {% blocktrans with amount=volunteer_summary.estimated_value_cad|floatformat:2|intcomma %}${{ amount }}{% endblocktrans %}
+          {# H-6 / P3-1: cad_money uses number_format(use_l10n=True, use_grouping=True)
+             for genuine locale-aware formatting: 1,234.56 en-CA / 1 234,56 fr-CA.
+             Replaces the intcomma pipeline which is NOT locale-aware. #}
+          {% blocktrans with amount=volunteer_summary.estimated_value_cad|cad_money %}${{ amount }}{% endblocktrans %}
         </p>
         <p class="card-text small text-muted mb-0">
-          {# H-6 / L-1: floatformat:2 + intcomma so translators can reorder rate, $/hr, and province together. #}
-          {% blocktrans with rate=volunteer_summary.hourly_rate|floatformat:2|intcomma province=volunteer_summary.province %}Annual estimate @ ${{ rate }}/hr ({{ province }}){% endblocktrans %}
+          {# H-6 / P3-1: cad_money so translators can reorder $, rate, /hr, and province together. #}
+          {% blocktrans with rate=volunteer_summary.hourly_rate|cad_money province=volunteer_summary.province %}Annual estimate @ ${{ rate }}/hr ({{ province }}){% endblocktrans %}
         </p>
       </div>
     </div>
   </div>
+  </div>{# /row g-3 — P3-3: layout div closed inside landmark <section> #}
 </section>
 
 {# ── By-programme table ──────────────────────────────────────────────────── #}
@@ -222,11 +228,14 @@
 </section>
 {% endif %}
 
-{# ── PIPEDA footer note ───────────────────────────────────────────────────── #}
-<footer class="mt-4 pt-3 border-top">
+{# ── PIPEDA privacy notice ────────────────────────────────────────────────── #}
+{# P3-3: <footer> inside <main> loses its "contentinfo" ARIA landmark role per
+   ARIA spec (the role is only valid at document scope, not nested in <main>).
+   Use <aside aria-label> instead — it has the correct "complementary" landmark
+   role at any nesting level and is semantically accurate for a side-note. #}
+<aside class="mt-4 pt-3 border-top" aria-label="{% trans 'Privacy notice' %}">
   <p class="text-muted small mb-0">
-    <span class="visually-hidden">{% trans "Privacy notice: " %}</span>
     {% trans "No volunteer names are displayed. Programme-level aggregates only." %}
   </p>
-</footer>
+</aside>
 {% endblock reports_content %}

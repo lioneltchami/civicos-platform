@@ -32,7 +32,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import connection, models
 from django.db.models import GeneratedField
 from django.db.models.functions import ExtractYear
 from django.utils import timezone
@@ -1632,15 +1632,30 @@ class Honorarium(TimestampedModel):
         # excluding self (to allow edits without counting the current amount twice).
         # Filter to honorarium payment type only — expense reimbursements must not
         # count against CRA PC-025 thresholds (C-NEW-1 fix).
-        # select_for_update() serializes concurrent honorarium creation for the same
-        # volunteer+year. Without this, two coordinators reading simultaneously could
-        # both pass the $1,000 hard-block, resulting in an undetected CRA violation.
-        # Requires ATOMIC_REQUESTS=True (set globally in base.py).
-        qs = Honorarium.objects.select_for_update().filter(
-            volunteer=self.volunteer,
-            payment_date__year=year,
-            payment_type=self.PAYMENT_TYPE_HONORARIUM,
-        )
+        # P3-4: select_for_update() serializes concurrent honorarium creation for the
+        # same volunteer+year. Without this, two coordinators reading simultaneously
+        # could both pass the $1,000 hard-block, resulting in a CRA violation.
+        # However, select_for_update() raises TransactionManagementError when called
+        # outside an atomic block (management commands, shell, unit tests without
+        # TestCase.assertRaisesMessage wrapping). Guard with connection.in_atomic_block.
+        # When called outside a transaction the locking is simply skipped — the hard-
+        # block ValidationError is still raised on the projected-total check below;
+        # only the DB-level concurrency serialisation is absent, which is acceptable
+        # for non-transactional callers (fixtures, shell). The service layer always
+        # wraps create_honorarium() in transaction.atomic(), so the normal web-request
+        # path is fully protected.
+        if connection.in_atomic_block:
+            qs = Honorarium.objects.select_for_update().filter(
+                volunteer=self.volunteer,
+                payment_date__year=year,
+                payment_type=self.PAYMENT_TYPE_HONORARIUM,
+            )
+        else:
+            qs = Honorarium.objects.filter(
+                volunteer=self.volunteer,
+                payment_date__year=year,
+                payment_type=self.PAYMENT_TYPE_HONORARIUM,
+            )
         if self.pk:
             qs = qs.exclude(pk=self.pk)
 

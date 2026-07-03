@@ -257,6 +257,17 @@ def create_honorarium(
                     )
 
             if payment_type == _H.PAYMENT_TYPE_HONORARIUM:
+                # P3-2: Compute the authoritative post-commit YTD total once,
+                # before the branch, so BOTH t4a_threshold_reached and
+                # cra_alert_threshold_reached can pass ytd_total= consistently.
+                # The query runs here (after on_commit fires) so it reflects the
+                # committed row. P2-4: Sum is imported at module level.
+                _ytd_live = _H.objects.filter(
+                    volunteer=hon.volunteer,
+                    payment_type=_H.PAYMENT_TYPE_HONORARIUM,
+                    payment_date__year=hon.payment_date.year,
+                ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+
                 if _t4a_required:
                     # VN-5: When T4A is required (YTD >= $500), only fire
                     # t4a_threshold_reached — not cra_alert_threshold_reached.
@@ -264,8 +275,13 @@ def create_honorarium(
                     # $450 alert threshold too, but the advisory alert is superseded
                     # by the mandatory T4A reporting obligation. Firing both would
                     # generate duplicate coordinator notifications for the same event.
+                    # P3-2: Pass ytd_total= for signal contract parity with
+                    # cra_alert_threshold_reached (receivers expect consistent kwargs).
                     results = t4a_threshold_reached.send_robust(
-                        sender=_H, instance=hon, coordinator=hon.created_by
+                        sender=_H,
+                        instance=hon,
+                        coordinator=hon.created_by,
+                        ytd_total=_ytd_live,
                     )
                     for recv, exc in results:
                         if isinstance(exc, Exception):
@@ -274,19 +290,8 @@ def create_honorarium(
                                 recv, exc, exc_info=exc,
                             )
                 else:
-                    # M-D: _ytd_after was captured at closure-creation time (before
-                    # on_commit) and could be stale if another signal handler mutated
-                    # honorarium.amount between save and commit. Recompute the true
-                    # YTD total from the DB now that the transaction is committed.
-                    # P2-4: Sum is already imported at module level — no deferred import needed.
-                    # Honorarium has no status field — match cumulative_ytd() filter
-                    # exactly: all PAYMENT_TYPE_HONORARIUM rows for this volunteer
-                    # in this calendar year.
-                    _ytd_live = _H.objects.filter(
-                        volunteer=hon.volunteer,
-                        payment_type=_H.PAYMENT_TYPE_HONORARIUM,
-                        payment_date__year=hon.payment_date.year,
-                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+                    # M-D: _ytd_live recomputed from DB above (post-commit), replacing
+                    # the stale pre-commit _ytd_after that was removed in VN-2.
                     if _ytd_live >= _alert_threshold:
                         results = cra_alert_threshold_reached.send_robust(
                             sender=_H,
