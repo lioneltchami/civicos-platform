@@ -355,7 +355,7 @@ class ApplyTests(BaseApplicationTestCase):
         # Our volunteer should still be able to apply even though capacity is full.
         with self.captureOnCommitCallbacks(execute=True):
             app = apply(
-                volunteer=self.profile,
+                volunteer_profile=self.profile,
                 opportunity=self.opportunity,
                 actor=self.user,
             )
