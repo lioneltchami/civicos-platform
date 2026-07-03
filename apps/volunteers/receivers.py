@@ -814,7 +814,7 @@ def notify_volunteer_on_milestone_achieved(sender, instance, volunteer, hours_th
 # ---------------------------------------------------------------------------
 
 @receiver(t4a_threshold_reached, sender="volunteers.Honorarium")
-def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, **kwargs):
+def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, ytd_total, **kwargs):
     """
     Notify the coordinator when a volunteer's cumulative honoraria reach the
     CRA $500 T4A threshold. A T4A slip must be issued.
@@ -822,7 +822,11 @@ def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, **kwargs)
     Sender: Honorarium (the class, not an instance)
     Signal: t4a_threshold_reached
 
-    PIPEDA: volunteer is referenced by profile PK only in log messages.
+    C3: ytd_total is accepted as an explicit kwarg (not absorbed into **kwargs)
+    so it can be included in the email context for coordinators.
+
+    PIPEDA: volunteer is identified by profile PK only — never name or email.
+    volunteer_display uses volunteer_id (FK, no extra query) not display_name.
     """
     try:
         try:
@@ -836,10 +840,15 @@ def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, **kwargs)
         context = {
             "recipient": coordinator,
             "volunteer_pk": instance.volunteer_id,
-            "volunteer_display": instance.volunteer.display_name,
+            # C4 / PIPEDA: display_name exposes preferred_name or first_name — real PII.
+            # Use volunteer_id (a direct FK field — zero extra DB query) instead.
+            "volunteer_display": f"Volunteer #{instance.volunteer_id}",
             "amount": str(instance.amount),
             "payment_date": str(instance.payment_date),
             "calendar_year": instance.calendar_year,
+            # C3: include ytd_total so email template can render the cumulative amount.
+            # Mirrors the symmetrical field in notify_coordinator_on_cra_alert.
+            "ytd_total": str(ytd_total),
             "portal_url": portal_url,
         }
         from apps.notifications.services import send_email_notification
@@ -870,7 +879,8 @@ def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **
     Sender: Honorarium (the class, not an instance)
     Signal: cra_alert_threshold_reached
 
-    PIPEDA: volunteer is referenced by profile PK only in log messages.
+    PIPEDA: volunteer is identified by profile PK only — never name or email.
+    volunteer_display uses volunteer_id (FK, no extra query) not display_name.
     """
     try:
         try:
@@ -884,7 +894,9 @@ def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **
         context = {
             "recipient": coordinator,
             "volunteer_pk": instance.volunteer_id,
-            "volunteer_display": instance.volunteer.display_name,
+            # C4 / PIPEDA: display_name exposes preferred_name or first_name — real PII.
+            # Use volunteer_id (a direct FK field — zero extra DB query) instead.
+            "volunteer_display": f"Volunteer #{instance.volunteer_id}",
             "amount": str(instance.amount),
             "payment_date": str(instance.payment_date),
             "calendar_year": instance.calendar_year,

@@ -143,8 +143,11 @@
       <tbody>
         {% for row in volunteer_summary.by_program %}
         <tr>
-          <td>{{ row.program_title_en|default:row.program_slug }}</td>
-          <td>{{ row.opportunity_title_en|default:row.opportunity_slug }}</td>
+          {# C2: force_escape for defence-in-depth — unlike auto-escape (conditional_escape),
+             force_escape always escapes even when the value has been mark_safe()'d upstream.
+             Both the title and the slug fallback are database strings and must be escaped. #}
+          <td>{{ row.program_title_en|default:row.program_slug|force_escape }}</td>
+          <td>{{ row.opportunity_title_en|default:row.opportunity_slug|force_escape }}</td>
           <td class="text-end">{{ row.approved_hours|floatformat:1|intcomma }}</td>
           <td class="text-end">{{ row.volunteer_count|intcomma }}</td>
           <td class="text-end">{{ row.shift_count|intcomma }}</td>

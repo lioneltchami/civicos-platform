@@ -308,16 +308,16 @@ def create_honorarium(
 
         transaction.on_commit(_post_commit)
 
-    # M-A / P2-5: PIPEDA — do not log amount OR payment_type together with
-    # volunteer_profile.pk. Logging payment_type=PAYMENT_TYPE_EXPENSE + profile PK
-    # reveals that a specific volunteer received an expense reimbursement, which
-    # is financial profiling even without the amount. The full record is in the
-    # DB audit trail; operational logs need only the honorarium PK and actor.
+    # C1 / PIPEDA: Do not log volunteer_profile.pk together with honorarium.pk.
+    # An Honorarium PK is a financial record identifier — correlating it with a
+    # volunteer profile PK in a log line constitutes financial profiling even
+    # without the amount or payment_type (which were removed in P2-5).
+    # The full record is in the DB audit trail; operational logs need only the
+    # financial record PK and the actor who created it.
     logger.info(
         "volunteers.services.honoraria: Honorarium #%s created — "
-        "volunteer profile #%s, created_by user #%s",
+        "created_by user #%s",
         honorarium.pk,
-        volunteer_profile.pk,
         created_by.pk,
     )
     return honorarium
