@@ -344,7 +344,7 @@ class ApplyTests(BaseApplicationTestCase):
             )
             from apps.volunteers.models import VolunteerProfile
             other_profile = VolunteerProfile.objects.create(
-                user=other_user, display_name=f"Cap Vol {i}"
+                user=other_user, preferred_name=f"Cap Vol {i}"
             )
             VolunteerApplication.objects.create(
                 volunteer=other_profile,
