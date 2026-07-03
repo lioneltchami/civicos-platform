@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize report_tags %}
+{% load i18n report_tags %}
 {# Volunteer Impact — Reports BB dashboard.
    Context keys: year, month, month_label, is_current_month, data_source,
                  volunteer_summary (dict), recent_snapshots.
@@ -79,7 +79,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Volunteer Count" %}</p>
         <p class="card-title h4 mb-0">
-          {{ volunteer_summary.volunteer_count|intcomma }}
+          {{ volunteer_summary.volunteer_count|cad_money:0 }}
         </p>
         <p class="card-text small text-muted mb-0">
           {% trans "Distinct volunteers with approved hours" %}
@@ -93,10 +93,10 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Opportunities" %}</p>
         <p class="card-title h4 mb-0">
-          {{ volunteer_summary.opportunity_count|intcomma }}
+          {{ volunteer_summary.opportunity_count|cad_money:0 }}
         </p>
         <p class="card-text small text-muted mb-0">
-          {{ volunteer_summary.program_count|intcomma }}&nbsp;{% trans "programme(s)" %}
+          {% blocktrans count n=volunteer_summary.program_count %}{{ n }} programme{% plural %}{{ n }} programmes{% endblocktrans %}
         </p>
       </div>
     </div>
@@ -154,8 +154,8 @@
           <td>{{ row.program_title_en|default:row.program_slug|force_escape }}</td>
           <td>{{ row.opportunity_title_en|default:row.opportunity_slug|force_escape }}</td>
           <td class="text-end">{{ row.approved_hours|cad_money:1 }}</td>
-          <td class="text-end">{{ row.volunteer_count|intcomma }}</td>
-          <td class="text-end">{{ row.shift_count|intcomma }}</td>
+          <td class="text-end">{{ row.volunteer_count|cad_money:0 }}</td>
+          <td class="text-end">{{ row.shift_count|cad_money:0 }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -164,7 +164,7 @@
           {# M-7: "Total" is a row header (labels the aggregate row), not a data cell. #}
           <th scope="row" colspan="2">{% trans "Total" %}</th>
           <td class="text-end">{{ volunteer_summary.total_approved_hours|cad_money:1 }}</td>
-          <td class="text-end">{{ volunteer_summary.volunteer_count|intcomma }}</td>
+          <td class="text-end">{{ volunteer_summary.volunteer_count|cad_money:0 }}</td>
           <td class="text-end">&mdash;</td>
         </tr>
       </tfoot>
@@ -182,7 +182,7 @@
    controls, not for navigation links. Some AT announce "group" before the links,
    which is misleading. Use <nav> with aria-label instead. #}
 <nav class="d-flex gap-2 flex-wrap mb-5" aria-label="{% trans 'Navigation actions' %}">
-  <a href="{% url 'reports:combined-impact' %}?year={{ year }}"
+  <a href="{% url 'reports:combined-impact' %}?year={{ year|urlencode }}"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Combined Impact →" %}
   </a>
@@ -216,7 +216,7 @@
           </td>
           <td class="text-end">
             {% with h=snap.data.hours %}
-              {% if h %}{{ h.volunteer_count|intcomma }}{% else %}&mdash;{% endif %}
+              {% if h %}{{ h.volunteer_count|cad_money:0 }}{% else %}&mdash;{% endif %}
             {% endwith %}
           </td>
           <td class="text-end">

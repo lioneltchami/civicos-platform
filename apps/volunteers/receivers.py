@@ -435,7 +435,9 @@ def notify_volunteer_on_shift_booked(sender, instance, shift, volunteer, **kwarg
 
         context = {
             "recipient": recipient,
-            "volunteer_display": booking.volunteer.display_name,
+            # H1 / PIPEDA: display_name is real PII sent to third-party ESPs.
+            # Use the FK integer (volunteer_id) which is already loaded; no extra query.
+            "volunteer_display": f"Volunteer #{booking.volunteer_id}",
             "shift_title": booking.shift.title_en,
             "opportunity_title": opp_title,
             "shift_start": django_date_format(local_start, "DATETIME_FORMAT"),
@@ -507,7 +509,8 @@ def notify_volunteers_on_shift_cancelled(sender, instance, opportunity, reason, 
                     portal_url = ""
                 context = {
                     "recipient": recipient,
-                    "volunteer_display": booking.volunteer.display_name,
+                    # H1 / PIPEDA: display_name is real PII sent to third-party ESPs.
+                    "volunteer_display": f"Volunteer #{booking.volunteer_id}",
                     "shift_title": shift.title_en,
                     "opportunity_title": opp_title,
                     "shift_start": django_date_format(local_start, "DATETIME_FORMAT"),
@@ -566,7 +569,8 @@ def notify_volunteer_on_booking_cancelled(sender, instance, shift, volunteer, re
             "shift_location": booking.shift.location_override or "",
             "cancellation_reason": reason or "",
             "portal_url": portal_url,
-            "volunteer_display": booking.volunteer.display_name,
+            # H1 / PIPEDA: display_name is real PII sent to third-party ESPs.
+            "volunteer_display": f"Volunteer #{booking.volunteer_id}",
             "recipient": booking.volunteer.user,
         }
 
@@ -644,7 +648,8 @@ def notify_volunteer_on_hours_approved(sender, instance, approved_by, **kwargs):
 
         context = {
             "recipient": recipient,
-            "volunteer_display": volunteer.display_name,
+            # H1 / PIPEDA: display_name is real PII sent to third-party ESPs.
+            "volunteer_display": f"Volunteer #{log.volunteer_id}",
             "hours": str(log.hours),
             "date": str(log.date),
             "opportunity_title": opp_title,
@@ -712,7 +717,8 @@ def notify_volunteer_on_hours_rejected(sender, instance, rejected_by, **kwargs):
 
         context = {
             "recipient": recipient,
-            "volunteer_display": volunteer.display_name,
+            # H1 / PIPEDA: display_name is real PII sent to third-party ESPs.
+            "volunteer_display": f"Volunteer #{log.volunteer_id}",
             "hours": str(log.hours),
             "date": str(log.date),
             "opportunity_title": opp_title,
@@ -772,7 +778,8 @@ def notify_volunteer_on_milestone_achieved(sender, instance, volunteer, hours_th
 
         context = {
             "recipient": recipient,
-            "volunteer_display": volunteer_obj.display_name,
+            # H1 / PIPEDA: display_name is real PII sent to third-party ESPs.
+            "volunteer_display": f"Volunteer #{volunteer_obj.pk}",
             "hours_threshold": str(hours_threshold),
             "total_hours_approved": str(total),
             "portal_url": portal_url,
@@ -862,8 +869,6 @@ def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, ytd_total
             # C4 / PIPEDA: display_name exposes preferred_name or first_name — real PII.
             # Use volunteer_id (a direct FK field — zero extra DB query) instead.
             "volunteer_display": f"Volunteer #{instance.volunteer_id}",
-            "amount": str(instance.amount),
-            "payment_date": str(instance.payment_date),
             "calendar_year": instance.calendar_year,
             # C3: include ytd_total so email template can render the cumulative amount.
             # Mirrors the symmetrical field in notify_coordinator_on_cra_alert.
@@ -934,8 +939,6 @@ def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **
             # C4 / PIPEDA: display_name exposes preferred_name or first_name — real PII.
             # Use volunteer_id (a direct FK field — zero extra DB query) instead.
             "volunteer_display": f"Volunteer #{instance.volunteer_id}",
-            "amount": str(instance.amount),
-            "payment_date": str(instance.payment_date),
             "calendar_year": instance.calendar_year,
             "ytd_total": str(ytd_total),
             "portal_url": portal_url,

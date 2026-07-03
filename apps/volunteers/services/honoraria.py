@@ -127,11 +127,12 @@ def create_honorarium(
         from apps.volunteers.models import VolunteerProfile
         VolunteerProfile.objects.select_for_update().get(pk=volunteer_profile.pk)
 
-        # H1: The previous code locked existing honoraria rows and computed
-        # existing_total via aggregate(), but that value was never compared
-        # against any threshold — all enforcement is in clean() below.
-        # Dead code removed; the VolunteerProfile lock above is the only
-        # serialization needed.
+        # H1: The previous version of this function computed existing_total via
+        # aggregate() but then never used that variable — it was dead code.
+        # CRA threshold comparisons ($450 alert / $500 T4A / $1,000 hard block)
+        # all happen inside clean(), called by full_clean() below.
+        # Removed the dead aggregate; the VolunteerProfile row-lock above is the
+        # only serialization point needed.
 
         # Build the instance and run full model validation (CRA rules live here).
         honorarium = Honorarium(
@@ -264,7 +265,7 @@ def create_honorarium(
                     if isinstance(exc, Exception):
                         logger.error(
                             "honorarium_created receiver %s raised %s",
-                            recv, exc, exc_info=exc,
+                            recv, exc, exc_info=(type(exc), exc, exc.__traceback__),
                         )
 
                 # M3: Use hon.payment_type (authoritative DB value committed by save())
@@ -303,7 +304,7 @@ def create_honorarium(
                             if isinstance(exc, Exception):
                                 logger.error(
                                     "t4a_threshold_reached receiver %s raised %s",
-                                    recv, exc, exc_info=exc,
+                                    recv, exc, exc_info=(type(exc), exc, exc.__traceback__),
                                 )
                     elif _ytd_live >= _alert_threshold:
                         # H2: elif (not else/if) — _ytd_live < _t4a_threshold is implicit,
@@ -319,7 +320,7 @@ def create_honorarium(
                             if isinstance(exc, Exception):
                                 logger.error(
                                     "cra_alert_threshold_reached receiver %s raised %s",
-                                    recv, exc, exc_info=exc,
+                                    recv, exc, exc_info=(type(exc), exc, exc.__traceback__),
                                 )
             except Exception:
                 logger.error(

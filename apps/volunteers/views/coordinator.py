@@ -951,24 +951,34 @@ class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequire
     http_method_names = ["post"]
 
     def post(self, request, *args, **kwargs):
-        profile = get_object_or_404(
-            VolunteerProfile.objects.filter(
-                applications__opportunity__program__coordinator=request.user
-            ).distinct(),
-            pk=self.kwargs["pk"],
-        )
-        from apps.volunteers.forms import VolunteerStatusForm
-        form = VolunteerStatusForm(request.POST)
-        if not form.is_valid():
-            messages.error(request, _("Invalid status value."))
-            return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
-
-        new_status = form.cleaned_data["status"]
-        reason = form.cleaned_data.get("reason", "")
+        # H4+H5 (TOCTOU + lock-order fix): acquire the lock FIRST inside atomic(),
+        # scoped to the coordinator, BEFORE any form validation or status checks.
+        # Previously: profile was fetched outside atomic(), form validated, then lock
+        # acquired without coordinator scope → two concurrent POSTs could both pass
+        # validation before either held the lock; lock re-fetch also dropped the
+        # coordinator scope so a deleted application could make it succeed on an
+        # unowned profile.
+        # Fix: the entire post() is wrapped in atomic(); lock + coordinator scope are
+        # combined in one query; form validation happens after the lock is held.
+        profile_pk = self.kwargs["pk"]
 
         with transaction.atomic():
-            # select_for_update to prevent concurrent status changes
-            locked = VolunteerProfile.objects.select_for_update().get(pk=profile.pk)
+            # Lock the profile and verify coordinator scope in one atomic step.
+            # select_for_update() BEFORE any business logic (CivicOS invariant).
+            locked = get_object_or_404(
+                VolunteerProfile.objects.select_for_update().filter(
+                    applications__opportunity__program__coordinator=request.user
+                ).distinct(),
+                pk=profile_pk,
+            )
+
+            from apps.volunteers.forms import VolunteerStatusForm
+            form = VolunteerStatusForm(request.POST)
+            if not form.is_valid():
+                messages.error(request, _("Invalid status value."))
+                return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": locked.pk}))
+
+            new_status = form.cleaned_data["status"]
             old_status = locked.status
             locked.status = new_status
             locked.status_changed_at = timezone.now()
@@ -977,13 +987,13 @@ class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequire
 
         logger.info(
             "VolunteerStatusChangeView: profile #%s status changed from %s to %s by user #%s",
-            profile.pk, old_status, new_status, request.user.pk,
+            locked.pk, old_status, new_status, request.user.pk,
         )
         messages.success(
             request,
             _("Volunteer status updated to %(status)s.") % {"status": locked.get_status_display()},
         )
-        return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
+        return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": locked.pk}))
 
 
 # ---------------------------------------------------------------------------

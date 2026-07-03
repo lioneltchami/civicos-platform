@@ -735,7 +735,11 @@ class HonorariumReceiverTests(HonorariumBaseTestCase):
         _args, call_kwargs = mock_send.call_args
         ctx = call_kwargs.get("context", {})
         self.assertIn("volunteer_pk", ctx)
-        self.assertIn("amount", ctx)
+        # M1 / PIPEDA: amount and payment_date must NOT appear in coordinator email context —
+        # together with volunteer_pk they constitute financial profiling of an identified individual.
+        self.assertNotIn("amount", ctx)
+        self.assertNotIn("payment_date", ctx)
+        self.assertIn("ytd_total", ctx)
         self.assertEqual(call_kwargs.get("recipient"), self.coordinator)
         self.assertEqual(call_kwargs.get("subject_key"), "volunteer_honorarium_t4a_alert")
 

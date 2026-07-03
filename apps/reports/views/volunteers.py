@@ -16,6 +16,7 @@ import calendar
 import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.utils import timezone
 from django.views.generic import TemplateView
 
@@ -66,6 +67,14 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
     permission_required = "reports.view_reportsnapshot"
     raise_exception = True  # 403 for authenticated users without permission
     template_name = "reports/volunteers/dashboard.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        # H6: PermissionRequiredMixin only checks for the explicit permission, which can be
+        # granted to any user — not just staff. These reports are operationally staff-only.
+        # Add an explicit is_staff guard as a second gate independent of the permission check.
+        if request.user.is_authenticated and not request.user.is_staff:
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
 
     def handle_no_permission(self):
         """Redirect unauthenticated users to login; raise 403 for authenticated users."""

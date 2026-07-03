@@ -135,10 +135,11 @@ class CadMoneyNegativeValueTests(TestCase):
 
     @override_settings(LANGUAGE_CODE="en-CA")
     def test_negative_zero(self):
+        from decimal import Decimal
+        # -0.00 is identical to 0.00 in Python/Decimal arithmetic
         result = cad_money(Decimal("-0.00"))
-        # -0 is mathematically zero; result may be "0.00" or "-0.00" — no crash.
-        self.assertIsInstance(result, str)
-        self.assertIn("0", result)
+        self.assertEqual(result, "0.00",
+            "Negative zero must format identically to positive zero")
 
 
 class CadMoneyInvalidInputTests(TestCase):

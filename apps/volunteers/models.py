@@ -1588,11 +1588,10 @@ class Honorarium(TimestampedModel):
         ]
 
     def __str__(self) -> str:
-        return (
-            f"Honorarium #{self.pk}: "
-            f"${self.amount} ({self.get_payment_type_display()}) "
-            f"Vol #{self.volunteer_id} — {self.payment_date.year if self.payment_date else '?'}"
-        )
+        # M2: Strip financial data (amount, payment_type) and volunteer identity from
+        # __str__ — this string appears in Django admin logs, Sentry breadcrumbs,
+        # and management command output. Year-only is safe aggregate data.
+        return f"Honorarium #{self.pk} — {self.payment_date.year if self.payment_date else '?'}"
 
     def clean(self) -> None:
         """
@@ -1632,30 +1631,22 @@ class Honorarium(TimestampedModel):
         # excluding self (to allow edits without counting the current amount twice).
         # Filter to honorarium payment type only — expense reimbursements must not
         # count against CRA PC-025 thresholds (C-NEW-1 fix).
-        # P3-4: select_for_update() serializes concurrent honorarium creation for the
-        # same volunteer+year. Without this, two coordinators reading simultaneously
-        # could both pass the $1,000 hard-block, resulting in a CRA violation.
-        # However, select_for_update() raises TransactionManagementError when called
-        # outside an atomic block (management commands, shell, unit tests without
-        # TestCase.assertRaisesMessage wrapping). Guard with connection.in_atomic_block.
-        # When called outside a transaction the locking is simply skipped — the hard-
-        # block ValidationError is still raised on the projected-total check below;
-        # only the DB-level concurrency serialisation is absent, which is acceptable
-        # for non-transactional callers (fixtures, shell). The service layer always
-        # wraps create_honorarium() in transaction.atomic(), so the normal web-request
-        # path is fully protected.
-        if connection.in_atomic_block:
-            qs = Honorarium.objects.select_for_update().filter(
-                volunteer=self.volunteer,
-                payment_date__year=year,
-                payment_type=self.PAYMENT_TYPE_HONORARIUM,
-            )
-        else:
-            qs = Honorarium.objects.filter(
-                volunteer=self.volunteer,
-                payment_date__year=year,
-                payment_type=self.PAYMENT_TYPE_HONORARIUM,
-            )
+        # H2 (deadlock fix): Do NOT acquire select_for_update() here.
+        # The service layer (create_honorarium) already holds a select_for_update()
+        # lock on VolunteerProfile before calling full_clean(). That VolunteerProfile
+        # lock is the sole serialisation point for concurrent honorarium creation.
+        # Adding a second lock on Honorarium rows inside clean() creates an AB/BA
+        # deadlock risk: if any other path acquires Honorarium first then tries to
+        # lock VolunteerProfile, both transactions deadlock. A plain non-locking
+        # read is safe here because we are already inside the same transaction that
+        # holds the VolunteerProfile lock, so the Honorarium rows cannot change
+        # under us (concurrent writes to the same volunteer would be blocked waiting
+        # for the VolunteerProfile lock, not for a Honorarium lock).
+        qs = Honorarium.objects.filter(
+            volunteer=self.volunteer,
+            payment_date__year=year,
+            payment_type=self.PAYMENT_TYPE_HONORARIUM,
+        )
         if self.pk:
             qs = qs.exclude(pk=self.pk)
 

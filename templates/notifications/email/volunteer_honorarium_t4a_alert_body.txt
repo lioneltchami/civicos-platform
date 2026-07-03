@@ -12,8 +12,6 @@
 {% trans "━━━━━━━━━━━━━━━" %}
 {% trans "Volunteer:" %} {{ volunteer_display }} ({% trans "Profile" %} #{{ volunteer_pk }})
 {% trans "Calendar Year:" %} {{ calendar_year }}
-{% trans "This Payment Amount:" %} ${{ amount }} CAD
-{% trans "Payment Date:" %} {{ payment_date }}
 
 {% trans "Required Action" %}
 {% trans "━━━━━━━━━━━━━━━" %}

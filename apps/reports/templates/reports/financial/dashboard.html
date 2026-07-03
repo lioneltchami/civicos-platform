@@ -218,7 +218,7 @@
 {# ── Quick action buttons ─────────────────────────────────────────────────── #}
 {% if perms.payments.export_financialreport %}
 <div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Export actions' %}">
-  <a href="{% url 'reports:revenue-export' %}?year={{ year }}&month={{ month }}"
+  <a href="{% url 'reports:revenue-export' %}?year={{ year|urlencode }}&month={{ month|urlencode }}"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Export Revenue CSV" %}
   </a>

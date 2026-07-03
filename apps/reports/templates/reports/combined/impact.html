@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize report_tags %}
+{% load i18n report_tags %}
 {# Combined Non-Profit Impact — Reports BB.
    Context keys: year, impact (dict from combined_nonprofit_impact).
    impact keys: year, volunteer (dict), donations (dict),
@@ -73,31 +73,39 @@
           </h2>
         </div>
         <div class="card-body">
-          <dl class="row mb-0">
-            <dt class="col-sm-7">{% trans "Total Approved Hours" %}</dt>
-            <dd class="col-sm-5 text-end">
-              {# H8: intcomma is not locale-aware; cad_money:1 uses number_format(use_l10n=True). #}
-              {{ impact.volunteer.total_approved_hours|cad_money:1 }}
-            </dd>
+          <dl class="mb-0">
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Total Approved Hours" %}</dt>
+              <dd class="col-sm-5 text-end">
+                {# H8: intcomma is not locale-aware; cad_money:1 uses number_format(use_l10n=True). #}
+                {{ impact.volunteer.total_approved_hours|cad_money:1 }}
+              </dd>
+            </div>
 
-            <dt class="col-sm-7">{% trans "Estimated Value (CAD)" %}</dt>
-            <dd class="col-sm-5 text-end fw-bold">
-              {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
-              {% blocktrans with amount=impact.volunteer.estimated_value_cad|cad_money %}${{ amount }}{% endblocktrans %}
-            </dd>
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Estimated Value (CAD)" %}</dt>
+              <dd class="col-sm-5 text-end fw-bold">
+                {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
+                {% blocktrans with amount=impact.volunteer.estimated_value_cad|cad_money %}${{ amount }}{% endblocktrans %}
+              </dd>
+            </div>
 
-            <dt class="col-sm-7">{% trans "Volunteer Count" %}</dt>
-            <dd class="col-sm-5 text-end">
-              {{ impact.volunteer.volunteer_count|intcomma }}
-            </dd>
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Volunteer Count" %}</dt>
+              <dd class="col-sm-5 text-end">
+                {{ impact.volunteer.volunteer_count|cad_money:0 }}
+              </dd>
+            </div>
 
-            <dt class="col-sm-7">{% trans "Hourly Rate" %}</dt>
-            <dd class="col-sm-5 text-end">
-              {# H-6 / P3-1: cad_money so translators can reorder $, rate, /hr together.
-                 H4: blocktrans does not auto-escape its `with` variables — add |force_escape
-                 so a mark_safe()'d province cannot inject raw HTML into the translated string. #}
-              {% blocktrans with rate=impact.volunteer.hourly_rate|cad_money province=impact.volunteer.province|force_escape %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
-            </dd>
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Hourly Rate" %}</dt>
+              <dd class="col-sm-5 text-end">
+                {# H-6 / P3-1: cad_money so translators can reorder $, rate, /hr together.
+                   H4: blocktrans does not auto-escape its `with` variables — add |force_escape
+                   so a mark_safe()'d province cannot inject raw HTML into the translated string. #}
+                {% blocktrans with rate=impact.volunteer.hourly_rate|cad_money province=impact.volunteer.province|force_escape %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
+              </dd>
+            </div>
           </dl>
         </div>
         <div class="card-footer text-muted small">
@@ -120,33 +128,43 @@
           </h2>
         </div>
         <div class="card-body">
-          <dl class="row mb-0">
-            <dt class="col-sm-7">{% trans "Total Donations" %}</dt>
-            <dd class="col-sm-5 text-end">
-              {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
-              {% blocktrans with amount=impact.donations.total_donations|cad_money %}${{ amount }}{% endblocktrans %}
-            </dd>
+          <dl class="mb-0">
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Total Donations" %}</dt>
+              <dd class="col-sm-5 text-end">
+                {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
+                {% blocktrans with amount=impact.donations.total_donations|cad_money %}${{ amount }}{% endblocktrans %}
+              </dd>
+            </div>
 
-            <dt class="col-sm-7">{% trans "Eligible Amount" %}</dt>
-            <dd class="col-sm-5 text-end fw-bold">
-              {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
-              {% blocktrans with amount=impact.donations.total_eligible_amount|cad_money %}${{ amount }}{% endblocktrans %}
-            </dd>
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Eligible Amount" %}</dt>
+              <dd class="col-sm-5 text-end fw-bold">
+                {# H-6 / P3-1: cad_money — 2 decimal places, locale-aware grouping #}
+                {% blocktrans with amount=impact.donations.total_eligible_amount|cad_money %}${{ amount }}{% endblocktrans %}
+              </dd>
+            </div>
 
-            <dt class="col-sm-7">{% trans "Donor Count" %}</dt>
-            <dd class="col-sm-5 text-end">
-              {{ impact.donations.unique_donor_count|intcomma }}
-            </dd>
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Donor Count" %}</dt>
+              <dd class="col-sm-5 text-end">
+                {{ impact.donations.unique_donor_count|cad_money:0 }}
+              </dd>
+            </div>
 
-            <dt class="col-sm-7">{% trans "Donation Count" %}</dt>
-            <dd class="col-sm-5 text-end">
-              {{ impact.donations.donation_count|intcomma }}
-            </dd>
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Donation Count" %}</dt>
+              <dd class="col-sm-5 text-end">
+                {{ impact.donations.donation_count|cad_money:0 }}
+              </dd>
+            </div>
 
-            <dt class="col-sm-7">{% trans "Receipts Issued" %}</dt>
-            <dd class="col-sm-5 text-end">
-              {{ impact.donations.receipts_issued|intcomma }}
-            </dd>
+            <div class="row mb-1">
+              <dt class="col-sm-7">{% trans "Receipts Issued" %}</dt>
+              <dd class="col-sm-5 text-end">
+                {{ impact.donations.receipts_issued|cad_money:0 }}
+              </dd>
+            </div>
           </dl>
         </div>
         <div class="card-footer text-muted small">
@@ -169,7 +187,7 @@
        ever embeds dynamic values (province, year) this prevents XSS even if a
        developer forgets to strip the safe mark. #}
     <p class="card-text mb-0">
-      {{ impact.t3010_notes|force_escape }}
+      {{ impact.t3010_notes|force_escape|linebreaksbr }}
     </p>
     <p class="card-text small text-muted mt-2 mb-0">
       {% trans "This view provides data for T3010 Schedule 2 (volunteers) and line 4500 (donations)." %}
@@ -182,11 +200,11 @@
 {# M-I: role="group" is for form controls (implicit role of <fieldset>), not links.
    Some AT announce "group" before link sets, which is misleading. Use <nav>. #}
 <nav class="d-flex gap-2 flex-wrap mb-5" aria-label="{% trans 'Navigation actions' %}">
-  <a href="{% url 'reports:volunteers-dashboard' %}?year={{ year }}&month=1"
+  <a href="{% url 'reports:volunteers-dashboard' %}?year={{ year|urlencode }}&month=1"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Volunteer Dashboard →" %}
   </a>
-  <a href="{% url 'reports:donations-annual' %}?year={{ year }}"
+  <a href="{% url 'reports:donations-annual' %}?year={{ year|urlencode }}"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Annual Donations →" %}
   </a>

@@ -34,12 +34,12 @@ User = get_user_model()
 # Shared factory helpers
 # ---------------------------------------------------------------------------
 
-_counter = [0]
+import uuid as _uuid_mod
 
 
 def _uid():
-    _counter[0] += 1
-    return _counter[0]
+    """Return a short unique hex string for factory email/username generation."""
+    return _uuid_mod.uuid4().hex[:8]
 
 
 def _make_user(email=None, password="testpass123!", **kwargs):
@@ -175,7 +175,7 @@ class HonorariumPaymentWiringTests(TransactionTestCase):
         from apps.payments.models import Payment
         honorarium = _create_honorarium(self.profile, amount="75.00", created_by=self.coordinator)
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
-        self.assertIsNotNone(payment)
+        self.assertEqual(payment.gateway_charge_id, f"HON-{honorarium.pk}")
 
     def test_payment_amount_paid_equals_honorarium_amount(self):
         from apps.payments.models import Payment
@@ -235,7 +235,7 @@ class HonorariumPaymentWiringTests(TransactionTestCase):
 # HonorariumPaymentPIPEDATests
 # ---------------------------------------------------------------------------
 
-class HonorariumPaymentPIPEDATests(TestCase):
+class HonorariumPaymentPIPEDATests(TransactionTestCase):
     """Tests that PaymentIntent.metadata never contains volunteer PII."""
 
     def setUp(self):
@@ -938,7 +938,7 @@ class HonorariumPIPEDALogTests(TransactionTestCase):
         with self.assertLogs(logger_name, level="INFO") as log_ctx:
             honorarium = _create_honorarium(
                 self.profile,
-                amount="250.00",
+                amount="317.00",
                 created_by=self.coordinator,
                 payment_date=datetime.date.today(),
             )
@@ -953,12 +953,12 @@ class HonorariumPIPEDALogTests(TransactionTestCase):
                 f"PIPEDA: 'payment_type' must not appear in INFO log — found in: {line}",
             )
             self.assertNotIn(
-                "250", line,
-                f"PIPEDA: amount '250' must not appear in INFO log — found in: {line}",
+                "317", line,
+                f"PIPEDA: amount '317' must not appear in INFO log — found in: {line}",
             )
             self.assertNotIn(
-                "250.00", line,
-                f"PIPEDA: formatted amount '250.00' must not appear in INFO log — found in: {line}",
+                "317.00", line,
+                f"PIPEDA: formatted amount '317.00' must not appear in INFO log — found in: {line}",
             )
             # CRIT-1: PIPEDA requires that the INFO log does NOT correlate the volunteer
             # profile PK with a financial record. We enforce this with an ANCHORED full-line

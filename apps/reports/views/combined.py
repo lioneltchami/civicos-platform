@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.utils import timezone
 from django.views.generic import TemplateView
 
@@ -52,6 +53,13 @@ class CombinedImpactView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
     permission_required = "reports.view_reportsnapshot"
     raise_exception = True  # 403 for authenticated users without permission
     template_name = "reports/combined/impact.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        # H6: is_staff guard — PermissionRequiredMixin only checks the explicit permission;
+        # a staff admin could grant reports.view_reportsnapshot to a non-staff user.
+        if request.user.is_authenticated and not request.user.is_staff:
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
 
     def handle_no_permission(self):
         """Redirect unauthenticated users to login; raise 403 for authenticated users."""

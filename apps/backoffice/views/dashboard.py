@@ -3,6 +3,7 @@
 import logging
 
 from django.contrib.auth import get_user_model
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
@@ -32,21 +33,18 @@ class DashboardView(StaffRequiredMixin, TemplateView):
         # ----------------------------------------------------------------
         # Service request stats
         # ----------------------------------------------------------------
-        sr_qs = ServiceRequest.objects.all()
-        ctx["sr_total"] = sr_qs.count()
-        ctx["sr_submitted"] = sr_qs.filter(
-            status=ServiceRequestStatus.SUBMITTED
-        ).count()
-        ctx["sr_in_review"] = sr_qs.filter(
-            status=ServiceRequestStatus.IN_REVIEW
-        ).count()
-        ctx["sr_awaiting"] = sr_qs.filter(
-            status=ServiceRequestStatus.AWAITING_INFO
-        ).count()
-        ctx["sr_approved_today"] = sr_qs.filter(
-            status=ServiceRequestStatus.APPROVED,
-            updated_at__date=timezone.now().date(),
-        ).count()
+        today = timezone.now().date()
+        sr_counts = ServiceRequest.objects.aggregate(
+            sr_total=Count("id"),
+            sr_submitted=Count("id", filter=Q(status=ServiceRequestStatus.SUBMITTED)),
+            sr_in_review=Count("id", filter=Q(status=ServiceRequestStatus.IN_REVIEW)),
+            sr_awaiting=Count("id", filter=Q(status=ServiceRequestStatus.AWAITING_INFO)),
+            sr_approved_today=Count(
+                "id",
+                filter=Q(status=ServiceRequestStatus.APPROVED, updated_at__date=today),
+            ),
+        )
+        ctx.update(sr_counts)
 
         # ----------------------------------------------------------------
         # Work item stats (open = non-terminal statuses)
@@ -56,11 +54,13 @@ class DashboardView(StaffRequiredMixin, TemplateView):
             WorkItemStatus.IN_PROGRESS,
             WorkItemStatus.WAITING,
         ]
-        wi_qs = WorkItem.objects.filter(status__in=open_statuses)
-        ctx["wi_open"] = wi_qs.count()
-        ctx["wi_overdue"] = wi_qs.filter(sla_breached_at__isnull=False).count()
-        ctx["wi_unassigned"] = wi_qs.filter(assigned_to__isnull=True).count()
-        ctx["wi_mine"] = wi_qs.filter(assigned_to=self.request.user).count()
+        wi_counts = WorkItem.objects.filter(status__in=open_statuses).aggregate(
+            wi_open=Count("id"),
+            wi_overdue=Count("id", filter=Q(sla_breached_at__isnull=False)),
+            wi_unassigned=Count("id", filter=Q(assigned_to__isnull=True)),
+            wi_mine=Count("id", filter=Q(assigned_to=self.request.user)),
+        )
+        ctx.update(wi_counts)
 
         # ----------------------------------------------------------------
         # Citizen stats

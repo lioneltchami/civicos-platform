@@ -70,7 +70,9 @@ def get_monthly_volunteer_summary(year: int, month: int) -> dict:
         ),
         Decimal("0.00"),
     )
-    volunteer_count = sum(row["volunteer_count"] for row in rows)
+    # H3: None guard matches the approved_hours pattern above — DB COUNT is an int but
+    # can be None if the annotation is conditional or the queryset is empty after joining.
+    volunteer_count = sum((row["volunteer_count"] or 0) for row in rows)
     opportunity_count = len(rows)
     program_count = len({row["program_slug"] for row in rows if row["program_slug"]})
 

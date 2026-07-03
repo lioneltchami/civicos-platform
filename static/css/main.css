@@ -632,3 +632,10 @@ details[open] .accordion__summary::after { content: "−"; }
 .pagination__list { display: flex; align-items: center; gap: var(--space-4); list-style: none; padding: 0; margin: 0; }
 .pagination__link { font-weight: 600; }
 .pagination__current { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+
+/* WCAG AA: Bootstrap .text-muted ships at #6c757d (~4.48:1 on white) which
+   is below the 4.5:1 AA threshold for small text. Override with the project's
+   --color-text-muted (#595959, 7:1 on white) to satisfy WCAG 2.1 AA. */
+.text-muted {
+  color: var(--color-text-muted) !important;
+}

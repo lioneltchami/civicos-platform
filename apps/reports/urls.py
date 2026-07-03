@@ -22,6 +22,7 @@ URL layout:
 
 Views are imported lazily inside urlpatterns to keep startup imports minimal.
 """
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.urls import path
 
@@ -118,12 +119,12 @@ urlpatterns = [
     # ── Integration Wave: volunteers + combined ───────────────────────────────
     path(
         "volunteers/",
-        VolunteerImpactDashboardView.as_view(),
+        login_required(VolunteerImpactDashboardView.as_view()),
         name="volunteers-dashboard",
     ),
     path(
         "combined/",
-        CombinedImpactView.as_view(),
+        login_required(CombinedImpactView.as_view()),
         name="combined-impact",
     ),
 ]

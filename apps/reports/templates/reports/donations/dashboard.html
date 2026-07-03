@@ -206,7 +206,7 @@
      class="btn btn-sm btn-outline-secondary">
     {% trans "Export Receipts CSV" %}
   </a>
-  <a href="{% url 'reports:donations-annual' %}?year={{ year }}"
+  <a href="{% url 'reports:donations-annual' %}?year={{ year|urlencode }}"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Annual Summary →" %}
   </a>
@@ -217,7 +217,7 @@
 </div>
 {% else %}
 <div class="d-flex gap-2 flex-wrap mb-5" role="group" aria-label="{% trans 'Navigation actions' %}">
-  <a href="{% url 'reports:donations-annual' %}?year={{ year }}"
+  <a href="{% url 'reports:donations-annual' %}?year={{ year|urlencode }}"
      class="btn btn-sm btn-outline-secondary">
     {% trans "Annual Summary →" %}
   </a>

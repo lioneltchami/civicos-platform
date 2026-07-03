@@ -19,6 +19,7 @@ Settings: --settings=config.settings.test
 """
 from __future__ import annotations
 
+import datetime as _dt
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -990,20 +991,22 @@ class ReportsTaskTests(TestCase):
 
     def test_compute_all_snapshots_second_run_updates_data(self):
         """Second run (update_or_create) updates the existing row — same PK, no duplicate."""
-        _compute_all_snapshots(2025, 4)
+        t1 = _dt.datetime(2025, 4, 1, 12, 0, 0, tzinfo=_dt.timezone.utc)
+        t2 = _dt.datetime(2025, 4, 1, 12, 0, 1, tzinfo=_dt.timezone.utc)
+        with patch('django.utils.timezone.now', return_value=t1):
+            _compute_all_snapshots(2025, 4)
         snap_v1 = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
             period_year=2025,
             period_month=4,
         )
-        _compute_all_snapshots(2025, 4)
+        with patch('django.utils.timezone.now', return_value=t2):
+            _compute_all_snapshots(2025, 4)
         snap_v2 = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
             period_year=2025,
             period_month=4,
         )
-        # M-H: Three assertions together close the "no-op update" gap:
-        #
         # 1. Same PK — second run updated the existing row, not a new INSERT.
         self.assertEqual(
             snap_v1.pk, snap_v2.pk,
@@ -1016,13 +1019,10 @@ class ReportsTaskTests(TestCase):
             period_month=4,
         ).count()
         self.assertEqual(total, 1, "Exactly one snapshot row must exist after two runs")
-        # 3. computed_at >= previous computed_at — the row was actually re-saved,
-        #    not returned as a no-op by update_or_create with empty defaults.
-        #    Note: may be equal when both calls land within the same DB timestamp
-        #    resolution (e.g. same second in SQLite); ≥ is the correct relation.
-        self.assertGreaterEqual(
+        # 3. Frozen time guarantees t2 > t1 strictly — assertGreater (not >=) is correct.
+        self.assertGreater(
             snap_v2.computed_at, snap_v1.computed_at,
-            "computed_at after second run must be >= first run (row was re-saved)",
+            "computed_at after second run must be strictly > first run (row was re-saved)",
         )
 
     def test_compute_single_snapshot_volunteers_returns_tuple(self):

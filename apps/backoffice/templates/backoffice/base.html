@@ -127,8 +127,7 @@
 <ul class="bo-sidebar__nav" role="list">
   <li>
     <a class="bo-sidebar__link"
-       href="{% url 'backoffice:dashboard' %}"
-       aria-label="{% trans 'Dashboard' %}">{% trans "Dashboard" %}</a>
+       href="{% url 'backoffice:dashboard' %}">{% trans "Dashboard" %}</a>
   </li>
 </ul>
 {% endblock navigation %}
@@ -149,7 +148,6 @@
       <li>
         <a class="bo-sidebar__link"
            href="{% url 'backoffice:dashboard' %}"
-           aria-label="{% trans 'Dashboard' %}"
            {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}>
           {% trans "Dashboard" %}
         </a>
@@ -162,7 +160,6 @@
       <li>
         <a class="bo-sidebar__link"
            href="{% url 'backoffice:sr-list' %}"
-           aria-label="{% trans 'All service requests' %}"
            {% if request.resolver_match.url_name == 'sr-list' %}aria-current="page"{% endif %}>
           {% trans "Service Requests" %}
         </a>
@@ -175,7 +172,6 @@
       <li>
         <a class="bo-sidebar__link"
            href="{% url 'backoffice:wi-list' %}"
-           aria-label="{% trans 'Work items queue' %}"
            {% if request.resolver_match.url_name == 'wi-list' %}aria-current="page"{% endif %}>
           {% trans "Work Items" %}
         </a>
@@ -188,7 +184,6 @@
       <li>
         <a class="bo-sidebar__link"
            href="{% url 'backoffice:citizen-list' %}"
-           aria-label="{% trans 'Citizens list' %}"
            {% if request.resolver_match.url_name == 'citizen-list' %}aria-current="page"{% endif %}>
           {% trans "Citizens" %}
         </a>
@@ -201,7 +196,6 @@
       <li>
         <a class="bo-sidebar__link"
            href="{% url 'backoffice:audit-list' %}"
-           aria-label="{% trans 'Audit log' %}"
            {% if request.resolver_match.url_name == 'audit-list' %}aria-current="page"{% endif %}>
           {% trans "Audit Log" %}
         </a>
@@ -209,7 +203,6 @@
       <li>
         <a class="bo-sidebar__link"
            href="{% url 'backoffice:reports' %}"
-           aria-label="{% trans 'Reports' %}"
            {% if request.resolver_match.url_name == 'reports' %}aria-current="page"{% endif %}>
           {% trans "Reports" %}
         </a>
@@ -222,7 +215,6 @@
       <li>
         <a class="bo-sidebar__link"
            href="{% url 'backoffice:notification-list' %}"
-           aria-label="{% trans 'Staff notifications' %}"
            {% if request.resolver_match.url_name == 'notification-list' %}aria-current="page"{% endif %}>
           {% trans "Notifications" %}
         </a>
