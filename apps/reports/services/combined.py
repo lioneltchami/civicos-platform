@@ -109,15 +109,12 @@ def combined_nonprofit_impact(year: int) -> dict:
             "unique_donor_count": don_raw["unique_donor_count"],
             "receipts_issued": don_raw["receipts_issued"],
         }
-    except ImportError:
-        # M-2: ImportError means the donations service is simply not installed.
-        logger.debug(
-            "reports.services.combined.combined_nonprofit_impact: "
-            "donations service not installed — returning zero donation impact (year=%s)",
-            year,
-        )
-        donations = _donations_zero
     except Exception:
+        # H-B: apps.reports.services.donations is in the SAME app as combined.py —
+        # ImportError here means a code defect (syntax error, broken transitive import),
+        # NOT a missing optional BB. Catching ImportError separately at DEBUG would
+        # silently zero T3010 line 4500 with no WARNING in logs. Use a single
+        # except Exception with exc_info=True so the traceback reaches Sentry.
         # H-2: exc_info=True so the full traceback is available in logs/Sentry.
         logger.warning(
             "reports.services.combined.combined_nonprofit_impact.donations_failed "

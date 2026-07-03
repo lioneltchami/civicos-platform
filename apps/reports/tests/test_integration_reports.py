@@ -474,6 +474,99 @@ class CombinedServiceTests(TestCase):
         self.assertEqual(result["donations"]["total_eligible_amount"], Decimal("0.00"))
         self.assertEqual(result["combined_value_cad"], Decimal("0.00"))
 
+    # ── H-F: ImportError branch coverage ─────────────────────────────────────
+
+    def test_volunteer_import_error_returns_zero_volunteer_dict(self):
+        """
+        H-F: When the volunteers BB module is absent (ImportError on import),
+        the except ImportError branch in combined_nonprofit_impact returns zero-
+        valued defaults for the volunteer sub-dict and does not raise.
+
+        The volunteers BB is a genuinely optional building block — ImportError
+        is the correct signal that it is not installed. This branch logs at DEBUG
+        (not WARNING) to avoid noise in deployments that omit the BB.
+
+        Technique: setting sys.modules["apps.volunteers.services.reporting"] = None
+        causes `from apps.volunteers.services.reporting import impact_value` to
+        raise ImportError, simulating a missing optional BB.
+        """
+        import sys
+        from unittest.mock import patch as _patch
+
+        with _patch.dict(sys.modules, {"apps.volunteers.services.reporting": None}):
+            result = combined_nonprofit_impact(2025)
+
+        vol = result["volunteer"]
+        self.assertEqual(vol["total_approved_hours"], Decimal("0.00"))
+        self.assertEqual(vol["estimated_value_cad"], Decimal("0.00"))
+        self.assertEqual(vol["volunteer_count"], 0)
+        self.assertEqual(vol["hourly_rate"], Decimal("0.00"))
+        self.assertEqual(vol["province"], "ON")
+        # The function must not raise — it must still return a complete dict
+        self.assertIn("donations", result)
+        self.assertIn("combined_value_cad", result)
+
+    def test_volunteer_import_error_does_not_log_warning(self):
+        """
+        H-F: ImportError from the optional volunteers BB must be logged at DEBUG,
+        NOT at WARNING. A WARNING would be noise in every deployment that omits
+        the volunteers building block.
+        """
+        import sys
+        from unittest.mock import patch as _patch
+
+        logger_name = "apps.reports.services.combined"
+        with self.assertLogs(logger_name, level="DEBUG") as log_ctx:
+            with _patch.dict(sys.modules, {"apps.volunteers.services.reporting": None}):
+                combined_nonprofit_impact(2025)
+
+        # Filter to only messages from this function
+        debug_msgs = [m for m in log_ctx.output if "DEBUG" in m and "volunteers BB not installed" in m]
+        warning_msgs = [m for m in log_ctx.output if "WARNING" in m and "volunteer" in m.lower()]
+        self.assertTrue(
+            debug_msgs,
+            "ImportError from volunteers BB must produce a DEBUG log entry",
+        )
+        self.assertFalse(
+            warning_msgs,
+            f"ImportError from volunteers BB must NOT produce a WARNING — found: {warning_msgs}",
+        )
+
+    def test_donation_import_error_treated_as_exception_returns_zero_dict(self):
+        """
+        H-F / H-B: apps.reports.services.donations is in the SAME app as combined.py.
+        After H-B removed the separate except ImportError from the donations block,
+        an ImportError from that module now falls through to except Exception,
+        which logs at WARNING with exc_info.
+
+        This test verifies that:
+        (a) the function still returns zero donation defaults (no propagation)
+        (b) a WARNING is emitted (not silently swallowed at DEBUG)
+
+        Technique: same sys.modules patching as the volunteer test above.
+        """
+        import sys
+        from unittest.mock import patch as _patch
+
+        logger_name = "apps.reports.services.combined"
+        with self.assertLogs(logger_name, level="WARNING") as log_ctx:
+            with _patch.dict(sys.modules, {"apps.reports.services.donations": None}):
+                result = combined_nonprofit_impact(2025)
+
+        don = result["donations"]
+        self.assertEqual(don["total_donations"], Decimal("0.00"))
+        self.assertEqual(don["total_eligible_amount"], Decimal("0.00"))
+        self.assertEqual(don["donation_count"], 0)
+        self.assertEqual(don["unique_donor_count"], 0)
+        self.assertEqual(don["receipts_issued"], 0)
+        # A WARNING must be present (ImportError hits except Exception → WARNING)
+        warning_msgs = [m for m in log_ctx.output if "WARNING" in m and "donations_failed" in m]
+        self.assertTrue(
+            warning_msgs,
+            "ImportError from same-app donations module must produce a WARNING "
+            "(it is a code defect, not a missing optional BB)",
+        )
+
 
 # ---------------------------------------------------------------------------
 # VolunteerViewTests

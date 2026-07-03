@@ -159,15 +159,21 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         try:
             from datetime import datetime as _dt  # noqa: PLC0415
             from decimal import Decimal as _Dec  # noqa: PLC0415
+            from zoneinfo import ZoneInfo as _ZoneInfo  # noqa: PLC0415
             from django.db.models import Count as _Count, Sum as _Sum  # noqa: PLC0415
             from django.utils import timezone as _tz_don  # noqa: PLC0415
             from apps.payments.models import Donation, OfficialDonationReceipt  # noqa: PLC0415
-            _current_year = _tz_don.localtime(_tz_don.now()).year
+            # H-C: Use explicit America/Toronto timezone for year-boundary arithmetic.
+            # make_aware() without timezone= uses settings.TIME_ZONE which may be UTC
+            # on the production server. A donation at 22:00 ET on Dec 31 (03:00 UTC
+            # Jan 1) would be counted in the wrong CRA calendar year without this.
+            _et = _ZoneInfo("America/Toronto")
+            _current_year = _tz_don.localtime(_tz_don.now(), timezone=_et).year
             # M-4: created_at__year forces EXTRACT(year FROM ...) which prevents
             # the DB from using the created_at index. Use an explicit date range
             # (gte / lt) so the query planner can use an index range scan.
-            _jan_1 = _tz_don.make_aware(_dt(_current_year, 1, 1))
-            _jan_1_next = _tz_don.make_aware(_dt(_current_year + 1, 1, 1))
+            _jan_1 = _dt(_current_year, 1, 1, tzinfo=_et)
+            _jan_1_next = _dt(_current_year + 1, 1, 1, tzinfo=_et)
             _ytd = Donation.objects.filter(
                 donor=self.request.user,
                 status="completed",

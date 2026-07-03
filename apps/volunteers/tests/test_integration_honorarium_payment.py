@@ -711,10 +711,12 @@ class HonorariumPaymentFieldTests(TransactionTestCase):
 
     def test_expense_type_still_creates_payment(self):
         """
-        H-10: PAYMENT_TYPE_EXPENSE honoraria DO go through the Payments BB wiring
+        H-D: PAYMENT_TYPE_EXPENSE honoraria DO go through the Payments BB wiring
         in create_honorarium — the CRA threshold filter only excludes expenses
         from the YTD hard-block calculation, not from payment creation.
-        Verify that a Payment is created when payment_type=EXPENSE.
+
+        Previously used a vacuous if/else that passed regardless of whether a
+        Payment was actually created. Now unconditional: a Payment MUST exist.
         """
         from apps.payments.models import Payment
         from apps.volunteers.models import Honorarium
@@ -724,17 +726,14 @@ class HonorariumPaymentFieldTests(TransactionTestCase):
             payment_date=datetime.date(2025, 7, 1),
         )
         self.assertIsNotNone(honorarium.pk)
-        # The Payment should exist (unless the service explicitly skips EXPENSE)
-        payment_exists = Payment.objects.filter(
-            gateway_charge_id=f"HON-{honorarium.pk}"
-        ).exists()
-        # Assert the actual behavior (either created or not, but must not crash)
-        if payment_exists:
-            payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
-            self.assertEqual(payment.payment_method_type, Payment.PAYMENT_METHOD_BANK)
-        else:
-            # If EXPENSE type explicitly skips payment creation, the FK is None
-            self.assertIsNone(honorarium.payment)
+        # H-D: Unconditional — a Payment row MUST exist for EXPENSE-type honoraria.
+        # Any regression that skips Payment creation will now cause DoesNotExist here.
+        payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
+        self.assertEqual(
+            payment.payment_method_type,
+            Payment.PAYMENT_METHOD_BANK,
+            "EXPENSE honorarium must produce a bank-transfer Payment record",
+        )
 
     def test_payment_method_type_is_string_not_none(self):
         """

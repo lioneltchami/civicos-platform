@@ -713,3 +713,35 @@ class DashboardReceiptPipedaTests(TestCase):
             don_sum["last_receipt"],
             "last_receipt must be None when no issued receipt exists",
         )
+
+    def test_cross_user_receipt_isolation(self):
+        """
+        H-E: PIPEDA cross-user isolation — user A must not see user B's receipt.
+
+        The view filters by `donation__donor=self.request.user`. This test guards
+        against a regression that removes or widens that filter, which would expose
+        another citizen's donation history.
+        """
+        # User B has a receipt; user A has none.
+        user_a = _make_user()
+        user_b = _make_user()
+        donation_b = _make_donation(user_b, amount="500.00", status="completed")
+        _make_receipt(
+            donation_b,
+            serial_number="2026-000888",
+            eligible_amount=Decimal("500.00"),
+        )
+        # Log in as user A — must see last_receipt=None despite user B having a receipt.
+        self.client.force_login(user_a)
+        response = self.client.get(DASHBOARD_URL)
+        self.assertEqual(response.status_code, 200)
+        don_sum = response.context.get("donation_summary")
+        self.assertIsNotNone(
+            don_sum,
+            "donation_summary must be present for authenticated user",
+        )
+        self.assertIsNone(
+            don_sum["last_receipt"],
+            "PIPEDA violation: user A's last_receipt must be None — "
+            "user B's receipt must not appear in user A's context",
+        )

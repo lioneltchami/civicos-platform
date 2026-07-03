@@ -25,9 +25,10 @@
         aria-label="{% trans 'Select reporting year' %}">
     <div>
       <label for="id_year" class="form-label visually-hidden">{% trans "Year" %}</label>
+      {# H-A / M-6: aria-label silently overrides <label for> per ARIA spec — remove
+         aria-label so screen readers announce the visible <label> text ("Year"). #}
       <input type="number" id="id_year" name="year" class="form-control form-control-sm"
-             value="{{ year }}" min="2000" max="2100" style="width:100px"
-             aria-label="{% trans 'Year' %}">
+             value="{{ year }}" min="2000" max="2100" style="width:100px">
     </div>
     <button type="submit" class="btn btn-sm btn-outline-primary">
       {% trans "Go" %}
