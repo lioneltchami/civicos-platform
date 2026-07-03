@@ -106,11 +106,15 @@ def _make_profile(user):
 
 
 def _make_shift(opportunity, *, start_datetime=None, end_datetime=None):
+    from datetime import timedelta
     from apps.volunteers.models import Shift
     from django.utils import timezone
     now = timezone.now()
     start_datetime = start_datetime or now
-    end_datetime = end_datetime or (now.replace(hour=(now.hour + 2) % 24))
+    # Use timedelta so end is always 2 hours after start, never wraps past midnight.
+    # The old `now.replace(hour=(now.hour + 2) % 24)` broke at hour >= 22:
+    # e.g. 23:00 + 2 → 01:00, violating the vol_shift_end_after_start constraint.
+    end_datetime = end_datetime or (start_datetime + timedelta(hours=2))
     return Shift.objects.create(
         opportunity=opportunity,
         start_datetime=start_datetime,
