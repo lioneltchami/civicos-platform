@@ -37,19 +37,24 @@
 </div>
 
 {# ── Combined value highlight ────────────────────────────────────────────── #}
-{# M-5: <div role="region"> requires an accessible name but is not a landmark; use <section
-   aria-labelledby> instead — <section> with a heading is the correct HTML5 landmark. #}
-<section class="alert alert-primary mb-4" aria-labelledby="combined-value-heading">
-  <h2 class="h5 mb-1" id="combined-value-heading">{% trans "Total Community Value" %}</h2>
-  <p class="display-6 fw-bold mb-1">
-    {# H-6: blocktrans lets fr-CA translators reorder the $ symbol.
-       P3-1: cad_money uses Django's number_format(use_l10n=True, use_grouping=True)
-       for genuine locale-aware formatting: 1,234.56 en-CA / 1 234,56 fr-CA. #}
-    {% blocktrans with amount=impact.combined_value_cad|cad_money %}${{ amount }}{% endblocktrans %}
-  </p>
-  <p class="mb-0 small">
-    {% trans "Volunteer Value + Eligible Donations" %} &mdash; {% trans "Calendar year" %} {{ year }}
-  </p>
+{# M5: Bootstrap alert classes on a <section> landmark mix layout semantics with
+   ARIA semantics — screen readers expose <section aria-labelledby> as a "region"
+   landmark; the Bootstrap alert classes belong on a presentational <div> inside
+   the landmark, not on the landmark element itself. Split into landmark <section>
+   (carries aria-labelledby) + inner <div class="alert ..."> (carries Bootstrap). #}
+<section class="mb-4" aria-labelledby="combined-value-heading">
+  <div class="alert alert-primary">
+    <h2 class="h5 mb-1" id="combined-value-heading">{% trans "Total Community Value" %}</h2>
+    <p class="display-6 fw-bold mb-1">
+      {# H-6: blocktrans lets fr-CA translators reorder the $ symbol.
+         P3-1: cad_money uses Django's number_format(use_l10n=True, use_grouping=True)
+         for genuine locale-aware formatting: 1,234.56 en-CA / 1 234,56 fr-CA. #}
+      {% blocktrans with amount=impact.combined_value_cad|cad_money %}${{ amount }}{% endblocktrans %}
+    </p>
+    <p class="mb-0 small">
+      {% trans "Volunteer Value + Eligible Donations" %} &mdash; {% trans "Calendar year" %} {{ year }}
+    </p>
+  </div>
 </section>
 
 {# ── Side-by-side cards ──────────────────────────────────────────────────── #}
@@ -57,7 +62,10 @@
 
   {# ── Volunteer Impact card ──────────────────────────────────────────────── #}
   <div class="col-md-6">
-    <section aria-labelledby="volunteer-card-heading" class="h-100">
+    {# M6: h-100 is a layout class — belongs on a presentational div, not on the
+       <section> landmark. Screen readers see the landmark without the layout noise. #}
+    <section aria-labelledby="volunteer-card-heading">
+      <div class="h-100">
       <div class="card h-100">
         <div class="card-header">
           <h2 class="h5 mb-0" id="volunteer-card-heading">
@@ -96,12 +104,15 @@
           {% trans "CRA T3010 Schedule 2 — Volunteer labour value" %}
         </div>
       </div>
+      </div>{# /h-100 — M6 layout div #}
     </section>
   </div>
 
   {# ── Donation Giving card ──────────────────────────────────────────────── #}
   <div class="col-md-6">
-    <section aria-labelledby="donations-card-heading" class="h-100">
+    {# M6: h-100 on inner div, not on the <section> landmark — same rationale as volunteer card above. #}
+    <section aria-labelledby="donations-card-heading">
+      <div class="h-100">
       <div class="card h-100">
         <div class="card-header">
           <h2 class="h5 mb-0" id="donations-card-heading">
@@ -142,6 +153,7 @@
           {% trans "CRA T3010 line 4500 — Eligible donations amount" %}
         </div>
       </div>
+      </div>{# /h-100 — M6 layout div #}
     </section>
   </div>
 </div>

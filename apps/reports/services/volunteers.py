@@ -114,8 +114,40 @@ def compute_volunteer_snapshot(year: int, month: int) -> dict:
     """
     from apps.volunteers.services.reporting import impact_value
 
-    summary = get_monthly_volunteer_summary(year, month)
-    impact = impact_value(year)
+    # M4: Each upstream call is isolated so a failure in one does not prevent
+    # the other from running. The Celery task receives a partial result (with
+    # zero values for the failed source) rather than an unhandled exception.
+    try:
+        summary = get_monthly_volunteer_summary(year, month)
+    except Exception:
+        logger.error(
+            "reports.services.volunteers.compute_volunteer_snapshot: "
+            "get_monthly_volunteer_summary failed for year=%s month=%s — using zero values",
+            year, month, exc_info=True,
+        )
+        summary = {
+            "total_approved_hours": Decimal("0.00"),
+            "volunteer_count": 0,
+            "opportunity_count": 0,
+            "program_count": 0,
+            "by_program": [],
+        }
+
+    try:
+        impact = impact_value(year)
+    except Exception:
+        logger.error(
+            "reports.services.volunteers.compute_volunteer_snapshot: "
+            "impact_value failed for year=%s — using zero values",
+            year, exc_info=True,
+        )
+        impact = {
+            "total_approved_hours": Decimal("0.00"),
+            "estimated_value_cad": Decimal("0.00"),
+            "volunteer_count": 0,
+            "hourly_rate": Decimal("0.00"),
+            "province": "",
+        }
 
     snapshot = {
         "year": year,

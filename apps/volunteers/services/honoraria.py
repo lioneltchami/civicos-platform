@@ -241,74 +241,92 @@ def create_honorarium(
         _t4a_threshold = Decimal(str(getattr(settings, "VOLUNTEER_CRA_T4A_THRESHOLD", 500)))
 
         def _post_commit():
-            from apps.volunteers.models import Honorarium as _H
+            # M1: Outer guard — any unexpected exception in the on_commit path is
+            # caught and logged rather than silently discarded or bubbled up.
+            # Django's on_commit queue swallows exceptions, so without this guard
+            # a ReceiverError or DB hiccup would produce no log entry at all.
             try:
-                hon = _H.objects.select_related("volunteer", "created_by").get(pk=_honorarium_pk)
-            except _H.DoesNotExist:
-                logger.warning(
-                    "volunteers.services.honoraria: Honorarium #%s not found in "
-                    "on_commit callback — skipping signal dispatch.",
+                from apps.volunteers.models import Honorarium as _H
+                try:
+                    hon = _H.objects.select_related("volunteer", "created_by").get(pk=_honorarium_pk)
+                except _H.DoesNotExist:
+                    logger.warning(
+                        "volunteers.services.honoraria: Honorarium #%s not found in "
+                        "on_commit callback — skipping signal dispatch.",
+                        _honorarium_pk,
+                    )
+                    return
+
+                # M2: Use distinct variable names for each send_robust() result so
+                # the three call-sites are unambiguous under code review and debugger.
+                _created_results = honorarium_created.send_robust(sender=_H, instance=hon, created_by=hon.created_by)
+                for recv, exc in _created_results:
+                    if isinstance(exc, Exception):
+                        logger.error(
+                            "honorarium_created receiver %s raised %s",
+                            recv, exc, exc_info=exc,
+                        )
+
+                # M3: Use hon.payment_type (authoritative DB value committed by save())
+                # rather than the outer-closure variable payment_type (captured from the
+                # service argument before save). Under concurrent admin/shell paths that
+                # bypass the service layer, the outer variable may differ from what was
+                # actually persisted — hon.payment_type is always correct.
+                if hon.payment_type == _H.PAYMENT_TYPE_HONORARIUM:
+                    # P3-2: Compute the authoritative post-commit YTD total once,
+                    # before the branch, so BOTH t4a_threshold_reached and
+                    # cra_alert_threshold_reached can pass ytd_total= consistently.
+                    # The query runs here (after on_commit fires) so it reflects the
+                    # committed row. P2-4: Sum is imported at module level.
+                    _ytd_live = _H.objects.filter(
+                        volunteer=hon.volunteer,
+                        payment_type=_H.PAYMENT_TYPE_HONORARIUM,
+                        payment_date__year=hon.payment_date.year,
+                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+
+                    if _ytd_live >= _t4a_threshold:
+                        # H2: Signal routing now derived from the live post-commit YTD total
+                        # vs the settings threshold — not the stale pre-commit _t4a_required
+                        # flag. Correct under concurrent admin/shell creates that bypassed
+                        # the service-layer VolunteerProfile lock.
+                        # VN-5: When YTD >= $500, only fire t4a_threshold_reached.
+                        # cra_alert_threshold_reached is superseded — firing both would
+                        # send duplicate coordinator notifications for the same event.
+                        # P3-2: ytd_total= for signal contract parity.
+                        _t4a_results = t4a_threshold_reached.send_robust(
+                            sender=_H,
+                            instance=hon,
+                            coordinator=hon.created_by,
+                            ytd_total=_ytd_live,
+                        )
+                        for recv, exc in _t4a_results:
+                            if isinstance(exc, Exception):
+                                logger.error(
+                                    "t4a_threshold_reached receiver %s raised %s",
+                                    recv, exc, exc_info=exc,
+                                )
+                    elif _ytd_live >= _alert_threshold:
+                        # H2: elif (not else/if) — _ytd_live < _t4a_threshold is implicit,
+                        # making these two branches mutually exclusive by construction (VN-5).
+                        # M-D: _ytd_live is the authoritative post-commit YTD total.
+                        _alert_results = cra_alert_threshold_reached.send_robust(
+                            sender=_H,
+                            instance=hon,
+                            coordinator=hon.created_by,
+                            ytd_total=_ytd_live,
+                        )
+                        for recv, exc in _alert_results:
+                            if isinstance(exc, Exception):
+                                logger.error(
+                                    "cra_alert_threshold_reached receiver %s raised %s",
+                                    recv, exc, exc_info=exc,
+                                )
+            except Exception:
+                logger.error(
+                    "volunteers.services.honoraria: _post_commit failed for Honorarium #%s",
                     _honorarium_pk,
+                    exc_info=True,
                 )
-                return
-
-            results = honorarium_created.send_robust(sender=_H, instance=hon, created_by=hon.created_by)
-            for recv, exc in results:
-                if isinstance(exc, Exception):
-                    logger.error(
-                        "honorarium_created receiver %s raised %s",
-                        recv, exc, exc_info=exc,
-                    )
-
-            if payment_type == _H.PAYMENT_TYPE_HONORARIUM:
-                # P3-2: Compute the authoritative post-commit YTD total once,
-                # before the branch, so BOTH t4a_threshold_reached and
-                # cra_alert_threshold_reached can pass ytd_total= consistently.
-                # The query runs here (after on_commit fires) so it reflects the
-                # committed row. P2-4: Sum is imported at module level.
-                _ytd_live = _H.objects.filter(
-                    volunteer=hon.volunteer,
-                    payment_type=_H.PAYMENT_TYPE_HONORARIUM,
-                    payment_date__year=hon.payment_date.year,
-                ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
-
-                if _ytd_live >= _t4a_threshold:
-                    # H2: Signal routing now derived from the live post-commit YTD total
-                    # vs the settings threshold — not the stale pre-commit _t4a_required
-                    # flag. Correct under concurrent admin/shell creates that bypassed
-                    # the service-layer VolunteerProfile lock.
-                    # VN-5: When YTD >= $500, only fire t4a_threshold_reached.
-                    # cra_alert_threshold_reached is superseded — firing both would
-                    # send duplicate coordinator notifications for the same event.
-                    # P3-2: ytd_total= for signal contract parity.
-                    results = t4a_threshold_reached.send_robust(
-                        sender=_H,
-                        instance=hon,
-                        coordinator=hon.created_by,
-                        ytd_total=_ytd_live,
-                    )
-                    for recv, exc in results:
-                        if isinstance(exc, Exception):
-                            logger.error(
-                                "t4a_threshold_reached receiver %s raised %s",
-                                recv, exc, exc_info=exc,
-                            )
-                elif _ytd_live >= _alert_threshold:
-                    # H2: elif (not else/if) — _ytd_live < _t4a_threshold is implicit,
-                    # making these two branches mutually exclusive by construction (VN-5).
-                    # M-D: _ytd_live is the authoritative post-commit YTD total.
-                    results = cra_alert_threshold_reached.send_robust(
-                        sender=_H,
-                        instance=hon,
-                        coordinator=hon.created_by,
-                        ytd_total=_ytd_live,
-                    )
-                    for recv, exc in results:
-                        if isinstance(exc, Exception):
-                            logger.error(
-                                "cra_alert_threshold_reached receiver %s raised %s",
-                                recv, exc, exc_info=exc,
-                            )
 
         transaction.on_commit(_post_commit)
 

@@ -211,7 +211,10 @@ class VolunteerServiceTests(TestCase):
         HoursLog.objects.filter(volunteer=profile).update(date=date(2025, 8, 20))
         result = get_monthly_volunteer_summary(2025, 8)
         self.assertEqual(result["total_approved_hours"], Decimal("5.00"))
-        self.assertGreaterEqual(result["program_count"], 2)
+        # M7: assertEqual not assertGreaterEqual — we created exactly 2 programs
+        # above; a loose lower-bound assertion would pass even if program counting
+        # were broken and returned an inflated number.
+        self.assertEqual(result["program_count"], 2)
 
     def test_by_program_no_pii_keys(self):
         """by_program rows must never contain volunteer PII keys."""
@@ -594,6 +597,42 @@ class CombinedServiceTests(TestCase):
             warning_msgs,
             "ImportError from same-app donations module must produce a WARNING "
             "(it is a code defect, not a missing optional BB)",
+        )
+
+    # ── M8: Zero-dict copy safety ─────────────────────────────────────────────
+
+    def test_zero_dicts_are_copied_not_returned_by_reference(self):
+        """
+        M8 / VN-1: combined_nonprofit_impact must return defensive copies of
+        _VOLUNTEER_ZERO and _DONATIONS_ZERO — never the module-level sentinel
+        dicts themselves. Mutating the result of one call must not affect a
+        subsequent call's zero values.
+
+        Regression test for the VN-1 fix: before the fix, the sentinel dicts
+        were returned by reference, so mutating result["volunteer"] would corrupt
+        the module-level sentinel and all future calls would return the mutated
+        values.
+        """
+        # Use a year with no data so both branches hit their zero-dict fallback.
+        result_a = combined_nonprofit_impact(1900)
+        self.assertEqual(result_a["volunteer"]["volunteer_count"], 0)
+        self.assertEqual(result_a["donations"]["donation_count"], 0)
+
+        # Mutate the first result in-place.
+        result_a["volunteer"]["volunteer_count"] = 999
+        result_a["donations"]["donation_count"] = 888
+
+        # A second call must return fresh zeros, not the mutated values.
+        result_b = combined_nonprofit_impact(1900)
+        self.assertEqual(
+            result_b["volunteer"]["volunteer_count"], 0,
+            "Mutating result_a['volunteer'] must not affect a subsequent call's "
+            "zero-dict (VN-1: defensive copy required)",
+        )
+        self.assertEqual(
+            result_b["donations"]["donation_count"], 0,
+            "Mutating result_a['donations'] must not affect a subsequent call's "
+            "zero-dict (VN-1: defensive copy required)",
         )
 
 

@@ -519,6 +519,12 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
         self.assertEqual(len(alert_calls), 0,
             "cra_alert_threshold_reached must NOT fire when T4A threshold is reached "
             "(T4A supersedes the advisory alert — VN-5)")
+        # M9: Verify ytd_total kwarg is present and is a Decimal — the signal
+        # contract requires receivers can use it without further DB queries.
+        self.assertIn("ytd_total", t4a_calls[0],
+            "t4a_threshold_reached must include ytd_total= kwarg (signal contract)")
+        self.assertIsInstance(t4a_calls[0]["ytd_total"], Decimal,
+            "ytd_total must be a Decimal, not a string or int")
 
     def test_alert_fires_not_t4a_when_ytd_crosses_450(self):
         """
@@ -559,6 +565,13 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
             "cra_alert_threshold_reached must fire when YTD crosses $450 alert threshold")
         self.assertEqual(len(t4a_calls), 0,
             "t4a_threshold_reached must NOT fire when YTD is $451 (below $500 T4A threshold)")
+        # M9: Verify ytd_total kwarg is present and correct on the alert signal.
+        self.assertIn("ytd_total", alert_calls[0],
+            "cra_alert_threshold_reached must include ytd_total= kwarg (signal contract)")
+        self.assertIsInstance(alert_calls[0]["ytd_total"], Decimal,
+            "ytd_total must be a Decimal, not a string or int")
+        self.assertEqual(alert_calls[0]["ytd_total"], Decimal("451.00"),
+            "ytd_total must equal the post-commit live YTD (430 + 21 = 451)")
 
     def test_neither_signal_fires_below_alert_threshold(self):
         """A $100 honorarium (YTD = $100) must fire neither signal."""
@@ -589,6 +602,208 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
             "t4a_threshold_reached must not fire at $100 YTD")
         self.assertEqual(len(alert_calls), 0,
             "cra_alert_threshold_reached must not fire at $100 YTD (below $450 threshold)")
+        # M9: When neither signal fires, verify the calls lists are empty (no ytd_total
+        # to check, but confirms no phantom kwargs were captured from other tests).
+        self.assertListEqual(t4a_calls, [],
+            "t4a_calls must be empty — no t4a_threshold_reached signal should have fired")
+        self.assertListEqual(alert_calls, [],
+            "alert_calls must be empty — no cra_alert_threshold_reached signal should have fired")
+
+
+# ---------------------------------------------------------------------------
+# HonorariumAtomicGuardTests
+# ---------------------------------------------------------------------------
+
+class HonorariumAtomicGuardTests(TestCase):
+    """
+    M10: Verify the connection.in_atomic_block guard in Honorarium.clean().
+
+    clean() uses select_for_update() to serialise concurrent CRA threshold
+    checks. select_for_update() raises TransactionManagementError when called
+    outside an atomic block. The guard skips the lock when not in a transaction.
+
+    TestCase wraps each test in a transaction, but calling .full_clean() directly
+    (outside the service layer) happens INSIDE that transaction wrapper, so
+    in_atomic_block is True. We therefore also test the explicit outside-atomic
+    path via assertRaisesNothing (i.e. that no TransactionManagementError is raised
+    when the DB is not in a transaction).
+
+    Note: Django's TestCase wraps each test in a transaction (for rollback), so
+    ``connection.in_atomic_block`` is True inside TestCase tests. This test
+    verifies that full_clean() does NOT raise when called inside an atomic block
+    (the normal code path for the service layer).
+    """
+
+    def setUp(self):
+        self.vol_user = _make_user()
+        self.profile = _make_profile(self.vol_user)
+        self.coordinator = _grant_add_honorarium(_make_user())
+
+    def test_full_clean_inside_atomic_does_not_raise_transaction_error(self):
+        """
+        M10: Honorarium.full_clean() called inside a transaction must not raise
+        TransactionManagementError. The select_for_update() guard correctly skips
+        the lock when already inside a transaction (avoids nested locking issues),
+        and correctly uses it when in the normal service-layer atomic block.
+        """
+        from django.db import connection, transaction
+        from apps.volunteers.models import Honorarium
+
+        hon = Honorarium(
+            volunteer=self.profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("100.00"),
+            description="Atomic guard test",
+            payment_date=datetime.date.today(),
+            created_by=self.coordinator,
+        )
+        # Inside the TestCase transaction wrapper, in_atomic_block is True.
+        self.assertTrue(connection.in_atomic_block,
+            "TestCase wraps in a transaction — in_atomic_block should be True here")
+        # full_clean() must not raise TransactionManagementError.
+        try:
+            hon.full_clean()
+        except Exception as e:
+            from django.db import utils as _db_utils
+            self.assertNotIsInstance(
+                e, _db_utils.Error,
+                f"full_clean() raised a DB error inside an atomic block: {e}",
+            )
+
+    def test_full_clean_inside_atomic_second_invocation_also_safe(self):
+        """
+        M10 (inside-atomic complement): calling full_clean() twice in the same
+        transaction must not blow up — the guard must be idempotent. This catches
+        any per-call state mutation in the guard logic.
+        """
+        from django.db import connection
+        from apps.volunteers.models import Honorarium
+
+        self.assertTrue(connection.in_atomic_block)
+
+        hon = Honorarium(
+            volunteer=self.profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("50.00"),
+            description="Idempotent guard test",
+            payment_date=datetime.date.today(),
+            created_by=self.coordinator,
+        )
+        # Neither call should raise TransactionManagementError.
+        for _ in range(2):
+            try:
+                hon.full_clean()
+            except Exception as e:
+                from django.db import utils as _db_utils
+                if isinstance(e, _db_utils.Error):
+                    self.fail(
+                        f"full_clean() invocation raised DB error: {type(e).__name__}: {e}"
+                    )
+
+
+class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
+    """
+    M10 (TransactionTestCase half): Verify full_clean() does not raise
+    TransactionManagementError when called outside any atomic block.
+
+    TransactionTestCase does NOT wrap tests in a transaction, so
+    connection.in_atomic_block is False at the start of each test method.
+    """
+
+    def setUp(self):
+        self.vol_user = _make_user()
+        self.profile = _make_profile(self.vol_user)
+        self.coordinator = _grant_add_honorarium(_make_user())
+
+    def test_full_clean_outside_atomic_skips_lock_no_error(self):
+        """
+        M10: When not inside a transaction, Honorarium.full_clean() must not
+        raise TransactionManagementError. The guard (connection.in_atomic_block)
+        must skip select_for_update() and fall back to a plain queryset.
+        """
+        from django.db import connection
+        from apps.volunteers.models import Honorarium
+
+        # Confirm we're outside any transaction.
+        self.assertFalse(connection.in_atomic_block,
+            "TransactionTestCase must not wrap in an atomic block at test start")
+
+        hon = Honorarium(
+            volunteer=self.profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("100.00"),
+            description="Outside-atomic guard test",
+            payment_date=datetime.date.today(),
+            created_by=self.coordinator,
+        )
+        # Must NOT raise TransactionManagementError (guard skips select_for_update).
+        try:
+            hon.full_clean()
+        except Exception as e:
+            from django.db import utils as _db_utils
+            if isinstance(e, _db_utils.Error):
+                self.fail(
+                    f"full_clean() outside atomic raised DB error (guard failed): "
+                    f"{type(e).__name__}: {e}"
+                )
+            # ValidationError is acceptable (amount below thresholds but guard passed).
+
+
+# ---------------------------------------------------------------------------
+# HonorariumPIPEDALogTests
+# ---------------------------------------------------------------------------
+
+class HonorariumPIPEDALogTests(TransactionTestCase):
+    """
+    M11: PIPEDA compliance — verify that create_honorarium's INFO log does not
+    contain payment_type or the amount string, and does not contain any keys
+    that could correlate a financial record with a volunteer PK.
+
+    Uses TransactionTestCase because create_honorarium uses on_commit() — the
+    INFO log line fires inside the atomic block, so we just need the commit to
+    happen for the on_commit to fire (TransactionTestCase actually commits).
+    """
+
+    def setUp(self):
+        self.vol_user = _make_user()
+        self.profile = _make_profile(self.vol_user)
+        self.coordinator = _grant_add_honorarium(_make_user())
+
+    def test_info_log_does_not_contain_payment_type_or_amount(self):
+        """
+        M11 / PIPEDA: The INFO log line emitted by create_honorarium must NOT
+        contain 'payment_type' or the literal amount value. These would correlate
+        a financial record with a volunteer profile PK, violating PIPEDA.
+
+        The log MUST contain the honorarium PK and the actor user PK.
+        """
+        logger_name = "apps.volunteers.services.honoraria"
+        with self.assertLogs(logger_name, level="INFO") as log_ctx:
+            honorarium = _create_honorarium(
+                self.profile,
+                amount="250.00",
+                created_by=self.coordinator,
+                payment_date=datetime.date.today(),
+            )
+
+        # Filter to the creation INFO line.
+        info_lines = [m for m in log_ctx.output if "INFO" in m and str(honorarium.pk) in m]
+        self.assertTrue(info_lines, "At least one INFO line must reference the honorarium PK")
+
+        for line in info_lines:
+            self.assertNotIn(
+                "payment_type", line,
+                f"PIPEDA: 'payment_type' must not appear in INFO log — found in: {line}",
+            )
+            self.assertNotIn(
+                "250", line,
+                f"PIPEDA: amount '250' must not appear in INFO log — found in: {line}",
+            )
+            # Verify the actor PK IS present (operational requirement, not PII).
+            self.assertIn(
+                str(self.coordinator.pk), line,
+                f"INFO log must reference the actor (created_by) user PK — missing from: {line}",
+            )
 
 
 # ---------------------------------------------------------------------------
