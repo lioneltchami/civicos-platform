@@ -492,6 +492,20 @@ class VolunteerApplicationAdmin(admin.ModelAdmin):
     def reviewed_by_pk(self, obj):
         return obj.reviewed_by_id
 
+    def get_queryset(self, request):
+        """
+        Scope list view to applications within the coordinator's own programmes.
+
+        Superusers see all applications. Regular staff see only applications
+        whose opportunity.program.coordinator == request.user. This prevents a
+        staff member with volunteers.view_accommodation_notes from browsing
+        rejection_reason values for programmes they do not coordinate.
+        """
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(opportunity__program__coordinator=request.user)
+
     def has_add_permission(self, request):
         # Applications are created via the volunteer portal only.
         return False

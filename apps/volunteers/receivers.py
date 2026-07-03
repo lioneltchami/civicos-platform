@@ -251,9 +251,17 @@ def notify_volunteer_on_application_rejected(sender, instance, actor=None, **kwa
         # Re-fetch with select_related so opportunity and volunteer→user are
         # loaded in a single JOIN rather than lazy queries on first attribute
         # access. prefetch_related_objects() is a no-op for forward FK chains.
+        #
+        # PIPEDA defence-in-depth: defer() ensures rejection_reason,
+        # screening_notes, and motivation cannot be accessed on this instance
+        # even if a future developer accidentally references them. Any access
+        # would trigger a new, auditable DB query rather than silently
+        # returning the value — mirrors the safe_instance defence in
+        # reject_application() at the service layer.
         instance = (
             instance.__class__.objects
             .select_related("opportunity", "volunteer__user")
+            .defer("rejection_reason", "screening_notes", "motivation")
             .get(pk=instance.pk)
         )
 

@@ -874,7 +874,7 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
             profile.accommodation_notes = None
             profile.emergency_contact_name = None
             profile.emergency_contact_phone = None
-            profile.emergency_contact_relation = None
+            profile.emergency_contact_relationship = None
             profile.sin_last4 = None
 
         # Use prefetched data (loaded by get_queryset) to avoid N+1 DB queries.

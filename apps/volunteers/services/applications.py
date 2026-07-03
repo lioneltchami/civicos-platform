@@ -393,15 +393,6 @@ def approve_application(
     # it here avoids holding the DB row lock any longer than necessary.
     _assert_coordinator_permission(actor)
 
-    # Program-scope ownership check: actor must coordinate this specific programme.
-    # The global Django permission is necessary but not sufficient.
-    # Also stays outside atomic() for the same reason as above.
-    if not actor.is_superuser and application.opportunity.program.coordinator_id != actor.pk:
-        raise PermissionDenied(
-            f"User #{actor.pk} does not coordinate the programme for "
-            f"application #{application.pk}."
-        )
-
     # H-1 fix: broaden guard from STATUS_PENDING-only to the full set of non-terminal
     # statuses that a coordinator may still act on.  STATUS_APPROVED, STATUS_REJECTED,
     # and STATUS_WITHDRAWN are terminal — they must not be re-transitioned here.
@@ -424,8 +415,19 @@ def approve_application(
         application = (
             VolunteerApplication.objects
             .select_for_update()
+            .select_related("opportunity__program")
             .get(pk=application.pk)
         )
+
+        # Program-scope ownership check: re-evaluated on the freshly-locked
+        # instance so a concurrent coordinator reassignment cannot race past
+        # this guard (TOCTOU fix — checking the stale caller-supplied instance
+        # before the lock would allow a window between the check and the save).
+        if not actor.is_superuser and application.opportunity.program.coordinator_id != actor.pk:
+            raise PermissionDenied(
+                f"User #{actor.pk} does not coordinate the programme for "
+                f"application #{application.pk}."
+            )
 
         # --- Business rule: only pending/in-review/waitlisted applications can be approved ---
         if application.status not in _approvable:
@@ -502,15 +504,6 @@ def reject_application(
     # it here avoids holding the DB row lock any longer than necessary.
     _assert_coordinator_permission(actor)
 
-    # Program-scope ownership check: actor must coordinate this specific programme.
-    # The global Django permission is necessary but not sufficient.
-    # Also stays outside atomic() for the same reason as above.
-    if not actor.is_superuser and application.opportunity.program.coordinator_id != actor.pk:
-        raise PermissionDenied(
-            f"User #{actor.pk} does not coordinate the programme for "
-            f"application #{application.pk}."
-        )
-
     # H-1 fix: broaden guard from STATUS_PENDING-only to the full set of non-terminal
     # statuses that a coordinator may still act on.  Mirrors approve_application().
     _rejectable = frozenset({
@@ -558,8 +551,18 @@ def reject_application(
         application = (
             VolunteerApplication.objects
             .select_for_update()
+            .select_related("opportunity__program")
             .get(pk=application.pk)
         )
+
+        # Program-scope ownership check: re-evaluated on the freshly-locked
+        # instance so a concurrent coordinator reassignment cannot race past
+        # this guard (TOCTOU fix — mirrors approve_application()).
+        if not actor.is_superuser and application.opportunity.program.coordinator_id != actor.pk:
+            raise PermissionDenied(
+                f"User #{actor.pk} does not coordinate the programme for "
+                f"application #{application.pk}."
+            )
 
         # --- Business rule: only pending/in-review/waitlisted applications can be rejected ---
         if application.status not in _rejectable:
