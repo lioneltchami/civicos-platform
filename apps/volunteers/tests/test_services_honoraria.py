@@ -640,8 +640,11 @@ class ConcurrentHonorariumTests(TransactionTestCase):
         self.program = _make_program(slug="race-hon-prog")
         self.opportunity = _make_opportunity(self.program, slug="race-hon-opp")
 
-        # Pre-populate $900 YTD to put the volunteer near the $1,000 hard block.
-        _make_honorarium(self.volunteer_profile, "900.00",
+        # Pre-populate $850 YTD so that one $100 addition ($950 total) passes the
+        # hard block check (>= $1,000), while a second $100 addition on top of a
+        # committed $950 total ($1,050) fails it.  Using $900 would cause both
+        # concurrent additions to fail immediately ($900 + $100 = $1,000 >= $1,000).
+        _make_honorarium(self.volunteer_profile, "850.00",
                          created_by=self.coordinator)
 
     def test_concurrent_creation_enforces_hard_block(self):

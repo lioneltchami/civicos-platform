@@ -339,7 +339,6 @@ class ApplyTests(BaseApplicationTestCase):
         capacity = self.opportunity.volunteer_capacity or 1
         for i in range(capacity):
             other_user = User.objects.create_user(
-                username=f"cap_vol_{i}@example.gc.ca",
                 email=f"cap_vol_{i}@example.gc.ca",
                 password="x",
             )
