@@ -51,11 +51,13 @@ def cad_money(value, decimal_pos: int = 2) -> str:
     except (TypeError, ValueError):
         decimal_pos = 2
 
+    # H3: Route None through number_format so fr-CA gets "0,00" not "0.00".
     if value is None:
-        return f"0.{'0' * decimal_pos}"
+        return number_format(Decimal("0"), decimal_pos=decimal_pos, use_l10n=True, use_grouping=True)
 
     try:
-        # Ensure we have a Decimal for precise formatting.
+        # Coerce to Decimal via str() to avoid float precision loss.
+        # NaN and Infinity raise InvalidOperation in Decimal(str(v)).
         if not isinstance(value, Decimal):
             value = Decimal(str(value))
         return number_format(
@@ -65,4 +67,5 @@ def cad_money(value, decimal_pos: int = 2) -> str:
             use_grouping=True,
         )
     except (InvalidOperation, TypeError, ValueError):
-        return f"0.{'0' * decimal_pos}"
+        # H3: Same locale-aware zero for invalid/NaN/Infinity — fr-CA needs "0,00".
+        return number_format(Decimal("0"), decimal_pos=decimal_pos, use_l10n=True, use_grouping=True)

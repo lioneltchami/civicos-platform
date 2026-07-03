@@ -62,7 +62,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Approved Hours" %}</p>
         <p class="card-title h4 mb-0">
-          {{ volunteer_summary.total_approved_hours|floatformat:1|intcomma }}
+          {{ volunteer_summary.total_approved_hours|cad_money:1 }}
         </p>
         <p class="card-text small text-muted mb-0">
           {% trans "Approved volunteer hours" %}
@@ -110,8 +110,10 @@
           {% blocktrans with amount=volunteer_summary.estimated_value_cad|cad_money %}${{ amount }}{% endblocktrans %}
         </p>
         <p class="card-text small text-muted mb-0">
-          {# H-6 / P3-1: cad_money so translators can reorder $, rate, /hr, and province together. #}
-          {% blocktrans with rate=volunteer_summary.hourly_rate|cad_money province=volunteer_summary.province %}Annual estimate @ ${{ rate }}/hr ({{ province }}){% endblocktrans %}
+          {# H-6 / P3-1: cad_money so translators can reorder $, rate, /hr, and province together.
+             H4: blocktrans does not auto-escape its `with` variables — add |force_escape so
+             a mark_safe()'d province value cannot inject raw HTML into the translated string. #}
+          {% blocktrans with rate=volunteer_summary.hourly_rate|cad_money province=volunteer_summary.province|force_escape %}Annual estimate @ ${{ rate }}/hr ({{ province }}){% endblocktrans %}
         </p>
       </div>
     </div>
@@ -148,7 +150,7 @@
              Both the title and the slug fallback are database strings and must be escaped. #}
           <td>{{ row.program_title_en|default:row.program_slug|force_escape }}</td>
           <td>{{ row.opportunity_title_en|default:row.opportunity_slug|force_escape }}</td>
-          <td class="text-end">{{ row.approved_hours|floatformat:1|intcomma }}</td>
+          <td class="text-end">{{ row.approved_hours|cad_money:1 }}</td>
           <td class="text-end">{{ row.volunteer_count|intcomma }}</td>
           <td class="text-end">{{ row.shift_count|intcomma }}</td>
         </tr>
@@ -158,7 +160,7 @@
         <tr>
           {# M-7: "Total" is a row header (labels the aggregate row), not a data cell. #}
           <th scope="row" colspan="2">{% trans "Total" %}</th>
-          <td class="text-end">{{ volunteer_summary.total_approved_hours|floatformat:1|intcomma }}</td>
+          <td class="text-end">{{ volunteer_summary.total_approved_hours|cad_money:1 }}</td>
           <td class="text-end">{{ volunteer_summary.volunteer_count|intcomma }}</td>
           <td class="text-end">&mdash;</td>
         </tr>
@@ -206,7 +208,7 @@
           <td>{{ snap.period_label|force_escape }}</td>
           <td class="text-end">
             {% with h=snap.data.hours %}
-              {% if h %}{{ h.total_approved_hours|floatformat:1|intcomma }}{% else %}&mdash;{% endif %}
+              {% if h %}{{ h.total_approved_hours|cad_money:1 }}{% else %}&mdash;{% endif %}
             {% endwith %}
           </td>
           <td class="text-end">

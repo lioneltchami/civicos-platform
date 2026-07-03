@@ -59,8 +59,16 @@ def get_monthly_volunteer_summary(year: int, month: int) -> dict:
 
     rows = hours_by_program(year, month)
 
+    # H6: Guard against None aggregate values (empty queryset returns None for Sum)
+    # and float inputs (Decimal(str(v)) prevents precision loss).  The generator
+    # skips None rows so a zero start value is returned instead of crashing.
     total_approved_hours = sum(
-        (row["approved_hours"] for row in rows), Decimal("0.00")
+        (
+            Decimal(str(r["approved_hours"]))
+            for r in rows
+            if r["approved_hours"] is not None
+        ),
+        Decimal("0.00"),
     )
     volunteer_count = sum(row["volunteer_count"] for row in rows)
     opportunity_count = len(rows)

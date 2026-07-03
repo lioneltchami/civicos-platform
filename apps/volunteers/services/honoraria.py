@@ -117,27 +117,21 @@ def create_honorarium(
         raise ValueError(f"Invalid payment_type '{payment_type}'")
 
     with transaction.atomic():
-        # Lock volunteer profile row to serialize concurrent honorarium creation.
-        # When two transactions concurrently create the *first* honorarium for a
-        # volunteer, the existing-honorarium select_for_update() locks no rows
-        # (empty queryset) and both proceed simultaneously — a phantom-read race.
-        # Locking the VolunteerProfile row here forces serialization regardless of
-        # whether any honorarium rows exist yet.
+        # Lock the VolunteerProfile row to serialise concurrent honorarium creation.
+        # This is the single serialization point: any second transaction that tries
+        # to create an honorarium for the same volunteer will block here until the
+        # first transaction commits, ensuring clean() always sees the final YTD total.
+        # The VolunteerProfile lock makes a separate lock on existing honoraria rows
+        # redundant — VolunteerProfile is always present even for a volunteer's very
+        # first honorarium (no phantom-read gap), so holding this lock is sufficient.
         from apps.volunteers.models import VolunteerProfile
         VolunteerProfile.objects.select_for_update().get(pk=volunteer_profile.pk)
 
-        # Acquire row-level lock on all existing honoraria for this volunteer+year
-        # to serialise concurrent creates. This prevents a race condition where two
-        # coordinators simultaneously read the YTD total, both see it under the
-        # $1,000 hard block, and both proceed — collectively exceeding the limit.
-        # Model.clean() also enforces this guard, but we lock here first for
-        # service-level clarity and defence in depth.
-        _qs = Honorarium.objects.select_for_update().filter(
-            volunteer=volunteer_profile,
-            payment_date__year=payment_date.year,
-            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
-        )
-        existing_total = _qs.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        # H1: The previous code locked existing honoraria rows and computed
+        # existing_total via aggregate(), but that value was never compared
+        # against any threshold — all enforcement is in clean() below.
+        # Dead code removed; the VolunteerProfile lock above is the only
+        # serialization needed.
 
         # Build the instance and run full model validation (CRA rules live here).
         honorarium = Honorarium(
@@ -224,10 +218,15 @@ def create_honorarium(
         # We must not close over the ORM instance directly — it may be mutated
         # by the time on_commit fires.
         _honorarium_pk = honorarium.pk
-        _t4a_required = honorarium.t4a_required
-        # VN-2: _ytd_after removed — _post_commit now recomputes the live YTD from
-        # the DB after commit (M-D fix). A pre-commit value is inherently stale.
-        # See _ytd_live inside _post_commit for the authoritative post-commit total.
+        # H2: _t4a_required is NOT captured here.
+        # clean() sets t4a_required=True when projected_total >= $500, but that flag
+        # reflects the YTD total at pre-commit time for THIS transaction. If a concurrent
+        # admin or shell path creates another honorarium for the same volunteer between
+        # our clean() and on_commit firing (both bypass the service-layer lock), the
+        # flag can be stale — firing cra_alert_threshold_reached when the volunteer
+        # actually crossed the $500 threshold. Fix (H2): re-derive the signal routing
+        # post-commit from _ytd_live (authoritative) vs _t4a_threshold (below).
+        # VN-2: _ytd_after removed — _post_commit recomputes the live YTD from the DB.
 
         from apps.volunteers.signals import (
             cra_alert_threshold_reached,
@@ -235,6 +234,11 @@ def create_honorarium(
             t4a_threshold_reached,
         )
         _alert_threshold = Decimal(str(getattr(settings, "VOLUNTEER_CRA_ALERT_THRESHOLD", 450)))
+        # H2: Capture the T4A threshold for post-commit signal routing.
+        # Both thresholds are read from settings before the closure so the closure
+        # does not re-read settings on every on_commit call (settings are constant
+        # for the life of the process, but this makes the capture explicit).
+        _t4a_threshold = Decimal(str(getattr(settings, "VOLUNTEER_CRA_T4A_THRESHOLD", 500)))
 
         def _post_commit():
             from apps.volunteers.models import Honorarium as _H
@@ -268,15 +272,15 @@ def create_honorarium(
                     payment_date__year=hon.payment_date.year,
                 ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
 
-                if _t4a_required:
-                    # VN-5: When T4A is required (YTD >= $500), only fire
-                    # t4a_threshold_reached — not cra_alert_threshold_reached.
-                    # A volunteer at the T4A threshold has necessarily exceeded the
-                    # $450 alert threshold too, but the advisory alert is superseded
-                    # by the mandatory T4A reporting obligation. Firing both would
-                    # generate duplicate coordinator notifications for the same event.
-                    # P3-2: Pass ytd_total= for signal contract parity with
-                    # cra_alert_threshold_reached (receivers expect consistent kwargs).
+                if _ytd_live >= _t4a_threshold:
+                    # H2: Signal routing now derived from the live post-commit YTD total
+                    # vs the settings threshold — not the stale pre-commit _t4a_required
+                    # flag. Correct under concurrent admin/shell creates that bypassed
+                    # the service-layer VolunteerProfile lock.
+                    # VN-5: When YTD >= $500, only fire t4a_threshold_reached.
+                    # cra_alert_threshold_reached is superseded — firing both would
+                    # send duplicate coordinator notifications for the same event.
+                    # P3-2: ytd_total= for signal contract parity.
                     results = t4a_threshold_reached.send_robust(
                         sender=_H,
                         instance=hon,
@@ -289,22 +293,22 @@ def create_honorarium(
                                 "t4a_threshold_reached receiver %s raised %s",
                                 recv, exc, exc_info=exc,
                             )
-                else:
-                    # M-D: _ytd_live recomputed from DB above (post-commit), replacing
-                    # the stale pre-commit _ytd_after that was removed in VN-2.
-                    if _ytd_live >= _alert_threshold:
-                        results = cra_alert_threshold_reached.send_robust(
-                            sender=_H,
-                            instance=hon,
-                            coordinator=hon.created_by,
-                            ytd_total=_ytd_live,
-                        )
-                        for recv, exc in results:
-                            if isinstance(exc, Exception):
-                                logger.error(
-                                    "cra_alert_threshold_reached receiver %s raised %s",
-                                    recv, exc, exc_info=exc,
-                                )
+                elif _ytd_live >= _alert_threshold:
+                    # H2: elif (not else/if) — _ytd_live < _t4a_threshold is implicit,
+                    # making these two branches mutually exclusive by construction (VN-5).
+                    # M-D: _ytd_live is the authoritative post-commit YTD total.
+                    results = cra_alert_threshold_reached.send_robust(
+                        sender=_H,
+                        instance=hon,
+                        coordinator=hon.created_by,
+                        ytd_total=_ytd_live,
+                    )
+                    for recv, exc in results:
+                        if isinstance(exc, Exception):
+                            logger.error(
+                                "cra_alert_threshold_reached receiver %s raised %s",
+                                recv, exc, exc_info=exc,
+                            )
 
         transaction.on_commit(_post_commit)
 

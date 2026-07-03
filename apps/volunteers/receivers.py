@@ -825,10 +825,29 @@ def notify_coordinator_on_t4a_threshold(sender, instance, coordinator, ytd_total
     C3: ytd_total is accepted as an explicit kwarg (not absorbed into **kwargs)
     so it can be included in the email context for coordinators.
 
+    H7: Re-fetch instance with select_related so this receiver is safe regardless
+    of dispatch path (service-layer, admin, management command, future integration).
+    The service-layer path provides a prefetched instance, but we cannot rely on
+    that — defensive re-fetch is the pattern used by every other receiver in this file.
+
     PIPEDA: volunteer is identified by profile PK only — never name or email.
     volunteer_display uses volunteer_id (FK, no extra query) not display_name.
     """
     try:
+        from apps.volunteers.models import Honorarium as _H
+        try:
+            instance = (
+                _H.objects
+                .select_related("volunteer__user", "created_by")
+                .get(pk=instance.pk)
+            )
+        except _H.DoesNotExist:
+            logger.error(
+                "notify_coordinator_on_t4a_threshold: Honorarium #%s not found — skipping.",
+                getattr(instance, "pk", "?"),
+            )
+            return
+
         try:
             portal_url = settings.SITE_URL + reverse(
                 "volunteers:volunteer_detail",
@@ -879,10 +898,28 @@ def notify_coordinator_on_cra_alert(sender, instance, coordinator, ytd_total, **
     Sender: Honorarium (the class, not an instance)
     Signal: cra_alert_threshold_reached
 
+    H7: Re-fetch instance with select_related — same defensive pattern as every
+    other receiver in this file. Admin/management-command dispatch paths do not
+    guarantee a prefetched instance, so we never rely on the caller's prefetch.
+
     PIPEDA: volunteer is identified by profile PK only — never name or email.
     volunteer_display uses volunteer_id (FK, no extra query) not display_name.
     """
     try:
+        from apps.volunteers.models import Honorarium as _H
+        try:
+            instance = (
+                _H.objects
+                .select_related("volunteer__user", "created_by")
+                .get(pk=instance.pk)
+            )
+        except _H.DoesNotExist:
+            logger.error(
+                "notify_coordinator_on_cra_alert: Honorarium #%s not found — skipping.",
+                getattr(instance, "pk", "?"),
+            )
+            return
+
         try:
             portal_url = settings.SITE_URL + reverse(
                 "volunteers:volunteer_detail",

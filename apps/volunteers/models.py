@@ -1695,9 +1695,28 @@ class Honorarium(TimestampedModel):
 
         Pass skip_clean=True only for bulk-load / fixture scenarios where the
         caller takes responsibility for running validations itself.
+
+        H5 — update_fields guard:
+        clean() may set self.t4a_required = True when the volunteer crosses the
+        $500 T4A threshold. If a caller passes update_fields=["amount", ...],
+        Django will only persist the listed fields and silently discard the
+        t4a_required mutation — the CRA compliance flag is never written to the DB.
+
+        When full_clean() runs (skip_clean=False) we inject "t4a_required" into
+        update_fields automatically so the mutation is always persisted. We do NOT
+        inject it when skip_clean=True because the caller is taking responsibility
+        for validation and their targeted update should be honoured as-is.
         """
         if not skip_clean:
             self.full_clean()
+            # H5: Ensure t4a_required is always persisted when full_clean() runs.
+            # clean() may have mutated self.t4a_required = True — if the caller
+            # passed update_fields, Django would otherwise silently drop that mutation.
+            if "update_fields" in kwargs and kwargs["update_fields"] is not None:
+                update_fields = list(kwargs["update_fields"])
+                if "t4a_required" not in update_fields:
+                    update_fields.append("t4a_required")
+                kwargs["update_fields"] = update_fields
         super().save(*args, **kwargs)
 
 

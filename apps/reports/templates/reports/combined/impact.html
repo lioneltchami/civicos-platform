@@ -68,7 +68,8 @@
           <dl class="row mb-0">
             <dt class="col-sm-7">{% trans "Total Approved Hours" %}</dt>
             <dd class="col-sm-5 text-end">
-              {{ impact.volunteer.total_approved_hours|floatformat:1|intcomma }}
+              {# H8: intcomma is not locale-aware; cad_money:1 uses number_format(use_l10n=True). #}
+              {{ impact.volunteer.total_approved_hours|cad_money:1 }}
             </dd>
 
             <dt class="col-sm-7">{% trans "Estimated Value (CAD)" %}</dt>
@@ -84,8 +85,10 @@
 
             <dt class="col-sm-7">{% trans "Hourly Rate" %}</dt>
             <dd class="col-sm-5 text-end">
-              {# H-6 / P3-1: cad_money so translators can reorder $, rate, /hr together #}
-              {% blocktrans with rate=impact.volunteer.hourly_rate|cad_money province=impact.volunteer.province %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
+              {# H-6 / P3-1: cad_money so translators can reorder $, rate, /hr together.
+                 H4: blocktrans does not auto-escape its `with` variables — add |force_escape
+                 so a mark_safe()'d province cannot inject raw HTML into the translated string. #}
+              {% blocktrans with rate=impact.volunteer.hourly_rate|cad_money province=impact.volunteer.province|force_escape %}${{ rate }}/hr ({{ province }}){% endblocktrans %}
             </dd>
           </dl>
         </div>
