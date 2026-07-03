@@ -122,7 +122,8 @@
        name per ARIA spec. Keep only <caption> (WCAG H39 preferred technique). #}
     <table class="table table-sm table-striped table-hover align-middle">
       <caption class="visually-hidden">
-        {% trans "Volunteer hours by programme for" %} {{ month_label }}
+        {# P2-2: force_escape for defense-in-depth — same mark_safe() risk as period_label. #}
+        {% trans "Volunteer hours by programme for" %} {{ month_label|force_escape }}
       </caption>
       <thead class="table-light">
         <tr>
@@ -192,7 +193,8 @@
       <tbody>
         {% for snap in recent_snapshots %}
         <tr>
-          <td>{{ snap.period_label }}</td>
+          {# P2-2: force_escape for consistency with the adjacent aria-label (line 209). #}
+          <td>{{ snap.period_label|force_escape }}</td>
           <td class="text-end">
             {% with h=snap.data.hours %}
               {% if h %}{{ h.total_approved_hours|floatformat:1|intcomma }}{% else %}&mdash;{% endif %}

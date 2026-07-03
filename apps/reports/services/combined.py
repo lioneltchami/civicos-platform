@@ -134,8 +134,14 @@ def combined_nonprofit_impact(year: int) -> dict:
         # VN-1: dict() copy prevents caller mutation from corrupting the module constant.
         donations = dict(_DONATIONS_ZERO)
 
+    # P2-1: Guard against None from upstream services (e.g., aggregate over an
+    # empty queryset returns None rather than Decimal("0")). Without this guard,
+    # a None value from either key raises TypeError and crashes the view even
+    # though both BBs succeeded. The zero-fallback paths are already protected
+    # by dict(_VOLUNTEER_ZERO); this covers the happy path.
     combined_value_cad = (
-        volunteer["estimated_value_cad"] + donations["total_eligible_amount"]
+        (volunteer["estimated_value_cad"] or Decimal("0.00"))
+        + (donations["total_eligible_amount"] or Decimal("0.00"))
     )
 
     logger.info(

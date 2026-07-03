@@ -192,7 +192,9 @@ class VolunteerServiceTests(TestCase):
         from apps.volunteers.models import HoursLog
         HoursLog.objects.filter(volunteer__in=profiles).update(date=date(2025, 7, 10))
         result = get_monthly_volunteer_summary(2025, 7)
-        self.assertGreaterEqual(result["volunteer_count"], 3)
+        # P2-6: assertEqual not assertGreaterEqual — the test creates exactly 3 volunteers;
+        # a bug returning 100 would still pass assertGreaterEqual(3).
+        self.assertEqual(result["volunteer_count"], 3)
 
     def test_multiple_programs_aggregated(self):
         program_a = _make_program()

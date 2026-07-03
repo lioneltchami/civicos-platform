@@ -463,6 +463,135 @@ class HonorariumCRAThresholdTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
+# HonorariumCRASignalExclusivityTests
+# ---------------------------------------------------------------------------
+
+class HonorariumCRASignalExclusivityTests(TransactionTestCase):
+    """
+    P2-6 / VN-5: Signal exclusivity — t4a_threshold_reached and
+    cra_alert_threshold_reached must be mutually exclusive.
+
+    Design intent (documented in services/honoraria.py VN-5 comment):
+      - YTD >= $500: only t4a_threshold_reached fires (T4A supersedes alert)
+      - $450 <= YTD < $500: only cra_alert_threshold_reached fires
+      - YTD < $450: neither fires
+
+    TransactionTestCase required because on_commit signals are under test.
+    """
+
+    def setUp(self):
+        from apps.volunteers.models import Honorarium
+        self.vol_user = _make_user()
+        self.profile = _make_profile(self.vol_user)
+        self.coordinator = _grant_add_honorarium(_make_user())
+        self.Honorarium = Honorarium
+
+    def test_t4a_threshold_fires_not_alert_when_ytd_reaches_500(self):
+        """
+        A $500 honorarium (no prior YTD) must fire t4a_threshold_reached
+        and must NOT fire cra_alert_threshold_reached.
+        """
+        from apps.volunteers.signals import t4a_threshold_reached, cra_alert_threshold_reached
+        t4a_calls = []
+        alert_calls = []
+
+        def t4a_receiver(sender, **kwargs):
+            t4a_calls.append(kwargs)
+
+        def alert_receiver(sender, **kwargs):
+            alert_calls.append(kwargs)
+
+        t4a_threshold_reached.connect(t4a_receiver)
+        cra_alert_threshold_reached.connect(alert_receiver)
+        try:
+            _create_honorarium(
+                self.profile,
+                amount="500.00",
+                created_by=self.coordinator,
+                payment_date=datetime.date.today(),
+            )
+        finally:
+            t4a_threshold_reached.disconnect(t4a_receiver)
+            cra_alert_threshold_reached.disconnect(alert_receiver)
+
+        self.assertEqual(len(t4a_calls), 1,
+            "t4a_threshold_reached must fire exactly once for a $500 honorarium")
+        self.assertEqual(len(alert_calls), 0,
+            "cra_alert_threshold_reached must NOT fire when T4A threshold is reached "
+            "(T4A supersedes the advisory alert — VN-5)")
+
+    def test_alert_fires_not_t4a_when_ytd_crosses_450(self):
+        """
+        A honorarium pushing YTD to $451 (above $450 alert, below $500 T4A)
+        must fire cra_alert_threshold_reached and must NOT fire t4a_threshold_reached.
+        """
+        # Pre-load $430 so the new $21 payment crosses $450 but not $500.
+        _make_honorarium_direct(
+            self.profile, amount="430.00",
+            payment_type=self.Honorarium.PAYMENT_TYPE_HONORARIUM,
+            payment_date=datetime.date.today(),
+            created_by=self.coordinator,
+        )
+        from apps.volunteers.signals import t4a_threshold_reached, cra_alert_threshold_reached
+        t4a_calls = []
+        alert_calls = []
+
+        def t4a_receiver(sender, **kwargs):
+            t4a_calls.append(kwargs)
+
+        def alert_receiver(sender, **kwargs):
+            alert_calls.append(kwargs)
+
+        t4a_threshold_reached.connect(t4a_receiver)
+        cra_alert_threshold_reached.connect(alert_receiver)
+        try:
+            _create_honorarium(
+                self.profile,
+                amount="21.00",  # 430 + 21 = 451 — above $450, below $500
+                created_by=self.coordinator,
+                payment_date=datetime.date.today(),
+            )
+        finally:
+            t4a_threshold_reached.disconnect(t4a_receiver)
+            cra_alert_threshold_reached.disconnect(alert_receiver)
+
+        self.assertEqual(len(alert_calls), 1,
+            "cra_alert_threshold_reached must fire when YTD crosses $450 alert threshold")
+        self.assertEqual(len(t4a_calls), 0,
+            "t4a_threshold_reached must NOT fire when YTD is $451 (below $500 T4A threshold)")
+
+    def test_neither_signal_fires_below_alert_threshold(self):
+        """A $100 honorarium (YTD = $100) must fire neither signal."""
+        from apps.volunteers.signals import t4a_threshold_reached, cra_alert_threshold_reached
+        t4a_calls = []
+        alert_calls = []
+
+        def t4a_receiver(sender, **kwargs):
+            t4a_calls.append(kwargs)
+
+        def alert_receiver(sender, **kwargs):
+            alert_calls.append(kwargs)
+
+        t4a_threshold_reached.connect(t4a_receiver)
+        cra_alert_threshold_reached.connect(alert_receiver)
+        try:
+            _create_honorarium(
+                self.profile,
+                amount="100.00",
+                created_by=self.coordinator,
+                payment_date=datetime.date.today(),
+            )
+        finally:
+            t4a_threshold_reached.disconnect(t4a_receiver)
+            cra_alert_threshold_reached.disconnect(alert_receiver)
+
+        self.assertEqual(len(t4a_calls), 0,
+            "t4a_threshold_reached must not fire at $100 YTD")
+        self.assertEqual(len(alert_calls), 0,
+            "cra_alert_threshold_reached must not fire at $100 YTD (below $450 threshold)")
+
+
+# ---------------------------------------------------------------------------
 # HonorariumPaymentGracefulDegradationTests
 # ---------------------------------------------------------------------------
 

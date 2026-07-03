@@ -278,7 +278,7 @@ def create_honorarium(
                     # on_commit) and could be stale if another signal handler mutated
                     # honorarium.amount between save and commit. Recompute the true
                     # YTD total from the DB now that the transaction is committed.
-                    from django.db.models import Sum as _Sum  # noqa: PLC0415
+                    # P2-4: Sum is already imported at module level — no deferred import needed.
                     # Honorarium has no status field — match cumulative_ytd() filter
                     # exactly: all PAYMENT_TYPE_HONORARIUM rows for this volunteer
                     # in this calendar year.
@@ -286,7 +286,7 @@ def create_honorarium(
                         volunteer=hon.volunteer,
                         payment_type=_H.PAYMENT_TYPE_HONORARIUM,
                         payment_date__year=hon.payment_date.year,
-                    ).aggregate(total=_Sum("amount"))["total"] or Decimal("0.00")
+                    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
                     if _ytd_live >= _alert_threshold:
                         results = cra_alert_threshold_reached.send_robust(
                             sender=_H,
@@ -303,15 +303,15 @@ def create_honorarium(
 
         transaction.on_commit(_post_commit)
 
-    # M-A: PIPEDA — do not log amount together with volunteer_profile.pk.
-    # Correlating a financial amount with a volunteer's PK creates a profiling
-    # record visible to anyone with log access (no DB access required).
-    # The amount is stored in the DB audit trail; omit it from operational logs.
+    # M-A / P2-5: PIPEDA — do not log amount OR payment_type together with
+    # volunteer_profile.pk. Logging payment_type=PAYMENT_TYPE_EXPENSE + profile PK
+    # reveals that a specific volunteer received an expense reimbursement, which
+    # is financial profiling even without the amount. The full record is in the
+    # DB audit trail; operational logs need only the honorarium PK and actor.
     logger.info(
         "volunteers.services.honoraria: Honorarium #%s created — "
-        "payment_type=%s, volunteer profile #%s, created_by user #%s",
+        "volunteer profile #%s, created_by user #%s",
         honorarium.pk,
-        payment_type,
         volunteer_profile.pk,
         created_by.pk,
     )

@@ -351,25 +351,27 @@ class DashboardDonationWidgetTests(TestCase):
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
+        # P2-3: assertIsNotNone first — the if-guard was vacuous (passes silently
+        # when the view returns None, hiding the regression it was supposed to catch).
         don_sum = response.context.get("donation_summary")
-        if don_sum is not None:
-            self.assertEqual(don_sum["ytd_total"], Decimal("0.00"))
+        self.assertIsNotNone(don_sum, "donation_summary must be present in context")
+        self.assertEqual(don_sum["ytd_total"], Decimal("0.00"))
 
     def test_user_with_no_donations_ytd_count_is_zero(self):
         user = _make_user()
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         don_sum = response.context.get("donation_summary")
-        if don_sum is not None:
-            self.assertEqual(don_sum["ytd_count"], 0)
+        self.assertIsNotNone(don_sum, "donation_summary must be present in context")
+        self.assertEqual(don_sum["ytd_count"], 0)
 
     def test_user_with_no_donations_last_receipt_is_none(self):
         user = _make_user()
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         don_sum = response.context.get("donation_summary")
-        if don_sum is not None:
-            self.assertIsNone(don_sum["last_receipt"])
+        self.assertIsNotNone(don_sum, "donation_summary must be present in context")
+        self.assertIsNone(don_sum["last_receipt"])
 
     def test_donation_summary_key_present(self):
         user = _make_user()
@@ -453,9 +455,10 @@ class DashboardDonationWidgetTests(TestCase):
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         don_sum = response.context.get("donation_summary")
-        if don_sum is not None:
-            self.assertIn("year", don_sum)
-            self.assertEqual(don_sum["year"], self._current_year())
+        # P2-3: unconditional — vacuous if-guard removed.
+        self.assertIsNotNone(don_sum, "donation_summary must be present in context")
+        self.assertIn("year", don_sum)
+        self.assertEqual(don_sum["year"], self._current_year())
 
     def test_last_receipt_none_when_no_receipts(self):
         user = _make_user()
@@ -567,9 +570,11 @@ class DashboardTemplateRenderTests(TestCase):
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
         don_sum = response.context.get("donation_summary")
-        if don_sum is not None and don_sum.get("ytd_total"):
-            # The template renders ytd_total with floatformat:2
-            self.assertContains(response, "123.00")
+        # P2-3: unconditional — double vacuous guard (None check + truthiness) removed.
+        self.assertIsNotNone(don_sum, "donation_summary must be present when donation exists")
+        self.assertTrue(don_sum.get("ytd_total"), "ytd_total must be non-zero for a $123 donation")
+        # The template renders ytd_total with floatformat:2
+        self.assertContains(response, "123.00")
 
     def test_page_title_or_heading_present(self):
         """Basic smoke test that the dashboard HTML is non-empty and meaningful."""
