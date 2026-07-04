@@ -56,19 +56,67 @@ def schedule_expiry(
 
     Called immediately after Document creation in validate_upload_request().
 
-    Calculation:
-      expires_at   = created_at + category.max_retention_days
-      retain_until = created_at + category.min_retention_days
+    Calculation rules:
+      retain_until = (created_at + min_retention_days).date()
+                     — set for ALL documents (including transitory) if min > 0.
+                     — Privacy Act s.6(1): mandatory minimum retention floor.
 
-    If the category is transitory (is_transitory=True), expires_at is not set
-    here — it is set to now() by the service layer once purpose is fulfilled.
+      expires_at   = created_at + max_retention_days
+                     — set ONLY for non-transitory documents.
+                     — For transitory records: expires_at stays None and is set
+                       later by mark_purpose_fulfilled() when purpose is met.
+                       Setting it at creation would be premature — transitory records
+                       are destroyed when purpose is fulfilled, not on a calendar date.
+
+    Transitory record reasoning (LAC DA #2016/001):
+      Transitory records have no fixed calendar expiry. They are destroyed when
+      the purpose for which they were created has been fulfilled. Scheduling
+      expires_at at creation would trigger disposal before the purpose is complete.
+      The service layer that marks purpose-fulfilled sets expires_at = now().
 
     Args:
-        document: The newly created Document (already saved to DB).
+        document: The newly created Document (already saved to DB with created_at set).
 
-    STUB: Full implementation in Wave 2 (called from validate_upload_request).
+    Saves:
+        Updates document.expires_at and document.retain_until in place using
+        update_fields to avoid overwriting other fields set by the caller.
     """
-    raise NotImplementedError("retention.schedule_expiry — implemented in Wave 2")
+    category = document.category
+    created_at = document.created_at  # timezone-aware datetime
+
+    # ── retain_until: Privacy Act s.6(1) minimum retention floor ─────────────
+    # Convert datetime to date for the DateField.
+    # Set for ALL documents (transitory or not) when min_retention_days > 0.
+    # Even transitory records occasionally have minimum retention requirements
+    # (e.g., legally mandated 30-day retention for public interest records).
+    retain_until = None
+    if category.min_retention_days > 0:
+        retain_until = (created_at + timedelta(days=category.min_retention_days)).date()
+
+    # ── expires_at: calendar-based disposal date (non-transitory only) ────────
+    # Transitory records: expires_at left as None — set by mark_purpose_fulfilled().
+    expires_at = None
+    if not category.is_transitory and category.max_retention_days > 0:
+        expires_at = created_at + timedelta(days=category.max_retention_days)
+
+    # ── Persist both fields atomically ────────────────────────────────────────
+    # update_fields avoids race conditions with any other concurrent saves.
+    # Both fields start as None in the DB; we only overwrite them here if they
+    # should be set. If both are None (e.g. is_transitory AND min_retention=0)
+    # the document will never appear in pending_disposal() — as intended.
+    document.expires_at = expires_at
+    document.retain_until = retain_until
+    document.save(update_fields=["expires_at", "retain_until", "updated_at"])
+
+    logger.debug(
+        "schedule_expiry: doc pk=%s category=%r transitory=%s "
+        "expires_at=%s retain_until=%s",
+        document.pk,
+        category.slug,
+        category.is_transitory,
+        expires_at,
+        retain_until,
+    )
 
 
 def soft_delete(
