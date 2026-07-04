@@ -129,7 +129,7 @@ class _ScanDocumentTask(Task):
         einfo: object,
     ) -> None:
         """Quarantine the document when scan_document exhausts all retries."""
-        doc_pk: str | None = args[0] if args else None
+        doc_pk: str | None = args[0] if args else kwargs.get("doc_pk")
         if doc_pk:
             _quarantine_on_scan_failure(doc_pk=doc_pk, exc=exc)
         super().on_failure(exc, task_id, args, kwargs, einfo)

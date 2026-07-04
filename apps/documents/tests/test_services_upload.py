@@ -350,14 +350,47 @@ class ValidateUploadRequestTests(TestCase):
         self.assertIn("expires_at", result)
 
     def test_storage_key_never_in_response(self):
-        """PIPEDA: storage_key MUST NOT be returned to the client."""
-        result = self._call()
-        for key in result:
-            self.assertNotIn("storage_key", key)
-            self.assertNotIn("key", key.lower(), f"Found suspicious key {key!r} in response")
-        # Also check nested upload_fields
-        for field_key in result.get("upload_fields", {}):
-            self.assertNotEqual(field_key, "key")
+        """
+        T-5 / PIPEDA: storage_key MUST NOT be returned as a top-level key.
+
+        Use a realistic presigned-POST mock that includes the S3 'key' field
+        (as a real S3 response would) so we verify the actual value path,
+        not an empty-fields vacuous pass.
+
+        Note: upload_fields IS intentionally forwarded to the browser — the
+        browser needs the 'key' field to POST to the correct S3 location.
+        PIPEDA compliance applies to top-level API response keys only.
+        """
+        sentinel_storage_key = "documents/quarantine/test-uuid/file-uuid.bin"
+        with patch(
+            "apps.documents.services.upload._generate_presigned_post",
+            return_value={
+                "url": "https://bucket.s3.amazonaws.com/",
+                "fields": {
+                    "key": sentinel_storage_key,
+                    "Content-Type": "application/pdf",
+                    "AWSAccessKeyId": "AKIDEXAMPLE",
+                    "policy": "base64encodedpolicy",
+                    "signature": "sig",
+                },
+                "expires_at": timezone.now().isoformat(),
+            },
+        ):
+            result = validate_upload_request(
+                user=self.user,
+                category_slug=self.category.slug,
+                original_filename="report.pdf",
+                mime_type="application/pdf",
+                size_bytes=100 * 1024,
+            )
+
+        # Top-level response must not expose storage_key as a named key
+        self.assertNotIn("storage_key", result)
+        # Exact allowed top-level keys
+        self.assertEqual(set(result.keys()), {"doc_id", "upload_url", "upload_fields", "expires_at"})
+        # doc_id must be a UUID (not accidentally set to the storage key)
+        self.assertNotEqual(result["doc_id"], sentinel_storage_key)
+        uuid.UUID(result["doc_id"])  # raises ValueError if not a valid UUID
 
     def test_doc_created_in_pending_upload_state(self):
         result = self._call()
@@ -547,6 +580,24 @@ class ValidateUploadRequestTests(TestCase):
         result = self._call(user=superuser)
         self.assertIn("doc_id", result)
 
+    # ── T-4: Exact size boundary tests ───────────────────────────────────────
+
+    @override_settings(CIVICOS={**CIVICOS_OVERRIDES, "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES": 1024})
+    def test_size_exactly_at_citizen_cap_passes(self):
+        """
+        T-4: size_bytes == max_size must pass.
+        The check is `size_bytes > max_size` (strict), so equality is permitted.
+        """
+        result = self._call(size_bytes=1024)
+        self.assertIn("doc_id", result)
+
+    @override_settings(CIVICOS={**CIVICOS_OVERRIDES, "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES": 1024})
+    def test_size_one_byte_over_citizen_cap_fails(self):
+        """T-4: size_bytes == max_size + 1 must be rejected with a ValidationError."""
+        with self.assertRaises(ValidationError) as ctx:
+            self._call(size_bytes=1025)
+        self.assertIn("size", str(ctx.exception).lower())
+
     def test_case_insensitive_extension_accepted(self):
         """'.PDF' and '.pdf' should both be accepted."""
         result = self._call(
@@ -624,8 +675,14 @@ class ConfirmUploadTests(TransactionTestCase):
         Call confirm_upload() with the standard set of mocks:
           - _verify_file_exists → no-op (file always "exists")
           - _read_first_bytes   → returns minimal PDF bytes
-          - _validate_magic_bytes → no-op (magic always passes)
+          - _validate_magic_bytes → returns "application/pdf" (M-3 return type)
           - scan_document.apply_async → no-op (Celery task stub)
+
+        Returns:
+            (result, task_calls) where task_calls is a list snapshot of
+            mock_task.call_args_list captured INSIDE the patch context (T-1).
+            Returning the live mock object would allow vacuous assertions after
+            the context exits; a snapshot forces callers to inspect real data.
         """
         u = user or self.user
         with patch("apps.documents.services.upload._verify_file_exists"):
@@ -641,7 +698,9 @@ class ConfirmUploadTests(TransactionTestCase):
                         "apps.documents.tasks.scan_document.apply_async"
                     ) as mock_task:
                         result = confirm_upload(user=u, doc_id=str(doc.pk))
-                        return result, mock_task
+                        # T-1: capture snapshot while still inside the context
+                        task_calls = list(mock_task.call_args_list)
+        return result, task_calls
 
     # ── IDOR ──────────────────────────────────────────────────────────────────
 
@@ -683,7 +742,10 @@ class ConfirmUploadTests(TransactionTestCase):
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",  # H-4: must return str, not MagicMock
+                ):
                     with patch("apps.documents.tasks.scan_document.apply_async"):
                         result = confirm_upload(user=self.user, doc_id=str(doc.pk))
 
@@ -692,20 +754,23 @@ class ConfirmUploadTests(TransactionTestCase):
         self.assertEqual(result.scan_status, Document.ScanStatus.SCANNING)
 
     def test_happy_path_dispatches_scan_task(self):
-        """scan_document.apply_async() must be called on_commit."""
+        """scan_document.apply_async() must be called on_commit with precise args."""
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",
+                ):
                     with patch(
                         "apps.documents.tasks.scan_document.apply_async"
                     ) as mock_task:
                         confirm_upload(user=self.user, doc_id=str(doc.pk))
-                        # on_commit fires in TransactionTestCase on real commit
-                        mock_task.assert_called_once()
-                        call_args = mock_task.call_args
-                        self.assertEqual(call_args.kwargs.get("args", call_args[1].get("args", [None]))[0],
-                                        str(doc.pk))
+                        # T-2: assert INSIDE the context with precise args/countdown
+                        # (on_commit fires synchronously in TransactionTestCase).
+                        mock_task.assert_called_once_with(
+                            args=[str(doc.pk)], countdown=2
+                        )
 
     def test_happy_path_fires_document_confirmed_signal(self):
         doc = self._make_pending_doc()
@@ -720,7 +785,10 @@ class ConfirmUploadTests(TransactionTestCase):
         try:
             with patch("apps.documents.services.upload._verify_file_exists"):
                 with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                    with patch("apps.documents.services.upload._validate_magic_bytes"):
+                    with patch(
+                        "apps.documents.services.upload._validate_magic_bytes",
+                        return_value="application/pdf",  # H-4: must return str — MagicMock written to doc.mime_type otherwise
+                    ):
                         with patch("apps.documents.tasks.scan_document.apply_async"):
                             confirm_upload(user=self.user, doc_id=str(doc.pk))
         finally:
@@ -730,17 +798,65 @@ class ConfirmUploadTests(TransactionTestCase):
         kwargs = received[0]
         self.assertEqual(kwargs["document_pk"], str(doc.pk))
         self.assertEqual(kwargs["size_bytes"], doc.size_bytes)
-        self.assertEqual(kwargs["mime_type"], doc.mime_type)
+        self.assertEqual(kwargs["mime_type"], "application/pdf")  # H-4: validates against known value
+
+    def test_document_confirmed_signal_no_storage_key_in_kwargs(self):
+        """
+        T-3 / PIPEDA: document_confirmed signal kwargs must NOT include storage_key
+        (or its value). Receivers must not be able to forward the internal S3 path
+        to external systems via signal kwargs.
+        """
+        doc = self._make_pending_doc()
+        received = []
+
+        from apps.documents.signals import document_confirmed
+        handler = lambda sender, **kw: received.append(kw)  # noqa: E731
+        document_confirmed.connect(handler, weak=False)
+        try:
+            with patch("apps.documents.services.upload._verify_file_exists"):
+                with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
+                    with patch(
+                        "apps.documents.services.upload._validate_magic_bytes",
+                        return_value="application/pdf",
+                    ):
+                        with patch("apps.documents.tasks.scan_document.apply_async"):
+                            confirm_upload(user=self.user, doc_id=str(doc.pk))
+        finally:
+            document_confirmed.disconnect(handler)
+
+        self.assertEqual(len(received), 1)
+        kwargs = received[0]
+        # storage_key must not appear as a kwarg key
+        self.assertNotIn("storage_key", kwargs)
+        # T-3 / PIPEDA: original_filename must also be absent from signal kwargs (M-4 invariant)
+        self.assertNotIn("original_filename", kwargs)
+        # Positive assertion: exact expected key set — any new PII key would be caught immediately
+        # (Django dispatch adds 'signal'; document_confirmed adds document_pk, size_bytes, mime_type)
+        expected_keys = {"signal", "document_pk", "size_bytes", "mime_type"}
+        self.assertEqual(
+            set(kwargs.keys()),
+            expected_keys,
+            f"signal kwargs must be exactly {expected_keys}, got: {set(kwargs.keys())}",
+        )
+        # Verify the internal storage key VALUE is not present anywhere in kwargs values
+        doc.refresh_from_db()
+        storage_key_value = doc._storage_key
+        for v in kwargs.values():
+            self.assertNotEqual(v, storage_key_value)
 
     def test_audit_log_written_with_correct_fields(self):
         """
-        PIPEDA: audit event_detail must NOT contain original_filename or storage_key.
-        It MUST contain category_slug, mime_type, and size_bytes.
+        T-6 / PIPEDA: audit event_detail must NOT contain original_filename or storage_key.
+        It MUST contain category_slug, mime_type, size_bytes, and event_type=RECORD_CREATED.
         """
+        from apps.audit.models import AuditEventType
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",  # H-4: must return str
+                ):
                     with patch("apps.documents.tasks.scan_document.apply_async"):
                         with patch(
                             "apps.audit.services.record_event"
@@ -751,21 +867,36 @@ class ConfirmUploadTests(TransactionTestCase):
         call_kwargs = mock_audit.call_args.kwargs
         event_detail = call_kwargs.get("event_detail", {})
 
-        # Required fields
+        # T-6: assert the event type is correct
+        self.assertEqual(call_kwargs.get("event_type"), AuditEventType.RECORD_CREATED)
+
+        # Required event_detail fields
         self.assertIn("category_slug", event_detail)
         self.assertIn("mime_type", event_detail)
         self.assertIn("size_bytes", event_detail)
 
-        # PIPEDA exclusions
+        # PIPEDA exclusions (negative assertions)
         self.assertNotIn("original_filename", event_detail)
         self.assertNotIn("storage_key", event_detail)
         self.assertNotIn("filename", event_detail)
+
+        # T-6: exhaustive exact-key-set assertion — a newly added PII field would be
+        # caught here immediately rather than slipping through the 3 negative checks above
+        self.assertEqual(
+            set(event_detail.keys()),
+            {"category_slug", "mime_type", "size_bytes"},
+            f"event_detail must contain exactly {{category_slug, mime_type, size_bytes}}, "
+            f"got: {set(event_detail.keys())}",
+        )
 
     def test_audit_actor_id_is_user_pk(self):
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",  # H-4: must return str
+                ):
                     with patch("apps.documents.tasks.scan_document.apply_async"):
                         with patch(
                             "apps.audit.services.record_event"
@@ -909,7 +1040,10 @@ class ConfirmUploadTests(TransactionTestCase):
         doc = self._make_pending_doc()  # original_filename="test.pdf"
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",  # H-4: must return str
+                ):
                     with patch(
                         "apps.documents.services.upload._check_zip_bomb"
                     ) as mock_zip_check:
@@ -924,7 +1058,10 @@ class ConfirmUploadTests(TransactionTestCase):
         original_classification = doc.security_classification
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",  # H-4: must return str
+                ):
                     with patch("apps.documents.tasks.scan_document.apply_async"):
                         confirm_upload(user=self.user, doc_id=str(doc.pk))
         doc.refresh_from_db()
@@ -1251,7 +1388,10 @@ class AuditWriteFailureTests(TransactionTestCase):
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",  # H-4: must return str
+                ):
                     with patch("apps.documents.tasks.scan_document.apply_async"):
                         with patch(
                             "apps.audit.services.record_event",
@@ -1268,7 +1408,10 @@ class AuditWriteFailureTests(TransactionTestCase):
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",  # H-4: must return str
+                ):
                     with patch("apps.documents.tasks.scan_document.apply_async"):
                         with patch(
                             "apps.audit.services.record_event",

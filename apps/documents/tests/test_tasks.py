@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -156,10 +156,20 @@ class ScanDocumentDevBypassTests(TestCase):
         finally:
             document_scan_clean.disconnect(handler)
 
-        kwargs_str = str(received[0])
-        self.assertNotIn("email", kwargs_str)
-        self.assertNotIn("username", kwargs_str)
-        self.assertNotIn("original_filename", kwargs_str)
+        signal_kwargs = received[0]
+        # Positive assertion: exact key set — no unexpected keys can sneak in
+        self.assertEqual(
+            set(signal_kwargs.keys()),
+            {"document_pk", "signal"},
+            "scan_clean signal must contain exactly {document_pk, signal} — no extra keys",
+        )
+        # Negative assertion: explicit PII key names must be absent
+        forbidden_pii_keys = {"email", "username", "original_filename", "storage_key"}
+        found_pii = forbidden_pii_keys & set(signal_kwargs.keys())
+        self.assertFalse(
+            found_pii,
+            f"PIPEDA: PII keys must not appear in scan_clean signal: {found_pii}",
+        )
 
     # ── Idempotency ───────────────────────────────────────────────────────────
 
@@ -251,18 +261,30 @@ class ScanDocumentDevBypassTests(TestCase):
 
     def test_document_not_found_triggers_retry(self):
         """
-        T-9 / M-6: When the document is not found (e.g. DB replica lag after
-        confirm_upload()), scan_document raises Retry so Celery re-queues it
-        with exponential backoff rather than silently swallowing the error.
+        T-9 / M-6: When the document is not found, scan_document must call
+        self.retry() — NOT silently return (old T-9 bug) or raise DoesNotExist.
 
-        Using .run() exercises the task body directly; self.retry() raises
-        celery.exceptions.Retry on the first unresolved DoesNotExist.
+        We patch self.retry() to intercept the call without triggering the eager
+        retry loop. With CELERY_TASK_ALWAYS_EAGER=True, an unpatched self.retry()
+        inside .run() would synchronously re-invoke the task body up to max_retries=5,
+        exhausting retries and raising MaxRetriesExceededError instead of Retry.
+        Patching isolates the core M-6 invariant: "retry must be called with
+        countdown=5 (replica-lag backoff)" from Celery's eager-execution machinery.
         """
         from celery.exceptions import Retry
 
         fake_pk = str(uuid.uuid4())
-        with self.assertRaises(Retry):
-            scan_document.run(fake_pk)
+        with patch.object(scan_document, "retry", side_effect=Retry()) as mock_retry:
+            with self.assertRaises(Retry):
+                scan_document.run(fake_pk)
+
+        mock_retry.assert_called_once()
+        _, retry_kwargs = mock_retry.call_args
+        self.assertEqual(
+            retry_kwargs.get("countdown"),
+            5,
+            "M-6: retry must use countdown=5 for DB replica-lag backoff",
+        )
 
 
 @override_settings(CIVICOS=CIVICOS_PROD)
@@ -491,3 +513,151 @@ class TaskDecoratorPropertyTests(TestCase):
             cleanup_stale_pending_uploads.reject_on_worker_lost,
             "cleanup_stale_pending_uploads.reject_on_worker_lost must be True",
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M-7: _quarantine_on_scan_failure + _ScanDocumentTask.on_failure
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@override_settings(CIVICOS=CIVICOS_DEV)
+class QuarantineOnScanFailureTests(TestCase):
+    """
+    Tests for _quarantine_on_scan_failure() helper and the _ScanDocumentTask.on_failure()
+    hook (M-7).
+
+    on_failure() is triggered by the Celery worker machinery after all retries are
+    exhausted — never by .run() directly. These tests exercise both the helper
+    directly and the on_failure() hook via scan_document (which IS an instance of
+    _ScanDocumentTask because base=_ScanDocumentTask is set in the decorator).
+
+    PIPEDA: all assertions verify that no PII appears in signal kwargs or log
+    messages (document_pk and exception type only).
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        self.category = make_category()
+
+    # ── _quarantine_on_scan_failure unit tests ────────────────────────────────
+
+    def test_quarantine_transitions_scanning_to_quarantined(self):
+        """M-7: SCANNING → QUARANTINED on scan failure."""
+        from apps.documents.tasks import _quarantine_on_scan_failure
+
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        _quarantine_on_scan_failure(doc_pk=str(doc.pk), exc=RuntimeError("scan error"))
+        doc.refresh_from_db()
+        self.assertEqual(doc.scan_status, Document.ScanStatus.QUARANTINED)
+
+    def test_quarantine_sets_scan_engine_result_from_exception_type(self):
+        """scan_engine_result must encode exception type only — no PII."""
+        from apps.documents.tasks import _quarantine_on_scan_failure
+
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        _quarantine_on_scan_failure(doc_pk=str(doc.pk), exc=RuntimeError("sensitive message"))
+        doc.refresh_from_db()
+        self.assertIn("RuntimeError", doc.scan_engine_result)
+        # Exception message (which might contain PII) must NOT be in the result
+        self.assertNotIn("sensitive message", doc.scan_engine_result)
+
+    def test_quarantine_sets_scan_completed_at(self):
+        """scan_completed_at must be stamped when quarantine transition occurs."""
+        from apps.documents.tasks import _quarantine_on_scan_failure
+
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        before = timezone.now()
+        _quarantine_on_scan_failure(doc_pk=str(doc.pk), exc=RuntimeError("err"))
+        doc.refresh_from_db()
+        self.assertIsNotNone(doc.scan_completed_at)
+        self.assertGreaterEqual(doc.scan_completed_at, before)
+
+    def test_quarantine_fires_document_quarantined_signal(self):
+        """M-7: document_quarantined signal must fire on SCANNING → QUARANTINED."""
+        from apps.documents.tasks import _quarantine_on_scan_failure
+        from apps.documents.signals import document_quarantined
+
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        received = []
+        handler = lambda sender, **kw: received.append(kw)  # noqa: E731
+        document_quarantined.connect(handler, weak=False)
+        try:
+            _quarantine_on_scan_failure(doc_pk=str(doc.pk), exc=RuntimeError("err"))
+        finally:
+            document_quarantined.disconnect(handler)
+
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0]["document_pk"], str(doc.pk))
+        # PIPEDA: no PII in signal kwargs
+        forbidden = {"original_filename", "email", "uploaded_by", "storage_key"}
+        self.assertFalse(forbidden & set(received[0].keys()))
+
+    def test_quarantine_idempotent_if_not_scanning(self):
+        """If doc is already QUARANTINED (race condition), must not re-transition."""
+        from apps.documents.tasks import _quarantine_on_scan_failure
+
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.QUARANTINED)
+        doc.scan_engine_result = "ORIGINAL"
+        doc.save(update_fields=["scan_engine_result", "updated_at"])
+
+        _quarantine_on_scan_failure(doc_pk=str(doc.pk), exc=RuntimeError("err"))
+        doc.refresh_from_db()
+
+        # Status and result must be unchanged (idempotency guard)
+        self.assertEqual(doc.scan_status, Document.ScanStatus.QUARANTINED)
+        self.assertEqual(doc.scan_engine_result, "ORIGINAL")
+
+    def test_quarantine_doc_not_found_does_not_raise(self):
+        """If doc was concurrently deleted, must log and return without raising."""
+        from apps.documents.tasks import _quarantine_on_scan_failure
+
+        fake_pk = str(uuid.uuid4())
+        # Must not raise — worker on_failure must always complete cleanly
+        _quarantine_on_scan_failure(doc_pk=fake_pk, exc=RuntimeError("err"))
+
+    # ── _ScanDocumentTask.on_failure hook tests ───────────────────────────────
+
+    def test_on_failure_extracts_doc_pk_from_positional_args(self):
+        """
+        on_failure must call _quarantine_on_scan_failure when doc_pk is in args[0].
+        The normal dispatch path uses positional args: apply_async(args=[pk]).
+        """
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        with patch("apps.documents.tasks._quarantine_on_scan_failure") as mock_quarantine:
+            scan_document.on_failure(
+                exc=RuntimeError("test"),
+                task_id="fake-task-id",
+                args=(str(doc.pk),),
+                kwargs={},
+                einfo=None,
+            )
+        mock_quarantine.assert_called_once_with(doc_pk=str(doc.pk), exc=ANY)
+
+    def test_on_failure_extracts_doc_pk_from_kwargs(self):
+        """
+        on_failure must also handle kwargs dispatch (args is empty tuple).
+        Without the kwargs.get("doc_pk") fallback, quarantine is silently skipped
+        when the task is dispatched with keyword args instead of positional args.
+        """
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        with patch("apps.documents.tasks._quarantine_on_scan_failure") as mock_quarantine:
+            scan_document.on_failure(
+                exc=RuntimeError("test"),
+                task_id="fake-task-id",
+                args=(),
+                kwargs={"doc_pk": str(doc.pk)},
+                einfo=None,
+            )
+        mock_quarantine.assert_called_once_with(doc_pk=str(doc.pk), exc=ANY)
+
+    def test_on_failure_empty_args_and_kwargs_does_not_call_quarantine(self):
+        """If both args and kwargs carry no doc_pk, quarantine must not be attempted."""
+        with patch("apps.documents.tasks._quarantine_on_scan_failure") as mock_quarantine:
+            scan_document.on_failure(
+                exc=RuntimeError("test"),
+                task_id="fake-task-id",
+                args=(),
+                kwargs={},
+                einfo=None,
+            )
+        mock_quarantine.assert_not_called()
