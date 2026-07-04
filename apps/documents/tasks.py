@@ -34,11 +34,105 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from celery import shared_task
+from celery import Task, shared_task
 from django.db import transaction
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M-7: on_failure quarantine transition helper + Task base class
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _quarantine_on_scan_failure(doc_pk: str, exc: BaseException) -> None:
+    """
+    Transition a document from SCANNING → QUARANTINED after scan failure.
+
+    Called by ``_ScanDocumentTask.on_failure()`` when ``scan_document``
+    exhausts all retries (``MaxRetriesExceededError``) or raises an
+    unhandled exception. Documents left in SCANNING indefinitely are a
+    security gap — no virus scan ran but the document appears in-progress
+    forever. Forcing QUARANTINED surfaces the failure to admins and blocks
+    citizen access until manual review.
+
+    PIPEDA: no PII in logs or signal kwargs. Only doc_pk and exception
+    type name are recorded.
+    """
+    from apps.documents.models import Document
+    from apps.documents.signals import document_quarantined
+
+    try:
+        with transaction.atomic():
+            try:
+                doc = Document.objects.select_for_update().get(pk=doc_pk)
+            except Document.DoesNotExist:
+                logger.warning(
+                    "_quarantine_on_scan_failure: doc pk=%r not found; "
+                    "may have been deleted by cleanup task.",
+                    doc_pk,
+                )
+                return
+
+            if doc.scan_status != Document.ScanStatus.SCANNING:
+                # Already transitioned by another code path (e.g. concurrent retry).
+                return
+
+            scan_engine_result = f"SCAN_FAILURE:{type(exc).__name__}"
+            doc.scan_status = Document.ScanStatus.QUARANTINED
+            doc.scan_engine_result = scan_engine_result
+            doc.scan_completed_at = timezone.now()
+            doc.save(
+                update_fields=[
+                    "scan_status",
+                    "scan_engine_result",
+                    "scan_completed_at",
+                    "updated_at",
+                ]
+            )
+
+        document_quarantined.send_robust(
+            sender=Document,
+            document_pk=str(doc_pk),
+            scan_engine_result=scan_engine_result,
+        )
+        logger.error(
+            "scan_document: scan failed after exhausting retries for doc pk=%r; "
+            "transitioned to QUARANTINED. Exception type: %s",
+            doc_pk,
+            type(exc).__name__,
+        )
+    except Exception:
+        logger.exception(
+            "_quarantine_on_scan_failure: on_failure quarantine transition "
+            "itself failed for doc pk=%r",
+            doc_pk,
+        )
+
+
+class _ScanDocumentTask(Task):
+    """
+    Custom Celery Task base class for ``scan_document``.
+
+    Adds an ``on_failure`` hook that transitions the document from
+    SCANNING → QUARANTINED when all retries are exhausted, preventing
+    documents from being permanently stuck in the SCANNING state.
+    """
+
+    def on_failure(
+        self,
+        exc: BaseException,
+        task_id: str,
+        args: tuple,
+        kwargs: dict,
+        einfo: object,
+    ) -> None:
+        """Quarantine the document when scan_document exhausts all retries."""
+        doc_pk: str | None = args[0] if args else None
+        if doc_pk:
+            _quarantine_on_scan_failure(doc_pk=doc_pk, exc=exc)
+        super().on_failure(exc, task_id, args, kwargs, einfo)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +142,7 @@ logger = logging.getLogger(__name__)
 
 @shared_task(
     bind=True,
+    base=_ScanDocumentTask,  # M-7: on_failure → quarantine when retries exhausted
     max_retries=5,
     default_retry_delay=30,
     queue="documents",
@@ -115,7 +210,12 @@ def scan_document(self, doc_pk: str) -> None:
                 "environment. Set CLAMAV_HOST and CLAMAV_REQUIRED=True for "
                 "production, or ensure DEBUG=True / TESTING=True for development."
             )
-        _mark_document_active_dev_bypass(doc_pk=doc_pk)
+        try:
+            _mark_document_active_dev_bypass(doc_pk=doc_pk)
+        except Document.DoesNotExist:
+            # M-6: Document not visible yet (DB replica lag). Retry with
+            # exponential backoff so the task can find it once propagated.
+            raise self.retry(exc=Document.DoesNotExist(), countdown=5)
         return
 
     # ── ClamAV required but not yet implemented (Wave 3) ─────────────────────
@@ -145,12 +245,16 @@ def _mark_document_active_dev_bypass(doc_pk: str) -> None:
         try:
             doc = Document.objects.select_for_update().get(pk=doc_pk)
         except Document.DoesNotExist:
+            # M-6: Re-raise so the outer scan_document task can retry via
+            # self.retry(). Swallowing DoesNotExist here would permanently
+            # lose the document if the DB row isn't visible yet due to
+            # replica lag (the docstring's documented retry rationale).
             logger.warning(
                 "scan_document (dev bypass): Document pk=%r not found; "
-                "may be a race — will not retry from this helper.",
+                "re-raising so the task retry mechanism can handle replica lag.",
                 doc_pk,
             )
-            return
+            raise
 
         # Idempotency guard: only transition from SCANNING → ACTIVE
         if doc.scan_status != Document.ScanStatus.SCANNING:

@@ -197,13 +197,14 @@ class ValidateMagicBytesTests(TestCase):
     """
 
     @patch("apps.documents.services.upload.magic")
-    def test_allowed_mime_passes(self, mock_magic_module):
+    def test_allowed_mime_passes_and_returns_detected_mime(self, mock_magic_module):
+        """M-3: Returns the detected MIME type string on success."""
         mock_magic_module.Magic.return_value.from_buffer.return_value = "application/pdf"
-        # Should not raise
-        _validate_magic_bytes(
+        result = _validate_magic_bytes(
             first_bytes=b"%PDF-1.4",
             allowed_mimes=["application/pdf"],
         )
+        self.assertEqual(result, "application/pdf")
 
     @patch("apps.documents.services.upload.magic")
     def test_disallowed_mime_raises(self, mock_magic_module):
@@ -220,29 +221,37 @@ class ValidateMagicBytesTests(TestCase):
         with self.assertRaises(ValidationError):
             _validate_magic_bytes(first_bytes=b"garbage", allowed_mimes=["application/pdf"])
 
-    @override_settings(CIVICOS={**CIVICOS_OVERRIDES, "CLAMAV_REQUIRED": False})
+    @override_settings(CIVICOS={**CIVICOS_OVERRIDES, "MAGIC_BYTES_REQUIRED": False})
     def test_magic_not_installed_dev_skip(self):
         """
-        In dev (CLAMAV_REQUIRED=False), magic=None is tolerated.
-        The function should log a warning and return without raising.
+        M-1: When MAGIC_BYTES_REQUIRED=False and python-magic is absent,
+        the function skips validation and returns None (not raises).
+        This is independent of CLAMAV_REQUIRED — they are separate concerns.
         """
         with patch("apps.documents.services.upload.magic", None):
-            # Should not raise — dev bypass
-            _validate_magic_bytes(
+            result = _validate_magic_bytes(
                 first_bytes=b"anything",
                 allowed_mimes=["application/pdf"],
             )
+        # M-3: returns None when bypassed, so caller knows not to overwrite mime_type
+        self.assertIsNone(result)
 
-    @override_settings(CIVICOS={**CIVICOS_OVERRIDES, "CLAMAV_REQUIRED": True})
-    def test_magic_not_installed_prod_raises(self):
-        """In prod (CLAMAV_REQUIRED=True), magic=None is a hard ValidationError."""
+    @override_settings(CIVICOS={**CIVICOS_OVERRIDES, "MAGIC_BYTES_REQUIRED": True})
+    def test_magic_not_installed_required_raises_improperly_configured(self):
+        """
+        M-1: When MAGIC_BYTES_REQUIRED=True (the default) and python-magic is
+        absent, raise ImproperlyConfigured so operators see a clear error.
+        This replaces the old CLAMAV_REQUIRED check — the two flags are independent.
+        """
+        from django.core.exceptions import ImproperlyConfigured
+
         with patch("apps.documents.services.upload.magic", None):
-            with self.assertRaises(ValidationError) as ctx:
+            with self.assertRaises(ImproperlyConfigured) as ctx:
                 _validate_magic_bytes(
                     first_bytes=b"anything",
                     allowed_mimes=["application/pdf"],
                 )
-            self.assertIn("configuration error", str(ctx.exception).lower())
+            self.assertIn("MAGIC_BYTES_REQUIRED", str(ctx.exception))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -624,7 +633,10 @@ class ConfirmUploadTests(TransactionTestCase):
                 "apps.documents.services.upload._read_first_bytes",
                 return_value=b"%PDF-1.4",
             ):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value="application/pdf",  # M-3: must return str so doc.mime_type gets a valid value
+                ):
                     with patch(
                         "apps.documents.tasks.scan_document.apply_async"
                     ) as mock_task:

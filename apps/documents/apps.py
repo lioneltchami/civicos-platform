@@ -16,7 +16,6 @@ Governing law: PIPEDA, Privacy Act s.6(1), TBS SPIN 2023-06-13, LAC DA #2016/001
 
 import importlib.util
 import logging
-import sys
 
 from django.apps import AppConfig
 from django.conf import settings
@@ -94,10 +93,13 @@ class DocumentsConfig(AppConfig):
 
     @staticmethod
     def _is_test_run() -> bool:
-        """True when running under Django's test runner or pytest."""
-        if getattr(settings, "TESTING", False):
-            return True
-        argv = sys.argv
-        return bool(argv) and argv[0].endswith(("manage.py", "pytest")) and (
-            len(argv) > 1 and argv[1] in ("test", "pytest")
-        )
+        """True when running under Django's test runner or pytest.
+
+        Relies solely on TESTING=True being set in test settings (or via
+        override_settings). The previous argv-based heuristic was dead code:
+        ``argv[1]`` is a path or flag under pytest, not the literal string
+        "pytest", so the branch never matched. Removing it prevents silent
+        misconfiguration where a non-test process happens to set argv[1]
+        to "test" (e.g. a management command named "test-something").
+        """
+        return bool(getattr(settings, "TESTING", False))

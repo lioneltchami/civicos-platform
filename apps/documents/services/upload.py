@@ -106,6 +106,18 @@ _ZIP_MIME_TYPES: frozenset[str] = frozenset(
 # Number of bytes read from storage for magic-byte identification.
 _MAGIC_BYTE_READ_LENGTH: int = 8192
 
+# Known S3 storage backend class paths (django-storages).
+# M-5: Compare against an explicit set rather than fragile substring matching.
+# "s3" in backend.lower() would match any backend with "s3" in its path,
+# including future custom backends that happen to include "s3" as a substring
+# without actually being S3. Use exact class paths instead.
+_S3_BACKEND_PATHS: frozenset[str] = frozenset(
+    {
+        "storages.backends.s3boto3.S3Boto3Storage",  # django-storages >= 1.13
+        "storages.backends.s3.S3Storage",            # django-storages <= 1.12 (legacy)
+    }
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Public service functions
@@ -263,11 +275,16 @@ def validate_upload_request(
 
     # ── Fire signal ───────────────────────────────────────────────────────────
     # PIPEDA: kwargs contain only doc.pk, category.slug, user.pk (no email, no filename).
+    # M-9: User.pk is BigAutoField (int). Cast explicitly to int so the type
+    # contract in signals.py ("uploaded_by_id (int)") is always satisfied,
+    # even if the User model is swapped for one with a UUID PK in the future —
+    # in that case the int() cast will raise TypeError early, forcing an
+    # explicit update of the signal contract rather than silent type mismatch.
     document_upload_initiated.send_robust(
         sender=Document,
         document_pk=str(doc.pk),
         category_slug=category.slug,
-        uploaded_by_id=user.pk,
+        uploaded_by_id=int(user.pk),
     )
 
     # PIPEDA: storage_key NEVER in the returned dict.
@@ -314,6 +331,16 @@ def confirm_upload(
     from apps.documents.models import Document
     from apps.documents.signals import document_confirmed
     from apps.documents.tasks import scan_document
+
+    # ── M-2: UUID format validation ────────────────────────────────────────────
+    # A malformed doc_id (e.g. "abc", "'; DROP TABLE --") causes the UUID field
+    # parser inside .get(pk=doc_id) to raise ValueError — an unhandled 500.
+    # Catch it here and return 404, consistent with the IDOR prevention rule
+    # (we never confirm whether a document with a given ID exists to the caller).
+    try:
+        uuid.UUID(doc_id)
+    except (ValueError, AttributeError):
+        raise Http404
 
     # ── select_for_update inside atomic — required before any status check ─────
     with transaction.atomic():
@@ -370,7 +397,17 @@ def confirm_upload(
                 f"DocumentCategory for document pk={doc.pk} has no allowed_mime_types "
                 "and CIVICOS['ALLOWED_UPLOAD_MIME_TYPES'] is empty."
             )
-        _validate_magic_bytes(first_bytes=first_bytes, allowed_mimes=allowed_mimes)
+        # M-3: _validate_magic_bytes() now returns the authoritative MIME type
+        # detected by libmagic (or None if the check was bypassed in dev).
+        # Overwrite doc.mime_type with the verified value so the model stores
+        # the magic-detected result, not the unverified client-supplied value.
+        detected_mime: str | None = _validate_magic_bytes(
+            first_bytes=first_bytes, allowed_mimes=allowed_mimes
+        )
+        if detected_mime is not None:
+            # Authoritative: replace the client-supplied MIME stored at
+            # validate_upload_request() time with the libmagic-detected value.
+            doc.mime_type = detected_mime
 
         # ── Layer 6: ZIP bomb detection (CVE-2024-0450) ────────────────────────
         # The ZIP central directory is located at the END of the archive — the
@@ -384,7 +421,10 @@ def confirm_upload(
 
         # ── Advance scan status ────────────────────────────────────────────────
         doc.scan_status = Document.ScanStatus.SCANNING
-        doc.save(update_fields=["scan_status", "updated_at"])
+        # Always include mime_type in update_fields: if detected_mime is not None
+        # it carries the authoritative value; if None (magic bypassed) Django
+        # writes the existing client-supplied value unchanged — no regression.
+        doc.save(update_fields=["scan_status", "mime_type", "updated_at"])
 
         # ── Dispatch ClamAV scan task on_commit ───────────────────────────────
         # on_commit ensures the DB row is flushed before the worker picks up the task.
@@ -538,17 +578,50 @@ def _civicos() -> dict:
     return getattr(settings, "CIVICOS", {})
 
 
+def _get_bucket_name(storage_opts: dict) -> str:
+    """
+    Resolve the S3 bucket name from storage options or the legacy fallback setting.
+
+    M-8: Direct access to ``settings.AWS_STORAGE_BUCKET_NAME`` raises
+    ``AttributeError`` when the attribute is absent. Use ``getattr()`` and
+    raise ``ImproperlyConfigured`` with a clear message when neither source
+    provides a bucket name, rather than crashing with an opaque AttributeError
+    deep inside an S3 helper.
+
+    Args:
+        storage_opts: The ``STORAGES['default']['OPTIONS']`` dict.
+
+    Returns:
+        The bucket name string.
+
+    Raises:
+        ImproperlyConfigured: Neither ``storage_opts['bucket_name']`` nor
+            ``settings.AWS_STORAGE_BUCKET_NAME`` is set.
+    """
+    bucket_name: str | None = storage_opts.get("bucket_name") or getattr(
+        settings, "AWS_STORAGE_BUCKET_NAME", None
+    )
+    if not bucket_name:
+        raise ImproperlyConfigured(
+            "S3 bucket name is not configured. Set either "
+            "STORAGES['default']['OPTIONS']['bucket_name'] or "
+            "AWS_STORAGE_BUCKET_NAME in your Django settings."
+        )
+    return bucket_name
+
+
 def _is_s3_storage() -> bool:
     """
-    Return True if the default storage backend is S3.
+    Return True if the default storage backend is an S3 backend.
 
-    Used to decide between boto3 presigned URLs (prod) and filesystem
-    fallbacks (dev). Checks the BACKEND key in Django's STORAGES setting.
+    M-5: Uses an explicit allowlist of known S3 backend class paths rather
+    than substring matching ("s3" in backend.lower()). Substring matching
+    is fragile — it matches any backend whose module path happens to contain
+    "s3" (e.g. a custom backend named "my_s3_compat_layer.storage.Backend"
+    would incorrectly match). Exact-set comparison is unambiguous.
     """
-    backend = (
-        settings.STORAGES.get("default", {}).get("BACKEND", "")
-    )
-    return "s3" in backend.lower()
+    backend = settings.STORAGES.get("default", {}).get("BACKEND", "")
+    return backend in _S3_BACKEND_PATHS
 
 
 def _generate_presigned_post(
@@ -627,7 +700,7 @@ def _generate_s3_presigned_post(
     from botocore.exceptions import ClientError
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
-    bucket_name: str = storage_opts.get("bucket_name") or settings.AWS_STORAGE_BUCKET_NAME
+    bucket_name: str = _get_bucket_name(storage_opts)
     region_name: str = storage_opts.get("region_name", "ca-central-1")
     kms_key_id: str = storage_opts.get("object_parameters", {}).get("SSEKMSKeyId", "")
 
@@ -731,7 +804,7 @@ def _verify_s3_object_exists(storage_key: str) -> None:
     from botocore.exceptions import ClientError
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
-    bucket_name: str = storage_opts.get("bucket_name") or settings.AWS_STORAGE_BUCKET_NAME
+    bucket_name: str = _get_bucket_name(storage_opts)
     region_name: str = storage_opts.get("region_name", "ca-central-1")
 
     s3_client = boto3.client("s3", region_name=region_name)
@@ -802,7 +875,7 @@ def _read_s3_first_bytes(storage_key: str, *, length: int) -> bytes:
     from botocore.exceptions import ClientError
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
-    bucket_name: str = storage_opts.get("bucket_name") or settings.AWS_STORAGE_BUCKET_NAME
+    bucket_name: str = _get_bucket_name(storage_opts)
     region_name: str = storage_opts.get("region_name", "ca-central-1")
 
     s3_client = boto3.client("s3", region_name=region_name)
@@ -879,9 +952,7 @@ def _read_full_s3_file(storage_key: str) -> bytes:
     from botocore.exceptions import ClientError
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
-    bucket_name: str = storage_opts.get("bucket_name") or getattr(
-        settings, "AWS_STORAGE_BUCKET_NAME", ""
-    )
+    bucket_name: str = _get_bucket_name(storage_opts)
     region_name: str = storage_opts.get("region_name", "ca-central-1")
 
     s3_client = boto3.client("s3", region_name=region_name)
@@ -924,7 +995,9 @@ def _read_full_local_file(storage_key: str) -> bytes:
         ) from exc
 
 
-def _validate_magic_bytes(*, first_bytes: bytes, allowed_mimes: list[str]) -> None:
+def _validate_magic_bytes(
+    *, first_bytes: bytes, allowed_mimes: list[str]
+) -> str | None:
     """
     Validate a file's actual content against the allowed MIME type list.
 
@@ -932,12 +1005,38 @@ def _validate_magic_bytes(*, first_bytes: bytes, allowed_mimes: list[str]) -> No
     file's magic bytes, independent of the filename or client-supplied
     Content-Type header.
 
+    M-1: Availability of python-magic is governed by ``CIVICOS['MAGIC_BYTES_REQUIRED']``
+    (default ``True``), not ``CLAMAV_REQUIRED``. The two are independent concerns:
+    ClamAV scans for malware; magic bytes verify the declared file type. A dev
+    environment without ClamAV but with python-magic installed should still run
+    magic-byte validation. A dev environment without python-magic should only
+    skip validation if the operator has explicitly opted out via
+    ``MAGIC_BYTES_REQUIRED = False``.
+
+    M-3: Returns the detected MIME type string so ``confirm_upload()`` can
+    overwrite ``doc.mime_type`` with the authoritative magic-detected value,
+    replacing the unverified client-supplied value stored at upload initiation.
+    Returns ``None`` when the check is bypassed (magic unavailable + not required)
+    so the caller knows not to overwrite the client-supplied value.
+
     `magic` is imported at module level (falls back to None if not installed).
     Tests patch `apps.documents.services.upload.magic` at the module level.
 
+    Args:
+        first_bytes:   Leading bytes of the file (at least ``_MAGIC_BYTE_READ_LENGTH``).
+        allowed_mimes: MIME type allowlist from the DocumentCategory / CIVICOS config.
+
+    Returns:
+        The detected MIME type string on success, or ``None`` if the check was
+        bypassed because python-magic is unavailable and ``MAGIC_BYTES_REQUIRED``
+        is False.
+
     Raises:
-        ValidationError: Detected MIME type is not in allowed_mimes.
-        ValidationError: python-magic / libmagic is not available (prod only).
+        ImproperlyConfigured: ``allowed_mimes`` is empty (misconfiguration).
+        ImproperlyConfigured: python-magic unavailable and ``MAGIC_BYTES_REQUIRED``
+            is True (the default).
+        ValidationError: Detected MIME type is not in ``allowed_mimes``.
+        ValidationError: python-magic raised an unexpected error during detection.
     """
     if not allowed_mimes:
         # Guard: if the MIME allowlist is somehow empty here (misconfigured category
@@ -950,16 +1049,24 @@ def _validate_magic_bytes(*, first_bytes: bytes, allowed_mimes: list[str]) -> No
         )
 
     if magic is None:
-        # python-magic not installed — tolerable in dev if CLAMAV_REQUIRED=False.
-        if _civicos().get("CLAMAV_REQUIRED", False):
-            raise ValidationError(
-                _("Server configuration error: magic-byte validation library unavailable.")
+        # M-1: Use MAGIC_BYTES_REQUIRED (default True), not CLAMAV_REQUIRED.
+        # CLAMAV_REQUIRED and magic availability are independent concerns.
+        magic_required: bool = _civicos().get("MAGIC_BYTES_REQUIRED", True)
+        if magic_required:
+            raise ImproperlyConfigured(
+                "python-magic / libmagic is not installed and "
+                "CIVICOS['MAGIC_BYTES_REQUIRED'] is True (the default). "
+                "Install python-magic (`pip install python-magic` and the "
+                "libmagic system library) or set "
+                "CIVICOS['MAGIC_BYTES_REQUIRED'] = False to disable "
+                "magic-byte validation in development environments."
             )
         logger.warning(
-            "python-magic not available; skipping magic-byte validation. "
+            "python-magic not available; skipping magic-byte validation "
+            "(CIVICOS['MAGIC_BYTES_REQUIRED'] = False). "
             "Install python-magic for production use."
         )
-        return
+        return None  # M-3: caller must not overwrite doc.mime_type
 
     try:
         detected_mime: str = magic.Magic(mime=True).from_buffer(first_bytes)
@@ -979,6 +1086,8 @@ def _validate_magic_bytes(*, first_bytes: bytes, allowed_mimes: list[str]) -> No
             _("File content does not match its declared type. "
               "Please ensure you are uploading a valid file.")
         )
+
+    return detected_mime  # M-3: authoritative MIME from libmagic
 
 
 def _check_zip_bomb(data: bytes) -> None:
