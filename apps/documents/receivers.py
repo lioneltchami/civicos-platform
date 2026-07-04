@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # ─── document_soft_deleted ────────────────────────────────────────────────────
 
 
-@receiver(document_soft_deleted)
+@receiver(document_soft_deleted, weak=False)
 def on_document_soft_deleted(
     sender,
     *,
@@ -64,7 +64,7 @@ def on_document_soft_deleted(
 # ─── document_hard_deleted ────────────────────────────────────────────────────
 
 
-@receiver(document_hard_deleted)
+@receiver(document_hard_deleted, weak=False)
 def on_document_hard_deleted(
     sender,
     *,
@@ -100,7 +100,7 @@ def on_document_hard_deleted(
 # ─── document_legal_hold_changed ──────────────────────────────────────────────
 
 
-@receiver(document_legal_hold_changed)
+@receiver(document_legal_hold_changed, weak=False)
 def on_document_legal_hold_changed(
     sender,
     *,

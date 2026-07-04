@@ -258,6 +258,17 @@ def create_new_version(
                 _("Could not resolve the document version chain. Please contact support.")
             )
 
+        # ── Re-check soft-delete guard under lock (TOCTOU prevention) ────────
+        # The pre-lock guard at line 164 is a fast path without a DB lock.
+        # A concurrent soft_delete() between that check and this atomic() block
+        # could delete the chain root after we read it but before we lock it.
+        # Re-read chain_root from the locked result set to get the committed state.
+        locked_root = next((d for d in chain_docs if d.pk == chain_root.pk), None)
+        if locked_root is not None and locked_root.deleted_at is not None:
+            raise ValidationError(
+                _("Cannot create a new version of a deleted document.")
+            )
+
         # Find the current latest version (invariant: exactly one per chain).
         current_latest_candidates = [d for d in chain_docs if d.is_latest_version]
         if len(current_latest_candidates) == 0:

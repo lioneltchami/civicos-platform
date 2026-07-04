@@ -53,7 +53,7 @@ document_version_created = Signal()
 # Provides: document_pk (str), deleted_by_id (int or None for system deletion)
 document_soft_deleted = Signal()
 
-# Fired when a document is hard-deleted from storage and the DB row is purged.
+# Fired when a document is hard-deleted from storage (DB row IS RETAINED — scan_status=PURGED).
 # Provides: document_pk (str), category_slug (str)
 # NOTE: Per NIST SP 800-88 §11.2, the Document DB row IS RETAINED for audit.
 # Only the _storage_key column is cleared and scan_status is set to PURGED.

@@ -1208,13 +1208,11 @@ class DashboardReceiptPipedaTests(TestCase):
     def _ts(self, year, month, day, hour=12):
         return datetime(year, month, day, hour, 0, tzinfo=dt_timezone.utc)
 
-    def test_receipts_ordered_by_created_at_descending(self):
+    def test_receipts_ordered_by_issued_at_ascending(self):
         """
-        M-J: get_receipt_list_queryset must return receipts newest-first
-        (ordered by issued_at descending). Create 3 receipts with staggered
-        timestamps and assert results come back newest-first.
-
-        This was accidentally removed and is being re-added.
+        M-J: get_receipt_list_queryset returns receipts in issued_at ascending
+        order (oldest → newest). Create 3 receipts with staggered timestamps
+        and assert results come back oldest-first (chronological).
         """
         # Three donations, each with one receipt at staggered timestamps.
         d1 = _make_donation(amount=Decimal("100.00"))

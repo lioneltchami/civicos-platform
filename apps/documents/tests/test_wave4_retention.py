@@ -528,7 +528,7 @@ class HardDeletePreconditionTests(TestCase):
 
 
 class HardDeleteSignalTests(TestCase):
-    """document_hard_deleted signal fires BEFORE storage deletion."""
+    """document_hard_deleted signal fires AFTER confirmed storage deletion (C-2 fix)."""
 
     def setUp(self):
         self.category = make_category()
