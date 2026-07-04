@@ -981,6 +981,255 @@ class ExportRevenueCsvTest(TestCase):
 # _compute_all_snapshots task helper
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# H-10: Honorarium payment field tests
+# ---------------------------------------------------------------------------
+
+class HonorariumModelFieldTests(TestCase):
+    """
+    H-10: Tests for Honorarium model fields — required-field enforcement,
+    MinValueValidator on amount, and T4A boolean defaults.
+
+    These tests are placed in the financial wave because they cover the CRA
+    T4A reporting fields that feed into financial report outputs.
+    """
+
+    def _make_volunteer_profile(self):
+        from apps.volunteers.models import VolunteerProfile
+        user = _make_user(is_staff=False)
+        return VolunteerProfile.objects.create(user=user)
+
+    def _make_creator(self):
+        return _make_user(is_staff=True)
+
+    def _make_honorarium(self, **overrides):
+        """Create a minimal valid Honorarium using skip_clean=True to bypass CRA thresholds."""
+        from apps.volunteers.models import Honorarium
+        from datetime import date
+        profile = self._make_volunteer_profile()
+        creator = self._make_creator()
+        defaults = dict(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("100.00"),
+            description="Test honorarium",
+            payment_date=date(2025, 6, 15),
+            created_by=creator,
+        )
+        defaults.update(overrides)
+        return Honorarium.objects.create(**defaults, skip_clean=True)
+
+    def test_amount_min_validator_rejects_zero(self):
+        """
+        H-10: amount field has MinValueValidator(0.01) — a zero amount must
+        raise ValidationError when full_clean() is called.
+        """
+        from apps.volunteers.models import Honorarium
+        from datetime import date
+        from django.core.exceptions import ValidationError
+
+        profile = self._make_volunteer_profile()
+        creator = self._make_creator()
+        hon = Honorarium(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("0.00"),
+            description="Zero amount test",
+            payment_date=date(2025, 6, 15),
+            created_by=creator,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            hon.full_clean()
+        # The error should reference the amount field
+        self.assertIn("amount", ctx.exception.message_dict)
+
+    def test_amount_min_validator_rejects_negative(self):
+        """
+        H-10: amount must be positive — a negative value must raise ValidationError.
+        """
+        from apps.volunteers.models import Honorarium
+        from datetime import date
+        from django.core.exceptions import ValidationError
+
+        profile = self._make_volunteer_profile()
+        creator = self._make_creator()
+        hon = Honorarium(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("-50.00"),
+            description="Negative amount test",
+            payment_date=date(2025, 6, 15),
+            created_by=creator,
+        )
+        with self.assertRaises(ValidationError):
+            hon.full_clean()
+
+    def test_amount_min_validator_accepts_minimum_positive(self):
+        """H-10: The minimum valid amount (0.01) must pass validation."""
+        from apps.volunteers.models import Honorarium
+        from datetime import date
+        from django.core.exceptions import ValidationError
+
+        profile = self._make_volunteer_profile()
+        creator = self._make_creator()
+        hon = Honorarium(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("0.01"),
+            description="Minimum amount",
+            payment_date=date(2025, 6, 15),
+            created_by=creator,
+        )
+        # Should not raise for the amount field validator
+        # (CRA threshold checks will pass since 0.01 < any threshold)
+        try:
+            hon.full_clean()
+        except Exception as e:
+            from django.core.exceptions import ValidationError as VE
+            if isinstance(e, VE) and "amount" in e.message_dict:
+                self.fail(f"amount=0.01 should be valid but raised: {e.message_dict['amount']}")
+
+    def test_description_blank_false_raises_on_empty(self):
+        """
+        H-10: description is a required CharField (blank=False by default).
+        An empty description must fail validation.
+        """
+        from apps.volunteers.models import Honorarium
+        from datetime import date
+        from django.core.exceptions import ValidationError
+
+        profile = self._make_volunteer_profile()
+        creator = self._make_creator()
+        hon = Honorarium(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("100.00"),
+            description="",   # blank=False — must fail
+            payment_date=date(2025, 6, 15),
+            created_by=creator,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            hon.full_clean()
+        self.assertIn("description", ctx.exception.message_dict)
+
+    def test_t4a_required_defaults_to_false(self):
+        """H-10: t4a_required defaults to False for new honoraria."""
+        hon = self._make_honorarium()
+        self.assertFalse(hon.t4a_required)
+
+    def test_t4a_issued_defaults_to_false(self):
+        """H-10: t4a_issued defaults to False for new honoraria."""
+        hon = self._make_honorarium()
+        self.assertFalse(hon.t4a_issued)
+
+    def test_t4a_issued_at_defaults_to_null(self):
+        """H-10: t4a_issued_at is nullable and defaults to None."""
+        hon = self._make_honorarium()
+        self.assertIsNone(hon.t4a_issued_at)
+
+    def test_t4a_required_set_to_true_persists(self):
+        """H-10: t4a_required can be set to True and persisted."""
+        hon = self._make_honorarium()
+        hon.t4a_required = True
+        hon.save(skip_clean=True, update_fields=["t4a_required"])
+        hon.refresh_from_db()
+        self.assertTrue(hon.t4a_required)
+
+    def test_currency_defaults_to_cad(self):
+        """H-10: currency field defaults to 'CAD'."""
+        hon = self._make_honorarium()
+        self.assertEqual(hon.currency, "CAD")
+
+    def test_payment_type_choices_include_required_types(self):
+        """H-10: payment_type must be one of EXPENSE or HONORARIUM."""
+        from apps.volunteers.models import Honorarium
+        valid_types = {c[0] for c in Honorarium.PAYMENT_TYPE_CHOICES}
+        self.assertIn(Honorarium.PAYMENT_TYPE_HONORARIUM, valid_types)
+        self.assertIn(Honorarium.PAYMENT_TYPE_EXPENSE, valid_types)
+
+    def test_amount_field_is_decimal_in_db(self):
+        """H-10: amount is stored as Decimal (not str or float)."""
+        hon = self._make_honorarium(amount=Decimal("249.99"))
+        hon.refresh_from_db()
+        self.assertIsInstance(hon.amount, Decimal)
+        self.assertEqual(hon.amount, Decimal("249.99"))
+
+    def test_cra_t4a_threshold_auto_sets_flag(self):
+        """
+        H-10: When cumulative honoraria meet/exceed the T4A threshold ($500 default),
+        clean() auto-sets t4a_required = True.
+        """
+        from apps.volunteers.models import Honorarium
+        from datetime import date
+        from django.core.exceptions import ValidationError
+
+        profile = self._make_volunteer_profile()
+        creator = self._make_creator()
+
+        # First honorarium: $499 — below T4A threshold.
+        hon1 = Honorarium(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("499.00"),
+            description="Below threshold",
+            payment_date=date(2025, 6, 15),
+            created_by=creator,
+        )
+        hon1.save(skip_clean=True)
+
+        # Second honorarium: $1 — brings YTD to $500, should trigger T4A flag.
+        hon2 = Honorarium(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("1.00"),
+            description="Reaches threshold",
+            payment_date=date(2025, 6, 20),
+            created_by=creator,
+        )
+        hon2.clean()   # Call clean() directly to check threshold enforcement
+        self.assertTrue(
+            hon2.t4a_required,
+            "t4a_required must be True when cumulative total reaches $500 T4A threshold",
+        )
+
+    def test_cra_hard_block_raises_validation_error(self):
+        """
+        H-10: When projected cumulative total meets/exceeds the hard block ($1000 default),
+        clean() raises ValidationError — the honorarium is rejected.
+        """
+        from apps.volunteers.models import Honorarium
+        from datetime import date
+        from django.core.exceptions import ValidationError
+
+        profile = self._make_volunteer_profile()
+        creator = self._make_creator()
+
+        # Existing YTD: $999 — just below the hard block.
+        hon1 = Honorarium(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("999.00"),
+            description="Near limit",
+            payment_date=date(2025, 6, 15),
+            created_by=creator,
+        )
+        hon1.save(skip_clean=True)
+
+        # New honorarium: $1 would bring YTD to $1000 — exactly the hard block.
+        hon2 = Honorarium(
+            volunteer=profile,
+            payment_type=Honorarium.PAYMENT_TYPE_HONORARIUM,
+            amount=Decimal("1.00"),
+            description="Hits hard block",
+            payment_date=date(2025, 6, 20),
+            created_by=creator,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            hon2.clean()
+        self.assertIn("amount", ctx.exception.message_dict,
+                      "Hard-block ValidationError must reference the 'amount' field")
+
+
 class ComputeAllSnapshotsTest(TestCase):
     def setUp(self):
         intent = _make_intent(fee_code="TASK-FEE")

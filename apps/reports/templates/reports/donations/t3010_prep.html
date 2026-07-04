@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize %}
+{% load i18n humanize report_tags %}
 {# Donations & CRA — T3010 Preparatory Data.
    Context keys: form (FiscalYearEndForm), t3010 (dict from get_t3010_preparatory_data),
                  fiscal_year_start, fiscal_year_end, filing_deadline.
@@ -81,7 +81,7 @@
           {% trans "Line 4500 — Total Receipted Eligible" %}
         </p>
         <p class="card-title h4 mb-0 text-primary">
-          ${{ t3010.total_receipted_donations|floatformat:2|intcomma }}
+          ${{ t3010.total_receipted_donations|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">
           {% trans "Sum of eligible_amount on receipted donations" %}
@@ -97,7 +97,7 @@
           {% trans "Total Eligible Amount (all gifts)" %}
         </p>
         <p class="card-title h4 mb-0">
-          ${{ t3010.total_eligible_amount|floatformat:2|intcomma }}
+          ${{ t3010.total_eligible_amount|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">
           {% trans "Includes unreceipted donations" %}
@@ -139,7 +139,7 @@
 {% if t3010.total_advantage_amount > 0 %}
 <div class="alert alert-secondary mb-4" role="alert">
   <strong>{% trans "CRA IT-110R3 — Advantage Amount:" %}</strong>
-  ${{ t3010.total_advantage_amount|floatformat:2|intcomma }}
+  ${{ t3010.total_advantage_amount|cad_money }}
   <br>
   <span class="small">
     {% trans "This amount was disclosed on official donation receipts as required by CRA IT-110R3." %}
@@ -185,8 +185,8 @@
         <tr>
           <td>{{ row.month_label }}</td>
           <td class="text-end">{{ row.donation_count|intcomma }}</td>
-          <td class="text-end">${{ row.total_amount|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ row.eligible_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ row.total_amount|cad_money }}</td>
+          <td class="text-end">${{ row.eligible_amount|cad_money }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -195,10 +195,10 @@
           <td>{% trans "Total" %}</td>
           <td class="text-end">{{ t3010.donation_count|intcomma }}</td>
           <td class="text-end">
-            ${{ t3010.total_donated|floatformat:2|intcomma }}
+            ${{ t3010.total_donated|cad_money }}
           </td>
           <td class="text-end">
-            ${{ t3010.total_eligible_amount|floatformat:2|intcomma }}
+            ${{ t3010.total_eligible_amount|cad_money }}
           </td>
         </tr>
       </tfoot>
@@ -231,8 +231,8 @@
         <tr>
           <td>{{ row.campaign_name }}</td>
           <td class="text-end">{{ row.count|intcomma }}</td>
-          <td class="text-end">${{ row.total_amount|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ row.eligible_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ row.total_amount|cad_money }}</td>
+          <td class="text-end">${{ row.eligible_amount|cad_money }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -241,10 +241,10 @@
           <td>{% trans "Total" %}</td>
           <td class="text-end">{{ t3010.donation_count|intcomma }}</td>
           <td class="text-end">
-            ${{ t3010.total_donated|floatformat:2|intcomma }}
+            ${{ t3010.total_donated|cad_money }}
           </td>
           <td class="text-end">
-            ${{ t3010.total_eligible_amount|floatformat:2|intcomma }}
+            ${{ t3010.total_eligible_amount|cad_money }}
           </td>
         </tr>
       </tfoot>

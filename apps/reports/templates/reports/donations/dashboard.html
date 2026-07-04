@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize %}
+{% load i18n humanize report_tags %}
 {# Donations & CRA — Monthly dashboard.
    Context keys: year, month, month_label, is_current_month, data_source,
                  donations (dict from get_monthly_donation_summary or snapshot),
@@ -56,7 +56,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Donations" %}</p>
         <p class="card-title h4 mb-0">
-          ${{ donations.total_donations|floatformat:2|intcomma }}
+          ${{ donations.total_donations|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">
           {{ donations.donation_count|intcomma }}&nbsp;{% trans "gift(s)" %}
@@ -70,7 +70,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Eligible Amount" %}</p>
         <p class="card-title h4 mb-0">
-          ${{ donations.total_eligible_amount|floatformat:2|intcomma }}
+          ${{ donations.total_eligible_amount|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">
           {% trans "For tax receipting (CRA line 4500)" %}
@@ -84,7 +84,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Average Gift" %}</p>
         <p class="card-title h4 mb-0">
-          ${{ donations.average_donation|floatformat:2|intcomma }}
+          ${{ donations.average_donation|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">
           {{ donations.unique_donor_count|intcomma }}&nbsp;{% trans "unique donor(s)" %}
@@ -131,7 +131,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Advantage Amount" %}</p>
         <p class="card-title h5 mb-0 text-warning">
-          ${{ donations.total_advantage_amount|floatformat:2|intcomma }}
+          ${{ donations.total_advantage_amount|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">{% trans "OQ-8 disclosure (CRA IT-110R3)" %}</p>
       </div>
@@ -177,8 +177,8 @@
         <tr>
           <td>{{ row.campaign_name }}</td>
           <td class="text-end">{{ row.count|intcomma }}</td>
-          <td class="text-end">${{ row.total_amount|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ row.eligible_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ row.total_amount|cad_money }}</td>
+          <td class="text-end">${{ row.eligible_amount|cad_money }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -186,8 +186,8 @@
         <tr>
           <td>{% trans "Total" %}</td>
           <td class="text-end">{{ donations.donation_count|intcomma }}</td>
-          <td class="text-end">${{ donations.total_donations|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ donations.total_eligible_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ donations.total_donations|cad_money }}</td>
+          <td class="text-end">${{ donations.total_eligible_amount|cad_money }}</td>
         </tr>
       </tfoot>
     </table>
@@ -250,7 +250,7 @@
           <td>{{ snap.period_label }}</td>
           <td class="text-end">
             {% with don=snap.data.donations %}
-              {% if don %}${{ don.total_donations|floatformat:2|intcomma }}{% else %}&mdash;{% endif %}
+              {% if don %}${{ don.total_donations|cad_money }}{% else %}&mdash;{% endif %}
             {% endwith %}
           </td>
           <td class="text-end">

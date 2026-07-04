@@ -285,6 +285,30 @@ class ReportSnapshotOrderingTest(TestCase):
         )
         self.assertEqual(snap.row_count, 0)
 
+    def test_computed_at_is_at_least_as_recent_as_before_create(self):
+        """
+        M-H: computed_at (auto_now=True) must be >= the timestamp captured
+        immediately before the snapshot is created. This assertion was
+        accidentally removed and is being re-added here.
+
+        Pattern:
+            before = timezone.now()
+            result = <create snapshot>
+            self.assertGreaterEqual(result.computed_at, before)
+        """
+        before = timezone.now()
+        snap = ReportSnapshot.objects.create(
+            report_type=ReportSnapshot.REPORT_TYPE_DONATIONS,
+            period_year=2025,
+            period_month=10,
+            data={},
+        )
+        self.assertGreaterEqual(
+            snap.computed_at,
+            before,
+            "computed_at must be >= the timestamp captured before create() was called",
+        )
+
 
 # ---------------------------------------------------------------------------
 # ExportRecord model tests

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load i18n report_tags %}<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -147,22 +147,22 @@
   <div class="kpi-row">
     <div class="kpi-cell">
       <p class="kpi-label">Gross Revenue (CAD)</p>
-      <p class="kpi-value">${{ revenue.total_gross|floatformat:2 }}</p>
+      <p class="kpi-value">${{ revenue.total_gross|cad_money }}</p>
       <p class="kpi-sub">{{ revenue.payment_count }} payment(s)</p>
     </div>
     <div class="kpi-cell">
       <p class="kpi-label">Net Revenue (CAD)</p>
-      <p class="kpi-value">${{ revenue.total_net|floatformat:2 }}</p>
+      <p class="kpi-value">${{ revenue.total_net|cad_money }}</p>
       <p class="kpi-sub">After processor fees</p>
     </div>
     <div class="kpi-cell">
       <p class="kpi-label">Tax Collected (CAD)</p>
-      <p class="kpi-value">${{ revenue.total_tax|floatformat:2 }}</p>
+      <p class="kpi-value">${{ revenue.total_tax|cad_money }}</p>
       <p class="kpi-sub">HST / GST / PST</p>
     </div>
     <div class="kpi-cell">
       <p class="kpi-label">Processor Fees (CAD)</p>
-      <p class="kpi-value">${{ revenue.total_processor_fees|floatformat:2 }}</p>
+      <p class="kpi-value">${{ revenue.total_processor_fees|cad_money }}</p>
       <p class="kpi-sub">Gateway fees deducted</p>
     </div>
   </div>
@@ -172,6 +172,7 @@
 {% if revenue.by_fee_code %}
 <h3>Revenue by Fee Code</h3>
 <table>
+  <caption style="text-align:left;font-size:8pt;color:#555;padding-bottom:2pt;">{% trans "Revenue breakdown by fee code for" %} {{ month_label }}</caption>
   <thead>
     <tr>
       <th>Fee Code</th>
@@ -187,10 +188,10 @@
     <tr>
       <td>{{ label }}</td>
       <td class="num">{{ d.count }}</td>
-      <td class="num">${{ d.gross|floatformat:2 }}</td>
-      <td class="num">${{ d.tax|floatformat:2 }}</td>
-      <td class="num">${{ d.processor_fees|floatformat:2 }}</td>
-      <td class="num">${{ d.net|floatformat:2 }}</td>
+      <td class="num">${{ d.gross|cad_money }}</td>
+      <td class="num">${{ d.tax|cad_money }}</td>
+      <td class="num">${{ d.processor_fees|cad_money }}</td>
+      <td class="num">${{ d.net|cad_money }}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -198,10 +199,10 @@
     <tr>
       <td>Total</td>
       <td class="num">{{ revenue.payment_count }}</td>
-      <td class="num">${{ revenue.total_gross|floatformat:2 }}</td>
-      <td class="num">${{ revenue.total_tax|floatformat:2 }}</td>
-      <td class="num">${{ revenue.total_processor_fees|floatformat:2 }}</td>
-      <td class="num">${{ revenue.total_net|floatformat:2 }}</td>
+      <td class="num">${{ revenue.total_gross|cad_money }}</td>
+      <td class="num">${{ revenue.total_tax|cad_money }}</td>
+      <td class="num">${{ revenue.total_processor_fees|cad_money }}</td>
+      <td class="num">${{ revenue.total_net|cad_money }}</td>
     </tr>
   </tfoot>
 </table>
@@ -215,7 +216,7 @@
   <div class="kpi-row">
     <div class="kpi-cell">
       <p class="kpi-label">Total Refunded (CAD)</p>
-      <p class="kpi-value">${{ refunds.total_refunded|floatformat:2 }}</p>
+      <p class="kpi-value">${{ refunds.total_refunded|cad_money }}</p>
       <p class="kpi-sub">{{ refunds.refund_count }} refund(s)</p>
     </div>
     <div class="kpi-cell">
@@ -225,7 +226,7 @@
     </div>
     <div class="kpi-cell">
       <p class="kpi-label">Net Revenue After Refunds</p>
-      <p class="kpi-value">${{ net_after_refunds|floatformat:2 }}</p>
+      <p class="kpi-value">${{ net_after_refunds|cad_money }}</p>
       <p class="kpi-sub">Gross minus total refunded</p>
     </div>
     <div class="kpi-cell">
@@ -238,6 +239,7 @@
 {% if refunds.by_reason %}
 <h3>Refunds by Reason</h3>
 <table>
+  <caption style="text-align:left;font-size:8pt;color:#555;padding-bottom:2pt;">{% trans "Refund breakdown by reason for" %} {{ month_label }}</caption>
   <thead>
     <tr>
       <th>Reason</th>
@@ -250,7 +252,7 @@
     <tr>
       <td>{{ reason }}</td>
       <td class="num">{{ d.count }}</td>
-      <td class="num">${{ d.amount|floatformat:2 }}</td>
+      <td class="num">${{ d.amount|cad_money }}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -258,7 +260,7 @@
     <tr>
       <td>Total</td>
       <td class="num">{{ refunds.refund_count }}</td>
-      <td class="num">${{ refunds.total_refunded|floatformat:2 }}</td>
+      <td class="num">${{ refunds.total_refunded|cad_money }}</td>
     </tr>
   </tfoot>
 </table>

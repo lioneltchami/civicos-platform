@@ -20,6 +20,20 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+# P3-4 review: Neither ReportSnapshot nor ExportRecord defines a clean()
+# method.  No select_for_update() call exists in any clean() in this module.
+# If a clean() is added in the future that needs uniqueness enforcement, wrap
+# any select_for_update() call like:
+#
+#     from django.db import connection
+#     if connection.in_atomic_block:
+#         qs = SomeModel.objects.select_for_update().filter(...)
+#     else:
+#         qs = SomeModel.objects.filter(...)
+#
+# This guard prevents TransactionManagementError when clean() is called
+# outside a transaction (e.g. during ModelForm validation).
+
 
 class ReportSnapshot(models.Model):
     """

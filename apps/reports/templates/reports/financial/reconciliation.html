@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize %}
+{% load i18n humanize report_tags %}
 
 {% block reports_title %}{% trans "Payment Reconciliation" %}{% endblock %}
 
@@ -78,7 +78,7 @@
     <div class="card h-100">
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Paid" %}</p>
-        <p class="card-title h5 mb-0">${{ total_paid|floatformat:2|intcomma }}</p>
+        <p class="card-title h5 mb-0">${{ total_paid|cad_money }}</p>
       </div>
     </div>
   </div>
@@ -88,7 +88,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Refunded" %}</p>
         <p class="card-title h5 mb-0{% if total_refunded > 0 %} text-warning{% endif %}">
-          ${{ total_refunded|floatformat:2|intcomma }}
+          ${{ total_refunded|cad_money }}
         </p>
       </div>
     </div>
@@ -98,7 +98,7 @@
     <div class="card h-100">
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Net" %}</p>
-        <p class="card-title h5 mb-0">${{ net|floatformat:2|intcomma }}</p>
+        <p class="card-title h5 mb-0">${{ net|cad_money }}</p>
         <p class="card-text small text-muted mb-0">
           {{ count|intcomma }}&nbsp;{% trans "payment(s)" %}
         </p>
@@ -157,15 +157,15 @@
           <span class="text-muted">&mdash;</span>
           {% endif %}
         </td>
-        <td class="text-end">${{ row.amount_paid|floatformat:2 }}</td>
+        <td class="text-end">${{ row.amount_paid|cad_money }}</td>
         <td class="text-end{% if row.refund_total > 0 %} text-warning{% endif %}">
           {% if row.refund_total > 0 %}
-          ${{ row.refund_total|floatformat:2 }}
+          ${{ row.refund_total|cad_money }}
           {% else %}
           &mdash;
           {% endif %}
         </td>
-        <td class="text-end">${{ row.net|floatformat:2 }}</td>
+        <td class="text-end">${{ row.net|cad_money }}</td>
         <td>
           <time datetime="{{ row.paid_at|date:'c' }}">
             {{ row.paid_at|date:"Y-m-d H:i" }}&nbsp;UTC

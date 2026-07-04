@@ -16,3 +16,10 @@ class ReportsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.reports"
     verbose_name = "Analytics & Reporting"
+
+    def ready(self) -> None:
+        # Import signals module so the t4a_generated Signal object is
+        # registered at app-startup.  Receivers connect here via
+        # @receiver decorators or explicit Signal.connect() calls
+        # elsewhere in the codebase.
+        import apps.reports.signals  # noqa: F401

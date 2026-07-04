@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize %}
+{% load i18n humanize report_tags %}
 
 {% block reports_title %}{% trans "Financial Dashboard" %}{% endblock %}
 
@@ -51,7 +51,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Gross Revenue" %}</p>
         <p class="card-title h4 mb-0">
-          ${{ revenue.total_gross|floatformat:2|intcomma }}
+          ${{ revenue.total_gross|cad_money }}
         </p>
       </div>
     </div>
@@ -62,7 +62,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Net Revenue" %}</p>
         <p class="card-title h4 mb-0">
-          ${{ revenue.total_net|floatformat:2|intcomma }}
+          ${{ revenue.total_net|cad_money }}
         </p>
       </div>
     </div>
@@ -84,7 +84,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Refunded" %}</p>
         <p class="card-title h4 mb-0{% if refunds.refund_count > 0 %} text-warning{% endif %}">
-          ${{ refunds.total_refunded|floatformat:2|intcomma }}
+          ${{ refunds.total_refunded|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">
           {{ refunds.refund_count|intcomma }}&nbsp;{% trans "refund(s)" %}
@@ -101,7 +101,7 @@
     <div class="card h-100">
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Tax Collected" %}</p>
-        <p class="card-title h5 mb-0">${{ revenue.total_tax|floatformat:2|intcomma }}</p>
+        <p class="card-title h5 mb-0">${{ revenue.total_tax|cad_money }}</p>
       </div>
     </div>
   </div>
@@ -110,7 +110,7 @@
     <div class="card h-100">
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Processor Fees" %}</p>
-        <p class="card-title h5 mb-0">${{ revenue.total_processor_fees|floatformat:2|intcomma }}</p>
+        <p class="card-title h5 mb-0">${{ revenue.total_processor_fees|cad_money }}</p>
       </div>
     </div>
   </div>
@@ -152,10 +152,10 @@
         {% for label, data in revenue.by_fee_code.items %}
         <tr>
           <td><code>{{ label }}</code></td>
-          <td class="text-end">${{ data.gross|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ data.tax|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ data.processor_fees|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ data.net|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ data.gross|cad_money }}</td>
+          <td class="text-end">${{ data.tax|cad_money }}</td>
+          <td class="text-end">${{ data.processor_fees|cad_money }}</td>
+          <td class="text-end">${{ data.net|cad_money }}</td>
           <td class="text-end">{{ data.count|intcomma }}</td>
         </tr>
         {% endfor %}
@@ -163,10 +163,10 @@
       <tfoot class="table-light fw-semibold">
         <tr>
           <td>{% trans "Total" %}</td>
-          <td class="text-end">${{ revenue.total_gross|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ revenue.total_tax|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ revenue.total_processor_fees|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ revenue.total_net|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ revenue.total_gross|cad_money }}</td>
+          <td class="text-end">${{ revenue.total_tax|cad_money }}</td>
+          <td class="text-end">${{ revenue.total_processor_fees|cad_money }}</td>
+          <td class="text-end">${{ revenue.total_net|cad_money }}</td>
           <td class="text-end">{{ revenue.payment_count|intcomma }}</td>
         </tr>
       </tfoot>
@@ -198,7 +198,7 @@
         {% for reason, data in refunds.by_reason.items %}
         <tr>
           <td><code>{{ reason }}</code></td>
-          <td class="text-end">${{ data.amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ data.amount|cad_money }}</td>
           <td class="text-end">{{ data.count|intcomma }}</td>
         </tr>
         {% endfor %}
@@ -206,7 +206,7 @@
       <tfoot class="table-light fw-semibold">
         <tr>
           <td>{% trans "Total" %}</td>
-          <td class="text-end">${{ refunds.total_refunded|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ refunds.total_refunded|cad_money }}</td>
           <td class="text-end">{{ refunds.refund_count|intcomma }}</td>
         </tr>
       </tfoot>
@@ -251,7 +251,7 @@
           <td>{{ snap.period_label }}</td>
           <td class="text-end">
             {% with rev=snap.data.revenue %}
-              {% if rev %}${{ rev.total_gross|floatformat:2|intcomma }}{% else %}&mdash;{% endif %}
+              {% if rev %}${{ rev.total_gross|cad_money }}{% else %}&mdash;{% endif %}
             {% endwith %}
           </td>
           <td class="text-end">

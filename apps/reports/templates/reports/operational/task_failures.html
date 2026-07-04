@@ -74,12 +74,14 @@
 </div>
 
 {# ── Privacy notice ──────────────────────────────────────────────────── #}
-<div class="alert alert-info alert-sm mb-3" role="note">
+{# H-5: role="note" is not a valid ARIA role. Use <aside aria-label> for supplemental
+   content — the "complementary" landmark is correct for a privacy sidebar note. #}
+<aside aria-label="{% trans 'Privacy notice' %}" class="alert alert-info alert-sm mb-3">
   <small>
     <strong>{% trans "Privacy:" %}</strong>
     {% trans "Error summaries show the first line of the traceback only. Full tracebacks are not displayed — they may contain request data with personal information (PIPEDA)." %}
   </small>
-</div>
+</aside>
 
 {# ── Failures table ──────────────────────────────────────────────────── #}
 {% if failures %}

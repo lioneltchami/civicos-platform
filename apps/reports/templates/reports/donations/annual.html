@@ -1,5 +1,5 @@
 {% extends "reports/base.html" %}
-{% load i18n humanize %}
+{% load i18n humanize report_tags %}
 {# Donations & CRA — Annual summary.
    Context keys: year, current_year, annual (dict from get_annual_donation_summary).
    annual keys: year, total_donations, total_eligible_amount, donation_count,
@@ -40,7 +40,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Donations" %}</p>
         <p class="card-title h4 mb-0">
-          ${{ annual.total_donations|floatformat:2|intcomma }}
+          ${{ annual.total_donations|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">
           {{ annual.donation_count|intcomma }}&nbsp;{% trans "gift(s)" %}
@@ -54,7 +54,7 @@
       <div class="card-body">
         <p class="card-text text-muted small mb-1">{% trans "Total Eligible Amount" %}</p>
         <p class="card-title h4 mb-0">
-          ${{ annual.total_eligible_amount|floatformat:2|intcomma }}
+          ${{ annual.total_eligible_amount|cad_money }}
         </p>
         <p class="card-text small text-muted mb-0">
           {% trans "CRA line 4500 basis" %}
@@ -125,8 +125,8 @@
         <tr>
           <td>{{ row.month_label }}</td>
           <td class="text-end">{{ row.donation_count|intcomma }}</td>
-          <td class="text-end">${{ row.total_amount|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ row.eligible_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ row.total_amount|cad_money }}</td>
+          <td class="text-end">${{ row.eligible_amount|cad_money }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -134,8 +134,8 @@
         <tr>
           <td>{% trans "Total" %}</td>
           <td class="text-end">{{ annual.donation_count|intcomma }}</td>
-          <td class="text-end">${{ annual.total_donations|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ annual.total_eligible_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ annual.total_donations|cad_money }}</td>
+          <td class="text-end">${{ annual.total_eligible_amount|cad_money }}</td>
         </tr>
       </tfoot>
     </table>
@@ -166,8 +166,8 @@
         <tr>
           <td>{{ row.campaign_name }}</td>
           <td class="text-end">{{ row.count|intcomma }}</td>
-          <td class="text-end">${{ row.total_amount|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ row.eligible_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ row.total_amount|cad_money }}</td>
+          <td class="text-end">${{ row.eligible_amount|cad_money }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -175,8 +175,8 @@
         <tr>
           <td>{% trans "Total" %}</td>
           <td class="text-end">{{ annual.donation_count|intcomma }}</td>
-          <td class="text-end">${{ annual.total_donations|floatformat:2|intcomma }}</td>
-          <td class="text-end">${{ annual.total_eligible_amount|floatformat:2|intcomma }}</td>
+          <td class="text-end">${{ annual.total_donations|cad_money }}</td>
+          <td class="text-end">${{ annual.total_eligible_amount|cad_money }}</td>
         </tr>
       </tfoot>
     </table>

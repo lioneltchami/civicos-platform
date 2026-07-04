@@ -27,6 +27,52 @@ logger = logging.getLogger("apps.reports.services.financial")
 
 
 # ---------------------------------------------------------------------------
+# T4A signal helper
+# ---------------------------------------------------------------------------
+
+def send_t4a_generated_signal(
+    *,
+    report_pk: str,
+    recipient_pk: int,
+    tax_year: int,
+    ytd_total: Decimal,
+) -> None:
+    """
+    Fire ``reports.signals.t4a_generated`` after a T4A slip is produced.
+
+    P3-2 contract:
+    - ``report_pk``    — string PK of the export record (e.g. ExportRecord.pk).
+    - ``recipient_pk`` — integer PK of the volunteer/recipient row (no PII).
+    - ``tax_year``     — four-digit CRA tax year.
+    - ``ytd_total``    — year-to-date CAD honorarium total (Decimal, Box 28).
+
+    Uses ``send_robust()`` so a misbehaving receiver cannot abort the
+    calling transaction.  All (receiver, exception) pairs are logged at
+    ERROR level; normal results are discarded.
+
+    PIPEDA: kwargs must not include name, SIN, email, or address.
+    """
+    from apps.reports.signals import t4a_generated
+
+    results = t4a_generated.send_robust(
+        sender=__name__,
+        report_pk=report_pk,
+        recipient_pk=recipient_pk,
+        tax_year=tax_year,
+        ytd_total=ytd_total,
+    )
+
+    for receiver, result in results:
+        if isinstance(result, Exception):
+            logger.error(
+                "reports.signals.t4a_generated receiver %s raised %s: %s",
+                receiver,
+                type(result).__name__,
+                result,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
