@@ -107,7 +107,7 @@ services:
       redis:
         condition: service_healthy
     # volunteers queue: shift reminders, expiry checks, impact snapshots (Wave 2+)
-    command: celery -A config.celery worker -Q webhooks,default,volunteers --loglevel=info --concurrency=4
+    command: celery -A config.celery worker -Q webhooks,default,volunteers,documents --loglevel=info --concurrency=4
 
   # ---------------------------------------------------------------------------
   # Celery worker — receipts queue (slow batch tasks: annual run, PDF/email)

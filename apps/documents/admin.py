@@ -49,6 +49,11 @@ class DocumentCategoryAdmin(admin.ModelAdmin):
     readonly_fields = ["created_at", "updated_at"]
     prepopulated_fields = {"slug": ("name_en",)}
 
+    def has_delete_permission(self, request, obj=None) -> bool:
+        # Category definitions are disposition authority records (LAC DA #2016/001).
+        # Deletion via admin bypasses the audit trail. Use the service layer.
+        return False
+
     fieldsets = (
         (
             _("Identity"),
@@ -146,7 +151,8 @@ class DocumentAdmin(admin.ModelAdmin):
     readonly_fields = [
         "id",
         "pk_short",
-        "original_filename",  # readonly only; never editable
+        "uploaded_by_id",       # raw int FK — PIPEDA: never User.__str__ (may expose email)
+        "original_filename",    # readonly only; never editable
         "mime_type",
         "size_bytes",
         "scan_status",
@@ -168,8 +174,11 @@ class DocumentAdmin(admin.ModelAdmin):
         (
             _("Identity"),
             {
-                "fields": ("id", "pk_short", "category", "uploaded_by"),
-                "description": _("The uploaded_by field shows the user PK, not email (PIPEDA)."),
+                # PIPEDA: uploaded_by_id (raw integer FK) is used here — never
+                # "uploaded_by" (the FK relation), which would call User.__str__
+                # and potentially expose the uploader's email address.
+                "fields": ("id", "pk_short", "category", "uploaded_by_id"),
+                "description": _("uploaded_by_id shows the user PK only — no email (PIPEDA)."),
             },
         ),
         (
@@ -310,6 +319,11 @@ class DocumentAttachmentAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request) -> bool:
         # Attachments must be created through the service layer.
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        # SECURITY: editing attachment fields (role, note, content_type, object_id,
+        # attached_by) via admin bypasses the service-layer audit trail.
         return False
 
     def has_delete_permission(self, request, obj=None) -> bool:

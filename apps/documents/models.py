@@ -106,7 +106,14 @@ class DocumentQuerySet(models.QuerySet):
         from django.utils import timezone
 
         cutoff = timezone.now() - timedelta(days=grace_days)
+        # CONTRACT: soft_delete() MUST set scan_status=DELETED in addition to
+        # setting deleted_at. If that contract is broken, this queryset returns
+        # zero rows and the hard-delete Celery task silently does nothing.
+        # See: retention.soft_delete() — side effect step 2.
+        # deleted_at__isnull=False is explicit (SQL semantics already exclude NULLs
+        # via <=, but the explicit guard documents intent and prevents future drift).
         return self.filter(
+            deleted_at__isnull=False,
             deleted_at__lte=cutoff,
             scan_status=Document.ScanStatus.DELETED,
             legal_hold=False,  # safety guard: legal hold blocks hard delete too
@@ -588,9 +595,17 @@ class Document(BaseModel):
                 _("Version number must be at least 1.")
             )
 
-        if self.root_document is None and self.version_number != 1:
+        # Use root_document_id (FK column) not root_document (relation) to avoid
+        # an implicit DB query when root_document has not been prefetched.
+        if self.root_document_id is None and self.version_number != 1:
             errors["version_number"] = ValidationError(
                 _("A document with no root document must be version 1.")
+            )
+
+        if self.root_document_id is not None and self.version_number == 1:
+            errors["version_number"] = ValidationError(
+                _("Version 1 documents cannot have a root document. "
+                  "Only subsequent versions (≥ 2) point to a root.")
             )
 
         if errors:

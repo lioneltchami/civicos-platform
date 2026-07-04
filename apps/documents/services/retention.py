@@ -83,10 +83,18 @@ def soft_delete(
     Preconditions:
       - document.legal_hold must be False (raises ValueError if True).
       - Document must not already be deleted.
+      - document.retain_until (Privacy Act s.6(1) minimum retention) must be in
+        the past for automated (Celery) disposal. Staff-initiated deletion may
+        override this floor with appropriate justification (raise ValueError
+        if retain_until is still in future, unless caller passes override=True
+        — Wave 5 will wire the override permission to documents.override_retention).
 
     Side effects:
       1. Sets document.deleted_at = timezone.now()
       2. Sets document.scan_status = ScanStatus.DELETED
+         CONTRACT: pending_hard_delete() queries for scan_status=DELETED.
+         This step MUST happen or the hard-delete Celery task will silently
+         skip this document forever.
       3. Sets document.deleted_by = deleted_by (if provided)
       4. Sets document.deletion_reason = reason
       5. Saves with update_fields (atomic)
@@ -125,6 +133,8 @@ def hard_delete(
 
     Preconditions:
       - document.deleted_at must be set (soft-delete must have occurred).
+      - document.scan_status must be DELETED (set by soft_delete() — see contract
+        comment on soft_delete() side effect step 2).
       - document.legal_hold must be False.
       - document.deleted_at must be at least _DEFAULT_HARD_DELETE_GRACE_DAYS ago.
 
@@ -171,6 +181,14 @@ def apply_legal_hold(
         PermissionDenied: set_by lacks documents.manage_legal_hold permission.
         ValueError:       Document is already on legal hold.
 
+    Side effects:
+      1. Sets document.legal_hold = True, document.legal_hold_reason = reason,
+         document.legal_hold_set_by = set_by
+      2. Saves with update_fields (atomic)
+      3. Fires document_legal_hold_changed signal with
+         kwargs: document_pk, legal_hold=True, set_by_id=set_by.pk
+      4. Writes audit: AuditEventType.STATUS_CHANGED
+
     STUB: Full implementation in Wave 5. This signature is fixed.
     """
     raise NotImplementedError("retention.apply_legal_hold — implemented in Wave 5")
@@ -196,6 +214,13 @@ def release_legal_hold(
     Raises:
         PermissionDenied: released_by lacks documents.manage_legal_hold permission.
         ValueError:       Document is not on legal hold.
+
+    Side effects:
+      1. Clears document.legal_hold = False
+      2. Saves with update_fields (atomic)
+      3. Fires document_legal_hold_changed signal with
+         kwargs: document_pk, legal_hold=False, set_by_id=released_by.pk
+      4. Writes audit: AuditEventType.STATUS_CHANGED
 
     STUB: Full implementation in Wave 5. This signature is fixed.
     """

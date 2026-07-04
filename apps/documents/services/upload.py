@@ -135,15 +135,15 @@ def confirm_upload(
         The updated Document instance (scan_status=SCANNING).
 
     Raises:
-        PermissionDenied:      user is not the original uploader.
-        Document.DoesNotExist: doc_id not found (caller converts to 404).
-        ValidationError:       magic-byte or ZIP-bomb validation failure.
+        Http404:           doc_id not found, OR user is not the uploader (IDOR
+                           prevention: 404 — not 403 — so existence is not confirmed).
+        ValidationError:   magic-byte or ZIP-bomb validation failure.
 
     STUB: Full implementation in Wave 2. This signature is fixed.
     """
     # [Wave 2] Implementation:
     # 1. Fetch doc with select_for_update() inside atomic()
-    # 2. Verify doc.uploaded_by == user (404 if not — IDOR prevention)
+    # 2. Verify doc.uploaded_by == user; raise Http404 if not (IDOR: 404 not 403)
     # 3. Verify doc.scan_status == PENDING_UPLOAD (idempotency guard)
     # 4. Verify file exists at quarantine key (boto3 head_object or local stat)
     # 5. Stream first 8 KB → python-magic → validate mime_type
@@ -154,6 +154,9 @@ def confirm_upload(
     # 10. Fire document_confirmed signal
     # 11. Return updated doc
     raise NotImplementedError("upload.confirm_upload — implemented in Wave 2")
+
+
+_VALID_PREFIXES: frozenset[str] = frozenset({"quarantine", "active", "deleted"})
 
 
 def _make_storage_key(doc_uuid: str, prefix: str = "quarantine") -> str:
@@ -169,14 +172,25 @@ def _make_storage_key(doc_uuid: str, prefix: str = "quarantine") -> str:
 
     Args:
         doc_uuid: The Document UUID (str).
-        prefix:   Storage prefix: 'quarantine', 'active', or 'deleted'.
+        prefix:   Storage prefix — MUST be one of 'quarantine', 'active', or
+                  'deleted'. Any other value raises ValueError (path-injection
+                  guard: an arbitrary prefix could create keys outside the
+                  expected namespace).
 
     Returns:
         A storage key string safe to pass to the storage backend.
 
+    Raises:
+        ValueError: prefix is not one of the allowed values.
+
     Example:
         "documents/active/3f2504e0-4f89-11d3-9a0c-0305e82c3301/a1b2c3d4.bin"
     """
+    if prefix not in _VALID_PREFIXES:
+        raise ValueError(
+            f"Invalid storage prefix {prefix!r}. "
+            f"Must be one of: {sorted(_VALID_PREFIXES)}"
+        )
     file_uuid = uuid.uuid4().hex
     return f"documents/{prefix}/{doc_uuid}/{file_uuid}.bin"
 
