@@ -85,9 +85,16 @@ class DocumentQuerySet(models.QuerySet):
         from django.utils import timezone
 
         now = timezone.now()
+        # M-5: use timezone.localdate() so retain_until is compared against the
+        # server's configured TIME_ZONE date, not the raw UTC date.  With
+        # CELERY_TIMEZONE="America/Toronto" (UTC-4/UTC-5) and a UTC-naive .date()
+        # call, a document with retain_until=2025-07-04 could be disposed at
+        # 2025-07-04 00:01 UTC (= 2025-07-03 20:01 Eastern) — up to 23h59m early,
+        # violating Privacy Act s.6(1) minimum retention guarantees.
+        today = timezone.localdate(now)
         return self.filter(
             expires_at__lte=now,
-            retain_until__lte=now.date(),  # DateField — compare with date, not datetime
+            retain_until__lte=today,  # DateField — compare with server-local date
             legal_hold=False,
             deleted_at__isnull=True,
         )

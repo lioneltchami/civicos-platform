@@ -665,7 +665,7 @@ def cleanup_stale_pending_uploads(self) -> int:
     """
     Delete Document records stuck in PENDING_UPLOAD beyond the presigned URL TTL.
 
-    Scheduled by Celery Beat to run every 30 minutes.
+    Scheduled by Celery Beat to run daily at 04:00 UTC.
 
     A document in PENDING_UPLOAD state means:
       - validate_upload_request() was called and the Document row was created.
@@ -766,7 +766,8 @@ def run_disposal_schedule(self) -> dict:
         {
             "total_eligible": int,   # docs in pending_disposal()
             "soft_deleted": int,     # successfully disposed
-            "skipped": int,          # errors / legal holds / already deleted
+            "skipped": int,          # expected skips: legal holds, already deleted
+            "errors": int,           # M-6: unexpected exceptions (DB/service errors)
         }
     """
     from apps.documents.models import Document
@@ -781,6 +782,7 @@ def run_disposal_schedule(self) -> dict:
     total = len(eligible_pks)
     soft_deleted_count = 0
     skipped_count = 0
+    errors_count = 0  # M-6: unexpected failures — separate from expected skips
 
     # H-4: batch-fetch in chunks of 500 to eliminate N+1 queries
     # (one SELECT per pk replaced by one SELECT per chunk of 500).
@@ -805,7 +807,7 @@ def run_disposal_schedule(self) -> dict:
                 soft_delete(document=doc, deleted_by=None, reason="retention_expired")
                 soft_deleted_count += 1
             except ValueError as exc:
-                # Covers: already deleted, legal hold set between snapshot & now.
+                # Expected skip: already deleted, legal hold set between snapshot & now.
                 logger.info(
                     "run_disposal_schedule: skipped doc pk=%r — %s",
                     str(doc_pk),
@@ -813,23 +815,27 @@ def run_disposal_schedule(self) -> dict:
                 )
                 skipped_count += 1
             except Exception:
+                # M-6: unexpected error — counted separately so monitoring dashboards
+                # can distinguish DB/service failures from intentional skips.
                 logger.exception(
                     "run_disposal_schedule: unexpected error for doc pk=%r; skipping.",
                     str(doc_pk),
                 )
-                skipped_count += 1
+                errors_count += 1
 
     logger.info(
-        "run_disposal_schedule: total_eligible=%d soft_deleted=%d skipped=%d",
+        "run_disposal_schedule: total_eligible=%d soft_deleted=%d skipped=%d errors=%d",
         total,
         soft_deleted_count,
         skipped_count,
+        errors_count,
     )
 
     return {
         "total_eligible": total,
         "soft_deleted": soft_deleted_count,
         "skipped": skipped_count,
+        "errors": errors_count,
     }
 
 
@@ -877,7 +883,8 @@ def run_hard_delete_schedule(self) -> dict:
         {
             "total_eligible": int,
             "hard_deleted": int,
-            "skipped": int,
+            "skipped": int,          # expected skips: legal holds, wrong status
+            "errors": int,           # M-6: unexpected exceptions (S3/DB errors)
         }
     """
     from apps.documents.models import Document
@@ -889,6 +896,7 @@ def run_hard_delete_schedule(self) -> dict:
     total = len(eligible_pks)
     hard_deleted_count = 0
     skipped_count = 0
+    errors_count = 0  # M-6: unexpected failures — separate from expected skips
 
     # H-4: batch-fetch in chunks of 500 to eliminate N+1 queries.
     # hard_delete() re-fetches under select_for_update() inside its own atomic(),
@@ -910,7 +918,7 @@ def run_hard_delete_schedule(self) -> dict:
                 hard_delete(document=doc)
                 hard_deleted_count += 1
             except ValueError as exc:
-                # Covers: legal hold, not soft-deleted, grace not elapsed, wrong status.
+                # Expected skip: legal hold, not soft-deleted, grace not elapsed.
                 logger.info(
                     "run_hard_delete_schedule: skipped doc pk=%r — %s",
                     str(doc_pk),
@@ -918,23 +926,27 @@ def run_hard_delete_schedule(self) -> dict:
                 )
                 skipped_count += 1
             except Exception:
+                # M-6: unexpected error — counted separately so monitoring dashboards
+                # can distinguish S3/DB failures from intentional skips.
                 logger.exception(
                     "run_hard_delete_schedule: unexpected error for doc pk=%r; skipping.",
                     str(doc_pk),
                 )
-                skipped_count += 1
+                errors_count += 1
 
     logger.info(
-        "run_hard_delete_schedule: total_eligible=%d hard_deleted=%d skipped=%d",
+        "run_hard_delete_schedule: total_eligible=%d hard_deleted=%d skipped=%d errors=%d",
         total,
         hard_deleted_count,
         skipped_count,
+        errors_count,
     )
 
     return {
         "total_eligible": total,
         "hard_deleted": hard_deleted_count,
         "skipped": skipped_count,
+        "errors": errors_count,
     }
 
 
@@ -1228,9 +1240,10 @@ def create_beat_schedule() -> None:
         )
 
         if not created:
-            # Existing task: ensure the crontab and task name are correct.
-            # This handles the case where the task was previously registered
-            # with a different schedule (e.g. after a schedule change).
+            # Existing task: ensure the crontab, task name, and enabled flag are
+            # correct.  Without updating enabled here, a manually-disabled task
+            # remains disabled after redeploy — Beat silently stops running the
+            # task and operators have no visibility (M-4 fix).
             updated = False
             if periodic_task.task != entry["task"]:
                 periodic_task.task = entry["task"]
@@ -1238,8 +1251,13 @@ def create_beat_schedule() -> None:
             if periodic_task.crontab_id != schedule.pk:
                 periodic_task.crontab = schedule
                 updated = True
+            if not periodic_task.enabled:
+                # M-4: re-enable any task disabled by an admin; deployment is
+                # authoritative for which tasks must be running.
+                periodic_task.enabled = True
+                updated = True
             if updated:
-                periodic_task.save(update_fields=["task", "crontab"])
+                periodic_task.save(update_fields=["task", "crontab", "enabled"])
 
         logger.debug(
             "create_beat_schedule: %s task=%r schedule=%r:%r created=%s",
