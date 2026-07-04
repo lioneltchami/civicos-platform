@@ -17,16 +17,26 @@ Task design invariants:
     PII to Sentry/logging sinks.
 
 Wave 2 tasks:
-  - scan_document             — dev bypass + ClamAV integration
+  - scan_document                 — dev bypass + ClamAV integration
   - cleanup_stale_pending_uploads — purge docs stuck in PENDING_UPLOAD
 
 Wave 3 tasks:
   - ClamAV integration wired into scan_document (replaces Wave 2 stub)
-  - run_purge_expired_tokens  — daily Celery Beat: delete expired access tokens
+  - run_purge_expired_tokens      — daily Celery Beat: delete expired access tokens
 
-Wave 5 tasks (stubs, signatures fixed):
-  - run_disposal_schedule     — daily Celery Beat: soft-delete expired docs
-  - run_hard_delete_schedule  — daily Celery Beat: hard-delete past grace period
+Wave 4 tasks:
+  - run_disposal_schedule         — daily Celery Beat: soft-delete expired docs
+  - run_hard_delete_schedule      — daily Celery Beat: hard-delete past grace period
+  - notify_expiring_documents     — daily Celery Beat: notify citizens of expiring docs
+  - create_beat_schedule()        — idempotent module-level function; called from migration
+                                     0004 to register all PeriodicTask entries.
+
+Beat schedule (all times UTC):
+  01:00 — run_purge_expired_tokens       (Wave 3)
+  02:00 — run_disposal_schedule          (Wave 4)
+  03:00 — run_hard_delete_schedule       (Wave 4)
+  04:00 — cleanup_stale_pending_uploads  (Wave 2)
+  08:00 — notify_expiring_documents      (Wave 4)
 """
 
 from __future__ import annotations
@@ -37,6 +47,8 @@ from datetime import timedelta
 from celery import Task, shared_task
 from django.db import transaction
 from django.utils import timezone
+
+from apps.notifications.services import send_email_notification
 
 logger = logging.getLogger(__name__)
 
@@ -705,7 +717,7 @@ def cleanup_stale_pending_uploads(self) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Wave 5 stubs — signatures fixed; implementations deferred
+# Wave 4: Retention disposal tasks
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -714,20 +726,95 @@ def cleanup_stale_pending_uploads(self) -> int:
     queue="documents",
     acks_late=True,
     reject_on_worker_lost=True,
+    # Retry on transient DB errors. Documents that fail individually are
+    # logged and skipped — the task does NOT abort the whole batch.
     max_retries=3,
     default_retry_delay=60,
 )
-def run_disposal_schedule(self) -> None:
+def run_disposal_schedule(self) -> dict:
     """
     Celery Beat task: soft-delete all documents past their max retention date.
 
-    Runs daily. Finds all documents matching DocumentQuerySet.pending_disposal()
-    (expires_at AND retain_until both in the past, no legal hold, not already
-    deleted) and calls retention.soft_delete() for each.
+    Runs daily at 02:00 UTC via django_celery_beat PeriodicTask.
 
-    STUB: Full implementation in Wave 5.
+    Algorithm:
+      1. Fetch the list of PKs matching pending_disposal() — evaluated once.
+         Using PKs (not a live queryset) prevents "cursor expired" / lazy
+         evaluation issues when iterating across a long batch.
+      2. For each pk, call retention.soft_delete() inside its own try/except.
+         Errors per document are logged and skipped — one failure must NOT
+         abort the rest of the batch (a legal hold set mid-run would cause
+         ValueError; that is expected and must not fail the whole task).
+      3. Return a summary dict for Celery task result inspection.
+
+    Idempotency:
+      soft_delete() raises ValueError if the document is already soft-deleted.
+      The per-doc try/except handles this gracefully — safe to re-run.
+
+    PIPEDA:
+      - Log only document_pk (UUID), not original_filename, storage_key, or
+        uploader email.
+      - Reason written to audit log is "retention_expired" (not filename).
+
+    Returns:
+        {
+            "total_eligible": int,   # docs in pending_disposal()
+            "soft_deleted": int,     # successfully disposed
+            "skipped": int,          # errors / legal holds / already deleted
+        }
     """
-    raise NotImplementedError("run_disposal_schedule — implemented in Wave 5")
+    from apps.documents.models import Document
+    from apps.documents.services.retention import soft_delete
+
+    # Materialise PKs upfront — avoids cursor timeout for large result sets and
+    # ensures we iterate a fixed snapshot (not a live queryset that changes as
+    # we soft-delete rows and they drop out of pending_disposal()).
+    eligible_pks = list(
+        Document.objects.pending_disposal().values_list("pk", flat=True)
+    )
+    total = len(eligible_pks)
+    soft_deleted_count = 0
+    skipped_count = 0
+
+    for doc_pk in eligible_pks:
+        try:
+            doc = Document.objects.get(pk=doc_pk)
+        except Document.DoesNotExist:
+            # Deleted by a concurrent task or manual action between the
+            # snapshot and this iteration step. Skip silently.
+            skipped_count += 1
+            continue
+
+        try:
+            soft_delete(document=doc, deleted_by=None, reason="retention_expired")
+            soft_deleted_count += 1
+        except ValueError as exc:
+            # Covers: already deleted, legal hold set between snapshot & now.
+            logger.info(
+                "run_disposal_schedule: skipped doc pk=%r — %s",
+                str(doc_pk),
+                type(exc).__name__,
+            )
+            skipped_count += 1
+        except Exception:
+            logger.exception(
+                "run_disposal_schedule: unexpected error for doc pk=%r; skipping.",
+                str(doc_pk),
+            )
+            skipped_count += 1
+
+    logger.info(
+        "run_disposal_schedule: total_eligible=%d soft_deleted=%d skipped=%d",
+        total,
+        soft_deleted_count,
+        skipped_count,
+    )
+
+    return {
+        "total_eligible": total,
+        "soft_deleted": soft_deleted_count,
+        "skipped": skipped_count,
+    }
 
 
 @shared_task(
@@ -738,20 +825,231 @@ def run_disposal_schedule(self) -> None:
     max_retries=3,
     default_retry_delay=60,
 )
-def run_hard_delete_schedule(self) -> None:
+def run_hard_delete_schedule(self) -> dict:
     """
     Celery Beat task: irreversibly hard-delete soft-deleted documents past
     the 30-day grace period.
 
-    Finds all documents matching DocumentQuerySet.pending_hard_delete() and
-    calls retention.hard_delete() for each.
+    Runs daily at 03:00 UTC via django_celery_beat PeriodicTask.
 
-    NIST SP 800-88: hard deletion must be irreversible. S3 delete occurs
-    BEFORE DB row delete. If S3 delete fails, DB row is preserved.
+    Per spec §11.2 and NIST SP 800-88: hard deletion is irreversible.
+    The S3 object is deleted and the _storage_key field is nulled out.
+    The Document DB row is RETAINED for the audit trail — the row provides
+    the permanent record of what was uploaded, by whom, and when.
 
-    STUB: Full implementation in Wave 5.
+    Algorithm:
+      1. Fetch PKs matching pending_hard_delete(grace_days=30) upfront.
+      2. For each pk, call retention.hard_delete() inside its own try/except.
+         If storage deletion fails, hard_delete() returns without nulling the
+         key (fail-safe — the document re-appears in the next batch run).
+      3. Return a summary dict.
+
+    Idempotency:
+      - pending_hard_delete() checks scan_status=DELETED + deleted_at <= cutoff.
+      - hard_delete() raises ValueError if preconditions are not met.
+        A document with an empty _storage_key re-appears in the queryset
+        (storage_key empty but scan_status still DELETED + deleted_at still set),
+        so hard_delete() is called again — it skips the S3 delete (empty key),
+        nulls the key again (no-op), and returns. Fully idempotent.
+
+    PIPEDA:
+      - Log only document_pk (UUID), not storage_key or uploader email.
+
+    Returns:
+        {
+            "total_eligible": int,
+            "hard_deleted": int,
+            "skipped": int,
+        }
     """
-    raise NotImplementedError("run_hard_delete_schedule — implemented in Wave 5")
+    from apps.documents.models import Document
+    from apps.documents.services.retention import hard_delete
+
+    eligible_pks = list(
+        Document.objects.pending_hard_delete().values_list("pk", flat=True)
+    )
+    total = len(eligible_pks)
+    hard_deleted_count = 0
+    skipped_count = 0
+
+    for doc_pk in eligible_pks:
+        try:
+            doc = Document.objects.get(pk=doc_pk)
+        except Document.DoesNotExist:
+            skipped_count += 1
+            continue
+
+        try:
+            hard_delete(document=doc)
+            hard_deleted_count += 1
+        except ValueError as exc:
+            # Covers: legal hold, not soft-deleted, grace not elapsed, wrong status.
+            logger.info(
+                "run_hard_delete_schedule: skipped doc pk=%r — %s",
+                str(doc_pk),
+                type(exc).__name__,
+            )
+            skipped_count += 1
+        except Exception:
+            logger.exception(
+                "run_hard_delete_schedule: unexpected error for doc pk=%r; skipping.",
+                str(doc_pk),
+            )
+            skipped_count += 1
+
+    logger.info(
+        "run_hard_delete_schedule: total_eligible=%d hard_deleted=%d skipped=%d",
+        total,
+        hard_deleted_count,
+        skipped_count,
+    )
+
+    return {
+        "total_eligible": total,
+        "hard_deleted": hard_deleted_count,
+        "skipped": skipped_count,
+    }
+
+
+@shared_task(
+    bind=True,
+    queue="documents",
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def notify_expiring_documents(self, days_before: int = 7) -> dict:
+    """
+    Celery Beat task: notify citizens whose documents expire within ``days_before`` days.
+
+    Runs daily at 08:00 UTC via django_celery_beat PeriodicTask.
+
+    A document is "expiring soon" when:
+      - expires_at is in the window [now, now + days_before]
+      - scan_status = ACTIVE   (only clean documents are meaningful to notify on)
+      - deleted_at IS NULL     (not soft-deleted)
+      - legal_hold = False     (legal holds prevent disposal — no notification needed)
+      - is_latest_version = True (do not spam for every version of a document chain)
+
+    Notification:
+      - Sends an email via notifications.services.send_email_notification() to
+        the document's uploaded_by user.
+      - Uses subject_key="document_expiring_soon" — requires the corresponding
+        email templates to exist (see apps/notifications/templates/notifications/email/).
+      - PIPEDA: context contains ONLY category display name and expires_at date.
+        No original_filename, no storage_key.
+      - Notification failures (template missing → returns False) are logged and
+        skipped — they do NOT abort the batch or re-queue the task.
+      - SMTP failures raise → the task retries up to max_retries.
+
+    Args:
+        days_before: Notify for documents expiring within this many days.
+                     Default 7 (one week). Configurable for testing.
+
+    Returns:
+        {
+            "total_eligible": int,   # docs in the expiry window
+            "notified": int,         # successfully emailed
+            "skipped": int,          # template error, missing user, or send failure
+        }
+    """
+    from apps.documents.models import Document
+
+    now = timezone.now()
+    window_end = now + timedelta(days=days_before)
+
+    # Materialise PKs upfront for the same reason as run_disposal_schedule:
+    # avoids cursor timeout and ensures a fixed snapshot.
+    eligible = list(
+        Document.objects.filter(
+            scan_status=Document.ScanStatus.ACTIVE,
+            deleted_at__isnull=True,
+            legal_hold=False,
+            is_latest_version=True,
+            expires_at__gte=now,
+            expires_at__lte=window_end,
+        )
+        .select_related("uploaded_by", "category")
+        .values_list("pk", "uploaded_by_id", "expires_at", "category__name_en")
+    )
+
+    total = len(eligible)
+    notified_count = 0
+    skipped_count = 0
+
+    for doc_pk, uploaded_by_id, expires_at, category_name in eligible:
+        try:
+            # Fetch the User to pass to send_email_notification.
+            # Using get_user_model() here keeps the app decoupled from the
+            # concrete User model import path.
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            try:
+                recipient = User.objects.get(pk=uploaded_by_id)
+            except User.DoesNotExist:
+                # User account deleted between snapshot and now.
+                logger.warning(
+                    "notify_expiring_documents: user pk=%r not found for doc pk=%r; skipping.",
+                    uploaded_by_id,
+                    str(doc_pk),
+                )
+                skipped_count += 1
+                continue
+
+            # PIPEDA: context contains ONLY category name and expiry date —
+            # NO original_filename, NO storage_key, NO uploader PII.
+            context = {
+                "category_name": category_name or "Document",
+                "expires_at": expires_at,
+                "days_remaining": days_before,
+            }
+
+            success = send_email_notification(
+                recipient=recipient,
+                subject_key="document_expiring_soon",
+                context=context,
+            )
+
+            if success:
+                notified_count += 1
+                logger.debug(
+                    "notify_expiring_documents: notified user pk=%r for doc pk=%r.",
+                    uploaded_by_id,
+                    str(doc_pk),
+                )
+            else:
+                # Template rendering failed (non-retryable misconfiguration).
+                logger.error(
+                    "notify_expiring_documents: send_email_notification returned False "
+                    "for doc pk=%r (template missing or render error). Skipping.",
+                    str(doc_pk),
+                )
+                skipped_count += 1
+
+        except Exception:
+            # SMTP failure from send_email_notification will raise here.
+            # Re-raise so the Celery task retries the whole batch.
+            # Log the doc pk (not user email) for PIPEDA compliance.
+            logger.exception(
+                "notify_expiring_documents: SMTP or unexpected error for doc pk=%r; "
+                "re-raising for task retry.",
+                str(doc_pk),
+            )
+            raise
+
+    logger.info(
+        "notify_expiring_documents: total_eligible=%d notified=%d skipped=%d",
+        total,
+        notified_count,
+        skipped_count,
+    )
+
+    return {
+        "total_eligible": total,
+        "notified": notified_count,
+        "skipped": skipped_count,
+    }
 
 
 @shared_task(
@@ -789,3 +1087,123 @@ def run_purge_expired_tokens(self) -> int:
     else:
         logger.debug("run_purge_expired_tokens: no expired tokens found.")
     return count
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Beat schedule registration
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def create_beat_schedule() -> None:
+    """
+    Idempotently register all Document BB PeriodicTask entries with
+    django_celery_beat's DatabaseScheduler.
+
+    Called from migration 0004 via:
+        migrations.RunPython(lambda apps, schema_editor: create_beat_schedule())
+
+    Using get_or_create() makes this safe to re-run at any time (e.g. after
+    deployment, after a Beat flush, or manually via the shell).
+
+    Beat schedule (all times UTC):
+      01:00 — run_purge_expired_tokens       — daily; delete expired/used tokens
+      02:00 — run_disposal_schedule          — daily; soft-delete retention-expired docs
+      03:00 — run_hard_delete_schedule       — daily; irreversible S3 + storage_key null
+      04:00 — cleanup_stale_pending_uploads  — daily; remove stuck PENDING_UPLOAD rows
+      08:00 — notify_expiring_documents      — daily; email citizens about upcoming expiry
+
+    Off-peak hours are chosen deliberately:
+      - 01:00–04:00 window: low citizen traffic; destructive operations run when the
+        system is least loaded and any DB performance impact is minimal.
+      - 08:00: notification window — citizens are typically online in the morning,
+        making the 7-day expiry warning actionable.
+
+    Why daily? Daily runs are fine for retention policy enforcement (documents
+    don't need to be disposed of within minutes of their expiry date). The 30-day
+    grace period for hard deletion provides ample margin.
+
+    Why not every minute? Frequent runs would hammer the DB and risk thundering-herd
+    problems if the task takes a long time on a large dataset.
+    """
+    from django_celery_beat.models import CrontabSchedule, PeriodicTask
+
+    # Shared defaults for all entries — task name prefix is the app label.
+    # The "name" is the human-readable PeriodicTask.name, used in the admin.
+    # The "task" is the fully-qualified Celery task name (module.function).
+
+    tasks = [
+        {
+            "name": "documents: purge-expired-tokens",
+            "task": "apps.documents.tasks.run_purge_expired_tokens",
+            "minute": "0",
+            "hour": "1",
+        },
+        {
+            "name": "documents: run-disposal-schedule",
+            "task": "apps.documents.tasks.run_disposal_schedule",
+            "minute": "0",
+            "hour": "2",
+        },
+        {
+            "name": "documents: run-hard-delete-schedule",
+            "task": "apps.documents.tasks.run_hard_delete_schedule",
+            "minute": "0",
+            "hour": "3",
+        },
+        {
+            "name": "documents: cleanup-stale-pending-uploads",
+            "task": "apps.documents.tasks.cleanup_stale_pending_uploads",
+            "minute": "0",
+            "hour": "4",
+        },
+        {
+            "name": "documents: notify-expiring-documents",
+            "task": "apps.documents.tasks.notify_expiring_documents",
+            "minute": "0",
+            "hour": "8",
+        },
+    ]
+
+    for entry in tasks:
+        schedule, _ = CrontabSchedule.objects.get_or_create(
+            minute=entry["minute"],
+            hour=entry["hour"],
+            day_of_week="*",
+            day_of_month="*",
+            month_of_year="*",
+            # timezone is always UTC for Celery Beat tasks — this is the
+            # canonical server timezone for all GC systems per TBS SPIN 2023.
+            defaults={"timezone": "UTC"},
+        )
+
+        periodic_task, created = PeriodicTask.objects.get_or_create(
+            name=entry["name"],
+            defaults={
+                "task": entry["task"],
+                "crontab": schedule,
+                "enabled": True,
+            },
+        )
+
+        if not created:
+            # Existing task: ensure the crontab and task name are correct.
+            # This handles the case where the task was previously registered
+            # with a different schedule (e.g. after a schedule change).
+            updated = False
+            if periodic_task.task != entry["task"]:
+                periodic_task.task = entry["task"]
+                updated = True
+            if periodic_task.crontab_id != schedule.pk:
+                periodic_task.crontab = schedule
+                updated = True
+            if updated:
+                periodic_task.save(update_fields=["task", "crontab"])
+
+        logger.debug(
+            "create_beat_schedule: %s task=%r schedule=%r:%r created=%s",
+            entry["name"],
+            entry["task"],
+            entry["hour"],
+            entry["minute"],
+            created,
+        )

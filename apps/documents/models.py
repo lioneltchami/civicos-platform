@@ -554,6 +554,11 @@ class Document(BaseModel):
             # Granted to staff uploaders — allows upload to ALL categories, including staff-only ones.
             # Citizens who have this permission also bypass the staff_only restriction.
             ("upload_staff_document", "Can upload documents to staff-only categories"),
+            # Granted to Privacy Officers and legal counsel only.
+            # Required to call apply_legal_hold() or release_legal_hold().
+            # Legal holds supersede all automated retention schedules (ATIP / litigation holds).
+            # Ref: TBS guidance on ATIP holds; retention.apply_legal_hold() enforces this check.
+            ("manage_legal_hold", "Can apply and release legal holds on documents"),
         ]
         indexes = [
             models.Index(
