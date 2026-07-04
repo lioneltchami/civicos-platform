@@ -55,8 +55,10 @@ document_soft_deleted = Signal()
 
 # Fired when a document is hard-deleted from storage and the DB row is purged.
 # Provides: document_pk (str), category_slug (str)
-# NOTE: After this signal fires, the Document row no longer exists in the DB.
-# Receivers must not attempt to fetch the Document; use kwargs only.
+# NOTE: Per NIST SP 800-88 §11.2, the Document DB row IS RETAINED for audit.
+# Only the _storage_key column is cleared and scan_status is set to PURGED.
+# Receivers CAN query the Document row; it will have scan_status=PURGED and
+# an empty _storage_key.
 document_hard_deleted = Signal()
 
 # ── Legal hold ────────────────────────────────────────────────────────────────

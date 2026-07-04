@@ -69,25 +69,29 @@ def on_document_hard_deleted(
     sender,
     *,
     document_pk: str,
-    purged_by_id,
+    category_slug: str,
     **kwargs,
 ) -> None:
     """
     Fires after a document's storage object is irreversibly purged (NIST SP 800-88
     §11.2 hard delete) and the surrounding transaction commits.
 
+    Signal kwargs (per signals.py declaration):
+      - document_pk (str)  — the document's UUID pk as a string.
+      - category_slug (str) — the document's category slug (captured under lock).
+
     Responsibilities (current wave):
       - Emit a structured INFO log for PIPEDA 4.5.3 operator audit trail.
       - Hook for future cross-BB cleanup (revoke cached CDN URLs, etc.)
 
-    Privacy: document_pk and purged_by_id (pk, not email) only.
-    NIST SP 800-88 §11.2: the DB row is retained for audit; only the
-    _storage_key column is nulled by the service before this signal fires.
+    Privacy: document_pk only. category_slug carries no PII.
+    NIST SP 800-88 §11.2: the DB row is RETAINED for audit; only the
+    _storage_key column is cleared by the service before this signal fires.
     """
     logger.info(
-        "document_hard_deleted: document_pk=%s purged_by_pk=%s",
+        "document_hard_deleted: document_pk=%s category_slug=%s",
         document_pk,
-        purged_by_id,
+        category_slug,
     )
     # Future: purge any CDN edge-cache entries for this document's presigned URL
     # Future: notify Case Management BB that the physical record is gone

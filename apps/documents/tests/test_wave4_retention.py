@@ -269,14 +269,18 @@ class SoftDeleteSignalTests(TestCase):
         from apps.documents.signals import document_soft_deleted
 
         received = []
-        document_soft_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
+
+        def _recv(sender, **kw):
+            received.append(kw)
+
+        document_soft_deleted.connect(_recv, weak=False)
         try:
             # H-2 fix: signal fires via transaction.on_commit(); use
             # captureOnCommitCallbacks(execute=True) so it fires in TestCase.
             with self.captureOnCommitCallbacks(execute=True):
                 soft_delete(document=self.doc, deleted_by=self.actor, reason="test")
         finally:
-            document_soft_deleted.disconnect()
+            document_soft_deleted.disconnect(_recv)
 
         self.assertEqual(len(received), 1)
         kw = received[0]
@@ -288,12 +292,16 @@ class SoftDeleteSignalTests(TestCase):
         from apps.documents.signals import document_soft_deleted
 
         received = []
-        document_soft_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
+
+        def _recv(sender, **kw):
+            received.append(kw)
+
+        document_soft_deleted.connect(_recv, weak=False)
         try:
             with self.captureOnCommitCallbacks(execute=True):
                 soft_delete(document=self.doc, deleted_by=None, reason="system")
         finally:
-            document_soft_deleted.disconnect()
+            document_soft_deleted.disconnect(_recv)
 
         self.assertEqual(received[0]["deleted_by_id"], None)
 
@@ -305,12 +313,16 @@ class SoftDeleteSignalTests(TestCase):
         from apps.documents.signals import document_soft_deleted
 
         received = []
-        document_soft_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
+
+        def _recv(sender, **kw):
+            received.append(kw)
+
+        document_soft_deleted.connect(_recv, weak=False)
         try:
             with self.captureOnCommitCallbacks(execute=True):
                 soft_delete(document=self.doc, deleted_by=self.actor, reason="test")
         finally:
-            document_soft_deleted.disconnect()
+            document_soft_deleted.disconnect(_recv)
 
         kw = received[0]
         # Only these keys are permitted.
@@ -529,6 +541,11 @@ class HardDeleteSignalTests(TestCase):
         Firing before would produce a false signal if S3 then fails: the DB row
         says deleted but the file is still on S3 (false security posture).
         The signal fires after the conditional DB update commits PURGED status.
+
+        Signal fires via transaction.on_commit() — captureOnCommitCallbacks
+        required so the callback executes inside Django's TestCase transaction.
+        Storage delete occurs synchronously inside hard_delete(); on_commit fires
+        afterward — call_order ordering is preserved.
         """
         call_order = []
 
@@ -541,11 +558,16 @@ class HardDeleteSignalTests(TestCase):
         # function before the signal fires when Django stores only a weakref.
         document_hard_deleted.connect(receiver, weak=False)
         try:
-            with patch("apps.documents.services.retention.default_storage") as mock_storage:
-                def delete_side_effect(key):
-                    call_order.append("storage_delete")
-                mock_storage.delete.side_effect = delete_side_effect
-                hard_delete(document=self.doc)
+            # captureOnCommitCallbacks(execute=True) so on_commit fires in TestCase.
+            # Ordering is preserved: storage_delete happens inside hard_delete()
+            # before the on_commit callback is registered; the callback then fires
+            # when the captureOnCommitCallbacks context exits.
+            with self.captureOnCommitCallbacks(execute=True):
+                with patch("apps.documents.services.retention.default_storage") as mock_storage:
+                    def delete_side_effect(key):
+                        call_order.append("storage_delete")
+                    mock_storage.delete.side_effect = delete_side_effect
+                    hard_delete(document=self.doc)
         finally:
             document_hard_deleted.disconnect(receiver)
 
@@ -559,12 +581,18 @@ class HardDeleteSignalTests(TestCase):
         from apps.documents.signals import document_hard_deleted
 
         received = []
-        document_hard_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
+
+        def _recv(sender, **kw):
+            received.append(kw)
+
+        document_hard_deleted.connect(_recv, weak=False)
         try:
-            with patch("apps.documents.services.retention.default_storage"):
-                hard_delete(document=self.doc)
+            # Signal fires via on_commit — captureOnCommitCallbacks required.
+            with self.captureOnCommitCallbacks(execute=True):
+                with patch("apps.documents.services.retention.default_storage"):
+                    hard_delete(document=self.doc)
         finally:
-            document_hard_deleted.disconnect()
+            document_hard_deleted.disconnect(_recv)
 
         self.assertEqual(len(received), 1)
         kw = received[0]
@@ -579,12 +607,18 @@ class HardDeleteSignalTests(TestCase):
         from apps.documents.signals import document_hard_deleted
 
         received = []
-        document_hard_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
+
+        def _recv(sender, **kw):
+            received.append(kw)
+
+        document_hard_deleted.connect(_recv, weak=False)
         try:
-            with patch("apps.documents.services.retention.default_storage"):
-                hard_delete(document=self.doc)
+            # Signal fires via on_commit — captureOnCommitCallbacks required.
+            with self.captureOnCommitCallbacks(execute=True):
+                with patch("apps.documents.services.retention.default_storage"):
+                    hard_delete(document=self.doc)
         finally:
-            document_hard_deleted.disconnect()
+            document_hard_deleted.disconnect(_recv)
 
         kw = received[0]
         self.assertNotIn("storage_key", kw)
@@ -706,7 +740,11 @@ class ApplyLegalHoldTests(TestCase):
         from apps.documents.signals import document_legal_hold_changed
 
         received = []
-        document_legal_hold_changed.connect(lambda sender, **kw: received.append(kw), weak=False)
+
+        def _recv(sender, **kw):
+            received.append(kw)
+
+        document_legal_hold_changed.connect(_recv, weak=False)
         staff = self._make_staff_user_with_perm()
         try:
             # H-2 fix: signal fires via transaction.on_commit(); use
@@ -714,7 +752,7 @@ class ApplyLegalHoldTests(TestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 apply_legal_hold(document=self.doc, set_by=staff, reason="test")
         finally:
-            document_legal_hold_changed.disconnect()
+            document_legal_hold_changed.disconnect(_recv)
 
         self.assertEqual(len(received), 1)
         kw = received[0]
@@ -831,7 +869,11 @@ class ReleaseLegalHoldTests(TestCase):
         from apps.documents.signals import document_legal_hold_changed
 
         received = []
-        document_legal_hold_changed.connect(lambda sender, **kw: received.append(kw), weak=False)
+
+        def _recv(sender, **kw):
+            received.append(kw)
+
+        document_legal_hold_changed.connect(_recv, weak=False)
         staff = self._make_staff_user_with_perm()
         try:
             # H-2 fix: signal fires via transaction.on_commit(); use
@@ -839,7 +881,7 @@ class ReleaseLegalHoldTests(TestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 release_legal_hold(document=self.doc, released_by=staff)
         finally:
-            document_legal_hold_changed.disconnect()
+            document_legal_hold_changed.disconnect(_recv)
 
         self.assertEqual(len(received), 1)
         self.assertFalse(received[0]["legal_hold"])
@@ -1553,17 +1595,29 @@ class PipedaInvariantsTests(TestCase):
         """
         document_soft_deleted signal kwargs must not include original_filename.
         Signals are consumed by receivers that may write to external logging systems.
+
+        H-2 fix: signal fires via transaction.on_commit(); captureOnCommitCallbacks
+        is required so the callback executes inside Django's TestCase transaction.
         """
         from apps.documents.signals import document_soft_deleted
 
         doc = make_active_doc(self.category, self.user)
         received = []
-        document_soft_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
-        try:
-            soft_delete(document=doc, deleted_by=self.actor, reason="test")
-        finally:
-            document_soft_deleted.disconnect()
 
+        def _receiver(sender, **kw):
+            received.append(kw)
+
+        document_soft_deleted.connect(_receiver, weak=False)
+        try:
+            # captureOnCommitCallbacks(execute=True) forces on_commit() callbacks
+            # to fire within the test's wrapping transaction — without this the
+            # signal never fires and received stays empty (IndexError on received[0]).
+            with self.captureOnCommitCallbacks(execute=True):
+                soft_delete(document=doc, deleted_by=self.actor, reason="test")
+        finally:
+            document_soft_deleted.disconnect(_receiver)
+
+        self.assertEqual(len(received), 1, "Signal must have fired exactly once")
         kw = received[0]
         kw_str = str(kw)
         self.assertNotIn("secret_name_never_in_audit", kw_str)

@@ -438,55 +438,73 @@ def hard_delete(
         )
 
     # ── Step 3: Atomically null _storage_key + set scan_status=PURGED (C-3) ──
+    # Wrapped in atomic() so the DB update and RECORD_PURGED audit commit together.
+    # PIPEDA 4.5.3: a crash between the update and the audit would leave a purged
+    # document with no audit trail — wrapping them in one transaction prevents that.
     # Conditional update on scan_status=DELETED (not just pk) prevents a concurrent
     # worker that also processed this document from writing a duplicate RECORD_PURGED
     # audit entry. rows_updated == 0 means another worker already committed PURGED.
-    rows_updated = Document.objects.filter(
-        pk=document.pk,
-        scan_status=Document.ScanStatus.DELETED,
-    ).update(**{"_storage_key": "", "scan_status": Document.ScanStatus.PURGED})
+    _doc_pk_s = doc_pk
+    _cat_slug = category_slug
 
-    # Update the caller's in-memory instance.
-    document._storage_key = ""
-    document.scan_status = Document.ScanStatus.PURGED
+    with transaction.atomic():
+        rows_updated = Document.objects.filter(
+            pk=document.pk,
+            scan_status=Document.ScanStatus.DELETED,
+        ).update(**{"_storage_key": "", "scan_status": Document.ScanStatus.PURGED})
 
-    if rows_updated == 0:
-        # A concurrent worker already committed the PURGED state.
-        # Skip audit and signal to prevent duplicate immutable entries.
-        logger.info(
-            "hard_delete: doc pk=%r PURGED state already committed by a concurrent "
-            "worker; skipping audit and signal (idempotent).",
-            doc_pk,
-        )
-        return
+        # Update the caller's in-memory instance.
+        document._storage_key = ""
+        document.scan_status = Document.ScanStatus.PURGED
 
-    # ── Step 4: Write audit AFTER confirmed S3 delete + DB commit (C-2 fix) ──
-    # PIPEDA: event_detail contains ONLY cleared_at — no storage_key, no PII.
-    record_event(
-        event_type=AuditEventType.RECORD_PURGED,
-        resource_type="documents.Document",
-        resource_id=doc_pk,
-        event_detail={
-            "cleared_at": cleared_at.isoformat(),
-            # PIPEDA: NO original_filename, NO storage_key value, NO uploader PII.
-        },
-    )
-
-    # ── Step 5: Fire signal AFTER confirmed S3 delete (C-2 fix) ──────────────
-    # send_robust never raises; inspect return values and log receiver exceptions.
-    # PIPEDA: kwargs contain ONLY document_pk and category_slug.
-    results = document_hard_deleted.send_robust(
-        sender=Document,
-        document_pk=doc_pk,
-        category_slug=category_slug,
-    )
-    for receiver, response in results:
-        if isinstance(response, Exception):
-            logger.error(
-                "hard_delete: signal receiver %r raised: %r",
-                receiver,
-                response,
+        if rows_updated == 0:
+            # A concurrent worker already committed the PURGED state.
+            # Skip audit and signal to prevent duplicate immutable entries.
+            logger.info(
+                "hard_delete: doc pk=%r PURGED state already committed by a concurrent "
+                "worker; skipping audit and signal (idempotent).",
+                doc_pk,
             )
+            return
+
+        # ── Step 4: Write audit INSIDE atomic (PIPEDA 4.5.3) ─────────────────
+        # record_event() inside the same atomic() block so the DB state change
+        # and the audit entry commit together. A crash between them would leave
+        # the document purged with no audit trail — this prevents that gap.
+        # PIPEDA: event_detail contains ONLY cleared_at — no storage_key, no PII.
+        record_event(
+            event_type=AuditEventType.RECORD_PURGED,
+            resource_type="documents.Document",
+            resource_id=doc_pk,
+            event_detail={
+                "cleared_at": cleared_at.isoformat(),
+                # PIPEDA: NO original_filename, NO storage_key value, NO uploader PII.
+            },
+        )
+
+        # ── Step 5: Fire signal via on_commit AFTER transaction commits ───────
+        # Consistent with soft_delete / apply_legal_hold / release_legal_hold.
+        # on_commit() ensures the signal fires only after the DB write is durable.
+        # send_robust() never raises; inspect return values for receiver exceptions.
+        # PIPEDA: kwargs contain ONLY document_pk and category_slug.
+        def _fire_hard_deleted(
+            _pk=_doc_pk_s,
+            _slug=_cat_slug,
+        ):
+            results = document_hard_deleted.send_robust(
+                sender=Document,
+                document_pk=_pk,
+                category_slug=_slug,
+            )
+            for _rcvr, _resp in results:
+                if isinstance(_resp, Exception):
+                    logger.error(
+                        "hard_delete: signal receiver %r raised: %r",
+                        _rcvr,
+                        _resp,
+                    )
+
+        transaction.on_commit(_fire_hard_deleted)
 
     logger.info(
         "hard_delete: Document pk=%r storage cleared, scan_status=PURGED. "
@@ -718,6 +736,7 @@ def release_legal_hold(
     *,
     document: "Document",
     released_by: "User",
+    reason: str = "",
 ) -> "Document":
     """
     Release a legal hold, re-enabling automated disposal per the retention schedule.
@@ -735,12 +754,15 @@ def release_legal_hold(
       4. Sets legal_hold=False.
       5. Saves with update_fields (does NOT clear legal_hold_reason — preserved
          for audit trail — or legal_hold_set_by for the same reason).
-      6. Fires document_legal_hold_changed signal (legal_hold=False).
-      7. Writes audit: AuditEventType.STATUS_CHANGED.
+      6. Writes audit: AuditEventType.LEGAL_HOLD_RELEASED.
+      7. Fires document_legal_hold_changed signal (legal_hold=False).
 
     Args:
         document:     The Document whose hold is to be released.
         released_by:  User releasing the hold (must have manage_legal_hold).
+        reason:       Optional non-PII description of why the hold was released
+                      (e.g. "ATIP request closed"). Stored in audit event_detail.
+                      Do NOT include personal information.
 
     Returns:
         The updated Document instance (legal_hold=False).
@@ -779,7 +801,7 @@ def release_legal_hold(
 
         # H-2: audit INSIDE atomic — state change and audit commit together.
         # C-4 fix: use dedicated LEGAL_HOLD_RELEASED event type (not generic STATUS_CHANGED).
-        # PIPEDA: event_detail contains only legal_hold flag and actor pk — no PII.
+        # PIPEDA: event_detail contains only legal_hold flag, actor pk, and reason — no PII.
         record_event(
             event_type=AuditEventType.LEGAL_HOLD_RELEASED,
             actor_id=str(released_by.pk),
@@ -788,6 +810,7 @@ def release_legal_hold(
             event_detail={
                 "legal_hold": False,
                 "released_by_pk": released_by.pk,
+                "release_reason": reason or "",
             },
         )
 
@@ -876,6 +899,11 @@ def purge_expired_tokens(*, dry_run: bool = False) -> int:
             count,
         )
         return count
+
+    # Initialise count before the atomic block so it is always defined even if
+    # qs.delete() raises and the block rolls back (prevents UnboundLocalError
+    # in the logger.info() call below).
+    count = 0
 
     # H-7: wrap delete + audit in atomic so they commit together.
     # If record_event() fails the delete is also rolled back — we must never
