@@ -183,6 +183,8 @@ class _ScanDocumentTask(Task):
     acks_late=True,
     # if the worker process is lost mid-task (OOM kill, SIGKILL), requeue the task
     reject_on_worker_lost=True,
+    # H-9: explicit name prevents Beat task name breakage on module refactoring.
+    name="apps.documents.tasks.scan_document",
 )
 def scan_document(self, doc_pk: str) -> None:
     """
@@ -656,6 +658,8 @@ def _mark_document_quarantined_clamav(*, doc_pk: str, virus_name: str) -> None:
     # No retries — this is a periodic cleanup. If it fails, the next run
     # (scheduled by Celery Beat) will clean up.
     max_retries=0,
+    # H-9: explicit name prevents Beat task name breakage on module refactoring.
+    name="apps.documents.tasks.cleanup_stale_pending_uploads",
 )
 def cleanup_stale_pending_uploads(self) -> int:
     """
@@ -730,6 +734,8 @@ def cleanup_stale_pending_uploads(self) -> int:
     # logged and skipped — the task does NOT abort the whole batch.
     max_retries=3,
     default_retry_delay=60,
+    # H-9: explicit name prevents Beat task name breakage on module refactoring.
+    name="apps.documents.tasks.run_disposal_schedule",
 )
 def run_disposal_schedule(self) -> dict:
     """
@@ -776,32 +782,42 @@ def run_disposal_schedule(self) -> dict:
     soft_deleted_count = 0
     skipped_count = 0
 
-    for doc_pk in eligible_pks:
-        try:
-            doc = Document.objects.get(pk=doc_pk)
-        except Document.DoesNotExist:
-            # Deleted by a concurrent task or manual action between the
-            # snapshot and this iteration step. Skip silently.
-            skipped_count += 1
-            continue
+    # H-4: batch-fetch in chunks of 500 to eliminate N+1 queries
+    # (one SELECT per pk replaced by one SELECT per chunk of 500).
+    # soft_delete() re-fetches under select_for_update() inside its own atomic(),
+    # so the pre-fetched doc is used for outer loop efficiency only.
+    _CHUNK = 500
+    for _start in range(0, len(eligible_pks), _CHUNK):
+        chunk = eligible_pks[_start : _start + _CHUNK]
+        doc_map = {
+            d.pk: d
+            for d in Document.objects.filter(pk__in=chunk).select_related("category")
+        }
+        for doc_pk in chunk:
+            doc = doc_map.get(doc_pk)
+            if doc is None:
+                # Deleted by a concurrent task or manual action between the
+                # snapshot and this iteration step. Skip silently.
+                skipped_count += 1
+                continue
 
-        try:
-            soft_delete(document=doc, deleted_by=None, reason="retention_expired")
-            soft_deleted_count += 1
-        except ValueError as exc:
-            # Covers: already deleted, legal hold set between snapshot & now.
-            logger.info(
-                "run_disposal_schedule: skipped doc pk=%r — %s",
-                str(doc_pk),
-                type(exc).__name__,
-            )
-            skipped_count += 1
-        except Exception:
-            logger.exception(
-                "run_disposal_schedule: unexpected error for doc pk=%r; skipping.",
-                str(doc_pk),
-            )
-            skipped_count += 1
+            try:
+                soft_delete(document=doc, deleted_by=None, reason="retention_expired")
+                soft_deleted_count += 1
+            except ValueError as exc:
+                # Covers: already deleted, legal hold set between snapshot & now.
+                logger.info(
+                    "run_disposal_schedule: skipped doc pk=%r — %s",
+                    str(doc_pk),
+                    type(exc).__name__,
+                )
+                skipped_count += 1
+            except Exception:
+                logger.exception(
+                    "run_disposal_schedule: unexpected error for doc pk=%r; skipping.",
+                    str(doc_pk),
+                )
+                skipped_count += 1
 
     logger.info(
         "run_disposal_schedule: total_eligible=%d soft_deleted=%d skipped=%d",
@@ -824,6 +840,8 @@ def run_disposal_schedule(self) -> dict:
     reject_on_worker_lost=True,
     max_retries=3,
     default_retry_delay=60,
+    # H-9: explicit name prevents Beat task name breakage on module refactoring.
+    name="apps.documents.tasks.run_hard_delete_schedule",
 )
 def run_hard_delete_schedule(self) -> dict:
     """
@@ -872,30 +890,39 @@ def run_hard_delete_schedule(self) -> dict:
     hard_deleted_count = 0
     skipped_count = 0
 
-    for doc_pk in eligible_pks:
-        try:
-            doc = Document.objects.get(pk=doc_pk)
-        except Document.DoesNotExist:
-            skipped_count += 1
-            continue
+    # H-4: batch-fetch in chunks of 500 to eliminate N+1 queries.
+    # hard_delete() re-fetches under select_for_update() inside its own atomic(),
+    # so this pre-fetch is for loop efficiency only.
+    _CHUNK = 500
+    for _start in range(0, len(eligible_pks), _CHUNK):
+        chunk = eligible_pks[_start : _start + _CHUNK]
+        doc_map = {
+            d.pk: d
+            for d in Document.objects.filter(pk__in=chunk).select_related("category")
+        }
+        for doc_pk in chunk:
+            doc = doc_map.get(doc_pk)
+            if doc is None:
+                skipped_count += 1
+                continue
 
-        try:
-            hard_delete(document=doc)
-            hard_deleted_count += 1
-        except ValueError as exc:
-            # Covers: legal hold, not soft-deleted, grace not elapsed, wrong status.
-            logger.info(
-                "run_hard_delete_schedule: skipped doc pk=%r — %s",
-                str(doc_pk),
-                type(exc).__name__,
-            )
-            skipped_count += 1
-        except Exception:
-            logger.exception(
-                "run_hard_delete_schedule: unexpected error for doc pk=%r; skipping.",
-                str(doc_pk),
-            )
-            skipped_count += 1
+            try:
+                hard_delete(document=doc)
+                hard_deleted_count += 1
+            except ValueError as exc:
+                # Covers: legal hold, not soft-deleted, grace not elapsed, wrong status.
+                logger.info(
+                    "run_hard_delete_schedule: skipped doc pk=%r — %s",
+                    str(doc_pk),
+                    type(exc).__name__,
+                )
+                skipped_count += 1
+            except Exception:
+                logger.exception(
+                    "run_hard_delete_schedule: unexpected error for doc pk=%r; skipping.",
+                    str(doc_pk),
+                )
+                skipped_count += 1
 
     logger.info(
         "run_hard_delete_schedule: total_eligible=%d hard_deleted=%d skipped=%d",
@@ -918,6 +945,8 @@ def run_hard_delete_schedule(self) -> dict:
     reject_on_worker_lost=True,
     max_retries=3,
     default_retry_delay=60,
+    # H-9: explicit name prevents Beat task name breakage on module refactoring.
+    name="apps.documents.tasks.notify_expiring_documents",
 )
 def notify_expiring_documents(self, days_before: int = 7) -> dict:
     """
@@ -1000,12 +1029,14 @@ def notify_expiring_documents(self, days_before: int = 7) -> dict:
             # PIPEDA: context contains ONLY category name and expiry date —
             # NO original_filename, NO storage_key, NO uploader PII.
             # H-5 fix: compute actual remaining days, not the task parameter.
-            # expires_at is a DateTimeField; .date() gives the local calendar date.
-            _expires_date = expires_at.date() if hasattr(expires_at, "date") else expires_at
+            # H-6 fix: use timezone.localdate() to convert expires_at to the server's
+            # configured TIME_ZONE — prevents showing the wrong date to citizens
+            # in Atlantic/Pacific timezones when the UTC date crosses midnight.
+            _expires_date = timezone.localdate(expires_at)
             context = {
                 "category_name": category_name or "Document",
                 "expires_at": _expires_date,
-                "days_remaining": max(0, (_expires_date - timezone.now().date()).days),
+                "days_remaining": max(0, (_expires_date - timezone.localdate()).days),
             }
 
             success = send_email_notification(
@@ -1065,6 +1096,8 @@ def notify_expiring_documents(self, days_before: int = 7) -> dict:
     acks_late=True,
     reject_on_worker_lost=True,
     max_retries=0,
+    # H-9: explicit name prevents Beat task name breakage on module refactoring.
+    name="apps.documents.tasks.run_purge_expired_tokens",
 )
 def run_purge_expired_tokens(self) -> int:
     """
@@ -1178,9 +1211,11 @@ def create_beat_schedule() -> None:
             day_of_week="*",
             day_of_month="*",
             month_of_year="*",
-            # timezone is always UTC for Celery Beat tasks — this is the
-            # canonical server timezone for all GC systems per TBS SPIN 2023.
-            defaults={"timezone": "UTC"},
+            # H-8: timezone MUST be in the lookup fields, not defaults={}.
+            # If it were in defaults only, a pre-existing crontab with the same
+            # time but timezone="America/Toronto" would be silently reused —
+            # Beat tasks would run in the wrong timezone (TBS SPIN 2023: UTC required).
+            timezone="UTC",
         )
 
         periodic_task, created = PeriodicTask.objects.get_or_create(

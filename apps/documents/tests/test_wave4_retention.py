@@ -271,7 +271,10 @@ class SoftDeleteSignalTests(TestCase):
         received = []
         document_soft_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
         try:
-            soft_delete(document=self.doc, deleted_by=self.actor, reason="test")
+            # H-2 fix: signal fires via transaction.on_commit(); use
+            # captureOnCommitCallbacks(execute=True) so it fires in TestCase.
+            with self.captureOnCommitCallbacks(execute=True):
+                soft_delete(document=self.doc, deleted_by=self.actor, reason="test")
         finally:
             document_soft_deleted.disconnect()
 
@@ -287,7 +290,8 @@ class SoftDeleteSignalTests(TestCase):
         received = []
         document_soft_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
         try:
-            soft_delete(document=self.doc, deleted_by=None, reason="system")
+            with self.captureOnCommitCallbacks(execute=True):
+                soft_delete(document=self.doc, deleted_by=None, reason="system")
         finally:
             document_soft_deleted.disconnect()
 
@@ -303,7 +307,8 @@ class SoftDeleteSignalTests(TestCase):
         received = []
         document_soft_deleted.connect(lambda sender, **kw: received.append(kw), weak=False)
         try:
-            soft_delete(document=self.doc, deleted_by=self.actor, reason="test")
+            with self.captureOnCommitCallbacks(execute=True):
+                soft_delete(document=self.doc, deleted_by=self.actor, reason="test")
         finally:
             document_soft_deleted.disconnect()
 
@@ -702,7 +707,10 @@ class ApplyLegalHoldTests(TestCase):
         document_legal_hold_changed.connect(lambda sender, **kw: received.append(kw), weak=False)
         staff = self._make_staff_user_with_perm()
         try:
-            apply_legal_hold(document=self.doc, set_by=staff, reason="test")
+            # H-2 fix: signal fires via transaction.on_commit(); use
+            # captureOnCommitCallbacks(execute=True) so it fires in TestCase.
+            with self.captureOnCommitCallbacks(execute=True):
+                apply_legal_hold(document=self.doc, set_by=staff, reason="test")
         finally:
             document_legal_hold_changed.disconnect()
 
@@ -795,7 +803,10 @@ class ReleaseLegalHoldTests(TestCase):
         document_legal_hold_changed.connect(lambda sender, **kw: received.append(kw), weak=False)
         staff = self._make_staff_user_with_perm()
         try:
-            release_legal_hold(document=self.doc, released_by=staff)
+            # H-2 fix: signal fires via transaction.on_commit(); use
+            # captureOnCommitCallbacks(execute=True) so it fires in TestCase.
+            with self.captureOnCommitCallbacks(execute=True):
+                release_legal_hold(document=self.doc, released_by=staff)
         finally:
             document_legal_hold_changed.disconnect()
 

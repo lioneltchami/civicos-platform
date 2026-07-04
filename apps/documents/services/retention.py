@@ -214,32 +214,53 @@ def soft_delete(
             ]
         )
 
+        # H-2: audit INSIDE atomic — state change and audit commit together.
+        # A crash between the atomic exit and a post-block record_event() call
+        # would leave a committed deletion with no audit trail (PIPEDA violation).
+        # PIPEDA: NO original_filename, NO storage_key in event_detail.
+        record_event(
+            event_type=AuditEventType.RECORD_DELETED,
+            actor_id=str(deleted_by.pk) if deleted_by else None,
+            resource_type="documents.Document",
+            resource_id=str(doc.pk),
+            event_detail={
+                "deletion_reason": reason or "retention_expired",
+                "deleted_by_pk": deleted_by.pk if deleted_by else None,
+            },
+        )
+
+        # H-2: signal via on_commit — fires only after transaction commits, never
+        # if the transaction rolls back.  H-3: send_robust() return values are
+        # inspected and receiver exceptions logged at ERROR level.
+        # PIPEDA: kwargs contain ONLY document_pk and deleted_by_id — no PII.
+        _doc_pk_s = str(doc.pk)
+        _deleted_by_pk = deleted_by.pk if deleted_by else None
+
+        def _fire_soft_deleted(
+            _pk=_doc_pk_s,
+            _dbpk=_deleted_by_pk,
+        ):
+            results = document_soft_deleted.send_robust(
+                sender=Document,
+                document_pk=_pk,
+                deleted_by_id=_dbpk,
+            )
+            for _receiver, _response in results:
+                if isinstance(_response, Exception):
+                    logger.error(
+                        "soft_delete: signal receiver %r raised: %r",
+                        _receiver,
+                        _response,
+                    )
+
+        transaction.on_commit(_fire_soft_deleted)
+
     # Update the caller's in-memory instance to reflect the saved state.
     # Prevents callers from working with stale field values after this call.
     document.deleted_at = doc.deleted_at
     document.scan_status = doc.scan_status
     document.deleted_by = doc.deleted_by
     document.deletion_reason = doc.deletion_reason
-
-    # Fire signal outside the transaction (send_robust never raises).
-    # PIPEDA: kwargs contain ONLY document_pk and deleted_by_id — no PII.
-    document_soft_deleted.send_robust(
-        sender=Document,
-        document_pk=str(document.pk),
-        deleted_by_id=deleted_by.pk if deleted_by else None,
-    )
-
-    # Audit log — PIPEDA: NO original_filename, NO storage_key in event_detail.
-    record_event(
-        event_type=AuditEventType.RECORD_DELETED,
-        actor_id=str(deleted_by.pk) if deleted_by else None,
-        resource_type="documents.Document",
-        resource_id=str(document.pk),
-        event_detail={
-            "deletion_reason": reason or "retention_expired",
-            "deleted_by_pk": deleted_by.pk if deleted_by else None,
-        },
-    )
 
     logger.info(
         "soft_delete: Document pk=%r soft-deleted. reason=%r deleted_by_pk=%r",
@@ -516,15 +537,41 @@ def mark_purpose_fulfilled(
             "Only transitory categories (LAC DA #2016/001) may be disposed via this function."
         )
 
-    # Mark the expires_at before soft_delete so pending_disposal() reflects the
-    # correct state if the document is ever un-deleted or re-queried.
-    # This is a belt-and-suspenders step — soft_delete sets scan_status=DELETED
-    # which already removes the doc from active queries.
-    now = timezone.now()
+    # H-10: lock the document row before updating expires_at to prevent concurrent
+    # disposition attempts from both succeeding.  Without the lock, two concurrent
+    # callers can both pass the pre-check (deleted_at is None) and both update
+    # expires_at, producing a confusing ValueError from the second soft_delete().
     from apps.documents.models import Document
 
-    Document.objects.filter(pk=document.pk).update(expires_at=now)
-    document.expires_at = now
+    now = timezone.now()
+
+    with transaction.atomic():
+        doc = (
+            Document.objects.select_related("category")
+            .select_for_update()
+            .get(pk=document.pk)
+        )
+
+        # Re-validate under lock — concurrent process may have changed state.
+        if doc.deleted_at is not None:
+            raise ValueError(
+                f"Document {doc.pk} is already soft-deleted "
+                f"(deleted_at={doc.deleted_at.isoformat()}). "
+                "Cannot mark purpose fulfilled on an already-disposed document."
+            )
+        if doc.legal_hold:
+            raise ValueError(
+                f"Document {doc.pk} is on legal hold and cannot be disposed. "
+                "Remove the legal hold before marking purpose fulfilled."
+            )
+        if not doc.category.is_transitory:
+            raise ValueError(
+                f"mark_purpose_fulfilled() called on non-transitory document {doc.pk}. "
+                f"Category {doc.category.slug!r} has is_transitory=False."
+            )
+
+        Document.objects.filter(pk=document.pk).update(expires_at=now)
+        document.expires_at = now
 
     logger.info(
         "mark_purpose_fulfilled: doc pk=%r transitory purpose fulfilled; "
@@ -612,33 +659,51 @@ def apply_legal_hold(
             ]
         )
 
+        # H-2: audit INSIDE atomic — state change and audit commit together.
+        # C-4 fix: use dedicated LEGAL_HOLD_APPLIED event type (not generic STATUS_CHANGED).
+        # PIPEDA: event_detail contains only legal_hold flag, reason, and actor pk — no PII.
+        record_event(
+            event_type=AuditEventType.LEGAL_HOLD_APPLIED,
+            actor_id=str(set_by.pk),
+            resource_type="documents.Document",
+            resource_id=str(doc.pk),
+            event_detail={
+                "legal_hold": True,
+                "reason": reason,
+                "set_by_pk": set_by.pk,
+            },
+        )
+
+        # H-2: signal via on_commit — fires only if transaction commits.
+        # H-3: send_robust() return values inspected; receiver exceptions logged.
+        # PIPEDA: kwargs contain ONLY document_pk, legal_hold flag, set_by_id (int).
+        _doc_pk_s = str(doc.pk)
+        _set_by_pk = set_by.pk
+
+        def _fire_legal_hold_applied(
+            _pk=_doc_pk_s,
+            _sbpk=_set_by_pk,
+        ):
+            results = document_legal_hold_changed.send_robust(
+                sender=Document,
+                document_pk=_pk,
+                legal_hold=True,
+                set_by_id=_sbpk,
+            )
+            for _receiver, _response in results:
+                if isinstance(_response, Exception):
+                    logger.error(
+                        "apply_legal_hold: signal receiver %r raised: %r",
+                        _receiver,
+                        _response,
+                    )
+
+        transaction.on_commit(_fire_legal_hold_applied)
+
     # Update caller's in-memory instance.
     document.legal_hold = True
     document.legal_hold_reason = reason
     document.legal_hold_set_by = set_by
-
-    # Fire signal outside transaction (send_robust never raises).
-    # PIPEDA: kwargs contain ONLY document_pk, legal_hold flag, set_by_id (int).
-    document_legal_hold_changed.send_robust(
-        sender=Document,
-        document_pk=str(document.pk),
-        legal_hold=True,
-        set_by_id=set_by.pk,
-    )
-
-    # Audit — C-4 fix: use dedicated LEGAL_HOLD_APPLIED event type (not generic STATUS_CHANGED).
-    # PIPEDA: event_detail contains only legal_hold flag, reason, and actor pk — no PII.
-    record_event(
-        event_type=AuditEventType.LEGAL_HOLD_APPLIED,
-        actor_id=str(set_by.pk),
-        resource_type="documents.Document",
-        resource_id=str(document.pk),
-        event_detail={
-            "legal_hold": True,
-            "reason": reason,
-            "set_by_pk": set_by.pk,
-        },
-    )
 
     logger.info(
         "apply_legal_hold: Document pk=%r legal hold applied. set_by_pk=%r",
@@ -712,29 +777,47 @@ def release_legal_hold(
         # trail — they document WHO set the hold and WHY, even after release.
         doc.save(update_fields=["legal_hold", "updated_at"])
 
+        # H-2: audit INSIDE atomic — state change and audit commit together.
+        # C-4 fix: use dedicated LEGAL_HOLD_RELEASED event type (not generic STATUS_CHANGED).
+        # PIPEDA: event_detail contains only legal_hold flag and actor pk — no PII.
+        record_event(
+            event_type=AuditEventType.LEGAL_HOLD_RELEASED,
+            actor_id=str(released_by.pk),
+            resource_type="documents.Document",
+            resource_id=str(doc.pk),
+            event_detail={
+                "legal_hold": False,
+                "released_by_pk": released_by.pk,
+            },
+        )
+
+        # H-2: signal via on_commit — fires only if transaction commits.
+        # H-3: send_robust() return values inspected; receiver exceptions logged.
+        _doc_pk_s = str(doc.pk)
+        _released_by_pk = released_by.pk
+
+        def _fire_legal_hold_released(
+            _pk=_doc_pk_s,
+            _rbpk=_released_by_pk,
+        ):
+            results = document_legal_hold_changed.send_robust(
+                sender=Document,
+                document_pk=_pk,
+                legal_hold=False,
+                set_by_id=_rbpk,
+            )
+            for _receiver, _response in results:
+                if isinstance(_response, Exception):
+                    logger.error(
+                        "release_legal_hold: signal receiver %r raised: %r",
+                        _receiver,
+                        _response,
+                    )
+
+        transaction.on_commit(_fire_legal_hold_released)
+
     # Update caller's in-memory instance.
     document.legal_hold = False
-
-    # Fire signal outside transaction (send_robust never raises).
-    document_legal_hold_changed.send_robust(
-        sender=Document,
-        document_pk=str(document.pk),
-        legal_hold=False,
-        set_by_id=released_by.pk,
-    )
-
-    # Audit — C-4 fix: use dedicated LEGAL_HOLD_RELEASED event type (not generic STATUS_CHANGED).
-    # PIPEDA: event_detail contains only legal_hold flag and actor pk — no PII.
-    record_event(
-        event_type=AuditEventType.LEGAL_HOLD_RELEASED,
-        actor_id=str(released_by.pk),
-        resource_type="documents.Document",
-        resource_id=str(document.pk),
-        event_detail={
-            "legal_hold": False,
-            "released_by_pk": released_by.pk,
-        },
-    )
 
     logger.info(
         "release_legal_hold: Document pk=%r legal hold released. released_by_pk=%r",
@@ -794,11 +877,29 @@ def purge_expired_tokens(*, dry_run: bool = False) -> int:
         )
         return count
 
-    _, deleted_counts = qs.delete()
-    # Django's bulk delete returns a dict like:
-    #   {"documents.DocumentAccessToken": 17, ...}
-    # Use .get() with the full app_label.ModelName key; fall back to 0.
-    count = deleted_counts.get("documents.DocumentAccessToken", 0)
+    # H-7: wrap delete + audit in atomic so they commit together.
+    # If record_event() fails the delete is also rolled back — we must never
+    # delete records without a corresponding audit trail (PIPEDA 4.5.3).
+    with transaction.atomic():
+        _, deleted_counts = qs.delete()
+        # Django's bulk delete returns a dict like:
+        #   {"documents.DocumentAccessToken": 17, ...}
+        # Use .get() with the full app_label.ModelName key; fall back to 0.
+        count = deleted_counts.get("documents.DocumentAccessToken", 0)
+
+        # H-7: PIPEDA 4.5.3 requires a disposal event be logged after bulk deletion.
+        # event_detail contains ONLY a count — no token values, no IP addresses.
+        if count > 0:
+            from apps.audit.models import AuditEventType
+
+            record_event(
+                event_type=AuditEventType.RECORD_PURGED,
+                resource_type="documents.DocumentAccessToken",
+                event_detail={
+                    "count": count,
+                    "reason": "token_expired_or_used",
+                },
+            )
 
     logger.info("purge_expired_tokens: deleted %d expired/used token(s).", count)
     return count
