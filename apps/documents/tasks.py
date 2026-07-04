@@ -982,7 +982,11 @@ def notify_expiring_documents(self, days_before: int = 7) -> dict:
         No original_filename, no storage_key.
       - Notification failures (template missing → returns False) are logged and
         skipped — they do NOT abort the batch or re-queue the task.
-      - SMTP failures raise → the task retries up to max_retries.
+      - SMTP/send failures: the exception is caught per-document, the document
+        is counted as skipped, and the batch continues. DO NOT re-raise: retrying
+        the whole batch would re-notify every citizen who already received their
+        email on this run. The document will appear in tomorrow's scheduled run
+        if it still falls within the expiry window (natural retry).
 
     Args:
         days_before: Notify for documents expiring within this many days.

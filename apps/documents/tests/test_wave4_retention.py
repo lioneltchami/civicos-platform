@@ -537,7 +537,9 @@ class HardDeleteSignalTests(TestCase):
         def receiver(sender, **kw):
             call_order.append("signal")
 
-        document_hard_deleted.connect(receiver)
+        # T-3 fix: weak=False prevents garbage-collection of the local receiver
+        # function before the signal fires when Django stores only a weakref.
+        document_hard_deleted.connect(receiver, weak=False)
         try:
             with patch("apps.documents.services.retention.default_storage") as mock_storage:
                 def delete_side_effect(key):
@@ -740,6 +742,35 @@ class ApplyLegalHoldTests(TestCase):
         self.assertTrue(detail.get("legal_hold"))
         self.assertIn("reason", detail)
         self.assertIn("set_by_pk", detail)
+
+    def test_toctou_hold_applied_concurrently_raises_under_lock(self):
+        """
+        TOCTOU guard: if legal_hold is applied in the DB by a concurrent process
+        between the pre-check and the select_for_update() re-read inside atomic(),
+        apply_legal_hold() raises ValueError — preventing a double-apply.
+
+        T-4: apply_legal_hold() had no concurrency test (only soft_delete() did).
+
+        Mechanism: apply_legal_hold() does a pre-check on the in-memory doc
+        (legal_hold=False → passes). Inside atomic() it calls
+        Document.objects.select_for_update().get() which reads the CURRENT DB state.
+        By updating the DB directly (simulating a concurrent process) before calling
+        apply_legal_hold(), the under-lock read sees legal_hold=True → raises.
+        """
+        doc = make_active_doc(self.category, self.user, legal_hold=False)
+        staff = self._make_staff_user_with_perm()
+
+        # Simulate concurrent process applying the hold in the DB.
+        # In-memory doc.legal_hold is still False (not refreshed).
+        Document.objects.filter(pk=doc.pk).update(legal_hold=True)
+
+        # Pre-check passes (in-memory False), under-lock re-read sees True → raises.
+        with self.assertRaises(ValueError):
+            apply_legal_hold(document=doc, set_by=staff, reason="ATIP request")
+
+        # The document is still on hold (set by concurrent process) — not double-modified.
+        doc.refresh_from_db()
+        self.assertTrue(doc.legal_hold)
 
     def test_in_memory_instance_updated(self):
         """Caller's in-memory doc is updated — no refresh_from_db needed."""
@@ -951,23 +982,60 @@ class RunDisposalScheduleTests(TestCase):
         self.assertEqual(result["total_eligible"], 0)
 
     def test_skips_already_deleted_documents(self):
-        """Documents already soft-deleted are skipped without error."""
-        doc = self._make_pending_disposal_doc()
-        # Soft-delete it manually to make it already-deleted.
-        Document.objects.filter(pk=doc.pk).update(
-            deleted_at=timezone.now() - timedelta(hours=1),
-            scan_status=Document.ScanStatus.DELETED,
-        )
-        # Now run — should skip it gracefully.
-        result = self.task.run()
-        self.assertGreaterEqual(result["skipped"], 0)
+        """
+        Documents concurrently soft-deleted between the PK snapshot and the loop
+        iteration raise ValueError in soft_delete() — task catches it as a skip.
+
+        T-1 fix: the previous test was vacuous — manually setting deleted_at in the
+        DB before running the task removed the document from pending_disposal()
+        entirely (total_eligible=0), so the per-doc skipping path was never reached
+        and assertGreaterEqual(result["skipped"], 0) was trivially true on 0.
+
+        Correct mechanism: the doc IS in the pending_disposal() snapshot
+        (total_eligible=1), but soft_delete() raises ValueError simulating a
+        concurrent deletion that happened between the snapshot fetch and the loop.
+        The task's per-doc except-ValueError block increments skipped_count.
+        """
+        doc = self._make_pending_disposal_doc()  # IN pending_disposal() snapshot
+        with patch(
+            "apps.documents.services.retention.soft_delete",
+            side_effect=ValueError("Document already soft-deleted"),
+        ):
+            result = self.task.run()
+
+        self.assertEqual(result["total_eligible"], 1)
+        self.assertEqual(result["soft_deleted"], 0)
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["errors"], 0)
+
+    def test_unexpected_exception_increments_errors_count(self):
+        """
+        Unexpected exceptions (not ValueError) increment errors_count, not
+        skipped_count. This distinguishes DB/service failures from expected
+        precondition skips so monitoring dashboards can alert on real problems.
+
+        T-2: previously untested — the errors counter was added by M-6 fix but
+        had no test coverage for the path that increments it.
+        """
+        self._make_pending_disposal_doc()
+        with patch(
+            "apps.documents.services.retention.soft_delete",
+            side_effect=RuntimeError("DB connection lost"),
+        ):
+            result = self.task.run()
+
+        self.assertEqual(result["errors"], 1)
+        self.assertEqual(result["skipped"], 0)
+        self.assertEqual(result["soft_deleted"], 0)
+        self.assertEqual(result["total_eligible"], 1)
 
     def test_returns_summary_dict(self):
-        """Return value is a dict with total_eligible, soft_deleted, skipped."""
+        """Return value is a dict with total_eligible, soft_deleted, skipped, errors."""
         result = self.task.run()
         self.assertIn("total_eligible", result)
         self.assertIn("soft_deleted", result)
         self.assertIn("skipped", result)
+        self.assertIn("errors", result)  # M-6: errors counter must be present
 
     def test_no_documents_returns_zero_counts(self):
         """No pending_disposal() documents → zero counts, no error."""
@@ -1034,11 +1102,30 @@ class RunHardDeleteScheduleTests(TestCase):
         result = self.task.run()
         self.assertEqual(result["total_eligible"], 0)
 
+    def test_unexpected_exception_increments_errors_count(self):
+        """
+        Unexpected exceptions (not ValueError) increment errors_count, not
+        skipped_count, in run_hard_delete_schedule.
+
+        T-2: tests the M-6 errors counter path for the hard-delete task.
+        """
+        make_soft_deleted_doc(self.category, self.user, grace_days_ago=31)
+        with patch(
+            "apps.documents.services.retention.hard_delete",
+            side_effect=RuntimeError("S3 exploded"),
+        ):
+            result = self.task.run()
+
+        self.assertEqual(result["errors"], 1)
+        self.assertEqual(result["skipped"], 0)
+        self.assertEqual(result["hard_deleted"], 0)
+
     def test_returns_summary_dict(self):
         result = self.task.run()
         self.assertIn("total_eligible", result)
         self.assertIn("hard_deleted", result)
         self.assertIn("skipped", result)
+        self.assertIn("errors", result)  # M-6: errors counter must be present
 
     def test_task_decorator_properties(self):
         self.assertTrue(self.task.acks_late)
@@ -1180,6 +1267,54 @@ class NotifyExpiringDocumentsTests(TestCase):
         self.assertIn("category_name", context)
         self.assertIn("expires_at", context)
 
+    def test_smtp_exception_counted_as_skipped_not_reraised(self):
+        """
+        Per-document SMTP failures are caught and counted as skipped — the task
+        does NOT re-raise them. Re-raising would cause Celery to retry the entire
+        batch, which would re-send duplicate notifications to citizens who already
+        received their email on this run.
+
+        The failed document will appear in tomorrow's scheduled run if it still
+        falls within the expiry window (natural retry).
+
+        T-5: previously untested — the per-document exception path had no test,
+        leaving the C-5 fix's "DO NOT re-raise" invariant unverified.
+        """
+        self._make_expiring_doc(days_from_now=3)
+        with patch(
+            "apps.documents.tasks.send_email_notification",
+            side_effect=Exception("SMTP unreachable"),
+        ):
+            # Must NOT raise — SMTP exception is caught per-document.
+            result = self.task.run(days_before=7)
+
+        self.assertEqual(result["total_eligible"], 1)
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(result["notified"], 0)
+
+    def test_days_remaining_computed_correctly(self):
+        """
+        days_remaining in context equals actual days-until-expiry based on
+        the document's expires_at and today's localdate.
+
+        T-7: previously untested — the context dict was checked for the presence
+        of days_remaining but never for its value, so a bug returning a constant
+        (e.g. always 7) would not be caught.
+        """
+        expires_in_days = 5
+        self._make_expiring_doc(days_from_now=expires_in_days)
+        with patch(
+            "apps.documents.tasks.send_email_notification", return_value=True
+        ) as mock_send:
+            self.task.run(days_before=7)
+
+        context = mock_send.call_args.kwargs.get("context", {})
+        self.assertIn("days_remaining", context)
+        # May be off by 1 at midnight due to timezone rounding in localdate(),
+        # so use a window: [expires_in_days-1, expires_in_days].
+        self.assertGreaterEqual(context["days_remaining"], expires_in_days - 1)
+        self.assertLessEqual(context["days_remaining"], expires_in_days)
+
     def test_returns_summary_dict(self):
         result = self.task.run(days_before=7)
         self.assertIn("total_eligible", result)
@@ -1212,14 +1347,23 @@ class CreateBeatScheduleTests(TestCase):
         # Migration 0004 already pre-populates the 5 "documents:" PeriodicTask
         # entries as part of the test DB setup. Delete them so each test starts
         # from a clean slate and can verify creation behaviour independently.
-        PeriodicTask.objects.filter(name__startswith="documents:").delete()
-        # CrontabSchedule rows may also be orphaned after PeriodicTask deletion;
-        # deleting them prevents stale rows from interfering with get_or_create
-        # lookups that use all schedule fields as lookup kwargs.
-        CrontabSchedule.objects.filter(
-            day_of_week="*", day_of_month="*", month_of_year="*",
-            timezone="UTC", minute="0",
-        ).delete()
+        #
+        # T-6 fix: collect the crontab PKs associated with "documents:" tasks
+        # BEFORE deleting PeriodicTask rows, then delete ONLY the crontabs that
+        # become orphaned (no other PeriodicTask references them). The previous
+        # broad filter (minute="0", all wildcards, timezone="UTC") could match
+        # CrontabSchedules from other apps sharing the same hour/minute pattern
+        # and cause spurious test failures or data loss in a shared test DB.
+        docs_tasks = PeriodicTask.objects.filter(name__startswith="documents:")
+        crontab_ids = list(docs_tasks.values_list("crontab_id", flat=True))
+        docs_tasks.delete()
+        if crontab_ids:
+            orphaned = [
+                cid for cid in crontab_ids
+                if not PeriodicTask.objects.filter(crontab_id=cid).exists()
+            ]
+            if orphaned:
+                CrontabSchedule.objects.filter(pk__in=orphaned).delete()
         self.create_beat_schedule = create_beat_schedule
 
     def test_creates_five_periodic_tasks(self):
@@ -1258,6 +1402,7 @@ class CreateBeatScheduleTests(TestCase):
         from django_celery_beat.models import PeriodicTask
         task = PeriodicTask.objects.get(name="documents: run-disposal-schedule")
         self.assertEqual(task.crontab.hour, "2")
+        self.assertEqual(task.crontab.minute, "0")  # T-8: assert minute field
         self.assertEqual(task.task, "apps.documents.tasks.run_disposal_schedule")
 
     def test_hard_delete_task_registered_at_03_00(self):
@@ -1266,6 +1411,7 @@ class CreateBeatScheduleTests(TestCase):
         from django_celery_beat.models import PeriodicTask
         task = PeriodicTask.objects.get(name="documents: run-hard-delete-schedule")
         self.assertEqual(task.crontab.hour, "3")
+        self.assertEqual(task.crontab.minute, "0")  # T-8: assert minute field
         self.assertEqual(task.task, "apps.documents.tasks.run_hard_delete_schedule")
 
     def test_cleanup_task_registered_at_04_00(self):
@@ -1274,6 +1420,7 @@ class CreateBeatScheduleTests(TestCase):
         from django_celery_beat.models import PeriodicTask
         task = PeriodicTask.objects.get(name="documents: cleanup-stale-pending-uploads")
         self.assertEqual(task.crontab.hour, "4")
+        self.assertEqual(task.crontab.minute, "0")  # T-8: assert minute field
         self.assertEqual(task.task, "apps.documents.tasks.cleanup_stale_pending_uploads")
 
     def test_notify_task_registered_at_08_00(self):
@@ -1282,6 +1429,7 @@ class CreateBeatScheduleTests(TestCase):
         from django_celery_beat.models import PeriodicTask
         task = PeriodicTask.objects.get(name="documents: notify-expiring-documents")
         self.assertEqual(task.crontab.hour, "8")
+        self.assertEqual(task.crontab.minute, "0")  # T-8: assert minute field
         self.assertEqual(task.task, "apps.documents.tasks.notify_expiring_documents")
 
     def test_all_tasks_enabled(self):
