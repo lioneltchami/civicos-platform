@@ -25,7 +25,8 @@ import uuid
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
-from django.db import models, transaction
+from django.db import connection, models, transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 if TYPE_CHECKING:
@@ -135,7 +136,7 @@ def create_new_version(
     else:
         # root_document IS the chain root (version 1).
         # Re-fetch with select_related("category") if category is not already loaded.
-        if not hasattr(root_document, "_category_cache"):
+        if "category" not in root_document.__dict__:
             try:
                 chain_root = Document.objects.select_related("category").get(
                     pk=root_document.pk
@@ -146,6 +147,31 @@ def create_new_version(
                 )
         else:
             chain_root = root_document
+
+    # Guard: the resolved root must itself be a true root (root_document_id IS NULL).
+    if chain_root.root_document_id is not None:
+        logger.error(
+            "create_new_version: resolved chain_root pk=%s still has "
+            "root_document_id=%s set. Chain invariant violated — aborting.",
+            chain_root.pk,
+            chain_root.root_document_id,
+        )
+        raise ValidationError(
+            _("Document version chain is corrupted. Contact support.")
+        )
+
+    # ── Soft-delete guard ─────────────────────────────────────────────────────
+    if chain_root.deleted_at is not None:
+        raise ValidationError(
+            _("Cannot create a new version of a deleted document.")
+        )
+
+    # ── SQLite guard ──────────────────────────────────────────────────────────
+    if connection.vendor == "sqlite":
+        raise ImproperlyConfigured(
+            "create_new_version requires SELECT FOR UPDATE support. "
+            "SQLite is not supported for this service in production."
+        )
 
     category = chain_root.category
 
@@ -233,10 +259,24 @@ def create_new_version(
             )
 
         # Find the current latest version (invariant: exactly one per chain).
-        current_latest = next(
-            (d for d in chain_docs if d.is_latest_version),
-            chain_docs[0],  # fallback to highest version_number (data repair)
-        )
+        current_latest_candidates = [d for d in chain_docs if d.is_latest_version]
+        if len(current_latest_candidates) == 0:
+            logger.error(
+                "create_new_version: chain_root pk=%s has ZERO is_latest_version=True docs. "
+                "Chain invariant violated — using highest version as repair. Manual audit required.",
+                chain_root.pk,
+            )
+            current_latest = chain_docs[0]  # chain_docs is ordered by -version_number
+        elif len(current_latest_candidates) > 1:
+            logger.error(
+                "create_new_version: chain_root pk=%s has %d is_latest_version=True docs. "
+                "Chain invariant violated — using highest version_number as repair. Manual audit required.",
+                chain_root.pk,
+                len(current_latest_candidates),
+            )
+            current_latest = max(current_latest_candidates, key=lambda d: d.version_number)
+        else:
+            current_latest = current_latest_candidates[0]
         new_version_number = current_latest.version_number + 1
 
         # ── Swap is_latest_version ────────────────────────────────────────────
@@ -286,15 +326,24 @@ def create_new_version(
         )
         try:
             with transaction.atomic():
-                Document.objects.filter(pk=current_latest.pk).update(
-                    is_latest_version=True
+                restored = Document.objects.filter(pk=current_latest.pk).update(
+                    is_latest_version=True,
+                    updated_at=timezone.now(),
                 )
+                if restored != 1:
+                    logger.error(
+                        "create_new_version: rollback could not restore is_latest_version "
+                        "on pk=%s (rows updated=%d). Manual remediation required.",
+                        current_latest.pk,
+                        restored,
+                    )
                 new_doc.delete()
         except Exception:
             logger.error(
-                "create_new_version: ROLLBACK FAILED for new doc pk=%s. "
-                "Chain root pk=%s may now have zero or two is_latest_version=True. "
+                "create_new_version: ROLLBACK FAILED — could not restore is_latest_version "
+                "on pk=%s or delete new doc pk=%s. Chain root pk=%s has data integrity violation. "
                 "Manual remediation required.",
+                current_latest.pk,
                 new_doc.pk,
                 chain_root.pk,
             )
@@ -409,7 +458,12 @@ def _user_may_version(
         return True
 
     # Citizen uploader: must own the document AND have upload permission.
-    if chain_root.uploaded_by_id == user.pk and user.has_perm("documents.upload_document"):
+    # Citizens cannot re-version documents in staff-only categories.
+    if (
+        chain_root.uploaded_by_id == user.pk
+        and user.has_perm("documents.upload_document")
+        and not chain_root.category.staff_only
+    ):
         return True
 
     return False

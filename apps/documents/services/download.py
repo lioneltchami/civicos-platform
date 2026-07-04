@@ -166,6 +166,7 @@ def consume_access_token(
     *,
     token_value: str,
     user: "User",
+    ip_address: str | None = None,
 ) -> "Document":
     """
     Validate and consume a DocumentAccessToken, returning the linked Document.
@@ -179,6 +180,7 @@ def consume_access_token(
     Args:
         token_value: The opaque 64-char hex token string from the URL.
         user:        The authenticated user presenting the token.
+        ip_address:  Caller's IP address (extracted from request by the view).
 
     Returns:
         The Document linked to the token.
@@ -190,6 +192,8 @@ def consume_access_token(
     from apps.audit.models import AuditEventType
     from apps.audit.services import record_event
     from apps.documents.models import DocumentAccessToken
+
+    masked_redemption_ip = _mask_ip(ip_address)
 
     # ── Atomic single-use enforcement ─────────────────────────────────────────
     # select_for_update() prevents two concurrent requests from both seeing
@@ -236,7 +240,7 @@ def consume_access_token(
             event_detail={
                 "document_pk": str(token.document_id),
                 "token_pk": str(token.pk),
-                "version_number": token.document.version_number,
+                "ip_masked": masked_redemption_ip or "",
                 "action": "token_redeemed",
             },
         )
@@ -283,7 +287,7 @@ def generate_presigned_download_url(
         Exception:            boto3/botocore error (propagated to caller).
     """
     import boto3
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import BotoCoreError, ClientError
     from django.core.exceptions import ImproperlyConfigured
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
@@ -304,7 +308,7 @@ def generate_presigned_download_url(
             Params={"Bucket": bucket_name, "Key": storage_key},
             ExpiresIn=ttl_seconds,
         )
-    except ClientError as exc:
+    except (ClientError, BotoCoreError) as exc:
         logger.error(
             "generate_presigned_download_url: failed to generate URL: %s",
             exc,
@@ -351,13 +355,15 @@ def _mask_ip(ip_address: str | None) -> str | None:
         parts = str(addr).split(".")
         return ".".join(parts[:-1] + ["0"])
     else:
-        # IPv6: retain only the /48 prefix (zero last 80 bits).
-        # Example: 2001:db8:85a3::8a2e:370:7334 → 2001:db8:85a3::
-        # /48 keeps the first 48 bits (6 bytes = 3 groups of 16-bit hextets),
-        # zeroing the remaining 80 bits. This is the standard
-        # "network-prefix only" masking for IPv6 privacy.
-        network = ipaddress.ip_network(f"{ip_address}/48", strict=False)
-        return str(network.network_address)
+        # IPv6 address handling
+        if isinstance(addr, ipaddress.IPv6Address):
+            # Detect IPv4-mapped IPv6 (e.g. ::ffff:192.168.1.100) — treat as IPv4.
+            if addr.ipv4_mapped is not None:
+                parts = str(addr.ipv4_mapped).split(".")
+                return ".".join(parts[:-1] + ["0"])
+            # True IPv6: retain only the /48 prefix.
+            network = ipaddress.ip_network(f"{ip_address}/48", strict=False)
+            return str(network.network_address)
 
 
 def _user_may_download(

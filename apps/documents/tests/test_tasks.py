@@ -280,10 +280,12 @@ class ScanDocumentDevBypassTests(TestCase):
 
         mock_retry.assert_called_once()
         _, retry_kwargs = mock_retry.call_args
+        # H2 fix: DoesNotExist retries now use exponential backoff (2**retries)*30.
+        # At retries=0 (first attempt), countdown = (2**0)*30 = 30 seconds.
         self.assertEqual(
             retry_kwargs.get("countdown"),
-            5,
-            "M-6: retry must use countdown=5 for DB replica-lag backoff",
+            30,
+            "H2: retry countdown must be (2**retries)*30=30s on first DoesNotExist",
         )
 
 

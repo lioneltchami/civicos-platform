@@ -214,9 +214,7 @@ class MaskIpTests(TestCase):
         """fe80::1%eth0 without zone → fe80::."""
         result = _mask_ip("fe80::1")
         # fe80:: with /48 → first 48 bits of fe80::1 are fe80:0000:0000
-        self.assertIsNotNone(result)
-        # Result must start with fe80 and end with ::
-        self.assertTrue(result.startswith("fe80"))
+        self.assertEqual(result, "fe80::")
 
     def test_ipv6_full_address_retains_prefix(self):
         """2001:db8:1234:abcd:ef01:2345:6789:abcd → 2001:db8:1234::"""
@@ -490,7 +488,7 @@ class IssueAccessTokenTests(TestCase):
             resource_id=str(self.doc.pk),
         ).order_by("-timestamp").first()
         self.assertIsNotNone(entry)
-        self.assertIn(str(token.pk), str(entry.event_detail))
+        self.assertEqual(entry.event_detail.get("token_pk"), str(token.pk))
 
     def test_audit_event_detail_action_is_token_issued(self):
         """Audit event_detail must record action='token_issued'."""
@@ -513,6 +511,19 @@ class IssueAccessTokenTests(TestCase):
         self.assertIsInstance(token, DocumentAccessToken)
         self.assertTrue(token.is_valid)
 
+    def test_legal_hold_document_is_downloadable(self):
+        """Legal hold blocks disposal but must NOT block citizens from downloading."""
+        doc = make_document(
+            self.user,
+            self.category,
+            scan_status=Document.ScanStatus.ACTIVE,
+        )
+        doc.legal_hold = True
+        doc.save(update_fields=["legal_hold"])
+        token = issue_access_token(user=self.user, document=doc)
+        self.assertIsNotNone(token)
+        self.assertTrue(token.is_valid)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. ConsumeAccessTokenTests — consume_access_token()
@@ -522,6 +533,11 @@ class IssueAccessTokenTests(TestCase):
 @override_settings(CIVICOS=CIVICOS_DOWNLOAD)
 class ConsumeAccessTokenTests(TestCase):
     """Tests for consume_access_token(): token validation and single-use enforcement."""
+
+    # NOTE: Concurrent select_for_update() enforcement cannot be tested under SQLite
+    # because SQLite does not support true row-level locking. This invariant is
+    # protected in production (PostgreSQL) by the select_for_update() in
+    # consume_access_token(). See: https://docs.djangoproject.com/en/stable/ref/models/querysets/#select-for-update
 
     def setUp(self):
         self.category = make_category()
@@ -893,7 +909,74 @@ class RunPurgeExpiredTokensTaskTests(TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. FullDownloadFlowTests — end-to-end issue + consume integration
+# 8. GeneratePresignedDownloadUrlTests — generate_presigned_download_url()
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class GeneratePresignedDownloadUrlTests(TestCase):
+    """Tests for generate_presigned_download_url."""
+
+    def setUp(self):
+        from apps.documents.services.download import generate_presigned_download_url
+        self.generate_url = generate_presigned_download_url
+
+    def test_returns_presigned_url_string(self):
+        """Happy path: boto3 returns a URL string."""
+        import sys
+        from unittest.mock import MagicMock
+
+        # boto3/botocore cannot be imported in the CI sandbox (pyopenssl conflict),
+        # so we inject a fake boto3 module into sys.modules before the function runs.
+        mock_s3 = MagicMock()
+        mock_s3.generate_presigned_url.return_value = "https://s3.example.com/signed-url"
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_s3
+
+        with patch.dict(sys.modules, {"boto3": mock_boto3}):
+            with self.settings(
+                STORAGES={
+                    "default": {
+                        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+                        "OPTIONS": {"bucket_name": "test-bucket", "region_name": "ca-central-1"},
+                    }
+                }
+            ):
+                url = self.generate_url(storage_key="documents/active/abc/xyz.bin", ttl_seconds=300)
+
+        self.assertIsInstance(url, str)
+        self.assertIn("https://", url)
+
+    def test_client_error_propagates(self):
+        """ClientError from boto3 should propagate (not swallowed)."""
+        import sys
+        from unittest.mock import MagicMock
+
+        # Use a real exception class without needing a real boto3 import.
+        class _FakeClientError(Exception):
+            pass
+
+        mock_s3 = MagicMock()
+        mock_s3.generate_presigned_url.side_effect = _FakeClientError("AccessDenied")
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = mock_s3
+        # Expose the exception class so the service's except clause can reference it
+        mock_boto3.exceptions.ClientError = _FakeClientError
+
+        with patch.dict(sys.modules, {"boto3": mock_boto3}):
+            with self.settings(
+                STORAGES={
+                    "default": {
+                        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+                        "OPTIONS": {"bucket_name": "test-bucket", "region_name": "ca-central-1"},
+                    }
+                }
+            ):
+                with self.assertRaises(_FakeClientError):
+                    self.generate_url(storage_key="documents/active/abc/xyz.bin", ttl_seconds=300)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. FullDownloadFlowTests — end-to-end issue + consume integration
 # ─────────────────────────────────────────────────────────────────────────────
 
 

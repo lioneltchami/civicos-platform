@@ -375,6 +375,8 @@ class ClamAVInfectedPathTests(TestCase):
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]["document_pk"], str(doc.pk))
         self.assertEqual(received[0]["scan_engine_result"], f"FOUND: {self.VIRUS_NAME}")
+        # The infected file must be deleted from storage.
+        self._mock_storage.delete.assert_called_once()
 
     def test_infected_scan_signal_pipeda_no_uploader_identity(self):
         """
@@ -434,6 +436,8 @@ class ClamAVInfectedPathTests(TestCase):
         """
         The infected file must be deleted from storage to prevent access.
         default_storage.delete must be called with the document's storage_key.
+        H3 fix: exists() check removed — S3 DELETE is idempotent; we always call
+        delete() unconditionally.
         """
         doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
         storage_key = doc.storage_key
@@ -445,16 +449,14 @@ class ClamAVInfectedPathTests(TestCase):
             # _mark_document_quarantined_clamav imports default_storage locally inside
             # the function body, so we patch at the django module level.
             with patch("django.core.files.storage.default_storage") as mock_storage:
-                mock_storage.exists.return_value = True
                 scan_document.run(str(doc.pk))
 
-        mock_storage.exists.assert_called_once_with(storage_key)
         mock_storage.delete.assert_called_once_with(storage_key)
 
-    def test_infected_scan_skips_delete_if_file_not_in_storage(self):
+    def test_infected_scan_always_calls_delete(self):
         """
-        If default_storage.exists() returns False (file never written or already
-        deleted), delete must NOT be called — no double-delete error.
+        H3 fix: S3 DELETE is idempotent — delete() is ALWAYS called regardless of
+        whether the file exists, eliminating the TOCTOU race from the old exists() check.
         """
         doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
 
@@ -463,10 +465,11 @@ class ClamAVInfectedPathTests(TestCase):
             return_value=self.VIRUS_NAME,
         ):
             with patch("django.core.files.storage.default_storage") as mock_storage:
-                mock_storage.exists.return_value = False
                 scan_document.run(str(doc.pk))
 
-        mock_storage.delete.assert_not_called()
+        # delete() must always be called — no exists() pre-check
+        mock_storage.delete.assert_called_once()
+        mock_storage.exists.assert_not_called()
 
     # ── Idempotency ───────────────────────────────────────────────────────────
 
@@ -606,22 +609,34 @@ class ClamAVRetryTests(TestCase):
             "Third retry countdown must be (2**2) * 30 = 120 seconds.",
         )
 
-    def test_io_error_reading_file_triggers_retry(self):
+    def test_storage_read_error_quarantines_immediately(self):
         """
-        If _scan_with_clamav raises IOError (file cannot be read from storage),
-        the task must retry — same retry path as a ClamAV connection error.
+        H1/H4 fix: if _scan_with_clamav raises _StorageReadError (file cannot be
+        opened from storage), the document must be quarantined immediately — NOT
+        retried. Storage failures are permanent (missing key, permissions error),
+        so we must not consume retry slots.
+
+        The old test name was test_io_error_reading_file_triggers_retry but the
+        behaviour changed: _StorageReadError is caught by the quarantine branch,
+        not the retry branch.
         """
+        from apps.documents.tasks import _StorageReadError
+
         doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
 
         with patch(
             "apps.documents.tasks._scan_with_clamav",
-            side_effect=IOError("S3 read failed"),
+            side_effect=_StorageReadError("S3 key not found"),
         ):
             with patch.object(scan_document, "retry", side_effect=Retry()) as mock_retry:
-                with self.assertRaises(Retry):
+                # _StorageReadError is caught → _mark_document_quarantined_clamav called,
+                # NOT self.retry(). Patch the quarantine helper to prevent real DB writes.
+                with patch("apps.documents.tasks._mark_document_quarantined_clamav") as mock_q:
+                    # Must NOT raise Retry — storage failures quarantine, never retry
                     scan_document.run(str(doc.pk))
 
-        mock_retry.assert_called_once()
+        mock_retry.assert_not_called()
+        mock_q.assert_called_once()
 
     def test_max_retries_exhausted_calls_quarantine_on_failure(self):
         """
@@ -697,10 +712,12 @@ class ClamAVDocumentNotFoundTests(TestCase):
 
         mock_retry.assert_called_once()
         _, retry_kwargs = mock_retry.call_args
+        # H2 fix: all DoesNotExist retries now use exponential backoff (2**retries)*30.
+        # At retries=0, countdown = (2**0)*30 = 30 seconds.
         self.assertEqual(
             retry_kwargs.get("countdown"),
-            5,
-            "M-6: document-not-found retry must use countdown=5 for DB replica-lag backoff.",
+            30,
+            "H2: document-not-found retry countdown must be (2**retries)*30=30s on first attempt.",
         )
 
     def test_doc_not_found_does_not_fire_any_signal(self):
@@ -968,10 +985,14 @@ class ScanWithClamavTests(TestCase):
         mock_pyclamd = MagicMock()
         mock_pyclamd.ClamdNetworkSocket.return_value = MagicMock()
 
+        from apps.documents.tasks import _StorageReadError
+
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
             with patch("django.core.files.storage.default_storage") as mock_storage:
                 mock_storage.open.side_effect = OSError("S3 read timeout")
-                with self.assertRaises(IOError):
+                # H1 fix: storage open failures now raise _StorageReadError (not IOError)
+                # so they don't get confused with pyclamd's ConnectionError (also an OSError).
+                with self.assertRaises(_StorageReadError):
                     _scan_with_clamav(storage_key="quarantine/test.bin", civicos=civicos)
 
     def test_scan_with_clamav_passes_correct_host_port_timeout(self):
@@ -1005,10 +1026,9 @@ class ScanWithClamavTests(TestCase):
 
     def test_scan_with_clamav_streams_file_bytes_to_instream(self):
         """
-        _scan_with_clamav must read the full file bytes and pass them to
-        cd.instream() wrapped in a BytesIO object.
+        _scan_with_clamav must stream the file handle directly to cd.instream().
+        The raw file handle from default_storage.open() is passed, not a BytesIO wrapper.
         """
-        import io as _io
         import sys
 
         civicos = self._make_civicos()
@@ -1024,14 +1044,15 @@ class ScanWithClamavTests(TestCase):
                 self._mock_storage_open(mock_storage, data=file_data)
                 _scan_with_clamav(storage_key="quarantine/test.bin", civicos=civicos)
 
-        # Verify instream was called once
+        # Verify instream was called once with the file handle from storage.open().
+        # The code does: fh = default_storage.open(...); with fh: cd.instream(fh)
+        # 'fh' is the return value of open() — the `with` block calls fh.__enter__()
+        # internally but the variable 'fh' still refers to the open() return value.
         mock_cd.instream.assert_called_once()
-        # The argument must be a BytesIO containing the file bytes
         call_args = mock_cd.instream.call_args[0]
         self.assertEqual(len(call_args), 1)
-        byte_stream = call_args[0]
-        self.assertIsInstance(byte_stream, _io.BytesIO)
-        self.assertEqual(byte_stream.getvalue(), file_data)
+        expected_fh = mock_storage.open.return_value
+        self.assertIs(call_args[0], expected_fh)
 
     def test_scan_with_clamav_connection_error_propagates(self):
         """
@@ -1217,19 +1238,21 @@ class MarkDocumentQuarantinedClamavTests(TestCase):
         self.assertEqual(received[0]["scan_engine_result"], "FOUND: Eicar-Test-Signature")
 
     def test_mark_document_quarantined_clamav_deletes_storage_object(self):
-        """The infected file must be deleted from storage."""
+        """
+        The infected file must be deleted from storage.
+        H3 fix: exists() check removed — S3 DELETE is idempotent, always called.
+        """
         doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
         storage_key = doc.storage_key
 
         with patch("django.core.files.storage.default_storage") as mock_storage:
-            mock_storage.exists.return_value = True
             _mark_document_quarantined_clamav(
                 doc_pk=str(doc.pk),
                 virus_name="Eicar-Test-Signature",
             )
 
-        mock_storage.exists.assert_called_once_with(storage_key)
         mock_storage.delete.assert_called_once_with(storage_key)
+        mock_storage.exists.assert_not_called()
 
     def test_mark_document_quarantined_clamav_idempotent_already_quarantined(self):
         """

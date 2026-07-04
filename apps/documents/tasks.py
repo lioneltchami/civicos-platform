@@ -42,8 +42,25 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# M-7: on_failure quarantine transition helper + Task base class
+# Private sentinel exception — distinguishes storage read failures (permanent)
+# from ClamAV/network failures (transient). Using a custom class avoids the
+# Python 3 OSError hierarchy problem where ConnectionError is a subclass of
+# IOError/OSError, which would otherwise cause `except IOError` to incorrectly
+# catch ClamAV daemon connection errors and quarantine instead of retrying.
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+class _StorageReadError(Exception):
+    """
+    Internal sentinel: the document file cannot be opened from storage.
+
+    Raised by ``_scan_with_clamav`` when ``default_storage.open()`` fails.
+    Caught in ``scan_document`` to trigger immediate quarantine rather than
+    exhausting the retry budget on a permanently-missing file.
+
+    NOT a subclass of OSError/IOError so it is not confused with
+    pyclamd's ConnectionError (which is an OSError subclass).
+    """
 
 
 def _quarantine_on_scan_failure(doc_pk: str, exc: BaseException) -> None:
@@ -79,6 +96,10 @@ def _quarantine_on_scan_failure(doc_pk: str, exc: BaseException) -> None:
                 # Already transitioned by another code path (e.g. concurrent retry).
                 return
 
+            # Unwrap MaxRetriesExceededError to get the root cause exception type.
+            from celery.exceptions import MaxRetriesExceededError as _MaxRetriesExceededError
+            if isinstance(exc, _MaxRetriesExceededError) and exc.__cause__ is not None:
+                exc = exc.__cause__
             scan_engine_result = f"SCAN_FAILURE:{type(exc).__name__}"
             doc.scan_status = Document.ScanStatus.QUARANTINED
             doc.scan_engine_result = scan_engine_result
@@ -212,10 +233,19 @@ def scan_document(self, doc_pk: str) -> None:
             )
         try:
             _mark_document_active_dev_bypass(doc_pk=doc_pk)
-        except Document.DoesNotExist:
+        except Document.DoesNotExist as exc:
             # M-6: Document not visible yet (DB replica lag). Retry with
             # exponential backoff so the task can find it once propagated.
-            raise self.retry(exc=Document.DoesNotExist(), countdown=5)
+            countdown = (2 ** self.request.retries) * 30
+            logger.warning(
+                "scan_document: doc pk=%r not found (possible replica lag); "
+                "retry %d/%d in %ds.",
+                doc_pk,
+                self.request.retries + 1,
+                self.max_retries,
+                countdown,
+            )
+            raise self.retry(exc=exc, countdown=countdown)
         return
 
     # ── Wave 3: Full ClamAV integration ──────────────────────────────────────
@@ -239,13 +269,18 @@ def scan_document(self, doc_pk: str) -> None:
                 return
             # Capture the storage key while we hold the row lock.
             storage_key = doc.storage_key
-    except Document.DoesNotExist:
+    except Document.DoesNotExist as exc:
         # DB replica lag: document not yet visible. Retry with backoff (M-6 pattern).
+        countdown = (2 ** self.request.retries) * 30
         logger.warning(
-            "scan_document: doc pk=%r not found (possible replica lag); retrying.",
+            "scan_document: doc pk=%r not found (possible replica lag); "
+            "retry %d/%d in %ds.",
             doc_pk,
+            self.request.retries + 1,
+            self.max_retries,
+            countdown,
         )
-        raise self.retry(exc=Document.DoesNotExist(), countdown=5)
+        raise self.retry(exc=exc, countdown=countdown)
 
     # Step 2: Perform the ClamAV scan OUTSIDE any transaction.
     # Network I/O must never hold a DB lock: slow ClamAV scans would block
@@ -255,13 +290,26 @@ def scan_document(self, doc_pk: str) -> None:
             storage_key=storage_key,
             civicos=civicos,
         )
-    except Exception as exc:  # catches pyclamd.ConnectionError and IOError
-        # ClamAV daemon is unreachable or the file cannot be read for scanning.
-        # Retry with exponential backoff: 30s, 60s, 120s, 240s, 480s.
-        # After max_retries=5 exhaustion, on_failure() → _quarantine_on_scan_failure().
+    except _StorageReadError as exc:
+        # Permanent storage failure — quarantine immediately, do not exhaust retries.
+        # Using _StorageReadError (not IOError) avoids catching pyclamd's
+        # ConnectionError, which is also an OSError/IOError subclass in Python 3.
+        logger.error(
+            "scan_document: storage read failed for doc pk=%r; quarantining immediately. "
+            "Exception type: %s",
+            doc_pk,
+            type(exc).__name__,
+        )
+        _mark_document_quarantined_clamav(
+            doc_pk=doc_pk,
+            virus_name=f"STORAGE_ERROR:{type(exc).__name__}",
+        )
+        return
+    except Exception as exc:
+        # Transient ClamAV or other failure — retry with exponential backoff.
         countdown = (2 ** self.request.retries) * 30
         logger.warning(
-            "scan_document: ClamAV unavailable for doc pk=%r; "
+            "scan_document: ClamAV scan failed for doc pk=%r; "
             "retry %d/%d in %ds. Exception type: %s",
             doc_pk,
             self.request.retries + 1,
@@ -272,10 +320,24 @@ def scan_document(self, doc_pk: str) -> None:
         raise self.retry(exc=exc, countdown=countdown)
 
     # Step 3: Persist the scan result.
-    if scan_result == "OK":
-        _mark_document_active_clamav(doc_pk=doc_pk)
-    else:
-        _mark_document_quarantined_clamav(doc_pk=doc_pk, virus_name=scan_result)
+    try:
+        if scan_result == "OK":
+            _mark_document_active_clamav(doc_pk=doc_pk)
+        else:
+            _mark_document_quarantined_clamav(doc_pk=doc_pk, virus_name=scan_result)
+    except Exception as exc:
+        countdown = (2 ** self.request.retries) * 30
+        logger.warning(
+            "scan_document: failed to persist scan result for doc pk=%r; "
+            "retry %d/%d in %ds. scan_result=%r Exception type: %s",
+            doc_pk,
+            self.request.retries + 1,
+            self.max_retries,
+            countdown,
+            scan_result,
+            type(exc).__name__,
+        )
+        raise self.retry(exc=exc, countdown=countdown)
 
 
 def _mark_document_active_dev_bypass(doc_pk: str) -> None:
@@ -368,8 +430,6 @@ def _scan_with_clamav(*, storage_key: str, civicos: dict) -> str:
 
     PIPEDA: storage_key is NEVER logged. Only exception type is logged.
     """
-    import io
-
     import pyclamd
     from django.core.files.storage import default_storage
 
@@ -382,29 +442,40 @@ def _scan_with_clamav(*, storage_key: str, civicos: dict) -> str:
     # the daemon is not reachable.
     cd = pyclamd.ClamdNetworkSocket(host=host, port=port, timeout=timeout)
 
-    # Read file bytes from storage (S3 ranged GET in production, local read in dev).
+    # Stream file directly from storage into ClamAV via the instream protocol.
     # django-storages S3 backend implements Django's file storage interface,
     # so default_storage.open() works transparently for both backends.
-    try:
-        with default_storage.open(storage_key) as fh:
-            file_bytes = fh.read()
-    except Exception as exc:
-        raise IOError(
-            f"_scan_with_clamav: cannot read file from storage: {type(exc).__name__}"
-        ) from exc
-
-    # Stream bytes into ClamAV via the instream protocol.
+    # pyclamd.instream() accepts any file-like object and reads in 8192-byte chunks,
+    # avoiding loading the entire file into memory.
     # pyclamd.instream() returns:
     #   None                               → clean file
     #   {"stream": ("FOUND", "VirusName")} → threat detected
     #   {"stream": ("ERROR", "message")}   → clamd error during scan
-    result = cd.instream(io.BytesIO(file_bytes))
+    # Open the storage file separately so we can distinguish storage errors
+    # (permanent — missing/inaccessible file) from ClamAV errors (transient).
+    # ConnectionError is a subclass of OSError in Python 3, so we cannot use
+    # `except IOError` without also catching ClamAV connection failures.
+    # _StorageReadError is a private non-OSError class used as the sentinel.
+    try:
+        fh = default_storage.open(storage_key)
+    except Exception as exc:
+        raise _StorageReadError(
+            f"_scan_with_clamav: cannot open storage file: {type(exc).__name__}"
+        ) from exc
+
+    with fh:
+        result = cd.instream(fh)
 
     if result is None:
         # Clean: clamd found no threat.
         return "OK"
 
-    status, detail = result.get("stream", ("FOUND", "UNKNOWN"))
+    stream_val = result.get("stream")
+    if stream_val is None or not isinstance(stream_val, tuple) or len(stream_val) != 2:
+        raise RuntimeError(
+            f"_scan_with_clamav: ClamAV returned unexpected result format: {result!r}"
+        )
+    status, detail = stream_val
     if status == "FOUND":
         return detail  # virus name string (e.g. "Eicar-Test-Signature")
 
@@ -537,15 +608,11 @@ def _mark_document_quarantined_clamav(*, doc_pk: str, virus_name: str) -> None:
     try:
         from django.core.files.storage import default_storage
 
-        if default_storage.exists(storage_key):
-            default_storage.delete(storage_key)
+        default_storage.delete(storage_key)
     except Exception:
-        # Log but do not re-raise: the document is already QUARANTINED in the DB.
-        # A failed storage delete is a cleanup concern, not a security concern —
-        # the citizen cannot access a QUARANTINED document regardless.
         logger.exception(
-            "_mark_document_quarantined_clamav: failed to delete storage object "
-            "for doc pk=%r; document remains QUARANTINED. Storage cleanup required.",
+            "_mark_document_quarantined_clamav: storage delete failed for doc pk=%r. "
+            "Exception type logged above.",
             doc_pk,
         )
 
