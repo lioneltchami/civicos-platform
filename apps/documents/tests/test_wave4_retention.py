@@ -518,10 +518,12 @@ class HardDeleteSignalTests(TestCase):
         self.user = make_user()
         self.doc = make_soft_deleted_doc(self.category, self.user, grace_days_ago=31)
 
-    def test_signal_fired_before_storage_delete(self):
+    def test_signal_fired_after_storage_delete(self):
         """
-        Signal must fire BEFORE the storage delete so receivers can log while
-        the document data is still available.
+        C-2 fix: Signal MUST fire AFTER confirmed S3 deletion — not before.
+        Firing before would produce a false signal if S3 then fails: the DB row
+        says deleted but the file is still on S3 (false security posture).
+        The signal fires after the conditional DB update commits PURGED status.
         """
         call_order = []
 
@@ -540,9 +542,10 @@ class HardDeleteSignalTests(TestCase):
         finally:
             document_hard_deleted.disconnect(receiver)
 
-        # Signal MUST appear before storage_delete in the call order.
-        self.assertEqual(call_order[0], "signal")
-        self.assertEqual(call_order[1], "storage_delete")
+        # storage_delete MUST appear before signal in the call order (C-2 fix).
+        self.assertIn("storage_delete", call_order)
+        self.assertIn("signal", call_order)
+        self.assertLess(call_order.index("storage_delete"), call_order.index("signal"))
 
     def test_signal_kwargs(self):
         """document_hard_deleted fires with document_pk and category_slug."""
@@ -612,8 +615,13 @@ class HardDeleteAuditTests(TestCase):
         self.assertNotIn("storage_key", event_detail)
         self.assertIn("cleared_at", event_detail)
 
-    def test_audit_written_before_storage_delete(self):
-        """Audit entry is written BEFORE irreversible storage ops."""
+    def test_audit_written_after_storage_delete(self):
+        """
+        C-2 fix: Audit MUST be written AFTER confirmed S3 deletion — not before.
+        Writing audit before S3 delete creates a false RECORD_PURGED immutable
+        entry if S3 then fails: the audit chain says "purged" but the file is
+        still on S3 (falsified immutable record). Post-deletion ordering is correct.
+        """
         call_order = []
 
         def audit_side_effect(**kw):
@@ -626,8 +634,10 @@ class HardDeleteAuditTests(TestCase):
                 mock_storage.delete.side_effect = delete_side_effect
                 hard_delete(document=self.doc)
 
-        self.assertEqual(call_order[0], "audit")
-        self.assertEqual(call_order[1], "storage_delete")
+        # storage_delete MUST appear before audit in the call order (C-2 fix).
+        self.assertIn("storage_delete", call_order)
+        self.assertIn("audit", call_order)
+        self.assertLess(call_order.index("storage_delete"), call_order.index("audit"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -702,16 +712,26 @@ class ApplyLegalHoldTests(TestCase):
         self.assertTrue(kw["legal_hold"])
         self.assertEqual(kw["set_by_id"], staff.pk)
 
-    def test_audit_written_with_status_changed_event(self):
+    def test_audit_written_with_legal_hold_applied_event(self):
+        """
+        C-4 fix: apply_legal_hold() MUST use LEGAL_HOLD_APPLIED — not the generic
+        STATUS_CHANGED. This enables precise audit queries for legal hold events
+        without scanning all status change entries.
+        """
         staff = self._make_staff_user_with_perm()
         with patch("apps.documents.services.retention.record_event") as mock_record:
             apply_legal_hold(document=self.doc, set_by=staff, reason="ATIP")
 
         from apps.audit.models import AuditEventType
         call_kwargs = mock_record.call_args.kwargs
-        self.assertEqual(call_kwargs["event_type"], AuditEventType.STATUS_CHANGED)
+        self.assertEqual(call_kwargs["event_type"], AuditEventType.LEGAL_HOLD_APPLIED)
         self.assertEqual(call_kwargs["actor_id"], str(staff.pk))
         self.assertNotIn("@", call_kwargs["actor_id"])  # No PII
+        # event_detail must include reason and set_by_pk for forensic audit trail.
+        detail = call_kwargs.get("event_detail", {})
+        self.assertTrue(detail.get("legal_hold"))
+        self.assertIn("reason", detail)
+        self.assertIn("set_by_pk", detail)
 
     def test_in_memory_instance_updated(self):
         """Caller's in-memory doc is updated — no refresh_from_db needed."""
@@ -784,14 +804,21 @@ class ReleaseLegalHoldTests(TestCase):
         self.assertEqual(received[0]["set_by_id"], staff.pk)
 
     def test_audit_written(self):
+        """
+        C-4 fix: release_legal_hold() MUST use LEGAL_HOLD_RELEASED — not the
+        generic STATUS_CHANGED. This enables precise forensic audit queries.
+        """
         staff = self._make_staff_user_with_perm()
         with patch("apps.documents.services.retention.record_event") as mock_record:
             release_legal_hold(document=self.doc, released_by=staff)
 
         from apps.audit.models import AuditEventType
-        self.assertEqual(
-            mock_record.call_args.kwargs["event_type"], AuditEventType.STATUS_CHANGED
-        )
+        call_kwargs = mock_record.call_args.kwargs
+        self.assertEqual(call_kwargs["event_type"], AuditEventType.LEGAL_HOLD_RELEASED)
+        # event_detail must include released_by_pk for forensic audit trail.
+        detail = call_kwargs.get("event_detail", {})
+        self.assertFalse(detail.get("legal_hold"))
+        self.assertIn("released_by_pk", detail)
 
     def test_in_memory_instance_updated(self):
         """Caller's in-memory doc is updated."""

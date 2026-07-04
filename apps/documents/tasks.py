@@ -999,10 +999,13 @@ def notify_expiring_documents(self, days_before: int = 7) -> dict:
 
             # PIPEDA: context contains ONLY category name and expiry date —
             # NO original_filename, NO storage_key, NO uploader PII.
+            # H-5 fix: compute actual remaining days, not the task parameter.
+            # expires_at is a DateTimeField; .date() gives the local calendar date.
+            _expires_date = expires_at.date() if hasattr(expires_at, "date") else expires_at
             context = {
                 "category_name": category_name or "Document",
-                "expires_at": expires_at,
-                "days_remaining": days_before,
+                "expires_at": _expires_date,
+                "days_remaining": max(0, (_expires_date - timezone.now().date()).days),
             }
 
             success = send_email_notification(
@@ -1013,9 +1016,10 @@ def notify_expiring_documents(self, days_before: int = 7) -> dict:
 
             if success:
                 notified_count += 1
+                # C-6 fix: do NOT log uploaded_by_id — user PK is PII under PIPEDA.
+                # Module invariant: "PII is NEVER written to log messages."
                 logger.debug(
-                    "notify_expiring_documents: notified user pk=%r for doc pk=%r.",
-                    uploaded_by_id,
+                    "notify_expiring_documents: notification sent for doc pk=%r.",
                     str(doc_pk),
                 )
             else:
@@ -1028,15 +1032,18 @@ def notify_expiring_documents(self, days_before: int = 7) -> dict:
                 skipped_count += 1
 
         except Exception:
-            # SMTP failure from send_email_notification will raise here.
-            # Re-raise so the Celery task retries the whole batch.
-            # Log the doc pk (not user email) for PIPEDA compliance.
+            # C-5 fix: per-document SMTP/send failure — log and skip this document.
+            # DO NOT re-raise: retrying the whole batch would re-send notifications
+            # to every citizen who already received one on this run (duplicate emails).
+            # The document will be retried automatically on tomorrow's scheduled run
+            # if it still falls within the expiry window.
+            # PIPEDA: log only doc_pk — not user email or uploader identity.
             logger.exception(
-                "notify_expiring_documents: SMTP or unexpected error for doc pk=%r; "
-                "re-raising for task retry.",
+                "notify_expiring_documents: send failure for doc pk=%r; "
+                "skipping (will retry on next scheduled run).",
                 str(doc_pk),
             )
-            raise
+            skipped_count += 1
 
     logger.info(
         "notify_expiring_documents: total_eligible=%d notified=%d skipped=%d",

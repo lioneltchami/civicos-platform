@@ -61,8 +61,16 @@ class AuditEventType(models.TextChoices):
     THREAT_DETECTED = "security.threat_detected", _("Threat detected")
 
     # Data lifecycle — irreversible hard-delete (Document Management BB)
-    # event_detail: {"document_pk": str, "category_slug": str}
+    # event_detail: {"cleared_at": str}  — no storage_key, no PII (PIPEDA)
     RECORD_PURGED = "data.purged", _("Record purged")
+
+    # Document Management BB — legal hold lifecycle
+    # event_detail: {"legal_hold": True/False, "reason": str, "set_by_pk": int}
+    LEGAL_HOLD_APPLIED = "docs.legal_hold.applied", _("Legal hold applied")
+    # event_detail: {"legal_hold": False, "released_by_pk": int}
+    LEGAL_HOLD_RELEASED = "docs.legal_hold.released", _("Legal hold released")
+    # event_detail: {"reason": "transitory_purpose_fulfilled", "deleted_by_pk": int|None}
+    PURPOSE_FULFILLED = "docs.purpose.fulfilled", _("Transitory purpose fulfilled")
 
 
 class AuditLogEntry(models.Model):

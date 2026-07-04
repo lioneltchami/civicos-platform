@@ -94,12 +94,16 @@ class DocumentQuerySet(models.QuerySet):
 
     def pending_hard_delete(self, grace_days: int = 30):
         """
-        Soft-deleted documents past the 30-day grace period — eligible for
-        irreversible hard deletion (S3 delete + DB row delete).
+        Soft-deleted documents past the grace period — eligible for irreversible
+        hard deletion (S3 delete + storage_key null + scan_status=PURGED).
 
         NIST SP 800-88 / OPC guidance: hard deletion must be irreversible.
         The grace period allows recovery of accidentally deleted documents.
-        legal_hold=True is an absolute block even after grace period.
+        legal_hold=True is an absolute block even after the grace period.
+
+        C-3 fix: scan_status=DELETED implicitly excludes PURGED documents.
+        A document set to PURGED by hard_delete() will never re-appear here,
+        preventing duplicate RECORD_PURGED audit entries on subsequent daily runs.
         """
         from datetime import timedelta
 
@@ -112,6 +116,7 @@ class DocumentQuerySet(models.QuerySet):
         # See: retention.soft_delete() — side effect step 2.
         # deleted_at__isnull=False is explicit (SQL semantics already exclude NULLs
         # via <=, but the explicit guard documents intent and prevents future drift).
+        # scan_status=DELETED also excludes PURGED — the filter is exact, not IN.
         return self.filter(
             deleted_at__isnull=False,
             deleted_at__lte=cutoff,
@@ -309,6 +314,10 @@ class Document(BaseModel):
         ACTIVE = "active", _("Active")
         QUARANTINED = "quarantined", _("Quarantined — Infected")
         DELETED = "deleted", _("Deleted")
+        # C-3 fix: terminal status set by hard_delete() after S3 object deletion.
+        # Documents in PURGED state are permanently excluded from pending_hard_delete(),
+        # preventing re-processing and duplicate RECORD_PURGED audit entries.
+        PURGED = "purged", _("Purged — Storage cleared")
 
     # ── Core ──────────────────────────────────────────────────────────────────
 

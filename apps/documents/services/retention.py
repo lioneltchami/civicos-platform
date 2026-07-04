@@ -258,25 +258,31 @@ def hard_delete(
     """
     Irreversibly hard-delete a document from storage.
 
-    Per spec §11.2 and the audit trail requirement: the Document DB row is
-    RETAINED. Only the S3 object is deleted and the _storage_key field is
-    nulled out. This is intentional — the row provides the permanent audit
-    trail (who uploaded, what category, scan result, disposal timestamp).
+    Per spec §11.2 and NIST SP 800-88: the Document DB row is RETAINED.
+    Only the S3 object is deleted and the _storage_key field is nulled.
+    After successful deletion scan_status is set to PURGED — the terminal
+    lifecycle state — preventing re-processing on subsequent daily runs (C-3).
 
-    Ordering:
-      1. Fire document_hard_deleted signal (BEFORE storage deletion — last chance
-         to log while document data is still available).
-      2. Write audit entry (RECORD_PURGED) — before irreversible storage ops.
-      3. Delete S3/storage object at document.storage_key (IRREVERSIBLE).
-         If this fails: log error; do NOT null the storage key or update scan_status.
-         The task scheduler will retry on the next run.
-      4. Null out _storage_key field ("") — reference is no longer valid.
+    Ordering (C-2 fix — audit/signal fire AFTER confirmed S3 deletion):
+      1. Pre-lock fast-path checks (in-memory instance, for performance only).
+      2. select_for_update() INSIDE atomic() — re-check ALL preconditions under
+         lock (C-1 fix: TOCTOU guard against concurrent legal hold application).
+      3. Capture storage_key; release DB lock.
+      4. Delete S3/storage object (IRREVERSIBLE, outside lock).
+         On failure: log; leave scan_status=DELETED; task retries next run.
+      5. Conditional DB update: null _storage_key + set scan_status=PURGED.
+         filter(scan_status=DELETED) prevents concurrent-worker duplicate audits.
+      6. Write RECORD_PURGED audit entry (AFTER confirmed S3 deletion).
+      7. Fire document_hard_deleted signal (AFTER confirmed S3 deletion).
 
-    Preconditions:
+    Preconditions (checked pre-lock AND re-checked under lock):
       - document.legal_hold must be False.
       - document.deleted_at must be set (soft-delete must have occurred).
-      - document.scan_status must be DELETED (set by soft_delete — see contract).
-      - document.deleted_at must be at least _DEFAULT_HARD_DELETE_GRACE_DAYS ago.
+      - document.scan_status must be DELETED.
+      - document.deleted_at must be at least grace_days ago.
+
+    Grace days: read from settings.CIVICOS['DOCUMENT_HARD_DELETE_GRACE_DAYS']
+    (falls back to _DEFAULT_HARD_DELETE_GRACE_DAYS = 30 if not set).
 
     Args:
         document: The soft-deleted Document to hard-delete.
@@ -291,11 +297,23 @@ def hard_delete(
 
     Governing law: PIPEDA clause 4.7.5, NIST SP 800-88, spec §11.2.
     """
+    from django.conf import settings
+
     from apps.audit.models import AuditEventType
     from apps.documents.models import Document
     from apps.documents.signals import document_hard_deleted
 
-    # ── Precondition checks ───────────────────────────────────────────────────
+    # H-1 fix: read grace_days from settings so the CIVICOS knob actually works.
+    civicos: dict = getattr(settings, "CIVICOS", {})
+    grace_days: int = civicos.get(
+        "DOCUMENT_HARD_DELETE_GRACE_DAYS", _DEFAULT_HARD_DELETE_GRACE_DAYS
+    )
+
+    doc_pk = str(document.pk)
+
+    # ── Pre-lock fast-path checks ─────────────────────────────────────────────
+    # Using the caller's in-memory instance — for performance only.
+    # All checks are repeated under lock below (the authoritative TOCTOU guard).
     if document.legal_hold:
         raise ValueError(
             f"Document {document.pk} is on legal hold and cannot be hard-deleted."
@@ -305,88 +323,152 @@ def hard_delete(
             f"Document {document.pk} has not been soft-deleted. "
             "soft_delete() must be called before hard_delete()."
         )
+    # Idempotent fast-path: already purged by a previous run.
+    if document.scan_status == Document.ScanStatus.PURGED:
+        logger.info(
+            "hard_delete: doc pk=%r already PURGED (idempotent); returning.",
+            doc_pk,
+        )
+        return
     if document.scan_status != Document.ScanStatus.DELETED:
         raise ValueError(
             f"Document {document.pk} scan_status is {document.scan_status!r}; "
             "must be DELETED (set by soft_delete()) for hard deletion."
         )
 
-    grace_cutoff = timezone.now() - timedelta(days=_DEFAULT_HARD_DELETE_GRACE_DAYS)
-    if document.deleted_at > grace_cutoff:
-        raise ValueError(
-            f"Document {document.pk} was soft-deleted less than "
-            f"{_DEFAULT_HARD_DELETE_GRACE_DAYS} days ago "
-            f"(deleted_at={document.deleted_at.isoformat()}). "
-            "Grace period has not elapsed."
-        )
+    # ── Step 1: Lock and re-check ALL preconditions under lock (C-1 fix) ──────
+    # select_for_update() INSIDE atomic() is the TOCTOU guard. A concurrent
+    # apply_legal_hold() that commits between the pre-check above and this lock
+    # would otherwise be missed, allowing irreversible deletion of a legally-held
+    # document. The lock closes that race completely.
+    storage_key: str = ""
+    category_slug: str = "unknown"
 
-    doc_pk = str(document.pk)
-    # Capture category_slug before any potential state change — safe since
-    # category is PROTECT FK and will not disappear.
-    try:
-        category_slug = document.category.slug
-    except Exception:
-        category_slug = "unknown"
+    with transaction.atomic():
+        doc = Document.objects.select_for_update().get(pk=document.pk)
 
-    # Capture the current storage key before nulling it.
-    storage_key = document.storage_key
+        # Idempotent: a concurrent worker already committed PURGED.
+        if doc.scan_status == Document.ScanStatus.PURGED:
+            logger.info(
+                "hard_delete: doc pk=%r already PURGED (concurrent race); "
+                "returning (idempotent).",
+                doc_pk,
+            )
+            return
 
-    # ── Step 1: Fire signal BEFORE deletion (last chance to log) ─────────────
-    # send_robust never raises; all receivers are called even if some fail.
-    # PIPEDA: kwargs contain ONLY document_pk and category_slug.
-    document_hard_deleted.send_robust(
-        sender=Document,
-        document_pk=doc_pk,
-        category_slug=category_slug,
-    )
+        # Re-check ALL preconditions against the locked DB row.
+        if doc.legal_hold:
+            raise ValueError(
+                f"Document {doc.pk} is on legal hold (set concurrently). "
+                "Hard deletion aborted."
+            )
+        if doc.deleted_at is None:
+            raise ValueError(
+                f"Document {doc.pk} has not been soft-deleted (concurrent race)."
+            )
+        if doc.scan_status != Document.ScanStatus.DELETED:
+            raise ValueError(
+                f"Document {doc.pk} scan_status is {doc.scan_status!r} under lock; "
+                "must be DELETED for hard deletion."
+            )
 
-    # ── Step 2: Write audit entry BEFORE irreversible storage operations ──────
-    # If the storage delete fails, the audit entry is still there as evidence.
-    record_event(
-        event_type=AuditEventType.RECORD_PURGED,
-        resource_type="documents.Document",
-        resource_id=doc_pk,
-        event_detail={
-            "cleared_at": timezone.now().isoformat(),
-            # PIPEDA: NO original_filename, NO storage_key value, NO uploader PII
-        },
-    )
+        now = timezone.now()
+        grace_cutoff = now - timedelta(days=grace_days)
+        if doc.deleted_at > grace_cutoff:
+            raise ValueError(
+                f"Document {doc.pk} was soft-deleted less than {grace_days} days ago "
+                f"(deleted_at={doc.deleted_at.isoformat()}). Grace period has not elapsed."
+            )
 
-    # ── Step 3: Delete S3/storage object (IRREVERSIBLE) ───────────────────────
-    # Fail-safe: if storage deletion fails, do NOT null the storage key.
-    # The document will re-appear in pending_hard_delete() on the next run
-    # because scan_status=DELETED and deleted_at <= cutoff still holds.
+        # Capture values needed outside the transaction (after lock release).
+        storage_key = doc.storage_key
+        try:
+            category_slug = doc.category.slug
+        except Exception:
+            category_slug = "unknown"
+
+    # Lock released. storage_key and category_slug captured safely.
+    # legal_hold was confirmed False at lock-acquisition time.
+
+    # ── Step 2: Delete S3/storage object (IRREVERSIBLE) ───────────────────────
+    # OUTSIDE the transaction: network I/O must not hold a DB lock (performance).
+    # C-2 fix: audit and signal fire AFTER confirmed S3 deletion — never before.
+    cleared_at = timezone.now()
     if storage_key:
         try:
             default_storage.delete(storage_key)
         except Exception:
             logger.exception(
-                "hard_delete: storage deletion failed for doc pk=%r. "
-                "Storage key NOT nulled. Task will retry on next scheduled run. "
-                "Exception type logged above.",
+                "hard_delete: storage deletion FAILED for doc pk=%r. "
+                "scan_status remains DELETED; task retries on next scheduled run. "
+                "NO audit entry written — the S3 file may still exist.",
                 doc_pk,
             )
-            # Do NOT null the storage key — the file may still be there.
-            # Do NOT delete the DB row — the document is still accessible to staff.
+            # Do NOT update DB, do NOT write audit, do NOT fire signal.
+            # The document re-appears in pending_hard_delete() next run because
+            # scan_status is still DELETED. Retry is automatic.
             return
     else:
-        # storage_key already empty — storage already cleared (idempotent path).
+        # storage_key already empty — storage cleared in a previous run.
         logger.info(
-            "hard_delete: doc pk=%r has empty storage_key; skipping storage delete.",
+            "hard_delete: doc pk=%r has empty storage_key; "
+            "skipping S3 delete (idempotent).",
             doc_pk,
         )
 
-    # ── Step 4: Null out _storage_key field ───────────────────────────────────
-    # Use bulk update (no save() call) to avoid triggering model signals.
-    # **{"_storage_key": ""} syntax required because _ prefix in keyword args
-    # is valid Python but unusual — the dict form is more explicit about intent.
-    Document.objects.filter(pk=document.pk).update(**{"_storage_key": ""})
+    # ── Step 3: Atomically null _storage_key + set scan_status=PURGED (C-3) ──
+    # Conditional update on scan_status=DELETED (not just pk) prevents a concurrent
+    # worker that also processed this document from writing a duplicate RECORD_PURGED
+    # audit entry. rows_updated == 0 means another worker already committed PURGED.
+    rows_updated = Document.objects.filter(
+        pk=document.pk,
+        scan_status=Document.ScanStatus.DELETED,
+    ).update(**{"_storage_key": "", "scan_status": Document.ScanStatus.PURGED})
 
-    # Update the in-memory instance to reflect the nulled key.
+    # Update the caller's in-memory instance.
     document._storage_key = ""
+    document.scan_status = Document.ScanStatus.PURGED
+
+    if rows_updated == 0:
+        # A concurrent worker already committed the PURGED state.
+        # Skip audit and signal to prevent duplicate immutable entries.
+        logger.info(
+            "hard_delete: doc pk=%r PURGED state already committed by a concurrent "
+            "worker; skipping audit and signal (idempotent).",
+            doc_pk,
+        )
+        return
+
+    # ── Step 4: Write audit AFTER confirmed S3 delete + DB commit (C-2 fix) ──
+    # PIPEDA: event_detail contains ONLY cleared_at — no storage_key, no PII.
+    record_event(
+        event_type=AuditEventType.RECORD_PURGED,
+        resource_type="documents.Document",
+        resource_id=doc_pk,
+        event_detail={
+            "cleared_at": cleared_at.isoformat(),
+            # PIPEDA: NO original_filename, NO storage_key value, NO uploader PII.
+        },
+    )
+
+    # ── Step 5: Fire signal AFTER confirmed S3 delete (C-2 fix) ──────────────
+    # send_robust never raises; inspect return values and log receiver exceptions.
+    # PIPEDA: kwargs contain ONLY document_pk and category_slug.
+    results = document_hard_deleted.send_robust(
+        sender=Document,
+        document_pk=doc_pk,
+        category_slug=category_slug,
+    )
+    for receiver, response in results:
+        if isinstance(response, Exception):
+            logger.error(
+                "hard_delete: signal receiver %r raised: %r",
+                receiver,
+                response,
+            )
 
     logger.info(
-        "hard_delete: Document pk=%r storage cleared and storage_key nulled. "
+        "hard_delete: Document pk=%r storage cleared, scan_status=PURGED. "
         "DB row retained for audit trail per spec §11.2.",
         doc_pk,
     )
@@ -544,15 +626,17 @@ def apply_legal_hold(
         set_by_id=set_by.pk,
     )
 
-    # Audit — PIPEDA: NO original_filename, NO storage_key.
+    # Audit — C-4 fix: use dedicated LEGAL_HOLD_APPLIED event type (not generic STATUS_CHANGED).
+    # PIPEDA: event_detail contains only legal_hold flag, reason, and actor pk — no PII.
     record_event(
-        event_type=AuditEventType.STATUS_CHANGED,
+        event_type=AuditEventType.LEGAL_HOLD_APPLIED,
         actor_id=str(set_by.pk),
         resource_type="documents.Document",
         resource_id=str(document.pk),
         event_detail={
             "legal_hold": True,
             "reason": reason,
+            "set_by_pk": set_by.pk,
         },
     )
 
@@ -639,14 +723,16 @@ def release_legal_hold(
         set_by_id=released_by.pk,
     )
 
-    # Audit.
+    # Audit — C-4 fix: use dedicated LEGAL_HOLD_RELEASED event type (not generic STATUS_CHANGED).
+    # PIPEDA: event_detail contains only legal_hold flag and actor pk — no PII.
     record_event(
-        event_type=AuditEventType.STATUS_CHANGED,
+        event_type=AuditEventType.LEGAL_HOLD_RELEASED,
         actor_id=str(released_by.pk),
         resource_type="documents.Document",
         resource_id=str(document.pk),
         event_detail={
             "legal_hold": False,
+            "released_by_pk": released_by.pk,
         },
     )
 
