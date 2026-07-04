@@ -21,7 +21,12 @@ PIPEDA constraints:
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING
+
+from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
+from django.db import models, transaction
+from django.utils.translation import gettext_lazy as _
 
 if TYPE_CHECKING:
     from django.contrib.auth import get_user_model
@@ -45,45 +50,303 @@ def create_new_version(
     """
     Create a new version of an existing document chain.
 
-    The caller must have `documents.upload_document` permission and be either
-    the original uploader or a staff member.
+    Accepted as ``root_document``: any Document in the chain (root or child).
+    This service resolves to the chain root automatically.
 
-    Flow:
-      1. Validate user permission against root_document.
-      2. Under select_for_update(): mark current latest version as not-latest.
-      3. Create new Document with version_number = latest + 1,
-         root_document = root (or root.root_document if root is already a chain head),
-         scan_status = PENDING_UPLOAD.
-      4. Generate a new storage_key for the new version.
-      5. Return presigned upload data (same as validate_upload_request).
-      6. Fire document_version_created signal.
+    The new version starts in PENDING_UPLOAD status (same as a fresh upload).
+    The caller must call confirm_upload() after the file is uploaded to S3.
+
+    Permission rules:
+      1. Superusers: always allowed.
+      2. Staff with ``documents.upload_staff_document``: allowed (any document).
+      3. The original uploader (``chain_root.uploaded_by == user``) with
+         ``documents.upload_document`` permission: allowed.
+      4. Everyone else: PermissionDenied.
+
+    Chain integrity guarantee:
+      ``select_for_update()`` locks the entire version chain (root + all children)
+      inside ``atomic()`` before any write. This prevents two concurrent requests
+      from both finding version_number=N and creating duplicate version N+1 rows.
+
+    PIPEDA constraints:
+      - ``original_filename`` is NEVER in audit event_detail.
+      - ``storage_key`` is NEVER returned to callers.
+      - Audit entry records only: doc_pk, root_pk, version_number.
 
     Args:
         user:              Authenticated user performing the upload.
-        root_document:     The existing document to version (any version in the chain
-                           is accepted; service resolves to the chain root).
-        original_filename: Client-supplied filename (stored; never used as path).
-        mime_type:         Client-supplied MIME type (validated against category).
+        root_document:     Any Document in the chain (root or child version).
+                           Service resolves to the chain root automatically.
+        original_filename: Client-supplied filename (stored in DB; never used as path).
+        mime_type:         Client-supplied MIME type (validated against category allowlist).
         size_bytes:        Client-supplied file size (validated against cap).
         description:       Optional description for this version.
 
     Returns:
-        Same dict as validate_upload_request():
-        {
-            "doc_id":        str,   — UUID of the new Document version,
-            "upload_url":    str,   — presigned POST URL,
-            "upload_fields": dict,  — fields for the multipart POST,
-            "expires_at":    str,   — ISO-8601 expiry timestamp,
-        }
+        Same structure as ``validate_upload_request()``::
+
+            {
+                "doc_id":        str   — UUID of the new Document version,
+                "upload_url":    str   — presigned POST URL (or '' in dev),
+                "upload_fields": dict  — fields for the multipart POST,
+                "expires_at":    str   — ISO-8601 expiry of the presigned URL,
+            }
+
+        PIPEDA: ``storage_key`` is NEVER in the returned dict.
 
     Raises:
         PermissionDenied:      User is not authorised to version this document.
-        Document.DoesNotExist: root_document not found.
-        ValidationError:       File fails validation.
-
-    STUB: Full implementation in Wave 4. This signature is fixed.
+        ValidationError:       File fails size, extension, or MIME type validation.
     """
-    raise NotImplementedError("versioning.create_new_version — implemented in Wave 4")
+    from apps.audit.models import AuditEventType
+    from apps.audit.services import record_event
+    from apps.documents.models import Document
+    from apps.documents.services.retention import schedule_expiry
+    from apps.documents.services.upload import (
+        _ALLOWED_EXTENSIONS,
+        _civicos,
+        _generate_presigned_post,
+        _make_storage_key,
+        _user_is_staff_uploader,
+    )
+    from apps.documents.signals import document_version_created
+    from pathlib import Path
+
+    # ── Resolve chain root ────────────────────────────────────────────────────
+    # Caller may pass any version in the chain. We normalise to the chain root
+    # (version 1, root_document=None) as the canonical anchor for all queries.
+    if root_document.root_document_id is not None:
+        # Caller passed a non-root version — resolve to the real root.
+        # select_related("category") avoids an extra query when validating MIME.
+        try:
+            chain_root = Document.objects.select_related("category").get(
+                pk=root_document.root_document_id
+            )
+        except Document.DoesNotExist:
+            logger.error(
+                "create_new_version: chain root not found for document pk=%s "
+                "(root_document_id=%s). Chain invariant violation.",
+                root_document.pk,
+                root_document.root_document_id,
+            )
+            raise ValidationError(
+                _("Could not resolve the document version chain. Please contact support.")
+            )
+    else:
+        # root_document IS the chain root (version 1).
+        # Re-fetch with select_related("category") if category is not already loaded.
+        if not hasattr(root_document, "_category_cache"):
+            try:
+                chain_root = Document.objects.select_related("category").get(
+                    pk=root_document.pk
+                )
+            except Document.DoesNotExist:
+                raise ValidationError(
+                    _("Document not found.")
+                )
+        else:
+            chain_root = root_document
+
+    category = chain_root.category
+
+    # ── Permission check ──────────────────────────────────────────────────────
+    if not _user_may_version(user=user, chain_root=chain_root):
+        raise PermissionDenied
+
+    # ── Input validation (same rules as validate_upload_request) ─────────────
+    # ── Size ─────────────────────────────────────────────────────────────────
+    if size_bytes <= 0:
+        raise ValidationError(_("File size must be greater than zero."))
+
+    if category.max_size_bytes > 0:
+        max_size = category.max_size_bytes
+    elif _user_is_staff_uploader(user):
+        max_size = _civicos().get("DOCUMENT_MAX_STAFF_UPLOAD_BYTES", 50 * 1024 * 1024)
+    else:
+        max_size = _civicos().get("DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES", 10 * 1024 * 1024)
+
+    if size_bytes > max_size:
+        raise ValidationError(
+            _("File exceeds the maximum allowed size of %(max)s bytes.")
+            % {"max": max_size}
+        )
+
+    # ── Extension allowlist ───────────────────────────────────────────────────
+    raw_suffix = Path(original_filename).suffix
+    ext = raw_suffix.lstrip(".").lower()
+    if not ext or ext not in _ALLOWED_EXTENSIONS:
+        raise ValidationError(
+            _("File type '.%(ext)s' is not permitted.")
+            % {"ext": ext or "(none)"}
+        )
+
+    # ── MIME type check ───────────────────────────────────────────────────────
+    allowed_mimes: list[str] = (
+        category.allowed_mime_types
+        if category.allowed_mime_types
+        else _civicos().get("ALLOWED_UPLOAD_MIME_TYPES", [])
+    )
+    if not allowed_mimes:
+        raise ImproperlyConfigured(
+            f"DocumentCategory '{category.slug}' has no allowed_mime_types and "
+            "CIVICOS['ALLOWED_UPLOAD_MIME_TYPES'] is empty."
+        )
+    if mime_type not in allowed_mimes:
+        raise ValidationError(
+            _("Content type '%(mime)s' is not permitted for this document category.")
+            % {"mime": mime_type}
+        )
+
+    # ── Generate new UUID and storage key ─────────────────────────────────────
+    # A fresh UUID for both the new Document PK and its quarantine storage path.
+    # Storage key is completely independent of original_filename (OWASP layer 7).
+    doc_uuid = uuid.uuid4()
+    new_storage_key = _make_storage_key(str(doc_uuid), prefix="quarantine")
+
+    # ── Atomic version-chain update ───────────────────────────────────────────
+    # select_for_update() locks the ENTIRE chain (root + all child versions).
+    # This prevents two concurrent create_new_version() calls from both reading
+    # version_number=N and both creating duplicate version N+1 rows.
+    #
+    # Lock granularity: Q(pk=chain_root.pk) OR Q(root_document=chain_root)
+    # covers the root itself and every child version pointing to it.
+    with transaction.atomic():
+        chain_qs = (
+            Document.objects.select_for_update()
+            .filter(
+                models.Q(pk=chain_root.pk)
+                | models.Q(root_document_id=chain_root.pk)
+            )
+            .order_by("-version_number")
+        )
+        chain_docs = list(chain_qs)
+
+        if not chain_docs:
+            # Chain invariant violation — the root must always exist.
+            logger.error(
+                "create_new_version: chain_root pk=%s not found during lock. "
+                "Chain invariant violated.",
+                chain_root.pk,
+            )
+            raise ValidationError(
+                _("Could not resolve the document version chain. Please contact support.")
+            )
+
+        # Find the current latest version (invariant: exactly one per chain).
+        current_latest = next(
+            (d for d in chain_docs if d.is_latest_version),
+            chain_docs[0],  # fallback to highest version_number (data repair)
+        )
+        new_version_number = current_latest.version_number + 1
+
+        # ── Swap is_latest_version ────────────────────────────────────────────
+        # Mark the current latest as not-latest before creating the new version.
+        # Both operations happen in the same atomic block, so there is never a
+        # moment where zero or two versions are marked as latest.
+        current_latest.is_latest_version = False
+        current_latest.save(update_fields=["is_latest_version", "updated_at"])
+
+        # ── Create the new version Document ───────────────────────────────────
+        new_doc = Document.objects.create(
+            id=doc_uuid,
+            category=category,
+            uploaded_by=user,
+            original_filename=original_filename,   # stored in DB; NEVER used as path
+            _storage_key=new_storage_key,           # NEVER returned to callers
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            security_classification=category.security_classification,
+            version_number=new_version_number,
+            root_document=chain_root,              # always points to version 1
+            is_latest_version=True,
+            description=description,
+            # Retention/legal-hold: set by schedule_expiry() immediately below.
+        )
+        # schedule_expiry() writes expires_at and retain_until atomically
+        # within the same transaction, ensuring the new version enters the
+        # disposal schedule from the moment it is created.
+        schedule_expiry(document=new_doc)
+
+    # ── Generate presigned upload URL (outside transaction) ───────────────────
+    # Network I/O (boto3 S3) must NOT run inside a DB transaction.
+    # If the presigned POST generation fails, we roll back:
+    #   1. Restore is_latest_version=True on the previous version.
+    #   2. Delete the newly created Document row.
+    # This is best-effort: if the rollback itself fails, both Document rows
+    # are orphaned but the DB constraint (exactly one is_latest_version=True)
+    # will be violated. Log loudly so operators can investigate.
+    try:
+        presigned = _generate_presigned_post(doc=new_doc, category=category, max_size=max_size)
+    except Exception:
+        logger.error(
+            "create_new_version: presigned POST generation failed for "
+            "new doc pk=%s; rolling back version chain.",
+            new_doc.pk,
+        )
+        try:
+            with transaction.atomic():
+                Document.objects.filter(pk=current_latest.pk).update(
+                    is_latest_version=True
+                )
+                new_doc.delete()
+        except Exception:
+            logger.error(
+                "create_new_version: ROLLBACK FAILED for new doc pk=%s. "
+                "Chain root pk=%s may now have zero or two is_latest_version=True. "
+                "Manual remediation required.",
+                new_doc.pk,
+                chain_root.pk,
+            )
+        raise
+
+    # ── Audit log ─────────────────────────────────────────────────────────────
+    # PIPEDA constraints on event_detail:
+    #   - NO original_filename (may contain PII)
+    #   - NO storage_key (internal S3 path)
+    # Only: root_document_pk, new_version_pk, version_number.
+    try:
+        record_event(
+            event_type=AuditEventType.RECORD_CREATED,
+            actor_id=str(user.pk),
+            resource_type="documents.Document",
+            resource_id=str(new_doc.pk),
+            event_detail={
+                "root_document_pk": str(chain_root.pk),
+                "new_version_pk": str(new_doc.pk),
+                "version_number": new_version_number,
+                "category_slug": category.slug,
+                "mime_type": mime_type,
+                "size_bytes": size_bytes,
+                # original_filename deliberately excluded (PIPEDA)
+                # storage_key deliberately excluded (security)
+            },
+        )
+    except Exception:
+        # Audit failure must NEVER prevent the version creation.
+        logger.exception(
+            "create_new_version: audit write failed for new doc pk=%s; "
+            "version creation unaffected.",
+            new_doc.pk,
+        )
+
+    # ── Fire signal ───────────────────────────────────────────────────────────
+    # send_robust() ensures a bad receiver never propagates an exception here.
+    # PIPEDA: kwargs contain only PKs and version_number — no PII.
+    document_version_created.send_robust(
+        sender=Document,
+        root_document_pk=str(chain_root.pk),
+        new_version_pk=str(new_doc.pk),
+        version_number=new_version_number,
+    )
+
+    # PIPEDA: storage_key NEVER in the returned dict.
+    return {
+        "doc_id": str(new_doc.pk),
+        "upload_url": presigned["url"],
+        "upload_fields": presigned["fields"],
+        "expires_at": presigned["expires_at"],
+    }
 
 
 def get_version_history(
@@ -111,3 +374,42 @@ def get_version_history(
     STUB: Full implementation in Wave 4. This signature is fixed.
     """
     raise NotImplementedError("versioning.get_version_history — implemented in Wave 4")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _user_may_version(
+    *,
+    user: "User",
+    chain_root: "Document",
+) -> bool:
+    """
+    Return True if ``user`` is allowed to create a new version of this document chain.
+
+    Permission hierarchy:
+      1. Superusers: always allowed.
+      2. Staff with ``documents.upload_staff_document``: allowed (any document).
+      3. The original uploader (``chain_root.uploaded_by == user``) who has
+         ``documents.upload_document``: allowed (citizen can re-version own docs).
+      4. Everyone else: denied.
+
+    Note: This check does NOT gate on scan_status. Versioning creates a new
+    PENDING_UPLOAD document; it does not read the existing file content.
+    """
+    if not user.is_authenticated:
+        return False
+
+    if user.is_superuser:
+        return True
+
+    if user.has_perm("documents.upload_staff_document"):
+        return True
+
+    # Citizen uploader: must own the document AND have upload permission.
+    if chain_root.uploaded_by_id == user.pk and user.has_perm("documents.upload_document"):
+        return True
+
+    return False

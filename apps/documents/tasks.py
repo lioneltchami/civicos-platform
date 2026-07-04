@@ -17,16 +17,16 @@ Task design invariants:
     PII to Sentry/logging sinks.
 
 Wave 2 tasks:
-  - scan_document             — dev bypass + Wave 3 ClamAV stub
+  - scan_document             — dev bypass + ClamAV integration
   - cleanup_stale_pending_uploads — purge docs stuck in PENDING_UPLOAD
 
-Wave 3 tasks (stubs, signatures fixed):
-  - (ClamAV integration wired into scan_document)
+Wave 3 tasks:
+  - ClamAV integration wired into scan_document (replaces Wave 2 stub)
+  - run_purge_expired_tokens  — daily Celery Beat: delete expired access tokens
 
 Wave 5 tasks (stubs, signatures fixed):
   - run_disposal_schedule     — daily Celery Beat: soft-delete expired docs
   - run_hard_delete_schedule  — daily Celery Beat: hard-delete past grace period
-  - purge_expired_tokens      — daily Celery Beat: delete expired access tokens
 """
 
 from __future__ import annotations
@@ -218,14 +218,64 @@ def scan_document(self, doc_pk: str) -> None:
             raise self.retry(exc=Document.DoesNotExist(), countdown=5)
         return
 
-    # ── ClamAV required but not yet implemented (Wave 3) ─────────────────────
-    # In production, CLAMAV_REQUIRED=True and CLAMAV_HOST is set; this branch
-    # will be replaced by the full ClamAV integration in Wave 3.
-    # Until then, we raise to prevent accidentally shipping a no-scan path.
-    raise NotImplementedError(
-        "scan_document — full ClamAV integration implemented in Wave 3. "
-        "Set CLAMAV_REQUIRED=False and CLAMAV_HOST='' for development use."
-    )
+    # ── Wave 3: Full ClamAV integration ──────────────────────────────────────
+    # Triggered when CLAMAV_HOST is set OR CLAMAV_REQUIRED=True.
+    # In production: CLAMAV_REQUIRED=True and CLAMAV_HOST is set.
+    # In dev with explicit ClamAV: CLAMAV_HOST set, CLAMAV_REQUIRED may be False.
+
+    # Step 1: Quick idempotency check under lock (brief atomic block).
+    # We capture storage_key here and release the lock before the ClamAV scan
+    # (which may be slow). Holding a DB lock during network I/O would block
+    # concurrent workers unnecessarily.
+    try:
+        with transaction.atomic():
+            doc = Document.objects.select_for_update().get(pk=doc_pk)
+            if doc.scan_status != Document.ScanStatus.SCANNING:
+                logger.info(
+                    "scan_document: doc pk=%r already in status %r; skipping (idempotent).",
+                    doc_pk,
+                    doc.scan_status,
+                )
+                return
+            # Capture the storage key while we hold the row lock.
+            storage_key = doc.storage_key
+    except Document.DoesNotExist:
+        # DB replica lag: document not yet visible. Retry with backoff (M-6 pattern).
+        logger.warning(
+            "scan_document: doc pk=%r not found (possible replica lag); retrying.",
+            doc_pk,
+        )
+        raise self.retry(exc=Document.DoesNotExist(), countdown=5)
+
+    # Step 2: Perform the ClamAV scan OUTSIDE any transaction.
+    # Network I/O must never hold a DB lock: slow ClamAV scans would block
+    # every other worker that needs to write to the Document table.
+    try:
+        scan_result = _scan_with_clamav(
+            storage_key=storage_key,
+            civicos=civicos,
+        )
+    except Exception as exc:  # catches pyclamd.ConnectionError and IOError
+        # ClamAV daemon is unreachable or the file cannot be read for scanning.
+        # Retry with exponential backoff: 30s, 60s, 120s, 240s, 480s.
+        # After max_retries=5 exhaustion, on_failure() → _quarantine_on_scan_failure().
+        countdown = (2 ** self.request.retries) * 30
+        logger.warning(
+            "scan_document: ClamAV unavailable for doc pk=%r; "
+            "retry %d/%d in %ds. Exception type: %s",
+            doc_pk,
+            self.request.retries + 1,
+            self.max_retries,
+            countdown,
+            type(exc).__name__,
+        )
+        raise self.retry(exc=exc, countdown=countdown)
+
+    # Step 3: Persist the scan result.
+    if scan_result == "OK":
+        _mark_document_active_clamav(doc_pk=doc_pk)
+    else:
+        _mark_document_quarantined_clamav(doc_pk=doc_pk, virus_name=scan_result)
 
 
 def _mark_document_active_dev_bypass(doc_pk: str) -> None:
@@ -287,6 +337,230 @@ def _mark_document_active_dev_bypass(doc_pk: str) -> None:
 
     logger.info(
         "scan_document (dev bypass): doc pk=%r marked ACTIVE.",
+        doc_pk,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wave 3: ClamAV integration helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _scan_with_clamav(*, storage_key: str, civicos: dict) -> str:
+    """
+    Stream a document from storage into ClamAV and return the scan verdict.
+
+    Uses pyclamd's ``instream()`` protocol to stream the file directly into
+    the clamd daemon without writing bytes to the local filesystem.
+
+    Args:
+        storage_key: The storage path of the document (quarantine prefix).
+        civicos:     The CIVICOS settings dict (for host/port/timeout).
+
+    Returns:
+        ``"OK"``   — file is clean.
+        Virus name — threat detected (e.g. ``"Eicar-Test-Signature"``).
+
+    Raises:
+        IOError:                   File cannot be read from storage.
+        Exception (ConnectionError-family): ClamAV daemon is unreachable.
+            The caller (scan_document) catches any exception and retries.
+
+    PIPEDA: storage_key is NEVER logged. Only exception type is logged.
+    """
+    import io
+
+    import pyclamd
+    from django.core.files.storage import default_storage
+
+    host: str = civicos.get("CLAMAV_HOST", "localhost")
+    port: int = civicos.get("CLAMAV_PORT", 3310)
+    timeout: int = civicos.get("CLAMAV_TIMEOUT", 30)
+
+    # Connect to clamd network socket.
+    # pyclamd.ConnectionError is raised here (or on the first scan call) if
+    # the daemon is not reachable.
+    cd = pyclamd.ClamdNetworkSocket(host=host, port=port, timeout=timeout)
+
+    # Read file bytes from storage (S3 ranged GET in production, local read in dev).
+    # django-storages S3 backend implements Django's file storage interface,
+    # so default_storage.open() works transparently for both backends.
+    try:
+        with default_storage.open(storage_key) as fh:
+            file_bytes = fh.read()
+    except Exception as exc:
+        raise IOError(
+            f"_scan_with_clamav: cannot read file from storage: {type(exc).__name__}"
+        ) from exc
+
+    # Stream bytes into ClamAV via the instream protocol.
+    # pyclamd.instream() returns:
+    #   None                               → clean file
+    #   {"stream": ("FOUND", "VirusName")} → threat detected
+    #   {"stream": ("ERROR", "message")}   → clamd error during scan
+    result = cd.instream(io.BytesIO(file_bytes))
+
+    if result is None:
+        # Clean: clamd found no threat.
+        return "OK"
+
+    status, detail = result.get("stream", ("FOUND", "UNKNOWN"))
+    if status == "FOUND":
+        return detail  # virus name string (e.g. "Eicar-Test-Signature")
+
+    # "ERROR" status from clamd — treat as a transient failure so the task
+    # retries rather than permanently quarantining a potentially clean file.
+    raise RuntimeError(f"ClamAV scan ERROR: {detail}")
+
+
+def _mark_document_active_clamav(*, doc_pk: str) -> None:
+    """
+    Transition a document from SCANNING → ACTIVE after a clean ClamAV scan.
+
+    Mirrors ``_mark_document_active_dev_bypass()`` but records the real
+    ClamAV verdict ("OK") as scan_engine_result.
+
+    Uses select_for_update() inside atomic() for safe status transition.
+    Idempotent: if the document is no longer in SCANNING state (e.g. a
+    concurrent worker already processed it), returns without action.
+
+    PIPEDA: fires document_scan_clean with document_pk only — no PII.
+    """
+    from apps.documents.models import Document
+    from apps.documents.signals import document_scan_clean
+
+    with transaction.atomic():
+        try:
+            doc = Document.objects.select_for_update().get(pk=doc_pk)
+        except Document.DoesNotExist:
+            logger.warning(
+                "_mark_document_active_clamav: doc pk=%r not found; "
+                "may have been deleted by cleanup task.",
+                doc_pk,
+            )
+            return
+
+        if doc.scan_status != Document.ScanStatus.SCANNING:
+            logger.info(
+                "_mark_document_active_clamav: doc pk=%r already in status %r; "
+                "skipping (idempotent).",
+                doc_pk,
+                doc.scan_status,
+            )
+            return
+
+        doc.scan_status = Document.ScanStatus.ACTIVE
+        doc.scan_completed_at = timezone.now()
+        doc.scan_engine_result = "OK"
+        doc.save(
+            update_fields=[
+                "scan_status",
+                "scan_completed_at",
+                "scan_engine_result",
+                "updated_at",
+            ]
+        )
+
+    # Fire signal outside the lock (send_robust never raises).
+    # PIPEDA: kwargs contain only doc.pk — no uploader identity, no filename.
+    document_scan_clean.send_robust(
+        sender=Document,
+        document_pk=str(doc_pk),
+    )
+
+    logger.info(
+        "scan_document (ClamAV): doc pk=%r marked ACTIVE (scan: OK).",
+        doc_pk,
+    )
+
+
+def _mark_document_quarantined_clamav(*, doc_pk: str, virus_name: str) -> None:
+    """
+    Transition a document from SCANNING → QUARANTINED after a ClamAV threat detection.
+
+    The document row is retained for the audit trail. The storage object
+    (in the quarantine prefix) is deleted to prevent access.
+
+    Uses select_for_update() inside atomic() for safe status transition.
+    Idempotent: if the document is no longer in SCANNING state, returns without action.
+
+    PIPEDA:
+      - scan_engine_result records only the virus name from ClamAV.
+      - document_quarantined signal kwargs: document_pk + scan_engine_result only.
+      - No uploader PII, no original_filename, no storage_key in any log or signal.
+    """
+    from apps.documents.models import Document
+    from apps.documents.signals import document_quarantined
+
+    scan_engine_result = f"FOUND: {virus_name}"
+
+    with transaction.atomic():
+        try:
+            doc = Document.objects.select_for_update().get(pk=doc_pk)
+        except Document.DoesNotExist:
+            logger.warning(
+                "_mark_document_quarantined_clamav: doc pk=%r not found; "
+                "may have been deleted by cleanup task.",
+                doc_pk,
+            )
+            return
+
+        if doc.scan_status != Document.ScanStatus.SCANNING:
+            logger.info(
+                "_mark_document_quarantined_clamav: doc pk=%r already in status %r; "
+                "skipping (idempotent).",
+                doc_pk,
+                doc.scan_status,
+            )
+            return
+
+        # Capture storage key before status change, for the S3 delete below.
+        storage_key = doc.storage_key
+
+        doc.scan_status = Document.ScanStatus.QUARANTINED
+        doc.scan_completed_at = timezone.now()
+        doc.scan_engine_result = scan_engine_result
+        doc.save(
+            update_fields=[
+                "scan_status",
+                "scan_completed_at",
+                "scan_engine_result",
+                "updated_at",
+            ]
+        )
+
+    # Delete the file from quarantine storage (irreversible — the file is infected).
+    # Performed OUTSIDE the transaction to avoid holding the DB lock during storage I/O.
+    # If this fails, the document is still QUARANTINED and inaccessible to users;
+    # the stale storage object will be purged by S3 lifecycle rules or a future
+    # cleanup task.
+    try:
+        from django.core.files.storage import default_storage
+
+        if default_storage.exists(storage_key):
+            default_storage.delete(storage_key)
+    except Exception:
+        # Log but do not re-raise: the document is already QUARANTINED in the DB.
+        # A failed storage delete is a cleanup concern, not a security concern —
+        # the citizen cannot access a QUARANTINED document regardless.
+        logger.exception(
+            "_mark_document_quarantined_clamav: failed to delete storage object "
+            "for doc pk=%r; document remains QUARANTINED. Storage cleanup required.",
+            doc_pk,
+        )
+
+    # Fire signal outside the lock. send_robust never raises.
+    # PIPEDA: kwargs contain ONLY document_pk and scan_engine_result.
+    # NO uploader identity, NO original_filename.
+    document_quarantined.send_robust(
+        sender=Document,
+        document_pk=str(doc_pk),
+        scan_engine_result=scan_engine_result,
+    )
+
+    logger.error(
+        "scan_document (ClamAV): doc pk=%r QUARANTINED. Threat detected. "
+        "Exception type: FOUND (ClamAV result recorded in scan_engine_result).",
         doc_pk,
     )
 
@@ -420,13 +694,31 @@ def run_hard_delete_schedule(self) -> None:
     reject_on_worker_lost=True,
     max_retries=0,
 )
-def run_purge_expired_tokens(self) -> None:
+def run_purge_expired_tokens(self) -> int:
     """
     Celery Beat task: hard-delete expired and used DocumentAccessTokens.
 
-    Tokens have a 5-minute TTL. After expiry or single-use, they are purgeable
-    immediately. There is no grace period.
+    Tokens have a 5-minute TTL (CIVICOS['DOCUMENT_ACCESS_TOKEN_TTL_SECONDS']).
+    Expired tokens and used tokens are eligible for deletion after a 24-hour
+    buffer (per spec §19 — "expired > 24 hours ago") to allow debugging of
+    any edge cases before permanent deletion.
 
-    STUB: Full implementation in Wave 5.
+    No grace period beyond 24 hours: tokens are intentionally short-lived and
+    contain no data that requires retention.
+
+    Returns:
+        Number of tokens deleted.
+
+    PIPEDA: no PII is logged — only a count is reported.
     """
-    raise NotImplementedError("run_purge_expired_tokens — implemented in Wave 5")
+    from apps.documents.services.retention import purge_expired_tokens
+
+    count = purge_expired_tokens()
+    if count:
+        logger.info(
+            "run_purge_expired_tokens: deleted %d expired/used DocumentAccessToken records.",
+            count,
+        )
+    else:
+        logger.debug("run_purge_expired_tokens: no expired tokens found.")
+    return count

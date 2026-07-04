@@ -279,15 +279,56 @@ def purge_expired_tokens(*, dry_run: bool = False) -> int:
     """
     Hard-delete expired and used DocumentAccessTokens.
 
-    Called daily by Celery Beat. Tokens are short-lived (5 min TTL) so there
-    is no grace period — expiry means immediately purgeable.
+    Called daily by Celery Beat via ``run_purge_expired_tokens`` in tasks.py.
+
+    A token is purgeable when either condition holds:
+      - ``expires_at <= now``   : TTL has elapsed; token can no longer be validated.
+      - ``used_at is not None`` : Token has already been consumed (single-use).
+
+    Both conditions are purged together in a single DELETE query.
+    There is no grace period — expired/used tokens contain no recovery value:
+      - Expired tokens cannot be redeemed (is_valid=False).
+      - Used tokens can only be redeemed once; used_at being set means the download
+        has already occurred.
+
+    PIPEDA: Tokens store a masked IP address. Purging expired tokens is required
+    by PIPEDA data-minimisation principles: we must not retain personal data
+    beyond the purpose for which it was collected.
 
     Args:
-        dry_run: If True, count records that would be deleted without deleting.
+        dry_run: If True, returns the count that WOULD be deleted without
+                 actually deleting. Useful for monitoring/alerting queries.
 
     Returns:
-        Number of tokens deleted (or would-be-deleted in dry_run mode).
-
-    STUB: Full implementation in Wave 5. This signature is fixed.
+        Number of tokens deleted (or would-be-deleted if dry_run=True).
     """
-    raise NotImplementedError("retention.purge_expired_tokens — implemented in Wave 5")
+    from django.db.models import Q
+
+    from apps.documents.models import DocumentAccessToken
+
+    now = timezone.now()
+
+    # Purgeable = expired OR already used.
+    # The two conditions are independent — we want to clean up both in one pass:
+    #   - Expired tokens: cannnot be redeemed regardless of used_at.
+    #   - Used tokens: single-use semantics; the download is complete.
+    qs = DocumentAccessToken.objects.filter(
+        Q(expires_at__lte=now) | Q(used_at__isnull=False)
+    )
+
+    if dry_run:
+        count = qs.count()
+        logger.info(
+            "purge_expired_tokens (dry_run): %d token(s) would be deleted.",
+            count,
+        )
+        return count
+
+    _, deleted_counts = qs.delete()
+    # Django's bulk delete returns a dict like:
+    #   {"documents.DocumentAccessToken": 17, ...}
+    # Use .get() with the full app_label.ModelName key; fall back to 0.
+    count = deleted_counts.get("documents.DocumentAccessToken", 0)
+
+    logger.info("purge_expired_tokens: deleted %d expired/used token(s).", count)
+    return count

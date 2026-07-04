@@ -290,32 +290,80 @@ class ScanDocumentDevBypassTests(TestCase):
 @override_settings(CIVICOS=CIVICOS_PROD)
 class ScanDocumentProdTests(TestCase):
     """
-    Tests for scan_document() in production mode (CLAMAV_REQUIRED=True).
-    The full ClamAV implementation is in Wave 3; until then, the task raises.
+    Tests for scan_document() in production mode (CLAMAV_HOST set, CLAMAV_REQUIRED=True).
+
+    Wave 3: the full ClamAV path is implemented. These tests verify that:
+      - The ClamAV code path is entered (not the dev bypass).
+      - A clean scan result marks the document ACTIVE.
+      - An infected result marks the document QUARANTINED.
+      - A connection failure triggers a Celery retry (not NotImplementedError).
+      - The document remains in SCANNING on retry (not silently marked ACTIVE).
     """
 
     def setUp(self):
         self.user = make_user()
         self.category = make_category()
 
-    def test_clamav_required_raises_not_implemented(self):
+    def test_clean_clamav_scan_marks_document_active(self):
         """
-        When ClamAV is configured (prod), scan_document must raise
-        NotImplementedError rather than silently bypassing the scan.
-        This ensures the dev bypass path can never be activated in production.
+        Production ClamAV path: mocked clean scan → ACTIVE.
+        _scan_with_clamav is patched to return "OK" so no real socket call occurs.
         """
         doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
-        with self.assertRaises(NotImplementedError):
+        with patch("apps.documents.tasks._scan_with_clamav", return_value="OK"):
             scan_document.run(str(doc.pk))  # T-9
+        doc.refresh_from_db()
+        self.assertEqual(doc.scan_status, Document.ScanStatus.ACTIVE)
 
-    def test_clamav_required_does_not_mark_active(self):
+    def test_infected_clamav_scan_marks_document_quarantined(self):
+        """
+        Production ClamAV path: mocked infected scan → QUARANTINED.
+        """
         doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
-        try:
+        with patch(
+            "apps.documents.tasks._scan_with_clamav",
+            return_value="Eicar-Test-Signature",
+        ):
             scan_document.run(str(doc.pk))  # T-9
-        except NotImplementedError:
-            pass
+        doc.refresh_from_db()
+        self.assertEqual(doc.scan_status, Document.ScanStatus.QUARANTINED)
+        self.assertEqual(doc.scan_engine_result, "FOUND: Eicar-Test-Signature")
+
+    def test_clamav_connection_error_triggers_retry_not_active(self):
+        """
+        Connection failure must trigger Celery retry; document stays in SCANNING
+        (must NOT be marked ACTIVE — that would bypass virus scanning).
+
+        When scan_document is called via .run() (called_directly=True), Celery's
+        self.retry(exc=<ConnectionError>) re-raises the original exception rather
+        than celery.exceptions.Retry.  This is documented Celery behaviour:
+        task.py::raise_with_context raises exc when exc is provided.
+        The important invariant is that scan_status remains SCANNING (not ACTIVE).
+        """
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        with patch(
+            "apps.documents.tasks._scan_with_clamav",
+            side_effect=ConnectionError("clamd unreachable"),
+        ):
+            # Under called_directly=True, self.retry(exc=<err>) re-raises the
+            # original ConnectionError, not celery.exceptions.Retry.
+            with self.assertRaises(ConnectionError):
+                scan_document.run(str(doc.pk))  # T-9
+
+        # Critical invariant: ClamAV failure must NEVER mark a document ACTIVE.
         doc.refresh_from_db()
         self.assertEqual(doc.scan_status, Document.ScanStatus.SCANNING)
+
+    def test_clamav_path_does_not_use_dev_bypass(self):
+        """
+        When CLAMAV_HOST is set, scan_document must NOT use the dev bypass
+        (scan_engine_result='DEV_BYPASS'). Either a real scan or retry must occur.
+        """
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        with patch("apps.documents.tasks._scan_with_clamav", return_value="OK"):
+            scan_document.run(str(doc.pk))  # T-9
+        doc.refresh_from_db()
+        self.assertNotEqual(doc.scan_engine_result, "DEV_BYPASS")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
