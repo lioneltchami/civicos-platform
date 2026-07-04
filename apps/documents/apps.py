@@ -14,6 +14,7 @@ Privacy constraints (enforced here and throughout the BB):
 Governing law: PIPEDA, Privacy Act s.6(1), TBS SPIN 2023-06-13, LAC DA #2016/001.
 """
 
+import importlib.util
 import logging
 import sys
 
@@ -42,11 +43,14 @@ class DocumentsConfig(AppConfig):
 
         # Import receivers to connect signal handlers.
         # (Receivers are in a separate module to keep signals.py declaration-only.)
-        try:
+        # Use importlib.util.find_spec() to distinguish two cases:
+        #   - receivers.py does not exist yet (Wave 3 deferred): silently skip.
+        #   - receivers.py exists but has a broken import inside it: re-raise so
+        #     operators see the real error rather than silent signal-handler loss.
+        _receivers_spec = importlib.util.find_spec("apps.documents.receivers")
+        if _receivers_spec is not None:
             import apps.documents.receivers  # noqa: F401
-        except ImportError:
-            # receivers.py is created in Wave 3; tolerate its absence in Wave 1.
-            pass
+        # else: module file absent — Wave 3 not yet implemented, skip silently.
 
         self._check_clamav_config()
 

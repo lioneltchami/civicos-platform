@@ -12,7 +12,7 @@ Tasks seeded:
   - check-sla-breaches        (every 15 minutes)
 """
 from django.core.management.base import BaseCommand
-from django_celery_beat.models import CrontabSchedule, PeriodicTask
+from django_celery_beat.models import CrontabSchedule, IntervalSchedule, PeriodicTask
 
 
 class Command(BaseCommand):
@@ -27,6 +27,8 @@ class Command(BaseCommand):
         self._seed_check_expiring_certifications()
         self._seed_send_monthly_hours_summary()
         self._seed_compute_volunteer_impact_snapshot()
+        # Document Management BB
+        self._seed_cleanup_stale_pending_uploads()
         self.stdout.write(self.style.SUCCESS("✓ Periodic tasks seeded successfully."))
 
     # ------------------------------------------------------------------
@@ -243,3 +245,33 @@ class Command(BaseCommand):
         )
         verb = "created" if created else "updated"
         self.stdout.write(f"  volunteers-compute-impact-snapshot: {verb}")
+
+    # ------------------------------------------------------------------
+    # Document Management BB
+    # ------------------------------------------------------------------
+
+    def _seed_cleanup_stale_pending_uploads(self):
+        """Delete Document rows stuck in PENDING_UPLOAD beyond the presigned URL TTL — every 30 min."""
+        schedule, _ = IntervalSchedule.objects.get_or_create(
+            every=30,
+            period=IntervalSchedule.MINUTES,
+        )
+        _, created = PeriodicTask.objects.update_or_create(
+            name="documents-cleanup-stale-pending-uploads",
+            defaults={
+                "task": "apps.documents.tasks.cleanup_stale_pending_uploads",
+                "interval": schedule,
+                "crontab": None,
+                "solar": None,
+                "clocked": None,
+                "enabled": True,
+                "description": (
+                    "Hard-delete Document rows stuck in PENDING_UPLOAD state beyond "
+                    "the presigned URL TTL + 5-minute grace period. "
+                    "Purges abandoned uploads where the browser never POSTed the file. "
+                    "Runs every 30 minutes; idempotent."
+                ),
+            },
+        )
+        verb = "created" if created else "updated"
+        self.stdout.write(f"  documents-cleanup-stale-pending-uploads: {verb}")

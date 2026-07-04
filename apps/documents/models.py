@@ -238,6 +238,17 @@ class DocumentCategory(models.Model):
             "Ref: LAC Disposition Authorization #2016/001."
         ),
     )
+    staff_only = models.BooleanField(
+        default=False,
+        verbose_name=_("Staff only"),
+        help_text=_(
+            "If True, only users with the documents.upload_staff_document "
+            "permission (or superusers) may upload to this category. "
+            "Authenticated citizens are blocked even if they have "
+            "documents.upload_document. Use for sensitive internal categories "
+            "such as compliance reports or internal audit evidence."
+        ),
+    )
 
     # ── Timestamps ────────────────────────────────────────────────────────────
 
@@ -537,6 +548,13 @@ class Document(BaseModel):
         verbose_name = _("Document")
         verbose_name_plural = _("Documents")
         ordering = ["-created_at"]
+        permissions = [
+            # Granted to authenticated citizens — allows upload to public (non-staff-only) categories.
+            ("upload_document", "Can upload documents to public categories"),
+            # Granted to staff uploaders — allows upload to ALL categories, including staff-only ones.
+            # Citizens who have this permission also bypass the staff_only restriction.
+            ("upload_staff_document", "Can upload documents to staff-only categories"),
+        ]
         indexes = [
             models.Index(
                 fields=["scan_status", "deleted_at"],

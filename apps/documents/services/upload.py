@@ -249,7 +249,7 @@ def validate_upload_request(
     # PENDING_UPLOAD and purged by cleanup_stale_pending_uploads().
     # Best-effort immediate cleanup prevents accumulating zombie rows.
     try:
-        presigned = _generate_presigned_post(doc=doc, category=category)
+        presigned = _generate_presigned_post(doc=doc, category=category, max_size=max_size)
     except Exception:
         try:
             doc.delete()
@@ -318,7 +318,7 @@ def confirm_upload(
     # ── select_for_update inside atomic — required before any status check ─────
     with transaction.atomic():
         try:
-            doc = Document.objects.select_for_update().get(pk=doc_id)
+            doc = Document.objects.select_for_update().select_related("category").get(pk=doc_id)
         except Document.DoesNotExist:
             # IDOR prevention: 404 even for "not found" case
             raise Http404
@@ -329,10 +329,23 @@ def confirm_upload(
             raise Http404
 
         # ── Idempotency guard ──────────────────────────────────────────────────
-        # If the client double-submits, we return the current doc without re-running
-        # validation (file may have been moved to /active/ already by the scanner).
-        if doc.scan_status != Document.ScanStatus.PENDING_UPLOAD:
+        # If the client double-submits while the scan is running or already done,
+        # return the current doc silently (safe: scan already dispatched).
+        # If the document is QUARANTINED or DELETED it is permanently unavailable —
+        # returning it silently would hide a security event from the caller.
+        if doc.scan_status in (
+            Document.ScanStatus.SCANNING,
+            Document.ScanStatus.ACTIVE,
+        ):
             return doc
+        elif doc.scan_status in (
+            Document.ScanStatus.QUARANTINED,
+            Document.ScanStatus.DELETED,
+        ):
+            raise ValidationError(
+                _("Document is not available for upload confirmation.")
+            )
+        # PENDING_UPLOAD: fall through to validation
 
         # ── Layer 4b: Verify file exists at quarantine storage key ────────────
         try:
@@ -387,19 +400,28 @@ def confirm_upload(
     #   - NO original_filename (may contain PII)
     #   - NO storage_key (internal S3 path)
     #   - NO uploader email or name
-    record_event(
-        event_type=AuditEventType.RECORD_CREATED,
-        actor_id=str(user.pk),
-        # actor_email intentionally omitted — see PIPEDA note above
-        resource_type="documents.Document",
-        resource_id=str(doc.pk),
-        event_detail={
-            "category_slug": doc.category.slug,
-            "mime_type": doc.mime_type,
-            "size_bytes": doc.size_bytes,
-            # original_filename deliberately excluded (PIPEDA)
-        },
-    )
+    # Wrapped in try/except: a failed audit write must never cause a 500 error
+    # for the citizen — the upload has already completed and the scan is queued.
+    try:
+        record_event(
+            event_type=AuditEventType.RECORD_CREATED,
+            actor_id=str(user.pk),
+            # actor_email intentionally omitted — see PIPEDA note above
+            resource_type="documents.Document",
+            resource_id=str(doc.pk),
+            event_detail={
+                "category_slug": doc.category.slug,
+                "mime_type": doc.mime_type,
+                "size_bytes": doc.size_bytes,
+                # original_filename deliberately excluded (PIPEDA)
+            },
+        )
+    except Exception:
+        logger.exception(
+            "confirm_upload: audit write failed for doc pk=%s; "
+            "upload pipeline unaffected.",
+            doc.pk,
+        )
 
     # ── Fire signal ───────────────────────────────────────────────────────────
     # Receivers may do lightweight work (e.g. write a notification row).
@@ -462,18 +484,18 @@ def _user_may_upload_to_category(
     Return True if user is allowed to upload documents in this category.
 
     Permission hierarchy:
-      1. Superusers: always permitted.
-      2. Staff with documents.upload_staff_document: permitted to all categories
+      1. Anonymous users: never permitted.
+      2. Superusers: always permitted (all categories).
+      3. Staff with documents.upload_staff_document: permitted to all categories
          (both citizen-accessible and staff-only).
-      3. Staff with documents.upload_document: permitted to all non-staff-only
-         categories.
-      4. Authenticated citizens: permitted to all non-staff-only categories.
-      5. Anonymous users: never permitted.
+      4. staff_only categories: block everyone not covered by rules 2–3.
+      5. Staff or citizens with documents.upload_document: permitted to
+         non-staff-only categories.
+      6. Any authenticated user: permitted to non-staff-only categories.
 
-    Note: 'staff_only' category enforcement will be added when the flag is
-    added to DocumentCategory in a future migration. The permission check for
-    documents.upload_staff_document already gates staff-only categories because
-    citizens don't have that permission.
+    The staff_only check (rule 4) must come AFTER the superuser and
+    upload_staff_document checks (rules 2–3) so that privileged staff are
+    never accidentally blocked by the flag.
     """
     if not user.is_authenticated:
         return False
@@ -481,17 +503,20 @@ def _user_may_upload_to_category(
     if user.is_superuser:
         return True
 
-    # Staff with broad document upload permission — may upload anywhere
+    # Staff with broad document upload permission — may upload anywhere,
+    # including staff-only categories.
     if user.has_perm("documents.upload_staff_document"):
         return True
 
-    # Staff or citizens with basic upload permission
+    # Staff-only categories are blocked for everyone not covered above.
+    if category.staff_only:
+        return False
+
+    # Non-staff-only category: any authenticated user with basic permission may upload.
     if user.has_perm("documents.upload_document"):
         return True
 
-    # Authenticated citizen — allowed to all current categories.
-    # When DocumentCategory gains a 'staff_only' flag (future migration),
-    # add:  if category.staff_only: return False
+    # Authenticated citizen (no explicit permission required for public categories).
     return True
 
 
@@ -530,12 +555,21 @@ def _generate_presigned_post(
     *,
     doc: "Document",
     category: "DocumentCategory",
+    max_size: int,
 ) -> dict:
     """
     Generate a presigned POST URL for direct browser-to-S3 upload.
 
     In production (S3 backend): uses boto3 to generate a presigned POST.
     In dev (filesystem): returns a placeholder that the dev upload view handles.
+
+    Args:
+        doc:      The Document record (for storage_key and mime_type).
+        category: The DocumentCategory (for allowed_mime_types).
+        max_size: Caller-resolved size cap in bytes — already accounts for
+                  per-user (citizen vs staff) and category-level overrides.
+                  Passed explicitly so the S3 presigned POST enforces the
+                  SAME limit that Django already validated.
 
     Returns:
         {
@@ -558,6 +592,7 @@ def _generate_presigned_post(
             category=category,
             ttl_seconds=ttl_seconds,
             expires_at_str=expires_at_str,
+            max_size=max_size,
         )
     else:
         return _generate_dev_upload_placeholder(expires_at_str=expires_at_str)
@@ -569,6 +604,7 @@ def _generate_s3_presigned_post(
     category: "DocumentCategory",
     ttl_seconds: int,
     expires_at_str: str,
+    max_size: int,
 ) -> dict:
     """
     Generate a boto3 presigned POST for direct browser→S3 upload.
@@ -580,11 +616,16 @@ def _generate_s3_presigned_post(
     The presigned POST uploads to the quarantine prefix. The file will NOT
     be accessible until the ClamAV scan passes and the object is moved to
     the active prefix.
+
+    Args:
+        max_size: Resolved size cap from validate_upload_request() — already
+                  accounts for citizen vs staff cap and category override.
+                  Using the caller-resolved value prevents the S3 policy from
+                  accidentally applying the staff cap to citizen uploads.
     """
     import boto3
     from botocore.exceptions import ClientError
 
-    civicos = _civicos()
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
     bucket_name: str = storage_opts.get("bucket_name") or settings.AWS_STORAGE_BUCKET_NAME
     region_name: str = storage_opts.get("region_name", "ca-central-1")
@@ -597,12 +638,9 @@ def _generate_s3_presigned_post(
         else _civicos().get("ALLOWED_UPLOAD_MIME_TYPES", [])
     )
 
-    # Citizen or staff size cap
-    # (the validation already enforced max_size; use same value for S3 policy)
-    if category.max_size_bytes > 0:
-        max_size = category.max_size_bytes
-    else:
-        max_size = civicos.get("DOCUMENT_MAX_STAFF_UPLOAD_BYTES", 50 * 1024 * 1024)
+    # max_size is passed in from validate_upload_request() where it was resolved
+    # per-user (citizen cap vs staff cap). Do NOT recompute here — recomputing
+    # would silently apply the staff cap to all users, defeating the citizen limit.
 
     conditions: list = [
         # Enforce upload to the exact quarantine key (prevents key substitution)
@@ -720,10 +758,19 @@ def _verify_local_file_exists(storage_key: str) -> None:
     """
     Check that a file exists at the local filesystem path for the given key.
 
+    Path containment check: resolves both MEDIA_ROOT and the constructed path
+    and asserts the result is inside MEDIA_ROOT. Prevents path traversal via
+    a crafted storage_key (e.g. "../../etc/passwd").
+
     Raises:
-        ValidationError: File path does not exist.
+        ValidationError: File path does not exist or is outside MEDIA_ROOT.
     """
-    local_path = Path(settings.MEDIA_ROOT) / storage_key
+    media_root = Path(settings.MEDIA_ROOT).resolve()
+    local_path = (media_root / storage_key).resolve()
+    if not local_path.is_relative_to(media_root):
+        raise ValidationError(
+            _("File was not found in storage. Please upload the file and try again.")
+        )
     if not local_path.exists():
         raise ValidationError(
             _("File was not found in storage. Please upload the file and try again.")
@@ -778,8 +825,16 @@ def _read_s3_first_bytes(storage_key: str, *, length: int) -> bytes:
 
 
 def _read_local_first_bytes(storage_key: str, *, length: int) -> bytes:
-    """Read the first `length` bytes from a local filesystem file."""
-    local_path = Path(settings.MEDIA_ROOT) / storage_key
+    """Read the first `length` bytes from a local filesystem file.
+
+    Path containment check prevents traversal via crafted storage_key values.
+    """
+    media_root = Path(settings.MEDIA_ROOT).resolve()
+    local_path = (media_root / storage_key).resolve()
+    if not local_path.is_relative_to(media_root):
+        raise ValidationError(
+            _("Could not read uploaded file for validation. Please try again.")
+        )
     try:
         with open(local_path, "rb") as fh:
             return fh.read(length)
@@ -845,8 +900,16 @@ def _read_full_s3_file(storage_key: str) -> bytes:
 
 
 def _read_full_local_file(storage_key: str) -> bytes:
-    """Read the complete contents of a local filesystem file."""
-    local_path = Path(settings.MEDIA_ROOT) / storage_key
+    """Read the complete contents of a local filesystem file.
+
+    Path containment check prevents traversal via crafted storage_key values.
+    """
+    media_root = Path(settings.MEDIA_ROOT).resolve()
+    local_path = (media_root / storage_key).resolve()
+    if not local_path.is_relative_to(media_root):
+        raise ValidationError(
+            _("Could not read uploaded file for validation. Please try again.")
+        )
     try:
         with open(local_path, "rb") as fh:
             return fh.read()
