@@ -343,7 +343,8 @@ class ScheduleExpiryPersistenceTests(TestCase):
     def test_save_uses_update_fields(self):
         """
         Verify that save() is called with update_fields containing exactly
-        the retention fields + updated_at (not a full-model save).
+        the retention fields + updated_at (not a full-model save), AND that
+        the values are actually persisted to the DB (T-10).
         """
         category = make_category(max_retention_days=2555, min_retention_days=730)
         doc = make_document(category, self.user)
@@ -361,6 +362,20 @@ class ScheduleExpiryPersistenceTests(TestCase):
         # Must NOT be a full-model save (no scan_status, no uploaded_by, etc.)
         self.assertNotIn("scan_status", update_fields)
         self.assertNotIn("original_filename", update_fields)
+
+        # T-10: confirm values were actually written to the DB, not just to the
+        # in-memory instance. Without refresh_from_db(), a bug where save() was
+        # called but wrote to a shadow object would pass the assertions above
+        # while leaving the DB row unchanged.
+        doc.refresh_from_db()
+        self.assertIsNotNone(
+            doc.expires_at,
+            "expires_at must be persisted to DB after schedule_expiry()",
+        )
+        self.assertIsNotNone(
+            doc.retain_until,
+            "retain_until must be persisted to DB after schedule_expiry()",
+        )
 
 
 class ScheduleExpiryPendingDisposalIntegrationTests(TestCase):
