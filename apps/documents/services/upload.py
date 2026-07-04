@@ -57,8 +57,12 @@ _ALLOWED_EXTENSIONS: frozenset[str] = frozenset(
     }
 )
 
-# Extensions that trigger ZIP-bomb validation.
-_ZIP_FAMILY: frozenset[str] = frozenset({"zip", "docx", "xlsx"})
+# Extensions that trigger ZIP-bomb validation (CVE-2024-0450).
+# .docx and .xlsx are ZIP containers — they must be checked for entry count and
+# compression ratio. Bare .zip is NOT in _ALLOWED_EXTENSIONS so it will be
+# rejected at the extension-allowlist stage before reaching this check.
+# If .zip support is added to _ALLOWED_EXTENSIONS in future, add it here too.
+_ZIP_FAMILY: frozenset[str] = frozenset({"docx", "xlsx"})
 
 
 def validate_upload_request(

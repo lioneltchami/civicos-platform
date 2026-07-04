@@ -69,17 +69,25 @@ class DocumentQuerySet(models.QuerySet):
 
         Criteria:
           - expires_at has passed (max_retention_days exceeded)
+          - retain_until has passed (Privacy Act s.6(1) minimum retention met)
           - No legal hold
           - Not already soft-deleted
 
-        Celery Beat runs this daily to flag records for deletion.
-        Privacy Act s.6(1): retain_until is checked separately; disposal is only
-        triggered when both expires_at AND retain_until are passed.
+        Both expires_at AND retain_until must be in the past before disposal
+        is permitted. Privacy Act s.6(1) mandates minimum 2-year retention for
+        administrative purpose records; retain_until encodes that floor date.
+
+        NULL values for expires_at or retain_until are auto-excluded by the SQL
+        <= comparison (NULL comparisons evaluate to UNKNOWN / false in SQL).
+
+        Celery Beat runs this daily to flag records for disposal.
         """
         from django.utils import timezone
 
+        now = timezone.now()
         return self.filter(
-            expires_at__lte=timezone.now(),
+            expires_at__lte=now,
+            retain_until__lte=now.date(),  # DateField — compare with date, not datetime
             legal_hold=False,
             deleted_at__isnull=True,
         )

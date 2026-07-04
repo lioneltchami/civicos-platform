@@ -239,13 +239,26 @@ class DocumentAdmin(admin.ModelAdmin):
         ),
     )
 
-    # Prevent accidental creation of Document records via admin.
-    # Documents must be created through the upload pipeline (service layer).
+    # Document records are immutable through the admin interface.
+    # All lifecycle operations (upload, legal hold, soft-delete, hard-delete)
+    # MUST go through the service layer to enforce permissions and write audit logs.
+    # Admin is a read-only forensics/observation tool for Document records.
+
     def has_add_permission(self, request) -> bool:
+        # Creation must go through the upload pipeline (service layer).
         return False
 
-    # Prevent deletion via admin — use DocumentService.soft_delete() instead.
+    def has_change_permission(self, request, obj=None) -> bool:
+        # SECURITY: legal_hold, uploaded_by, security_classification, and other
+        # lifecycle fields must only be modified via the service layer.
+        # Editing via admin would bypass:
+        #   - documents.manage_legal_hold permission check
+        #   - AuditEventType.STATUS_CHANGED audit log write
+        #   - document_legal_hold_changed signal
+        return False
+
     def has_delete_permission(self, request, obj=None) -> bool:
+        # Deletion must go through DocumentService.soft_delete() (service layer).
         return False
 
     # ── Custom display columns ─────────────────────────────────────────────────
@@ -299,6 +312,11 @@ class DocumentAttachmentAdmin(admin.ModelAdmin):
         # Attachments must be created through the service layer.
         return False
 
+    def has_delete_permission(self, request, obj=None) -> bool:
+        # Attachments link documents to CivicOS records and form part of the
+        # case record. Deletion via admin bypasses the service-layer audit trail.
+        return False
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DocumentAccessToken
@@ -336,6 +354,11 @@ class DocumentAccessTokenAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None) -> bool:
         # Tokens are immutable; no field edits allowed.
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        # Tokens are audit evidence (who was issued a download token, when, from which IP).
+        # Deleting them via admin would destroy the audit trail.
         return False
 
     @admin.display(description=_("Valid?"), boolean=True)
