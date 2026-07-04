@@ -273,16 +273,27 @@ class CheckZipBombTests(TestCase):
             _check_zip_bomb(bomb_bytes)
         self.assertIn("ratio", str(ctx.exception).lower())
 
-    def test_invalid_zip_silently_skips(self):
-        """Non-ZIP bytes → BadZipFile → logged and skipped (not raised)."""
-        _check_zip_bomb(b"not a zip file at all")
+    def test_invalid_zip_raises(self):
+        """
+        Non-ZIP bytes → BadZipFile → ValidationError.
+        A .docx/.xlsx that cannot be parsed as a valid ZIP is corrupted or
+        malformed. _check_zip_bomb now receives the FULL file, so BadZipFile
+        means the archive is genuinely broken — reject it, do not skip silently.
+        """
+        with self.assertRaises(ValidationError) as ctx:
+            _check_zip_bomb(b"not a zip file at all")
+        self.assertIn("valid archive", str(ctx.exception).lower())
 
-    def test_truncated_zip_silently_skips(self):
-        """Truncated ZIP (first 8 KB only) may not contain central directory → skip."""
+    def test_truncated_zip_raises(self):
+        """
+        Truncated ZIP (missing central directory) → BadZipFile → ValidationError.
+        In the real code path, _check_zip_bomb always receives the full file.
+        A file whose ZIP structure cannot be parsed is treated as corrupted.
+        """
         full_zip = _make_zip_bytes(entries=1)
-        truncated = full_zip[:50]  # only first 50 bytes — central directory absent
-        # Should not raise (skips gracefully)
-        _check_zip_bomb(truncated)
+        truncated = full_zip[:50]  # deliberately truncated — missing central directory
+        with self.assertRaises(ValidationError):
+            _check_zip_bomb(truncated)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -534,6 +545,30 @@ class ValidateUploadRequestTests(TestCase):
             mime_type="application/pdf",
         )
         self.assertIn("doc_id", result)
+
+    @override_settings(CIVICOS={**CIVICOS_OVERRIDES, "ALLOWED_UPLOAD_MIME_TYPES": []})
+    def test_empty_allowed_mimes_raises_improperly_configured(self):
+        """
+        C-3: If both category.allowed_mime_types and CIVICOS['ALLOWED_UPLOAD_MIME_TYPES']
+        are empty, validate_upload_request must raise ImproperlyConfigured rather than
+        cryptically rejecting every upload with 'Content type not permitted'.
+        """
+        from django.core.exceptions import ImproperlyConfigured
+        # Category with no MIME override → falls back to CIVICOS → also empty
+        empty_mime_cat = make_category(allowed_mime_types=[])
+        with self.assertRaises(ImproperlyConfigured) as ctx:
+            self._call(category_slug=empty_mime_cat.slug)
+        self.assertIn("allowed_mime_types", str(ctx.exception).lower())
+
+    def test_no_document_created_on_empty_mime_error(self):
+        """ImproperlyConfigured before Document.objects.create — DB must be clean."""
+        from django.core.exceptions import ImproperlyConfigured
+        with override_settings(CIVICOS={**CIVICOS_OVERRIDES, "ALLOWED_UPLOAD_MIME_TYPES": []}):
+            empty_mime_cat = make_category(allowed_mime_types=[])
+            count_before = Document.objects.count()
+            with self.assertRaises(ImproperlyConfigured):
+                self._call(category_slug=empty_mime_cat.slug)
+            self.assertEqual(Document.objects.count(), count_before)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -787,7 +822,13 @@ class ConfirmUploadTests(TransactionTestCase):
     # ── ZIP-bomb detection ────────────────────────────────────────────────────
 
     def test_zip_bomb_in_docx_raises(self):
-        """ZIP-bomb detection must trigger on .docx files."""
+        """
+        ZIP-bomb detection must trigger on .docx files.
+
+        confirm_upload() now calls _read_full_file() specifically for the ZIP bomb
+        check (the 8 KB first_bytes read is insufficient for real-world .docx/.xlsx).
+        Patch _read_full_file (not _read_first_bytes) to inject the bomb payload.
+        """
         docx_doc = Document.objects.create(
             category=self.category,
             uploaded_by=self.user,
@@ -805,16 +846,25 @@ class ConfirmUploadTests(TransactionTestCase):
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch(
                 "apps.documents.services.upload._read_first_bytes",
-                return_value=bomb_bytes,
+                return_value=b"%PDF-1.4",  # magic-byte check (mocked out anyway)
             ):
                 with patch("apps.documents.services.upload._validate_magic_bytes"):
-                    with self.assertRaises(ValidationError) as ctx:
-                        confirm_upload(user=self.user, doc_id=str(docx_doc.pk))
+                    with patch(
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=bomb_bytes,
+                    ):
+                        with self.assertRaises(ValidationError) as ctx:
+                            confirm_upload(user=self.user, doc_id=str(docx_doc.pk))
 
         self.assertIn("ratio", str(ctx.exception).lower())
 
     def test_zip_bomb_in_xlsx_raises(self):
-        """ZIP-bomb detection must trigger on .xlsx files."""
+        """
+        ZIP-bomb detection must trigger on .xlsx files.
+
+        confirm_upload() calls _read_full_file() for the ZIP bomb check.
+        Patch _read_full_file to inject the bomb payload.
+        """
         xlsx_doc = Document.objects.create(
             category=self.category,
             uploaded_by=self.user,
@@ -832,11 +882,15 @@ class ConfirmUploadTests(TransactionTestCase):
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch(
                 "apps.documents.services.upload._read_first_bytes",
-                return_value=bomb_bytes,
+                return_value=b"%PDF-1.4",
             ):
                 with patch("apps.documents.services.upload._validate_magic_bytes"):
-                    with self.assertRaises(ValidationError):
-                        confirm_upload(user=self.user, doc_id=str(xlsx_doc.pk))
+                    with patch(
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=bomb_bytes,
+                    ):
+                        with self.assertRaises(ValidationError):
+                            confirm_upload(user=self.user, doc_id=str(xlsx_doc.pk))
 
     def test_pdf_skips_zip_bomb_check(self):
         """PDFs are not ZIP containers — zip bomb check must not apply."""

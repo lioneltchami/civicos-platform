@@ -203,6 +203,22 @@ class ScanDocumentDevBypassTests(TestCase):
 
         self.assertEqual(len(received), 0)
 
+    @override_settings(CIVICOS=CIVICOS_DEV, DEBUG=False, TESTING=False)
+    def test_dev_bypass_raises_in_production(self):
+        """
+        C-4: The DEV_BYPASS path must raise RuntimeError when triggered outside
+        a DEBUG or TESTING environment. An empty CLAMAV_HOST with
+        CLAMAV_REQUIRED=False in production would mark every document ACTIVE
+        without any virus scan — this guard prevents silent misconfiguration.
+        """
+        doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.SCANNING)
+        with self.assertRaises(RuntimeError) as ctx:
+            scan_document(str(doc.pk))
+        self.assertIn("DEV_BYPASS", str(ctx.exception))
+        # Document must remain in SCANNING — no status change occurred
+        doc.refresh_from_db()
+        self.assertEqual(doc.scan_status, Document.ScanStatus.SCANNING)
+
     # ── Document not found ────────────────────────────────────────────────────
 
     def test_document_not_found_logs_warning_and_returns(self):

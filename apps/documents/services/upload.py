@@ -30,6 +30,7 @@ Governing law: PIPEDA clause 4.7.5, OWASP File Upload Cheat Sheet, CVE-2024-0450
 
 from __future__ import annotations
 
+import datetime
 import io
 import logging
 import os
@@ -39,7 +40,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
@@ -200,6 +201,15 @@ def validate_upload_request(
         if category.allowed_mime_types
         else _civicos().get("ALLOWED_UPLOAD_MIME_TYPES", [])
     )
+    if not allowed_mimes:
+        # Misconfiguration: an empty MIME list would silently reject every upload
+        # for this category. Fail loudly so operators fix configuration rather
+        # than wonder why no uploads succeed.
+        raise ImproperlyConfigured(
+            f"DocumentCategory '{category.slug}' has no allowed_mime_types and "
+            "CIVICOS['ALLOWED_UPLOAD_MIME_TYPES'] is empty. Configure at least one "
+            "permitted MIME type before accepting uploads for this category."
+        )
     if mime_type not in allowed_mimes:
         raise ValidationError(
             _("Content type '%(mime)s' is not permitted for this document category.")
@@ -212,25 +222,44 @@ def validate_upload_request(
     doc_uuid = uuid.uuid4()
     storage_key = _make_storage_key(str(doc_uuid), prefix="quarantine")
 
-    # ── Create Document in PENDING_UPLOAD state ────────────────────────────────
-    doc = Document.objects.create(
-        id=doc_uuid,
-        category=category,
-        uploaded_by=user,
-        original_filename=original_filename,   # stored in DB; NEVER used as path
-        _storage_key=storage_key,               # NEVER returned to clients
-        mime_type=mime_type,
-        size_bytes=size_bytes,
-        scan_status=Document.ScanStatus.PENDING_UPLOAD,
-        security_classification=category.security_classification,
-        # version fields default: version_number=1, is_latest_version=True
-    )
+    # ── Create Document + schedule retention dates (atomic) ───────────────────
+    # Document.create() and schedule_expiry() must commit atomically.
+    # A committed Document row without retention dates permanently escapes the
+    # disposal schedule — a Privacy Act s.6(1) / PIPEDA data-minimisation
+    # violation. The atomic block makes both succeed or both roll back.
+    with transaction.atomic():
+        doc = Document.objects.create(
+            id=doc_uuid,
+            category=category,
+            uploaded_by=user,
+            original_filename=original_filename,   # stored in DB; NEVER used as path
+            _storage_key=storage_key,               # NEVER returned to clients
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            security_classification=category.security_classification,
+            # version fields default: version_number=1, is_latest_version=True
+        )
+        schedule_expiry(document=doc)
 
-    # ── Schedule retention dates ───────────────────────────────────────────────
-    schedule_expiry(document=doc)
-
-    # ── Generate presigned POST ────────────────────────────────────────────────
-    presigned = _generate_presigned_post(doc=doc, category=category)
+    # ── Generate presigned POST (outside transaction — no network inside txn) ──
+    # Network calls (boto3 S3) must not run inside a DB transaction: they can
+    # be slow, and transaction hold time directly affects DB concurrency.
+    # If the S3 call fails, the committed Document row is treated as an abandoned
+    # PENDING_UPLOAD and purged by cleanup_stale_pending_uploads().
+    # Best-effort immediate cleanup prevents accumulating zombie rows.
+    try:
+        presigned = _generate_presigned_post(doc=doc, category=category)
+    except Exception:
+        try:
+            doc.delete()
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "validate_upload_request: could not delete doc pk=%s after "
+                "presigned POST failure; stale cleanup will handle it.",
+                doc.pk,
+            )
+        raise
 
     # ── Fire signal ───────────────────────────────────────────────────────────
     # PIPEDA: kwargs contain only doc.pk, category.slug, user.pk (no email, no filename).
@@ -320,12 +349,25 @@ def confirm_upload(
             if doc.category.allowed_mime_types
             else _civicos().get("ALLOWED_UPLOAD_MIME_TYPES", [])
         )
+        if not allowed_mimes:
+            # Misconfiguration guard: same check as in validate_upload_request.
+            # Defends against a category being misconfigured between validate and
+            # confirm (e.g. admin changed allowed_mime_types to [] after validation).
+            raise ImproperlyConfigured(
+                f"DocumentCategory for document pk={doc.pk} has no allowed_mime_types "
+                "and CIVICOS['ALLOWED_UPLOAD_MIME_TYPES'] is empty."
+            )
         _validate_magic_bytes(first_bytes=first_bytes, allowed_mimes=allowed_mimes)
 
         # ── Layer 6: ZIP bomb detection (CVE-2024-0450) ────────────────────────
+        # The ZIP central directory is located at the END of the archive — the
+        # 8 KB first_bytes used for magic detection is insufficient for any
+        # real-world .docx or .xlsx file. Read the full file so zipfile can
+        # locate the EOCD record and parse the central directory.
         ext = Path(doc.original_filename).suffix.lstrip(".").lower()
         if ext in _ZIP_FAMILY:
-            _check_zip_bomb(first_bytes)
+            zip_bytes = _read_full_file(doc.storage_key)
+            _check_zip_bomb(zip_bytes)
 
         # ── Advance scan status ────────────────────────────────────────────────
         doc.scan_status = Document.ScanStatus.SCANNING
@@ -507,7 +549,7 @@ def _generate_presigned_post(
     """
     civicos = _civicos()
     ttl_seconds: int = civicos.get("DOCUMENT_PRESIGNED_POST_TTL_SECONDS", 900)
-    expires_at = timezone.now() + __import__("datetime").timedelta(seconds=ttl_seconds)
+    expires_at = timezone.now() + datetime.timedelta(seconds=ttl_seconds)
     expires_at_str = expires_at.isoformat()
 
     if _is_s3_storage():
@@ -752,6 +794,73 @@ def _read_local_first_bytes(storage_key: str, *, length: int) -> bytes:
         ) from exc
 
 
+def _read_full_file(storage_key: str) -> bytes:
+    """
+    Read the complete file content from storage.
+
+    Required for ZIP bomb inspection: the ZIP central directory is at the END
+    of the archive, so a partial (8 KB) read is never sufficient for any
+    real-world .docx or .xlsx file.
+
+    S3: performs a full GetObject (no Range header). Appropriate for files
+    already size-capped at ≤50 MB by upload policy.
+    Local filesystem (dev): reads the entire file.
+
+    Returns:
+        All bytes of the stored file.
+
+    Raises:
+        ValidationError: File cannot be read.
+    """
+    if _is_s3_storage():
+        return _read_full_s3_file(storage_key)
+    else:
+        return _read_full_local_file(storage_key)
+
+
+def _read_full_s3_file(storage_key: str) -> bytes:
+    """Download the complete contents of an S3 object."""
+    import boto3
+    from botocore.exceptions import ClientError
+
+    storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
+    bucket_name: str = storage_opts.get("bucket_name") or getattr(
+        settings, "AWS_STORAGE_BUCKET_NAME", ""
+    )
+    region_name: str = storage_opts.get("region_name", "ca-central-1")
+
+    s3_client = boto3.client("s3", region_name=region_name)
+    try:
+        resp = s3_client.get_object(Bucket=bucket_name, Key=storage_key)
+        return resp["Body"].read()
+    except ClientError as exc:
+        logger.error(
+            "Failed to read full S3 file for ZIP bomb check: key=%r, error=%s",
+            storage_key,
+            exc,
+        )
+        raise ValidationError(
+            _("Could not read uploaded file for validation. Please try again.")
+        ) from exc
+
+
+def _read_full_local_file(storage_key: str) -> bytes:
+    """Read the complete contents of a local filesystem file."""
+    local_path = Path(settings.MEDIA_ROOT) / storage_key
+    try:
+        with open(local_path, "rb") as fh:
+            return fh.read()
+    except OSError as exc:
+        logger.error(
+            "Failed to read full local file for ZIP bomb check: path=%r, error=%s",
+            str(local_path),
+            exc,
+        )
+        raise ValidationError(
+            _("Could not read uploaded file for validation. Please try again.")
+        ) from exc
+
+
 def _validate_magic_bytes(*, first_bytes: bytes, allowed_mimes: list[str]) -> None:
     """
     Validate a file's actual content against the allowed MIME type list.
@@ -767,6 +876,16 @@ def _validate_magic_bytes(*, first_bytes: bytes, allowed_mimes: list[str]) -> No
         ValidationError: Detected MIME type is not in allowed_mimes.
         ValidationError: python-magic / libmagic is not available (prod only).
     """
+    if not allowed_mimes:
+        # Guard: if the MIME allowlist is somehow empty here (misconfigured category
+        # or CIVICOS setting changed between validate and confirm), raise rather than
+        # silently accept every MIME type or reject all uploads cryptically.
+        raise ImproperlyConfigured(
+            "allowed_mimes is empty — magic-byte validation cannot proceed. "
+            "Configure MIME types on the DocumentCategory or "
+            "CIVICOS['ALLOWED_UPLOAD_MIME_TYPES']."
+        )
+
     if magic is None:
         # python-magic not installed — tolerable in dev if CLAMAV_REQUIRED=False.
         if _civicos().get("CLAMAV_REQUIRED", False):
@@ -799,39 +918,41 @@ def _validate_magic_bytes(*, first_bytes: bytes, allowed_mimes: list[str]) -> No
         )
 
 
-def _check_zip_bomb(first_bytes: bytes) -> None:
+def _check_zip_bomb(data: bytes) -> None:
     """
     Detect ZIP bomb attacks in .docx and .xlsx uploads (CVE-2024-0450).
+
+    Must be called with the COMPLETE file bytes. The ZIP central directory is
+    located at the END of the archive; a partial read (e.g. first 8 KB) is
+    always insufficient for real-world .docx and .xlsx files. The caller in
+    confirm_upload() uses _read_full_file() to guarantee complete data.
 
     Checks both:
       1. Total entry count > DOCUMENT_ZIP_MAX_ENTRIES (default: 1000)
       2. Any entry's uncompressed/compressed ratio > DOCUMENT_ZIP_MAX_RATIO (default: 100)
 
-    Note: only the first `_MAGIC_BYTE_READ_LENGTH` bytes are available here.
-    For most small-to-medium .docx/.xlsx files this is sufficient to read the
-    central directory. If the central directory is beyond 8 KB, zipfile will
-    raise BadZipFile and we raise a generic ValidationError.
+    A .docx or .xlsx that fails to parse as a valid ZIP archive is treated as
+    corrupted and rejected — not silently accepted.
 
     Raises:
-        ValidationError: Entry count or compression ratio limit exceeded,
-                         or the archive is not a valid ZIP file.
+        ValidationError: Entry count or compression ratio limit exceeded.
+        ValidationError: Archive is not a valid ZIP file (file is corrupted).
     """
     civicos = _civicos()
     max_entries: int = civicos.get("DOCUMENT_ZIP_MAX_ENTRIES", 1000)
     max_ratio: int = civicos.get("DOCUMENT_ZIP_MAX_RATIO", 100)
 
     try:
-        with zipfile.ZipFile(io.BytesIO(first_bytes)) as zf:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
             entries = zf.infolist()
-    except zipfile.BadZipFile:
-        # The first 8 KB may not contain the full ZIP central directory for
-        # large files. This is not necessarily a bomb — we can't confirm without
-        # reading more. Skip the bomb check; the ClamAV layer will catch malware.
-        logger.debug(
-            "ZIP central directory not in first %d bytes; skipping bomb check.",
-            len(first_bytes),
-        )
-        return
+    except zipfile.BadZipFile as exc:
+        # A .docx/.xlsx that cannot be parsed as a valid ZIP archive is
+        # corrupted or deliberately malformed. Reject it rather than silently
+        # accepting unknown content.
+        raise ValidationError(
+            _("File is not a valid archive. "
+              "Please ensure the file is not corrupted before uploading.")
+        ) from exc
     except Exception as exc:  # noqa: BLE001
         logger.warning("ZIP bomb check failed unexpectedly: %s", exc)
         raise ValidationError(

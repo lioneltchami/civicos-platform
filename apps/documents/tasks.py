@@ -104,6 +104,17 @@ def scan_document(self, doc_pk: str) -> None:
 
     # ── Dev bypass: no ClamAV configured and not required ────────────────────
     if not clamav_host and not clamav_required:
+        # Production safety guard: an empty CLAMAV_HOST with CLAMAV_REQUIRED=False
+        # outside of a DEBUG or TESTING environment means every document would be
+        # marked ACTIVE with scan_engine_result="DEV_BYPASS" — no virus scan
+        # would ever run. Fail loudly so operators fix the misconfiguration rather
+        # than ship an unscanned-document pipeline to production silently.
+        if not (settings.DEBUG or getattr(settings, "TESTING", False)):
+            raise RuntimeError(
+                "scan_document: DEV_BYPASS activated in a non-DEBUG, non-TESTING "
+                "environment. Set CLAMAV_HOST and CLAMAV_REQUIRED=True for "
+                "production, or ensure DEBUG=True / TESTING=True for development."
+            )
         _mark_document_active_dev_bypass(doc_pk=doc_pk)
         return
 
@@ -179,13 +190,6 @@ def _mark_document_active_dev_bypass(doc_pk: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Wave 2: cleanup_stale_pending_uploads
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Documents stuck in PENDING_UPLOAD for longer than this are considered
-# abandoned (browser closed, presigned URL expired without a POST, etc.).
-# 15 minutes == presigned POST TTL (DOCUMENT_PRESIGNED_POST_TTL_SECONDS=900).
-# We add a 5-minute grace margin, so 20 minutes total.
-_STALE_PENDING_MINUTES: int = 20
-
 
 @shared_task(
     bind=True,
