@@ -667,15 +667,15 @@ class CitizenTokenRedeemTests(TestCase):
 
     def test_redeem_valid_token_large_file_redirects(self) -> None:
         """Large files (> proxy threshold) redirect to presigned URL — storage_key not in headers."""
-        # Threshold comes from settings.CIVICOS['DOCUMENT_PROXY_MAX_BYTES'],
-        # which defaults to _PROXY_SIZE_THRESHOLD_BYTES (1 MB) when not overridden.
-        # The view's _proxy_threshold() and download.py's _PROXY_SIZE_THRESHOLD_BYTES
-        # share the same default value, so this import gives the correct threshold
-        # without an @override_settings decorator.
-        from apps.documents.services.download import _PROXY_SIZE_THRESHOLD_BYTES
+        # The proxy threshold is read from settings.CIVICOS['DOCUMENT_PROXY_MAX_BYTES']
+        # by the view's _proxy_threshold() helper. Read the same setting here so that
+        # any @override_settings usage in outer scopes stays in sync with the view.
+        from django.conf import settings as django_settings
+
+        proxy_threshold = django_settings.CIVICOS.get("DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024)
 
         large_doc = make_document(
-            self.user, self.category, size_bytes=_PROXY_SIZE_THRESHOLD_BYTES + 1
+            self.user, self.category, size_bytes=proxy_threshold + 1
         )
         presigned_url = "https://s3.example.com/bucket/key?X-Amz-Signature=abc123"
 
