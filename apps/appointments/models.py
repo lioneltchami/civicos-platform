@@ -1135,7 +1135,7 @@ class AvailabilityTemplate(TimestampedModel):
 
     staff = models.ForeignKey(
         StaffProfile,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,  # PIPEDA 4.5.3: audit record — must decommission staff explicitly
         related_name="availability_templates",
         verbose_name=_("Staff profile"),
     )
@@ -1222,6 +1222,39 @@ class AvailabilityTemplate(TimestampedModel):
                 {"valid_until": _("Valid until must be on or after valid from.")}
             )
 
+        # H-5: Prevent overlapping date ranges for the same (staff, day_of_week).
+        # Two templates overlap if: self.valid_from <= other.valid_until AND
+        # other.valid_from <= self.valid_until. None valid_until means open-ended.
+        # Skip when staff is not yet assigned (unsaved object without a staff FK).
+        if self.staff_id and self.valid_from:
+            qs = AvailabilityTemplate.objects.filter(
+                staff=self.staff_id,
+                day_of_week=self.day_of_week,
+            )
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+
+            for other in qs:
+                other_end = other.valid_until  # None = open-ended (infinity)
+                self_end = self.valid_until    # None = open-ended (infinity)
+
+                # Overlap: Start A <= End B  AND  Start B <= End A (None = infinity)
+                a_start_lte_b_end = (other_end is None) or (self.valid_from <= other_end)
+                b_start_lte_a_end = (self_end is None) or (other.valid_from <= self_end)
+
+                if a_start_lte_b_end and b_start_lte_a_end:
+                    raise ValidationError(
+                        {
+                            "valid_from": _(
+                                "This template's date range overlaps with an existing template "
+                                "for the same staff member and day of week (%(other_from)s – %(other_until)s)."
+                            ) % {
+                                "other_from": other.valid_from,
+                                "other_until": other.valid_until or _("open-ended"),
+                            }
+                        }
+                    )
+
 
 # ---------------------------------------------------------------------------
 # StaffException
@@ -1257,7 +1290,7 @@ class StaffException(TimestampedModel):
 
     staff = models.ForeignKey(
         StaffProfile,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,  # PIPEDA 4.5.3: audit record — must decommission staff explicitly
         related_name="exceptions",
         verbose_name=_("Staff profile"),
     )
@@ -1309,6 +1342,21 @@ class StaffException(TimestampedModel):
         ordering = ["exception_date"]
         verbose_name = _("Staff exception")
         verbose_name_plural = _("Staff exceptions")
+        constraints = [
+            # H-2: DB-level guarantee that override exceptions always have both times set.
+            # Mirrors the Python-layer check in clean(). Prevents direct SQL from creating
+            # a broken override record that would crash the slot generator on None access.
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(exception_type="override")
+                    | (
+                        models.Q(override_start_time__isnull=False)
+                        & models.Q(override_end_time__isnull=False)
+                    )
+                ),
+                name="appt_staffexc_override_requires_times",
+            ),
+        ]
 
     def __str__(self) -> str:
         # PIPEDA: no PII — use staff PK only.
@@ -1580,6 +1628,12 @@ class Slot(TimestampedModel):
                 condition=models.Q(capacity__gte=1),
                 name="appt_slot_capacity_gte_1",
             ),
+        ]
+        permissions = [
+            # H-6: Custom permission to view restricted video join URLs.
+            # Without this permission, the video fieldset is hidden in the admin
+            # and the URL is never serialized into citizen/staff-facing responses.
+            ("view_slot_video_urls", "Can view slot video join URLs"),
         ]
 
     def __str__(self) -> str:

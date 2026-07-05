@@ -166,26 +166,38 @@ def block_slot(*, slot, reason: str = "", actor=None) -> object:
     Returns:
         Updated Slot instance.
     """
-    if slot.status == "blocked":
-        return slot  # Already blocked — idempotent
-
-    # Guard: refuse to block slots with active bookings
-    # Booking model is Wave 3; guard against ImportError
-    try:
-        from apps.appointments.models import Booking  # noqa: F401
-        active_booking_count = slot.bookings.filter(
-            status__in=("pending", "confirmed")
-        ).count()
-        if active_booking_count > 0:
-            raise SlotHasBookingsError(
-                f"Slot {slot.pk} has {active_booking_count} active booking(s). "
-                "Cancel them before blocking the slot."
-            )
-    except (ImportError, AttributeError):
-        # Booking not yet implemented (Wave 3) — skip guard
-        pass
+    from apps.appointments.models import Slot  # noqa: PLC0415 — deferred to avoid circular imports
 
     with transaction.atomic():
+        slot = Slot.objects.select_for_update().get(pk=slot.pk)  # H-4: re-fetch with row lock
+
+        # H-3: State machine guard — terminal states cannot be re-transitioned
+        if slot.status in ("completed", "cancelled"):
+            raise ValueError(
+                f"Cannot block slot {slot.pk}: slot is already in terminal state '{slot.status}'. "
+                "Completed and cancelled slots are immutable for audit integrity."
+            )
+
+        # Idempotency: already blocked — no-op
+        if slot.status == "blocked":
+            return slot
+
+        # Guard: refuse to block slots with active bookings
+        # Booking model is Wave 3; guard against ImportError
+        try:
+            from apps.appointments.models import Booking  # noqa: F401
+            active_booking_count = slot.bookings.filter(
+                status__in=("pending", "confirmed")
+            ).count()
+            if active_booking_count > 0:
+                raise SlotHasBookingsError(
+                    f"Slot {slot.pk} has {active_booking_count} active booking(s). "
+                    "Cancel them before blocking the slot."
+                )
+        except (ImportError, AttributeError):
+            # Booking not yet implemented (Wave 3) — skip guard
+            pass
+
         slot.status = "blocked"
         if reason:
             existing_note = slot.internal_note
@@ -227,24 +239,36 @@ def cancel_slot(*, slot, reason: str = "", actor=None) -> object:
     Returns:
         Updated Slot instance.
     """
-    if slot.status == "cancelled":
-        return slot  # Already cancelled — idempotent
-
-    # Guard: refuse if active bookings exist
-    try:
-        from apps.appointments.models import Booking  # noqa: F401
-        active_count = slot.bookings.filter(
-            status__in=("pending", "confirmed")
-        ).count()
-        if active_count > 0:
-            raise SlotHasBookingsError(
-                f"Slot {slot.pk} has {active_count} active booking(s). "
-                "Cancel the bookings via the booking service before cancelling the slot."
-            )
-    except (ImportError, AttributeError):
-        pass
+    from apps.appointments.models import Slot  # noqa: PLC0415 — deferred to avoid circular imports
 
     with transaction.atomic():
+        slot = Slot.objects.select_for_update().get(pk=slot.pk)  # H-4: re-fetch with row lock
+
+        # H-3: State machine guard — completed slots cannot be cancelled
+        if slot.status == "completed":
+            raise ValueError(
+                f"Cannot cancel slot {slot.pk}: slot is already completed. "
+                "Completed slots are immutable for audit integrity."
+            )
+
+        # Idempotency: already cancelled — no-op
+        if slot.status == "cancelled":
+            return slot
+
+        # Guard: refuse if active bookings exist
+        try:
+            from apps.appointments.models import Booking  # noqa: F401
+            active_count = slot.bookings.filter(
+                status__in=("pending", "confirmed")
+            ).count()
+            if active_count > 0:
+                raise SlotHasBookingsError(
+                    f"Slot {slot.pk} has {active_count} active booking(s). "
+                    "Cancel the bookings via the booking service before cancelling the slot."
+                )
+        except (ImportError, AttributeError):
+            pass
+
         slot.status = "cancelled"
         if reason:
             existing_note = slot.internal_note

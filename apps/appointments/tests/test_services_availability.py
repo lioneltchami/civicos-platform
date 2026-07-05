@@ -840,7 +840,9 @@ class BookingWindowTests(TestCase):
     def test_min_lead_time_excludes_imminent_slots(self):
         """
         min_lead_time_hours=24: slots that start within 24h of now are excluded.
-        We create a template for today and check that no slots fall within the lead time.
+        We query today through day+2 so slots beyond the 24h cutoff ARE included.
+        This proves the filter actually runs — the result must be non-empty and
+        every returned slot must start at least 24h from now.
         """
         policy = make_policy(
             slot_interval_minutes=30,
@@ -852,22 +854,36 @@ class BookingWindowTests(TestCase):
         appt_type = make_appt_type(self.service_type, slug="bw-min-lead", scheduling_policy=policy)
         staff = make_staff(self.location, suffix="-ml")
         appt_type.staff_members.add(staff)
-        # Template for every day of week
+        # Template for every day of week — full day coverage so slots exist on day+2
         for dow in range(1, 8):
             make_template(staff, day_of_week=dow, start_time=time(0, 0), end_time=time(23, 30))
 
         now = timezone.now()
-        # Query for today
+        # Query from today through day+2: today's slots are all within 24h (excluded);
+        # tomorrow's and day-after-tomorrow's are outside the 24h window (included).
+        date_from = now.date()
+        date_to = (now + timedelta(days=2)).date()
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=now.date(),
-            date_to=now.date(),
+            date_from=date_from,
+            date_to=date_to,
             staff=staff,
         )
-        # All returned slots must start at least 24h from now
+
+        # Slots from day+1 and day+2 must be present — otherwise the test is vacuous
+        self.assertGreater(
+            len(result), 0,
+            "Expected slots outside 24h lead-time window to be returned (day+1 / day+2)",
+        )
+
+        # Every returned slot must start at or after the 24h cutoff
         lead_cutoff = now + timedelta(hours=24)
         for slot in result:
-            self.assertGreaterEqual(slot["start_datetime"], lead_cutoff)
+            self.assertGreaterEqual(
+                slot["start_datetime"],
+                lead_cutoff,
+                f"Slot at {slot['start_datetime']} violates 24h lead time (cutoff={lead_cutoff})",
+            )
 
     def test_max_advance_days_caps_horizon(self):
         """max_advance_days=7: slots beyond 7 days from now are excluded."""
@@ -965,10 +981,13 @@ class FrequencyControlTests(TestCase):
             staff=staff,
             citizen=None,  # No citizen
         )
-        # Should compute normally, not be empty due to frequency
-        # (May be empty for min_lead_time reasons but NOT because of frequency)
-        # Just assert it doesn't raise
-        self.assertIsInstance(result, list)
+        # When no citizen is provided frequency control is completely bypassed.
+        # The policy has min_lead_time_hours=0 and the template is Monday 9–10,
+        # so slots should be returned (the result must not be empty due to frequency).
+        self.assertGreater(
+            len(result), 0,
+            "Without a citizen, frequency control must be bypassed and slots must be returned",
+        )
 
     def test_citizen_not_blocked_when_no_booking_exists(self):
         """
@@ -1001,7 +1020,13 @@ class FrequencyControlTests(TestCase):
                 staff=staff,
                 citizen=citizen,
             )
-        self.assertIsInstance(result, list)
+        # _citizen_within_frequency_window returns False → citizen is NOT blocked.
+        # The policy has min_lead_time_hours=0 and the template is Monday 9–10,
+        # so available slots must be returned (not an empty list).
+        self.assertGreater(
+            len(result), 0,
+            "Citizen outside frequency window must see available slots",
+        )
 
     def test_citizen_blocked_when_within_frequency_window(self):
         """
@@ -1416,6 +1441,96 @@ class GenerateSlotsForRangeTests(TestCase):
         )
         self.assertEqual(count, 0)
 
+    def test_max_daily_appointments_cap_excludes_slots(self):
+        """
+        When a staff member's max_daily_appointments is reached (spaces_used >= cap),
+        get_available_slots returns no slots for that staff+day.
+        The cap is enforced via Sum(spaces_used) in the availability service.
+        """
+        cap_policy = make_policy(
+            slot_interval_minutes=30,
+            buffer_before_minutes=0,
+            buffer_after_minutes=0,
+            min_lead_time_hours=0,
+            max_advance_days=365,
+        )
+        appt_type = make_appt_type(
+            self.service_type, slug="gsfr-daily-cap",
+            scheduling_policy=cap_policy, duration_minutes=30,
+        )
+        # Staff with max_daily_appointments=1
+        staff = make_staff(self.location, suffix="-dcap")
+        staff.max_daily_appointments = 1
+        staff.save()
+        appt_type.staff_members.add(staff)
+
+        # Monday 2026-07-06 template: 9:00–11:00 would produce 4 slots normally
+        make_template(staff, day_of_week=1, start_time=time(9, 0), end_time=time(11, 0))
+
+        # Pre-create a slot with spaces_used=1 for that Monday to reach the cap
+        tz_toronto = ZoneInfo("America/Toronto")
+        nine_am_local = datetime(2026, 7, 6, 9, 0, tzinfo=tz_toronto)
+        nine_am_utc = nine_am_local.astimezone(UTC)
+        make_slot(
+            appt_type, staff, self.location, nine_am_utc,
+            duration_minutes=30, spaces_used=1, status="available",
+        )
+
+        svc = SlotAvailabilityService()
+        result = svc.get_available_slots(
+            appointment_type=appt_type,
+            date_from=date(2026, 7, 6),
+            date_to=date(2026, 7, 6),
+            staff=staff,
+        )
+        self.assertEqual(
+            result, [],
+            "Staff at max_daily_appointments cap must have no new slots returned",
+        )
+
+    def test_template_with_future_valid_from_not_used(self):
+        """
+        A template whose valid_from is in the future must not generate slots for today.
+        The availability service filters templates with valid_from__lte=current_date.
+        """
+        future_policy = make_policy(
+            slot_interval_minutes=30,
+            buffer_before_minutes=0,
+            buffer_after_minutes=0,
+            min_lead_time_hours=0,
+            max_advance_days=365,
+        )
+        appt_type = make_appt_type(
+            self.service_type, slug="gsfr-future-vf",
+            scheduling_policy=future_policy, duration_minutes=30,
+        )
+        staff = make_staff(self.location, suffix="-fvf")
+        appt_type.staff_members.add(staff)
+
+        # Monday template valid from tomorrow — must not apply today
+        tomorrow = date(2026, 7, 7)  # Tuesday; query will be for Monday
+        # valid_from is set to tomorrow (2026-07-07); query is for Monday 2026-07-06
+        AvailabilityTemplate.objects.create(
+            staff=staff,
+            day_of_week=1,  # Monday
+            start_time=time(9, 0),
+            end_time=time(17, 0),
+            valid_from=tomorrow,  # future — not yet active on 2026-07-06
+            valid_until=None,
+        )
+
+        svc = SlotAvailabilityService()
+        result = svc.get_available_slots(
+            appointment_type=appt_type,
+            date_from=date(2026, 7, 6),
+            date_to=date(2026, 7, 6),
+            staff=staff,
+        )
+        self.assertEqual(
+            result, [],
+            "Template with future valid_from must not generate slots before its start date",
+        )
+
 
 # ---------------------------------------------------------------------------
 # SlotServiceUnitTests (block_slot / cancel_slot)
@@ -1503,6 +1618,69 @@ class SlotServiceUnitTests(TestCase):
     def test_slot_has_bookings_error_not_raised_from_service(self):
         """SlotHasBookingsError is a public exception class."""
         self.assertTrue(issubclass(SlotHasBookingsError, Exception))
+
+    def test_block_slot_raises_when_slot_has_bookings(self):
+        """
+        block_slot raises SlotHasBookingsError if the slot has active bookings.
+
+        The guard in block_slot does:
+            from apps.appointments.models import Booking   # Wave 3
+            active_count = slot.bookings.filter(...).count()
+            if active_count > 0: raise SlotHasBookingsError
+
+        Until Wave 3 ships, 'Booking' doesn't exist in apps.appointments.models
+        so the import raises ImportError (caught silently by the except clause).
+
+        Fix: inject a fake Booking into the module namespace (so the import
+        succeeds) AND mock 'bookings' at the Slot CLASS level so the fresh
+        select_for_update() instance inside the atomic block also sees it.
+        """
+        from unittest.mock import MagicMock, patch
+        import apps.appointments.models as _appt_models
+
+        now_utc = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        slot = make_slot(
+            self.appt_type, self.staff, self.location, now_utc,
+            capacity=1, spaces_used=1, status="full",
+        )
+
+        mock_qs = MagicMock()
+        mock_qs.count.return_value = 1  # guard uses .count() > 0
+        mock_bookings_manager = MagicMock()
+        mock_bookings_manager.filter.return_value = mock_qs
+
+        # patch.object on the module adds 'Booking' to _appt_models.__dict__ so
+        # "from apps.appointments.models import Booking" resolves without ImportError.
+        # patch.object on type(slot) (i.e. Slot class) adds 'bookings' as a class-level
+        # attribute so the freshly-fetched select_for_update() instance inherits it.
+        with patch.object(_appt_models, "Booking", create=True, new=MagicMock()):
+            with patch.object(type(slot), "bookings", mock_bookings_manager, create=True):
+                with self.assertRaises(SlotHasBookingsError):
+                    block_slot(slot=slot)
+
+    def test_cancel_slot_raises_when_slot_has_bookings(self):
+        """
+        cancel_slot raises SlotHasBookingsError if the slot has active bookings.
+        Same Wave-3 guard path as block_slot — mocked identically.
+        """
+        from unittest.mock import MagicMock, patch
+        import apps.appointments.models as _appt_models
+
+        now_utc = datetime(2026, 8, 1, 13, 0, tzinfo=UTC)
+        slot = make_slot(
+            self.appt_type, self.staff, self.location, now_utc,
+            capacity=1, spaces_used=1, status="full",
+        )
+
+        mock_qs = MagicMock()
+        mock_qs.count.return_value = 1
+        mock_bookings_manager = MagicMock()
+        mock_bookings_manager.filter.return_value = mock_qs
+
+        with patch.object(_appt_models, "Booking", create=True, new=MagicMock()):
+            with patch.object(type(slot), "bookings", mock_bookings_manager, create=True):
+                with self.assertRaises(SlotHasBookingsError):
+                    cancel_slot(slot=slot)
 
 
 # ---------------------------------------------------------------------------
@@ -1901,6 +2079,22 @@ class TaskDecoratorTests(TestCase):
         from apps.appointments.tasks import mark_past_slots_completed
         self.assertEqual(mark_past_slots_completed.name, "appointments.mark_past_slots_completed")
 
+    def test_generate_slots_task_is_bound(self):
+        """generate_slots_for_period must use bind=True so self.retry() is available."""
+        from apps.appointments.tasks import generate_slots_for_period
+        self.assertTrue(
+            generate_slots_for_period.bind,
+            "generate_slots_for_period must have bind=True for self.retry() to work",
+        )
+
+    def test_mark_past_slots_task_is_bound(self):
+        """mark_past_slots_completed must use bind=True so self.retry() is available."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        self.assertTrue(
+            mark_past_slots_completed.bind,
+            "mark_past_slots_completed must have bind=True for self.retry() to work",
+        )
+
 
 # ---------------------------------------------------------------------------
 # PIPEDAInvariantTests
@@ -1983,3 +2177,127 @@ class PIPEDAInvariantTests(TestCase):
             # No email field should be present
             self.assertNotIn("email", slot_dict)
             self.assertNotIn("name", slot_dict)
+
+
+# ---------------------------------------------------------------------------
+# MarkPastSlotsCompletedTests (H-8e)
+# ---------------------------------------------------------------------------
+
+class MarkPastSlotsCompletedTests(TestCase):
+    """
+    Integration tests for the mark_past_slots_completed Celery task.
+
+    The task transitions Slots with status in ('available', 'partial', 'full')
+    whose end_datetime < now to 'completed'. Slots in 'blocked' or 'cancelled'
+    status must not be touched, and future slots must not be affected.
+    """
+
+    def setUp(self):
+        org = make_org("mpsc-org")
+        self.location = make_location(org, "mpsc-loc")
+        self.service_type = make_service_type("mpsc-svc")
+        self.policy = make_policy(
+            slot_interval_minutes=30,
+            buffer_before_minutes=0,
+            buffer_after_minutes=0,
+            min_lead_time_hours=0,
+            max_advance_days=365,
+        )
+        self.appt_type = make_appt_type(
+            self.service_type, slug="mpsc-appt", scheduling_policy=self.policy
+        )
+        self.staff = make_staff(self.location, suffix="-mpsc")
+
+    def _past_slot(self, status: str = "available", **overrides) -> Slot:
+        """Create a Slot whose end_datetime is 2 hours in the past."""
+        from django.utils import timezone as tz_module
+        past = tz_module.now() - timedelta(hours=2)
+        return make_slot(
+            self.appt_type, self.staff, self.location, past,
+            duration_minutes=30, status=status, **overrides,
+        )
+
+    def _future_slot(self, status: str = "available") -> Slot:
+        """Create a Slot whose start_datetime is 2 hours in the future."""
+        from django.utils import timezone as tz_module
+        future = tz_module.now() + timedelta(hours=2)
+        return make_slot(
+            self.appt_type, self.staff, self.location, future,
+            duration_minutes=30, status=status,
+        )
+
+    def test_past_available_slots_are_marked_completed(self):
+        """Slots with status 'available' whose end_datetime is in the past must be completed."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        slot = self._past_slot(status="available")
+        mark_past_slots_completed.run()
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "completed")
+
+    def test_past_partial_slots_are_marked_completed(self):
+        """Slots with status 'partial' in the past must also be marked completed."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        slot = self._past_slot(status="partial", spaces_used=1, capacity=2)
+        mark_past_slots_completed.run()
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "completed")
+
+    def test_past_full_slots_are_marked_completed(self):
+        """Slots with status 'full' in the past must also be marked completed."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        slot = self._past_slot(status="full", spaces_used=1, capacity=1)
+        mark_past_slots_completed.run()
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "completed")
+
+    def test_future_slots_not_affected(self):
+        """Future slots (end_datetime > now) must NOT be marked completed."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        slot = self._future_slot(status="available")
+        mark_past_slots_completed.run()
+        slot.refresh_from_db()
+        self.assertEqual(
+            slot.status, "available",
+            "Future slot must not be marked completed by mark_past_slots_completed",
+        )
+
+    def test_blocked_slots_not_marked_completed(self):
+        """Past slots with status 'blocked' must NOT be changed by the task."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        slot = self._past_slot(status="blocked")
+        mark_past_slots_completed.run()
+        slot.refresh_from_db()
+        self.assertEqual(
+            slot.status, "blocked",
+            "Blocked slot must not be touched by mark_past_slots_completed",
+        )
+
+    def test_cancelled_slots_not_marked_completed(self):
+        """Past slots with status 'cancelled' must NOT be changed by the task."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        slot = self._past_slot(status="cancelled")
+        mark_past_slots_completed.run()
+        slot.refresh_from_db()
+        self.assertEqual(
+            slot.status, "cancelled",
+            "Cancelled slot must not be touched by mark_past_slots_completed",
+        )
+
+    def test_task_returns_count_dict(self):
+        """mark_past_slots_completed must return {'slots_updated': N}."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        self._past_slot(status="available")
+        self._past_slot(status="partial", spaces_used=1, capacity=2)
+        result = mark_past_slots_completed.run()
+        self.assertIsInstance(result, dict)
+        self.assertIn("slots_updated", result)
+        self.assertGreaterEqual(result["slots_updated"], 2)
+
+    def test_task_is_idempotent(self):
+        """Running the task twice on the same data must not raise and must not change status again."""
+        from apps.appointments.tasks import mark_past_slots_completed
+        slot = self._past_slot(status="available")
+        mark_past_slots_completed.run()
+        mark_past_slots_completed.run()  # Second run — idempotent
+        slot.refresh_from_db()
+        self.assertEqual(slot.status, "completed")

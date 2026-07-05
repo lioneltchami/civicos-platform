@@ -1285,8 +1285,14 @@ class AvailabilityTemplateTests(TestCase):
         )
         tpl.clean()  # Must not raise
 
-    def test_cascade_delete_with_staff(self):
-        """Deleting StaffProfile cascades to AvailabilityTemplate."""
+    def test_protect_delete_with_staff(self):
+        """Deleting StaffProfile raises ProtectedError — H-1 PIPEDA 4.5.3 audit integrity.
+
+        AvailabilityTemplate is an audit record (explains why slots were generated).
+        It must NOT be silently destroyed when a staff member leaves; the administrator
+        must explicitly decommission the records first.
+        """
+        from django.db.models import ProtectedError
         AvailabilityTemplate.objects.create(
             staff=self.staff,
             day_of_week=4,
@@ -1294,8 +1300,10 @@ class AvailabilityTemplateTests(TestCase):
             end_time=time(17, 0),
             valid_from=date(2026, 1, 1),
         )
-        self.staff.delete()
-        self.assertEqual(AvailabilityTemplate.objects.count(), 0)
+        with self.assertRaises(ProtectedError):
+            self.staff.delete()
+        # The template still exists — audit record preserved
+        self.assertEqual(AvailabilityTemplate.objects.count(), 1)
 
     def test_ordering_day_of_week_then_start_time(self):
         """Templates ordered by day_of_week ASC then start_time ASC."""
@@ -1419,14 +1427,22 @@ class StaffExceptionModelConstraintTests(TestCase):
         )
         exc.clean()  # Must not raise
 
-    def test_cascade_delete_with_staff(self):
+    def test_protect_delete_with_staff(self):
+        """Deleting StaffProfile raises ProtectedError — H-1 PIPEDA 4.5.3 audit integrity.
+
+        StaffException records explain WHY slots were not generated on a date
+        and must survive staff deletion for auditability.
+        """
+        from django.db.models import ProtectedError
         StaffException.objects.create(
             staff=self.staff,
             exception_date=date(2026, 7, 10),
             exception_type="holiday",
         )
-        self.staff.delete()
-        self.assertEqual(StaffException.objects.count(), 0)
+        with self.assertRaises(ProtectedError):
+            self.staff.delete()
+        # The exception record still exists — audit record preserved
+        self.assertEqual(StaffException.objects.count(), 1)
 
     def test_exception_type_choices(self):
         choices = {c[0] for c in StaffException.EXCEPTION_TYPE_CHOICES}

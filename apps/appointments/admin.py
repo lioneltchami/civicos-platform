@@ -492,6 +492,29 @@ class StaffProfileAdmin(admin.ModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        """
+        H-7 security fix: scope queryset to the acting admin's own organization.
+
+        Without this, any is_staff admin can open StaffProfile records from
+        any organization and reassign appointment types via filter_horizontal —
+        a confirmed cross-org data exposure vulnerability (see TODO above).
+
+        Superusers retain unrestricted access. Non-superuser admins see only
+        profiles whose primary location belongs to their own organization.
+        If the admin user has no staff_profile or their location is unset,
+        return an empty queryset (fail-closed) rather than exposing all records.
+        """
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        try:
+            admin_org = request.user.staff_profile.location.organization
+            return qs.filter(location__organization=admin_org)
+        except AttributeError:
+            # Admin user has no staff_profile, or location is None — show nothing.
+            return qs.none()
+
     @admin.display(description=_("User ID"))
     def user_id_display(self, obj: StaffProfile) -> str:
         # PIPEDA: return user_id only — never email or name.
@@ -713,6 +736,29 @@ class SlotAdmin(admin.ModelAdmin):
                 "video_provider",
             ]
         return ro
+
+    def get_fieldsets(self, request, obj=None):
+        """
+        H-6 security fix: strip the entire video fieldset for users who lack
+        appointments.view_slot_video_urls permission.
+
+        get_readonly_fields() only controls editability — the field values are
+        still rendered as plain text in the fieldset and readable by any is_staff
+        admin user. Removing the fieldset entirely is the only way to prevent
+        a host/moderator video join URL from being visible to unpermissioned staff.
+        """
+        fieldsets = super().get_fieldsets(request, obj)
+        if not request.user.has_perm("appointments.view_slot_video_urls"):
+            # Strip any fieldset that contains video URL or video provider fields.
+            _video_fields = frozenset(
+                ("video_join_url_citizen", "video_join_url_staff", "video_meeting_id", "video_provider")
+            )
+            fieldsets = [
+                (title, opts)
+                for title, opts in fieldsets
+                if not any(f in opts.get("fields", ()) for f in _video_fields)
+            ]
+        return fieldsets
 
     @admin.display(description=_("ID"))
     def pk_short(self, obj: Slot) -> str:
