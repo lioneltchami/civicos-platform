@@ -105,6 +105,9 @@ urlpatterns += i18n_patterns(
     # (alongside /api/v1/) so they resolve as /volunteers/api/... not /en/volunteers/api/...
     # Split this include into two: one inside i18n_patterns (HTML views), one outside (API).
     path("volunteers/", include("apps.volunteers.urls", namespace="volunteers")),
+    # Appointments & Scheduling BB — citizen booking flow and staff calendar views (Wave 5+).
+    # Mounted inside i18n_patterns so /en/appointments/ and /fr/rendez-vous/ are both valid.
+    path("appointments/", include("apps.appointments.urls", namespace="appointments")),
     # Public-facing pages (Wagtail CMS) — must be last
     path("", include(wagtail_urls)),
     prefix_default_language=False,  # /en/ not required; /fr/ prefix for French
