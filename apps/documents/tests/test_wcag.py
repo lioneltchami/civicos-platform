@@ -318,14 +318,35 @@ class ErrorRoleAlertTests(TestCase):
         self.client.force_login(self.user)
 
     def test_upload_form_non_field_error_has_role_alert(self):
-        """Non-field error alerts must have role="alert"."""
-        # Verify the template structure includes role="alert" on alerts
-        response = self.client.get(reverse("documents:upload-init"))
+        """
+        WCAG 4.1.3: the error container that appears after a failed form
+        submission must have role="alert" so screen readers announce it.
+
+        We POST with an invalid category_slug (empty string) to trigger a real
+        form validation error, then assert that the rendered error container
+        carries role="alert".  A plain GET must NOT be used here because the
+        <noscript> block always renders role="alert" regardless of errors,
+        making a GET-based test a false positive.
+        """
+        # Ensure at least one category exists so the form can render choices.
+        _make_category()
+        # POST with an invalid (empty) category_slug to trigger a field error.
+        response = self.client.post(
+            reverse("documents:upload-init"),
+            {
+                "category_slug": "",          # required — intentionally blank
+                "original_filename": "",
+                "mime_type": "",
+                "size_bytes": "",
+                "description": "",
+            },
+        )
+        # Form re-renders with errors — must not redirect.
+        # The view returns 422 Unprocessable Entity on form validation failure.
+        self.assertEqual(response.status_code, 422)
         content = response.content.decode()
-        # The template should have role="alert" defined for error blocks
-        # (even if no errors currently — the structure should be conditional on errors)
-        # We check the base alert template structure
-        # The noscript fallback already has role="alert"
+        # The category error container must be present and carry role="alert".
+        self.assertIn('id="category-error"', content)
         self.assertIn('role="alert"', content)
 
 

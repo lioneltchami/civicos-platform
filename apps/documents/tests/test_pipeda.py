@@ -121,10 +121,15 @@ class IDORPreventionTests(TestCase):
     def test_anon_user_gets_404(self):
         """
         Anonymous users must get Http404.
+
+        Uses AnonymousUser (is_authenticated=False) — not an unsaved User()
+        instance, which has is_authenticated=True and would bypass the auth
+        check, potentially reaching the ownership comparison and raising an
+        arbitrary exception (masking IDOR violations).
         """
-        anon = User()  # unsaved — simulates anonymous
-        anon.pk = None
-        with self.assertRaises((Http404, Exception)):
+        from django.contrib.auth.models import AnonymousUser
+        anon = AnonymousUser()
+        with self.assertRaises(Http404):
             issue_access_token(user=anon, document=self.doc)
 
     def test_wrong_token_issuer_gets_404(self):
@@ -350,24 +355,65 @@ class QuarantineSignalPIITests(TestCase):
     don't need (minimisation principle, PIPEDA Schedule 1 §4.4).
     """
 
-    def test_quarantine_signal_kwarg_allowlist(self):
+    def test_quarantine_signal_kwargs_contain_no_uploader_pii(self):
         """
-        The quarantine signal docstring documents: document_pk (str), scan_engine_result (str).
-        No uploader_id, no uploaded_by, no email.
+        PIPEDA: document_quarantined must NOT expose uploader identity at runtime.
+
+        Calls _mark_document_quarantined_clamav() — the real production code path
+        that fires document_quarantined — with a mocked storage backend.  A
+        receiver captures every kwarg the signal actually delivers and asserts that
+        no PII keys are present.
+
+        This tests runtime behaviour, not source comments.  A developer could
+        add ``uploaded_by_id=doc.uploaded_by_id`` to the send() call and a
+        source-inspection test would not catch it; this test will.
         """
-        from apps.documents import signals as sig_module
-        import inspect
-        src = inspect.getsource(sig_module)
+        from apps.documents import signals as doc_signals
+        from apps.documents.tasks import _mark_document_quarantined_clamav
 
-        # Find the quarantined signal block
-        idx = src.find("document_quarantined")
-        block_end = src.find("\n\n", idx)
-        block = src[idx:block_end]
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat, scan_status=Document.ScanStatus.SCANNING)
 
-        # Must document exclusion of uploader identity
-        self.assertIn("MUST NOT", src[max(0, idx - 300):block_end])
-        # uploaded_by_id must NOT be listed as a provided kwarg
-        self.assertNotIn("uploaded_by_id", block)
+        received: dict = {}
+
+        def capture(sender, **kwargs):
+            received.update(kwargs)
+
+        doc_signals.document_quarantined.connect(capture, weak=False)
+        try:
+            with patch("django.core.files.storage.default_storage") as mock_storage:
+                mock_storage.delete.return_value = None
+                _mark_document_quarantined_clamav(
+                    doc_pk=str(doc.pk),
+                    virus_name="Eicar-Test-Signature",
+                )
+        finally:
+            doc_signals.document_quarantined.disconnect(capture)
+
+        # Signal must have fired
+        self.assertTrue(received, "document_quarantined was not fired")
+
+        # Only the two permitted keys (plus Django's internal 'signal' kwarg) are allowed
+        pii_keys = {
+            "uploaded_by_id",
+            "uploaded_by",
+            "original_filename",
+            "storage_key",
+            "_storage_key",
+            "uploader_email",
+        }
+        found_pii = pii_keys & set(received.keys())
+        self.assertFalse(
+            found_pii,
+            f"PIPEDA violation: document_quarantined signal contained PII keys: {found_pii}",
+        )
+
+        # Positive assertion: the two expected keys must be present
+        self.assertIn("document_pk", received)
+        self.assertIn("scan_engine_result", received)
+        self.assertEqual(received["document_pk"], str(doc.pk))
+        self.assertIn("Eicar-Test-Signature", received["scan_engine_result"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

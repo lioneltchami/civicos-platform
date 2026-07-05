@@ -417,10 +417,21 @@ class QuarantineSignalPIITests(TestCase):
     identity in kwargs. This prevents PII leakage to system-admin notification
     handlers.
 
-    Tests here are structural (signal declaration & kwargs inspection).
-    The actual dispatch happens inside scan webhook handlers; we test the signal
-    object itself and any documented constraints.
+    Tests call the real production dispatch site (_mark_document_quarantined_clamav)
+    to prove the live code path sends the correct kwargs — not a self-referential
+    signal.send() call.
     """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+        # Document must be in SCANNING state so _mark_document_quarantined_clamav
+        # will process it (idempotency guard skips non-SCANNING documents).
+        self.doc = _make_document(
+            self.user,
+            self.cat,
+            scan_status=Document.ScanStatus.SCANNING,
+        )
 
     def test_document_quarantined_signal_exists(self):
         self.assertIsInstance(doc_signals.document_quarantined, Signal)
@@ -441,25 +452,59 @@ class QuarantineSignalPIITests(TestCase):
         quarantine_block = module_source[quarantine_block_start:quarantine_block_end]
         self.assertNotIn("uploaded_by_id", quarantine_block)
 
-    def test_quarantined_signal_allowed_kwargs(self):
+    def test_quarantined_signal_no_pii_from_real_dispatch_site(self):
         """
-        Simulate firing document_quarantined and verify only allowed kwargs.
-        Allowed: document_pk (str), scan_engine_result (str)
+        Call the REAL production dispatch site (_mark_document_quarantined_clamav)
+        and assert the signal fires without PII kwargs.
+
+        The dispatch site is apps.documents.tasks._mark_document_quarantined_clamav.
+        It fires document_quarantined DIRECTLY (not via on_commit).
+
+        default_storage.delete() is called inside a bare try/except Exception in
+        the production code, so a storage failure is silently swallowed. We patch
+        it to prevent any real S3/filesystem I/O; even without the patch the signal
+        would still fire, but patching avoids noisy log output in the test run.
         """
-        handler = MagicMock()
-        doc_signals.document_quarantined.connect(handler)
+        from apps.documents.tasks import _mark_document_quarantined_clamav
+
+        received_calls = []
+
+        def capturing_receiver(sender, **kwargs):
+            received_calls.append(kwargs)
+
+        doc_signals.document_quarantined.connect(capturing_receiver, weak=False)
         try:
-            doc_signals.document_quarantined.send(
-                sender=Document,
-                document_pk="some-uuid",
-                scan_engine_result="Eicar-Test-Signature",
-            )
-            _, kwargs = handler.call_args
+            # Patch default_storage at the source (lazy import inside function body).
+            with patch(
+                "django.core.files.storage.default_storage",
+            ) as mock_storage:
+                mock_storage.delete.return_value = None
+                _mark_document_quarantined_clamav(
+                    doc_pk=str(self.doc.pk),
+                    virus_name="Eicar-Test-Signature",
+                )
+
+            self.assertEqual(len(received_calls), 1, "Signal was never fired")
+            kwargs = received_calls[0]
+
+            # PII must not be present
+            self.assertNotIn("uploaded_by_id", kwargs)
+            self.assertNotIn("original_filename", kwargs)
+            self.assertNotIn("storage_key", kwargs)
+            self.assertNotIn("_storage_key", kwargs)
+
+            # Required kwargs must be present
+            self.assertIn("document_pk", kwargs)
+            self.assertIsInstance(kwargs["document_pk"], str)
+            self.assertIn("scan_engine_result", kwargs)
+            self.assertIsInstance(kwargs["scan_engine_result"], str)
+
+            # Confirm no unexpected extra keys (beyond signal/sender injected by Django)
             allowed = {"signal", "sender", "document_pk", "scan_engine_result"}
             extra = set(kwargs.keys()) - allowed
-            self.assertSetEqual(extra, set(), f"Unexpected kwargs in quarantined signal: {extra}")
+            self.assertSetEqual(extra, set(), f"Unexpected PII kwargs in quarantined signal: {extra}")
         finally:
-            doc_signals.document_quarantined.disconnect(handler)
+            doc_signals.document_quarantined.disconnect(capturing_receiver)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -470,10 +515,15 @@ class QuarantineSignalPIITests(TestCase):
 class UploadInitiatedSignalContractTests(TestCase):
     """
     document_upload_initiated is fired inside validate_upload_request().
-    We can't easily call that service here without S3 mocking, but we verify
-    the signal's documented kwarg contract by firing it directly and checking
-    what flows through to handlers.
+
+    Tests call the REAL service function with mocked external I/O (S3 presigned
+    post, schedule_expiry) to prove the live code path sends the correct kwargs —
+    not a self-referential signal.send() call.
     """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
 
     def test_upload_initiated_signal_exists(self):
         self.assertIsInstance(doc_signals.document_upload_initiated, Signal)
@@ -481,30 +531,59 @@ class UploadInitiatedSignalContractTests(TestCase):
     def test_upload_initiated_kwarg_contract(self):
         """
         Documented kwargs: document_pk (str), category_slug (str), uploaded_by_id (int)
-        """
-        user = _make_user()
-        cat = _make_category()
-        doc = _make_document(user, cat)
+        PIPEDA: original_filename and storage_key must NOT be in kwargs.
 
-        handler = MagicMock()
-        doc_signals.document_upload_initiated.connect(handler)
+        Calls validate_upload_request() — the real dispatch site — with mocked
+        external I/O (S3 presigned post generation, retention scheduling).
+        Signal fires DIRECTLY inside the function (no on_commit wrapper).
+        """
+        from apps.documents.services.upload import validate_upload_request
+
+        received_calls = []
+
+        def capturing_receiver(sender, **kwargs):
+            received_calls.append(kwargs)
+
+        doc_signals.document_upload_initiated.connect(capturing_receiver, weak=False)
         try:
-            doc_signals.document_upload_initiated.send(
-                sender=Document,
-                document_pk=str(doc.pk),
-                category_slug=cat.slug,
-                uploaded_by_id=user.pk,
-            )
-            _, kwargs = handler.call_args
-            self.assertEqual(kwargs["document_pk"], str(doc.pk))
+            fake_presigned = {
+                "url": "https://s3.example.com/bucket",
+                "fields": {"key": "some-key", "policy": "abc"},
+                "expires_at": "2099-01-01T00:00:00Z",
+            }
+            with patch(
+                "apps.documents.services.upload._generate_presigned_post",
+                return_value=fake_presigned,
+            ), patch(
+                "apps.documents.services.upload.schedule_expiry",
+                return_value=None,
+            ):
+                result = validate_upload_request(
+                    user=self.user,
+                    category_slug=self.cat.slug,
+                    original_filename="evidence.pdf",
+                    mime_type="application/pdf",
+                    size_bytes=4_096,
+                )
+
+            self.assertEqual(len(received_calls), 1, "Signal was never fired")
+            kwargs = received_calls[0]
+
+            # Required kwargs
+            self.assertIn("document_pk", kwargs)
             self.assertIsInstance(kwargs["document_pk"], str)
-            self.assertEqual(kwargs["category_slug"], cat.slug)
-            self.assertEqual(kwargs["uploaded_by_id"], user.pk)
-            # PIPEDA: no filename, no storage_key
+            self.assertEqual(kwargs["document_pk"], result["doc_id"])
+            self.assertIn("category_slug", kwargs)
+            self.assertEqual(kwargs["category_slug"], self.cat.slug)
+            self.assertIn("uploaded_by_id", kwargs)
+            self.assertEqual(kwargs["uploaded_by_id"], self.user.pk)
+
+            # PIPEDA: no filename, no storage key
             self.assertNotIn("original_filename", kwargs)
             self.assertNotIn("storage_key", kwargs)
+            self.assertNotIn("_storage_key", kwargs)
         finally:
-            doc_signals.document_upload_initiated.disconnect(handler)
+            doc_signals.document_upload_initiated.disconnect(capturing_receiver)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -513,34 +592,79 @@ class UploadInitiatedSignalContractTests(TestCase):
 
 
 class DocumentConfirmedSignalContractTests(TestCase):
+    """
+    document_confirmed is fired inside confirm_upload() after the document
+    advances to SCANNING and the ClamAV task is dispatched.
+
+    Tests call the REAL service function — not a self-referential signal.send().
+    External I/O (file existence check, magic-byte detection, audit logging,
+    Celery task dispatch) is mocked to isolate the signal-kwarg contract.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+        # Document must be in PENDING_UPLOAD so confirm_upload() will process it.
+        self.doc = _make_document(
+            self.user,
+            self.cat,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+        )
 
     def test_document_confirmed_kwarg_contract(self):
         """
         Documented kwargs: document_pk (str), size_bytes (int), mime_type (str)
         PIPEDA: original_filename and uploader PII NOT in kwargs.
-        """
-        user = _make_user()
-        cat = _make_category()
-        doc = _make_document(user, cat)
 
-        handler = MagicMock()
-        doc_signals.document_confirmed.connect(handler)
+        Calls confirm_upload() — the real dispatch site — with mocked external I/O.
+        Signal fires DIRECTLY after the atomic block (not via on_commit).
+        captureOnCommitCallbacks is used only to flush the scan_document.apply_async
+        on_commit callback so it does not leak into subsequent tests.
+        """
+        from apps.documents.services.upload import confirm_upload
+
+        received_calls = []
+
+        def capturing_receiver(sender, **kwargs):
+            received_calls.append(kwargs)
+
+        doc_signals.document_confirmed.connect(capturing_receiver, weak=False)
         try:
-            doc_signals.document_confirmed.send(
-                sender=Document,
-                document_pk=str(doc.pk),
-                size_bytes=doc.size_bytes,
-                mime_type=doc.mime_type,
-            )
-            _, kwargs = handler.call_args
-            self.assertEqual(kwargs["document_pk"], str(doc.pk))
-            self.assertEqual(kwargs["size_bytes"], doc.size_bytes)
-            self.assertEqual(kwargs["mime_type"], doc.mime_type)
+            with patch(
+                "apps.documents.services.upload._verify_file_exists",
+                return_value=None,
+            ), patch(
+                "apps.documents.services.upload._validate_magic_bytes",
+                return_value=None,  # None = magic bypassed; mime_type unchanged
+            ), patch(
+                "apps.audit.services.record_event",
+                return_value=None,
+            ), patch(
+                "apps.documents.tasks.scan_document.apply_async",
+                return_value=None,
+            ):
+                with self.captureOnCommitCallbacks(execute=True):
+                    confirm_upload(user=self.user, doc_id=str(self.doc.pk))
+
+            self.assertEqual(len(received_calls), 1, "Signal was never fired")
+            kwargs = received_calls[0]
+
+            # Required kwargs
+            self.assertIn("document_pk", kwargs)
+            self.assertIsInstance(kwargs["document_pk"], str)
+            self.assertEqual(kwargs["document_pk"], str(self.doc.pk))
+            self.assertIn("size_bytes", kwargs)
+            self.assertEqual(kwargs["size_bytes"], self.doc.size_bytes)
+            self.assertIn("mime_type", kwargs)
+            self.assertIsInstance(kwargs["mime_type"], str)
+
+            # PIPEDA: no PII
             self.assertNotIn("original_filename", kwargs)
             self.assertNotIn("uploaded_by_id", kwargs)
             self.assertNotIn("storage_key", kwargs)
+            self.assertNotIn("_storage_key", kwargs)
         finally:
-            doc_signals.document_confirmed.disconnect(handler)
+            doc_signals.document_confirmed.disconnect(capturing_receiver)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

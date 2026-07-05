@@ -398,32 +398,26 @@ class CreateNewVersionReturnContractTest(TestCase):
 
     def test_return_dict_has_no_storage_key(self):
         """
-        Full mock execution: verify returned dict keys.
-        Patches connection, transaction.atomic, Document.objects, schedule_expiry,
-        record_event, _generate_presigned_post, and transaction.on_commit.
+        PIPEDA: create_new_version() must never include storage_key in the
+        returned dict.
+
+        We use real DB objects and patch only the three external I/O calls that
+        cannot run in the test environment:
+          - _generate_presigned_post  (boto3 / S3)
+          - schedule_expiry           (writes expires_at; acceptable side-effect
+                                       but we isolate it to keep the test atomic)
+          - record_event              (audit DB write; isolated for the same reason)
+
+        connection.vendor is patched to 'postgresql' to bypass the SQLite guard.
+        captureOnCommitCallbacks(execute=True) fires the on_commit callback
+        (signal dispatch) synchronously within the test transaction.
         """
         owner = _make_user()
         owner = _grant_perm(owner, "upload_document")
         cat = _make_category(staff_only=False)
+        # A real Document in the DB — the ORM select_for_update path works on SQLite
+        # once connection.vendor is patched to 'postgresql'.
         doc = _make_document(owner, cat)
-
-        # Build a fake "new_doc" that would have been created
-        fake_new_doc = MagicMock()
-        fake_new_doc.pk = uuid.uuid4()
-        fake_new_doc.version_number = 2
-        fake_new_doc.legal_hold = False
-
-        fake_current_latest = MagicMock()
-        fake_current_latest.pk = doc.pk
-        fake_current_latest.version_number = 1
-        fake_current_latest.is_latest_version = True
-
-        fake_locked_root = MagicMock()
-        fake_locked_root.pk = doc.pk
-        fake_locked_root.deleted_at = None
-        fake_locked_root.legal_hold = False
-
-        fake_chain_docs = [fake_current_latest]
 
         fake_presigned = {
             "url": "https://s3.example.com/upload",
@@ -431,41 +425,17 @@ class CreateNewVersionReturnContractTest(TestCase):
             "expires_at": "2026-01-01T00:00:00Z",
         }
 
-        # Note: _generate_presigned_post, schedule_expiry, record_event, and Document
-        # are lazy imports (inside the function body) so they must be patched at
-        # their source modules, not at apps.documents.services.versioning.
+        # Lazy imports inside create_new_version() must be patched at their
+        # source modules, not at apps.documents.services.versioning.
         with patch("apps.documents.services.versioning.connection") as mc, \
-             patch("apps.documents.services.versioning.transaction") as mock_txn, \
              patch("apps.documents.services.upload._generate_presigned_post",
                    return_value=fake_presigned), \
              patch("apps.documents.services.retention.schedule_expiry"), \
-             patch("apps.audit.services.record_event"), \
-             patch("apps.documents.models.Document") as mock_doc_cls:
+             patch("apps.audit.services.record_event"):
 
             mc.vendor = "postgresql"
 
-            # Make transaction.atomic() a no-op context manager
-            cm_mock = MagicMock()
-            cm_mock.__enter__ = MagicMock(return_value=None)
-            cm_mock.__exit__ = MagicMock(return_value=False)
-            mock_txn.atomic.return_value = cm_mock
-            mock_txn.on_commit = MagicMock()
-
-            # Set up the queryset mock
-            mock_qs = MagicMock()
-            mock_qs.filter.return_value = mock_qs
-            mock_qs.order_by.return_value = mock_qs
-            list_result = [fake_locked_root, fake_current_latest]
-            mock_qs.__iter__ = MagicMock(return_value=iter(list_result))
-            mock_qs.select_for_update.return_value = mock_qs
-
-            # next() / list() calls
-            mock_doc_cls.objects.select_for_update.return_value = mock_qs
-            mock_doc_cls.objects.create.return_value = fake_new_doc
-            mock_doc_cls.ScanStatus = Document.ScanStatus
-            mock_doc_cls.Q = MagicMock()
-
-            try:
+            with self.captureOnCommitCallbacks(execute=True):
                 result = create_new_version(
                     user=owner,
                     root_document=doc,
@@ -473,16 +443,15 @@ class CreateNewVersionReturnContractTest(TestCase):
                     mime_type="application/pdf",
                     size_bytes=1_024,
                 )
-                # If we get here, verify the return dict
-                self.assertNotIn("storage_key", result)
-                self.assertIn("doc_id", result)
-                self.assertIn("upload_url", result)
-                self.assertIn("upload_fields", result)
-                self.assertIn("expires_at", result)
-            except Exception:
-                # The deep mock may fail at boundary conditions — that's OK.
-                # The important contract is tested at the source level below.
-                pass
+
+        # PIPEDA invariant: storage_key must NEVER appear in the returned dict.
+        self.assertNotIn("storage_key", result)
+        self.assertNotIn("_storage_key", result)
+        # Expected keys from the return statement in versioning.py.
+        self.assertIn("doc_id", result)
+        self.assertIn("upload_url", result)
+        self.assertIn("upload_fields", result)
+        self.assertIn("expires_at", result)
 
     def test_function_source_excludes_storage_key_from_return(self):
         """

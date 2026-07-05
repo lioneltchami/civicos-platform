@@ -478,3 +478,61 @@ class AuditAtomicityTests(TestCase):
 
         entry = _latest_audit(doc, AuditEventType.LEGAL_HOLD_APPLIED)
         self.assertIsNotNone(entry)
+
+    def test_record_event_failure_rolls_back_document_state(self):
+        """PIPEDA 4.5.3: if audit write fails, document state must roll back atomically."""
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat)
+
+        # Patch record_event to raise — simulating a DB failure mid-transaction.
+        # record_event is imported at module level in retention.py, so patch it there.
+        with patch(
+            "apps.documents.services.retention.record_event",
+            side_effect=RuntimeError("simulated DB failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                soft_delete(document=doc, deleted_by=user, reason="test_atomicity")
+
+        # Document state must be rolled back — save() and record_event() are in
+        # the same atomic() block, so both must roll back together.
+        doc.refresh_from_db()
+        self.assertIsNone(
+            doc.deleted_at,
+            "Document deleted_at must be rolled back if audit record_event raises",
+        )
+        self.assertEqual(
+            AuditLogEntry.objects.filter(resource_id=str(doc.pk)).count(),
+            0,
+            "No AuditLogEntry must exist if the atomic transaction rolls back",
+        )
+
+    def test_document_state_failure_rolls_back_audit_entry(self):
+        """PIPEDA 4.5.3: if document save fails, audit entry must also roll back."""
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat)
+
+        # Patch Document.save to raise on the FIRST call inside the atomic block.
+        # soft_delete() re-fetches via select_for_update() and saves the fetched
+        # instance — the first save() call is the state change we want to fail.
+        original_save = Document.save
+        call_count = [0]
+
+        def failing_save(self_doc, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("simulated DB failure on save")
+            return original_save(self_doc, *args, **kwargs)
+
+        with patch.object(Document, "save", failing_save):
+            with self.assertRaises(RuntimeError):
+                soft_delete(document=doc, deleted_by=user, reason="test_atomicity")
+
+        # No AuditLogEntry should exist — doc.save() and record_event() are both
+        # inside the same atomic() block, so the save failure rolls back both.
+        self.assertEqual(
+            AuditLogEntry.objects.filter(resource_id=str(doc.pk)).count(),
+            0,
+            "No AuditLogEntry must exist if document save fails and transaction rolls back",
+        )
