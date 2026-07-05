@@ -312,12 +312,50 @@ def create_new_version(
             root_document=chain_root,              # always points to version 1
             is_latest_version=True,
             description=description,
+            # H-1: Propagate legal_hold from the locked chain root so that every
+            # new version in a legally-held chain inherits the hold unconditionally.
+            # TBS ATIP / litigation hold guidance: "holds supersede all normal schedules."
+            legal_hold=locked_root.legal_hold,
             # Retention/legal-hold: set by schedule_expiry() immediately below.
         )
         # schedule_expiry() writes expires_at and retain_until atomically
         # within the same transaction, ensuring the new version enters the
         # disposal schedule from the moment it is created.
         schedule_expiry(document=new_doc)
+
+        # ── Audit log (inside atomic — PIPEDA 4.5.3) ──────────────────────────
+        # record_event() is inside atomic() so that an audit write failure does
+        # NOT roll back the version creation (try/except swallows the exception).
+        # PIPEDA 4.5.3: audit entries must be written atomically with the state
+        # change they record.
+        # PIPEDA constraints on event_detail:
+        #   - NO original_filename (may contain PII)
+        #   - NO storage_key (internal S3 path)
+        # Only: root_document_pk, new_version_pk, version_number.
+        try:
+            record_event(
+                event_type=AuditEventType.RECORD_CREATED,
+                actor_id=str(user.pk),
+                resource_type="documents.Document",
+                resource_id=str(new_doc.pk),
+                event_detail={
+                    "root_document_pk": str(chain_root.pk),
+                    "new_version_pk": str(new_doc.pk),
+                    "version_number": new_version_number,
+                    "category_slug": category.slug,
+                    "mime_type": mime_type,
+                    "size_bytes": size_bytes,
+                    # original_filename deliberately excluded (PIPEDA)
+                    # storage_key deliberately excluded (security)
+                },
+            )
+        except Exception:
+            # Audit failure must NEVER prevent the version creation.
+            logger.exception(
+                "create_new_version: audit write failed for new doc pk=%s; "
+                "version creation unaffected.",
+                new_doc.pk,
+            )
 
     # ── Generate presigned upload URL (outside transaction) ───────────────────
     # Network I/O (boto3 S3) must NOT run inside a DB transaction.
@@ -327,8 +365,34 @@ def create_new_version(
     # This is best-effort: if the rollback itself fails, both Document rows
     # are orphaned but the DB constraint (exactly one is_latest_version=True)
     # will be violated. Log loudly so operators can investigate.
+
+    # H-2: Build the success_action_redirect URL so S3 redirects the browser to
+    # the confirm view after upload. Without this the new version stays in
+    # PENDING_UPLOAD forever (same pattern as validate_upload_request in upload.py).
+    # Lazy imports to match the file's existing pattern and avoid circular imports.
+    from django.conf import settings as _settings
+    from django.urls import reverse as _reverse
+
+    _base_url = getattr(_settings, "SITE_URL", "").rstrip("/")
+    if not _base_url:
+        logger.warning(
+            "create_new_version: SITE_URL is not configured — "
+            "success_action_redirect will NOT be injected into the S3 presigned POST "
+            "for new version doc pk=%s. "
+            "Set SITE_URL in production settings so the browser is redirected to the "
+            "confirm view after upload (otherwise documents stay in PENDING_UPLOAD).",
+            new_doc.pk,
+        )
+    _confirm_path = _reverse("documents:upload-confirm", args=[str(new_doc.pk)])
+    success_redirect_url: str | None = f"{_base_url}{_confirm_path}" if _base_url else None
+
     try:
-        presigned = _generate_presigned_post(doc=new_doc, category=category, max_size=max_size)
+        presigned = _generate_presigned_post(
+            doc=new_doc,
+            category=category,
+            max_size=max_size,
+            success_redirect_url=success_redirect_url,
+        )
     except Exception:
         logger.error(
             "create_new_version: presigned POST generation failed for "
@@ -359,36 +423,6 @@ def create_new_version(
                 chain_root.pk,
             )
         raise
-
-    # ── Audit log ─────────────────────────────────────────────────────────────
-    # PIPEDA constraints on event_detail:
-    #   - NO original_filename (may contain PII)
-    #   - NO storage_key (internal S3 path)
-    # Only: root_document_pk, new_version_pk, version_number.
-    try:
-        record_event(
-            event_type=AuditEventType.RECORD_CREATED,
-            actor_id=str(user.pk),
-            resource_type="documents.Document",
-            resource_id=str(new_doc.pk),
-            event_detail={
-                "root_document_pk": str(chain_root.pk),
-                "new_version_pk": str(new_doc.pk),
-                "version_number": new_version_number,
-                "category_slug": category.slug,
-                "mime_type": mime_type,
-                "size_bytes": size_bytes,
-                # original_filename deliberately excluded (PIPEDA)
-                # storage_key deliberately excluded (security)
-            },
-        )
-    except Exception:
-        # Audit failure must NEVER prevent the version creation.
-        logger.exception(
-            "create_new_version: audit write failed for new doc pk=%s; "
-            "version creation unaffected.",
-            new_doc.pk,
-        )
 
     # ── Fire signal ───────────────────────────────────────────────────────────
     # send_robust() ensures a bad receiver never propagates an exception here.

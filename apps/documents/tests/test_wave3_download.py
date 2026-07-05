@@ -505,6 +505,12 @@ class IssueAccessTokenTests(TestCase):
         """
         If the audit write raises, issue_access_token must still return
         a valid token (audit failure must never degrade citizen access).
+
+        Patch target is ``apps.audit.services.record_event`` — the source module
+        attribute. download.py imports record_event lazily inside the function body
+        (``from apps.audit.services import record_event``), so Python re-evaluates
+        the attribute lookup on every call. Patching the source module attribute
+        correctly intercepts it.
         """
         with patch("apps.audit.services.record_event", side_effect=Exception("DB down")):
             token = issue_access_token(user=self.user, document=self.doc)
@@ -694,6 +700,12 @@ class ConsumeAccessTokenTests(TestCase):
         """
         If the audit write raises, consume_access_token must still return
         the Document (audit failure must never degrade citizen access).
+
+        Patch target is ``apps.audit.services.record_event`` — the source module
+        attribute. download.py imports record_event lazily inside the function body
+        (``from apps.audit.services import record_event``), so Python re-evaluates
+        the attribute lookup on every call. Patching the source module attribute
+        correctly intercepts it.
         """
         token = make_active_token(self.doc, self.user)
         with patch("apps.audit.services.record_event", side_effect=Exception("DB down")):

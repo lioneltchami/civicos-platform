@@ -45,12 +45,9 @@ _DEFAULT_ALLOWED_MIME_TYPES: list[str] = [
     "text/csv",
 ]
 
-#: Maximum upload size (bytes). Read from CIVICOS settings; default 50 MB.
-_civicos: dict[str, Any] = getattr(settings, "CIVICOS", {})
-_MAX_UPLOAD_BYTES: int = _civicos.get("DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES", 50 * 1024 * 1024)
-_ALLOWED_MIME_TYPES: list[str] = _civicos.get(
-    "ALLOWED_UPLOAD_MIME_TYPES", _DEFAULT_ALLOWED_MIME_TYPES
-)
+#: Default maximum upload size (bytes) used for field definition at class time.
+#: The live value is read from settings in __init__ so @override_settings works in tests.
+_DEFAULT_MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024  # 50 MB fallback
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +98,7 @@ class DocumentUploadIntentForm(forms.Form):
     size_bytes = forms.IntegerField(
         label=_("File size (bytes)"),
         min_value=1,
-        max_value=_MAX_UPLOAD_BYTES,
+        max_value=_DEFAULT_MAX_UPLOAD_BYTES,
         widget=forms.HiddenInput,
     )
     description = forms.CharField(
@@ -116,6 +113,19 @@ class DocumentUploadIntentForm(forms.Form):
         user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
 
+        # Read live settings values so @override_settings works correctly in tests.
+        # These are read per-instance, not at module import time.
+        _civicos: dict[str, Any] = getattr(settings, "CIVICOS", {})
+        self._max_upload_bytes: int = _civicos.get(
+            "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES", _DEFAULT_MAX_UPLOAD_BYTES
+        )
+        self._allowed_mime_types: list[str] = _civicos.get(
+            "ALLOWED_UPLOAD_MIME_TYPES", _DEFAULT_ALLOWED_MIME_TYPES
+        )
+
+        # Patch the size_bytes field's max_value with the live setting.
+        self.fields["size_bytes"].max_value = self._max_upload_bytes  # type: ignore[attr-defined]
+
         # Populate category choices from DB (slug → display name).
         # C-5 fix: citizens must never see staff-only categories in the rendered
         # <select> element.  Only users who hold the upload_staff_document
@@ -129,9 +139,9 @@ class DocumentUploadIntentForm(forms.Form):
             + [(c.slug, c.name_en) for c in categories]
         )
 
-        # Populate MIME type choices from the allow-list.
+        # Populate MIME type choices from the live allow-list.
         self.fields["mime_type"].choices = [  # type: ignore[attr-defined]
-            (m, m) for m in _ALLOWED_MIME_TYPES
+            (m, m) for m in self._allowed_mime_types
         ]
 
     def clean_original_filename(self) -> str:
@@ -145,7 +155,7 @@ class DocumentUploadIntentForm(forms.Form):
 
     def clean_mime_type(self) -> str:
         mime: str = self.cleaned_data["mime_type"]
-        if mime not in _ALLOWED_MIME_TYPES:
+        if mime not in self._allowed_mime_types:
             raise forms.ValidationError(
                 _("File type %(mime)s is not permitted."),
                 params={"mime": mime},
@@ -155,13 +165,13 @@ class DocumentUploadIntentForm(forms.Form):
 
     def clean_size_bytes(self) -> int:
         size: int = self.cleaned_data["size_bytes"]
-        if size > _MAX_UPLOAD_BYTES:
+        if size > self._max_upload_bytes:
             raise forms.ValidationError(
                 _(
                     "File size exceeds the maximum allowed size of "
                     "%(max)s bytes."
                 ),
-                params={"max": _MAX_UPLOAD_BYTES},
+                params={"max": self._max_upload_bytes},
                 code="file_too_large",
             )
         return size

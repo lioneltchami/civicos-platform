@@ -13,5 +13,5 @@
 {% elif scan_status == "purged" %}
   <span class="badge bg-dark">{% trans "Purged" %}</span>
 {% else %}
-  <span class="badge bg-secondary">{{ scan_status }}</span>
+  <span class="badge bg-secondary">{{ scan_status|force_escape }}</span>
 {% endif %}

@@ -199,7 +199,7 @@ class DocumentUploadInitView(LoginRequiredMixin, View):
             logger.info(
                 "UploadInitView: ValidationError for user pk=%s: %s",
                 request.user.pk,
-                exc.message,
+                exc.messages[0] if exc.messages else str(exc),
             )
             form.add_error(None, exc)
             return render(request, self.form_template, {"form": form}, status=422)
@@ -258,15 +258,16 @@ class DocumentUploadConfirmView(LoginRequiredMixin, View):
             # doc_id not found or not owned by this user (IDOR guard from service).
             raise Http404
         except ValidationError as exc:
+            _exc_msg = exc.messages[0] if exc.messages else str(exc)
             logger.info(
                 "UploadConfirmView: ValidationError for user pk=%s, doc_id=%s: %s",
                 request.user.pk,
                 pk,
-                exc.message,
+                _exc_msg,
             )
             messages.error(
                 request,
-                _("Upload confirmation failed: %(detail)s") % {"detail": exc.message},
+                _("Upload confirmation failed: %(detail)s") % {"detail": _exc_msg},
             )
             return redirect(reverse("documents:upload-init"))
         except Exception:

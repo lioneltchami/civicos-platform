@@ -297,6 +297,41 @@ class CitizenDocumentDetailTests(TestCase):
         # Django auto-escaping converts < to &lt; — verify the safe form appears
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", content)
 
+    # -- H-10: can_download context key tests ----------------------------------
+
+    def test_detail_active_doc_can_download_true(self):
+        """can_download=True when scan_status=ACTIVE."""
+        self.doc.scan_status = Document.ScanStatus.ACTIVE
+        self.doc.save(update_fields=["scan_status"])
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("documents:detail", kwargs={"pk": self.doc.pk})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(response.context["can_download"], True)
+
+    def test_detail_scanning_doc_can_download_false(self):
+        """can_download=False when scan_status=SCANNING."""
+        self.doc.scan_status = Document.ScanStatus.SCANNING
+        self.doc.save(update_fields=["scan_status"])
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("documents:detail", kwargs={"pk": self.doc.pk})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(response.context["can_download"], False)
+
+    def test_detail_quarantined_doc_can_download_false(self):
+        """can_download=False when scan_status=QUARANTINED."""
+        self.doc.scan_status = Document.ScanStatus.QUARANTINED
+        self.doc.save(update_fields=["scan_status"])
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("documents:detail", kwargs={"pk": self.doc.pk})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(response.context["can_download"], False)
+
 
 # ---------------------------------------------------------------------------
 # 4. CitizenUploadInitTests
@@ -658,6 +693,60 @@ class StaffAuthTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
+# 8b. AnonymousStaffViewRedirectTests
+# ---------------------------------------------------------------------------
+
+
+class AnonymousStaffViewRedirectTests(TestCase):
+    """Anonymous requests to staff views receive 403, not 200 or 404.
+
+    All staff views use ``raise_exception = True``. Under Django's ``AccessMixin``,
+    ``handle_no_permission()`` raises ``PermissionDenied`` (→ HTTP 403) whenever
+    ``raise_exception`` is True — regardless of whether the user is authenticated.
+    ``LoginRequiredMixin`` fires first in the MRO (its ``dispatch`` calls
+    ``handle_no_permission()`` for unauthenticated requests), but since
+    ``raise_exception=True`` is set on the view, the shared ``handle_no_permission``
+    raises instead of redirecting.
+
+    These tests verify that anonymous users are denied access (403) — NOT served
+    document data (200) or silently ignored (404).  They lock down the invariant
+    that the MRO is wired correctly (LoginRequiredMixin before PermissionRequired)
+    and that ``raise_exception=True`` is present on every staff view.
+    """
+
+    def setUp(self) -> None:
+        self.client = Client()
+        self.category = make_category()
+        self.owner = make_user(email=_email("owner"))
+        self.doc = make_document(self.owner, self.category)
+
+    def _assert_denied(self, url: str) -> None:
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_anonymous_cannot_access_staff_list(self) -> None:
+        self._assert_denied(reverse("documents:staff-list"))
+
+    def test_anonymous_cannot_access_staff_detail(self) -> None:
+        self._assert_denied(
+            reverse("documents:staff-detail", kwargs={"pk": self.doc.pk})
+        )
+
+    def test_anonymous_cannot_access_legal_hold(self) -> None:
+        self._assert_denied(
+            reverse("documents:legal-hold", kwargs={"pk": self.doc.pk})
+        )
+
+    def test_anonymous_cannot_access_quarantine_list(self) -> None:
+        self._assert_denied(reverse("documents:quarantine-list"))
+
+    def test_anonymous_cannot_access_audit_log(self) -> None:
+        self._assert_denied(
+            reverse("documents:audit-log", kwargs={"pk": self.doc.pk})
+        )
+
+
+# ---------------------------------------------------------------------------
 # 9. StaffDocumentListTests
 # ---------------------------------------------------------------------------
 
@@ -785,13 +874,19 @@ class StaffDocumentDetailTests(TestCase):
         # Template guard is falsy → scan result hidden
         self.assertNotIn("Eicar-Test-Signature", response.content.decode())
 
-        # Step 2 — with view_quarantined (permission granted; view not yet updated)
+        # Step 2 — with view_quarantined: the template renders the quarantine
+        # details card containing the raw scan_engine_result string.
         self.staff = _grant_perm(self.staff, "view_quarantined")
         self.client.force_login(self.staff)
         response2 = self.client.get(
             reverse("documents:staff-detail", args=[self.doc.pk])
         )
         self.assertEqual(response2.status_code, 200)
+        # Template renders scan_engine_result inside the quarantine card when
+        # can_view_quarantine_details is True. Verify the actual result text appears.
+        self.assertContains(response2, "Eicar-Test-Signature")
+        # Verify the quarantine card header is present (not just the raw result).
+        self.assertContains(response2, "Quarantine Details")
 
 
 # ---------------------------------------------------------------------------

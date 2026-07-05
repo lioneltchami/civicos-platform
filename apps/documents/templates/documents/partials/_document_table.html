@@ -11,7 +11,7 @@
 <div class="table-responsive">
   <table class="table table-hover align-middle table-sm">
     <caption>
-      {% if caption %}{{ caption }}{% else %}{% trans "Attached documents" %}{% endif %}
+      {% if caption %}{{ caption|force_escape }}{% else %}{% trans "Attached documents" %}{% endif %}
     </caption>
     <thead class="table-light">
       <tr>
