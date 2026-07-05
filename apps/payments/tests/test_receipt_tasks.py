@@ -186,14 +186,32 @@ class GenerateAndSendReceiptTests(TestCase):
         mock_save.assert_called_once()
         mock_email.assert_called_once()
 
-    # 2. Idempotency: if pdf_path already set, skips PDF generation
+    # 2. Idempotency: if document already linked, skips PDF generation
     def test_skips_pdf_generation_if_already_exists(self):
         from apps.payments.tasks_receipts import generate_and_send_receipt
+        from apps.documents.models import Document, DocumentCategory
 
-        # Set pdf_path on receipt via _base_manager
-        saved_path = f"receipts/{self.receipt.serial_number}.pdf"
+        # Wave 6: link a Document BB record to simulate prior successful PDF generation
+        cat, _ = DocumentCategory.objects.get_or_create(
+            slug="donation-receipt-pdf",
+            defaults={
+                "name_en": "Donation Receipt PDF",
+                "name_fr": "Reçu de don PDF",
+                "min_retention_days": 2555,
+                "max_retention_days": 2555,
+            },
+        )
+        doc = Document.objects.create(
+            uploaded_by=self.user,
+            category=cat,
+            original_filename="receipt.bin",
+            mime_type="application/pdf",
+            size_bytes=len(self.pdf_bytes),
+            _storage_key=f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin",
+            scan_status=Document.ScanStatus.ACTIVE,
+        )
         OfficialDonationReceipt._base_manager.filter(pk=self.receipt.pk).update(
-            pdf_path=saved_path,
+            document=doc,
         )
 
         with patch(_PDF_GEN) as mock_gen:
@@ -269,10 +287,29 @@ class GenerateAndSendReceiptTests(TestCase):
     # 7. Status is 'resent' when PDF was already generated
     def test_status_is_resent_when_pdf_already_existed(self):
         from apps.payments.tasks_receipts import generate_and_send_receipt
+        from apps.documents.models import Document, DocumentCategory
 
-        saved_path = f"receipts/{self.receipt.serial_number}.pdf"
+        # Wave 6: link a Document BB record to simulate prior successful PDF generation
+        cat, _ = DocumentCategory.objects.get_or_create(
+            slug="donation-receipt-pdf",
+            defaults={
+                "name_en": "Donation Receipt PDF",
+                "name_fr": "Reçu de don PDF",
+                "min_retention_days": 2555,
+                "max_retention_days": 2555,
+            },
+        )
+        doc = Document.objects.create(
+            uploaded_by=self.user,
+            category=cat,
+            original_filename="receipt.bin",
+            mime_type="application/pdf",
+            size_bytes=len(self.pdf_bytes),
+            _storage_key=f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin",
+            scan_status=Document.ScanStatus.ACTIVE,
+        )
         OfficialDonationReceipt._base_manager.filter(pk=self.receipt.pk).update(
-            pdf_path=saved_path,
+            document=doc,
         )
 
         with patch(_PDF_GEN):

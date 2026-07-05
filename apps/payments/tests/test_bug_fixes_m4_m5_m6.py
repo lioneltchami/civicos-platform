@@ -271,46 +271,62 @@ class CorruptExistingPdfRegenerationTest(TestCase):
     """save_receipt_pdf must delete and regenerate files with a corrupt header."""
 
     def setUp(self):
+        from apps.documents.models import DocumentCategory
+
         self.user = _make_user()
         self.intent = _make_intent(self.user)
         self.donation = _make_donation(self.user, self.intent)
         self.receipt = _make_receipt(self.donation)
         self.pdf_bytes = b"%PDF-1.4 good content"
+        # Wave 6: save_receipt_pdf() requires this category to exist.
+        DocumentCategory.objects.get_or_create(
+            slug="donation-receipt-pdf",
+            defaults={
+                "name_en": "Donation Receipt PDF",
+                "name_fr": "Reçu de don PDF",
+                "min_retention_days": 2555,
+                "max_retention_days": 2555,
+            },
+        )
 
     def test_corrupt_existing_pdf_is_deleted_and_regenerated(self):
         """A 0-byte or non-PDF file at the expected path must be deleted and regenerated."""
-        expected_path = f"receipts/{self.receipt.serial_number}.pdf"
+        # Wave 6: new storage key format
+        expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
 
         mock_fh = MagicMock()
         mock_fh.__enter__ = MagicMock(return_value=mock_fh)
         mock_fh.__exit__ = MagicMock(return_value=False)
         mock_fh.read.return_value = b"\x00\x00\x00\x00"  # not a PDF
 
-        with patch("django.core.files.storage.default_storage") as mock_storage:
-            mock_storage.exists.side_effect = [True, False]  # exists→True, then after delete→False
+        with patch("django.core.files.storage.default_storage") as mock_storage, \
+             patch("apps.documents.services.retention.schedule_expiry"):
+            mock_storage.exists.side_effect = [True, False]  # exists→True (corrupt), then unused
             mock_storage.open.return_value = mock_fh
-            mock_storage.save.return_value = expected_path
+            mock_storage.save.return_value = expected_key
 
             save_receipt_pdf(self.receipt, self.pdf_bytes)
 
         # Must have deleted the corrupt file
-        mock_storage.delete.assert_called_once_with(expected_path)
+        mock_storage.delete.assert_called_once_with(expected_key)
         # Must have written a fresh file
         mock_storage.save.assert_called_once()
 
     def test_zero_byte_file_triggers_warning_log(self):
         """A zero-byte file (empty read) must log a warning before regenerating."""
-        expected_path = f"receipts/{self.receipt.serial_number}.pdf"
+        # Wave 6: new storage key format
+        expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
 
         mock_fh = MagicMock()
         mock_fh.__enter__ = MagicMock(return_value=mock_fh)
         mock_fh.__exit__ = MagicMock(return_value=False)
         mock_fh.read.return_value = b""  # empty file
 
-        with patch("django.core.files.storage.default_storage") as mock_storage:
+        with patch("django.core.files.storage.default_storage") as mock_storage, \
+             patch("apps.documents.services.retention.schedule_expiry"):
             mock_storage.exists.side_effect = [True, False]
             mock_storage.open.return_value = mock_fh
-            mock_storage.save.return_value = expected_path
+            mock_storage.save.return_value = expected_key
 
             with self.assertLogs("apps.payments.receipt_pdf", level="WARNING") as log_ctx:
                 save_receipt_pdf(self.receipt, self.pdf_bytes)
@@ -322,14 +338,16 @@ class CorruptExistingPdfRegenerationTest(TestCase):
 
     def test_valid_pdf_header_is_reused_without_delete(self):
         """A file with a valid %PDF header must be reused — delete must NOT be called."""
-        expected_path = f"receipts/{self.receipt.serial_number}.pdf"
+        # Wave 6: new storage key format
+        expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
 
         mock_fh = MagicMock()
         mock_fh.__enter__ = MagicMock(return_value=mock_fh)
         mock_fh.__exit__ = MagicMock(return_value=False)
         mock_fh.read.return_value = b"%PDF"  # valid header
 
-        with patch("django.core.files.storage.default_storage") as mock_storage:
+        with patch("django.core.files.storage.default_storage") as mock_storage, \
+             patch("apps.documents.services.retention.schedule_expiry"):
             mock_storage.exists.return_value = True
             mock_storage.open.return_value = mock_fh
 
@@ -337,16 +355,18 @@ class CorruptExistingPdfRegenerationTest(TestCase):
 
         mock_storage.delete.assert_not_called()
         mock_storage.save.assert_not_called()
-        self.assertEqual(result, expected_path)
+        self.assertEqual(result, expected_key)
 
     def test_unreadable_file_logs_warning_and_regenerates(self):
         """An OSError on open must log a warning and fall through to regenerate."""
-        expected_path = f"receipts/{self.receipt.serial_number}.pdf"
+        # Wave 6: new storage key format
+        expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
 
-        with patch("django.core.files.storage.default_storage") as mock_storage:
+        with patch("django.core.files.storage.default_storage") as mock_storage, \
+             patch("apps.documents.services.retention.schedule_expiry"):
             mock_storage.exists.side_effect = [True, False]
             mock_storage.open.side_effect = OSError("permission denied")
-            mock_storage.save.return_value = expected_path
+            mock_storage.save.return_value = expected_key
 
             with self.assertLogs("apps.payments.receipt_pdf", level="WARNING") as log_ctx:
                 save_receipt_pdf(self.receipt, self.pdf_bytes)
@@ -359,8 +379,9 @@ class CorruptExistingPdfRegenerationTest(TestCase):
         )
 
     def test_corrupt_file_log_does_not_include_pii(self):
-        """The warning log for a corrupt file must only include the path, never donor PII."""
-        expected_path = f"receipts/{self.receipt.serial_number}.pdf"
+        """The warning log for a corrupt file must only include the serial, never donor PII."""
+        # Wave 6: new storage key format
+        expected_key = f"documents/active/receipts/{self.receipt.serial_number}/receipt.bin"
         donor_name = self.receipt.donor_legal_name
 
         mock_fh = MagicMock()
@@ -368,10 +389,11 @@ class CorruptExistingPdfRegenerationTest(TestCase):
         mock_fh.__exit__ = MagicMock(return_value=False)
         mock_fh.read.return_value = b"\xff\xfe\x00\x00"  # not PDF
 
-        with patch("django.core.files.storage.default_storage") as mock_storage:
+        with patch("django.core.files.storage.default_storage") as mock_storage, \
+             patch("apps.documents.services.retention.schedule_expiry"):
             mock_storage.exists.side_effect = [True, False]
             mock_storage.open.return_value = mock_fh
-            mock_storage.save.return_value = expected_path
+            mock_storage.save.return_value = expected_key
 
             with self.assertLogs("apps.payments.receipt_pdf", level="WARNING") as log_ctx:
                 save_receipt_pdf(self.receipt, self.pdf_bytes)

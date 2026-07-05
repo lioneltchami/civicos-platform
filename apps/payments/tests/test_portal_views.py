@@ -154,10 +154,13 @@ def make_recurring_plan(donor, campaign=None, status=PLAN_STATUS_ACTIVE, **kwarg
     return RecurringGiftPlan.objects.create(**defaults)
 
 
-def make_receipt(donation, status="issued", pdf_path=""):
+def make_receipt(donation, status="issued"):
     """
     Create an OfficialDonationReceipt, bypassing the PostgreSQL nextval() call
     in OfficialDonationReceipt.save() which doesn't exist in SQLite test DB.
+
+    Wave 6: pdf_path removed; receipts start without a Document linked (pending state).
+    Call BasePortalTestCase._link_document_to_receipt() to simulate a generated PDF.
     """
     serial = _next_serial()
 
@@ -165,7 +168,6 @@ def make_receipt(donation, status="issued", pdf_path=""):
         receipt = OfficialDonationReceipt(
             donation=donation,
             status=status,
-            pdf_path=pdf_path,
             donor_legal_name="Jane Citizen",
             donor_address_line1="123 Main St",
             donor_city="Ottawa",
@@ -210,17 +212,41 @@ class BasePortalTestCase(TestCase):
         self.donation = make_donation(self.donor, amount=Decimal("50.00"))
         self.other_donation = make_donation(self.other_donor, amount=Decimal("75.00"))
 
-        # One receipt per donor (issued, with pdf_path set)
-        self.receipt = make_receipt(
-            self.donation,
-            status="issued",
-            pdf_path="receipts/donor_receipt.pdf",
+        # One receipt per donor (issued, with Document BB linked to simulate generated PDF)
+        self.receipt = make_receipt(self.donation, status="issued")
+        self.other_receipt = make_receipt(self.other_donation, status="issued")
+        self._link_document_to_receipt(self.receipt)
+        self._link_document_to_receipt(self.other_receipt)
+
+    def _link_document_to_receipt(self, receipt):
+        """
+        Wave 6: Simulate a generated PDF by creating a Document BB record and
+        linking it to the receipt via _base_manager (bypasses append-only guard).
+        Mirrors the logic of save_receipt_pdf() for test setup.
+        """
+        from apps.documents.models import Document, DocumentCategory
+
+        cat, _ = DocumentCategory.objects.get_or_create(
+            slug="donation-receipt-pdf",
+            defaults={
+                "name_en": "Donation Receipt PDF",
+                "name_fr": "Reçu de don PDF",
+                "min_retention_days": 2555,
+                "max_retention_days": 2555,
+            },
         )
-        self.other_receipt = make_receipt(
-            self.other_donation,
-            status="issued",
-            pdf_path="receipts/other_receipt.pdf",
+        doc = Document.objects.create(
+            uploaded_by=receipt.donation.donor,
+            category=cat,
+            original_filename=f"receipt-{receipt.serial_number}.pdf",
+            mime_type="application/pdf",
+            size_bytes=100,
+            _storage_key=f"documents/active/receipts/{receipt.serial_number}/receipt.bin",
+            scan_status=Document.ScanStatus.ACTIVE,
         )
+        OfficialDonationReceipt._base_manager.filter(pk=receipt.pk).update(document=doc)
+        receipt.document = doc
+        receipt.document_id = doc.pk
 
     def _login_donor(self):
         self.client.force_login(self.donor)
@@ -272,13 +298,14 @@ class DashboardViewTests(BasePortalTestCase):
         # (setUp already creates one issued receipt per donor)
         pending_donation = make_donation(self.donor, amount=Decimal("25.00"))
         other_pending_donation = make_donation(self.other_donor, amount=Decimal("25.00"))
-        pending = make_receipt(pending_donation, status="issued", pdf_path="")
+        # Wave 6: receipts without a linked Document are "pending" (document__isnull=True)
+        pending = make_receipt(pending_donation, status="issued")
         # Also create pending for other_donor — should not count
-        make_receipt(other_pending_donation, status="issued", pdf_path="")
+        make_receipt(other_pending_donation, status="issued")
         self._login_donor()
         response = self.client.get(DASHBOARD_URL)
-        # donor has 1 pending receipt (the new one without pdf_path;
-        # self.receipt from setUp has pdf_path so it's not pending)
+        # donor has 1 pending receipt (the new one without a Document;
+        # self.receipt from setUp has a Document linked so it's not pending)
         self.assertEqual(response.context["pending_receipt_count"], 1)
 
     # Test 6
@@ -321,8 +348,8 @@ class DashboardViewTests(BasePortalTestCase):
         self.assertIn("You haven't made any donations yet.", content)
 
     # Test 10
-    def test_pending_receipt_count_zero_when_all_have_pdf_path(self):
-        # self.receipt already has pdf_path set
+    def test_pending_receipt_count_zero_when_all_have_document_linked(self):
+        # self.receipt has a Document BB linked (setUp calls _link_document_to_receipt)
         self._login_donor()
         response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.context["pending_receipt_count"], 0)
@@ -518,10 +545,11 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
         self.assertEqual(response.status_code, 404)
 
     # Test 33
-    def test_receipt_without_pdf_path_returns_202(self):
+    def test_receipt_without_document_returns_202(self):
         # Use a fresh donation so the unique-issued-per-donation constraint is not violated
         fresh_donation = make_donation(self.donor, amount=Decimal("25.00"))
-        pending_receipt = make_receipt(fresh_donation, status="issued", pdf_path="")
+        # Wave 6: receipt with no Document linked → view returns 202 (PDF not yet generated)
+        pending_receipt = make_receipt(fresh_donation, status="issued")
         self._login_donor()
         url = self._receipt_download_url(pending_receipt)
         response = self.client.get(url)
@@ -534,7 +562,6 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
         cancelled = make_receipt(
             self.donation,
             status=OfficialDonationReceipt.RECEIPT_STATUS_CANCELLED,
-            pdf_path="receipts/cancelled.pdf",
         )
         self._login_donor()
         url = self._receipt_download_url(cancelled)
@@ -548,33 +575,32 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
         superseded = make_receipt(
             self.donation,
             status=OfficialDonationReceipt.RECEIPT_STATUS_SUPERSEDED,
-            pdf_path="receipts/superseded.pdf",
         )
         self._login_donor()
         url = self._receipt_download_url(superseded)
         response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
 
-    # Test 36 — pdf_path NOT in Content-Disposition
+    # Test 36 — Wave 6: storage_key NOT in Content-Disposition (security invariant)
     @patch("apps.payments.views.portal.default_storage")
-    def test_pdf_path_not_in_content_disposition_header(self, mock_storage):
+    def test_storage_key_not_in_content_disposition_header(self, mock_storage):
         mock_storage.open.return_value = BytesIO(b"%PDF-1.4 fake")
         self._login_donor()
         url = self._receipt_download_url(self.receipt)
         response = self.client.get(url)
         cd = response.get("Content-Disposition", "")
-        self.assertNotIn(self.receipt.pdf_path, cd)
-        self.assertNotIn("receipts/", cd)
+        self.assertNotIn(self.receipt.document._storage_key, cd)
+        self.assertNotIn("documents/active/", cd)
 
-    # Test 37 — pdf_path NOT in Content-Type
+    # Test 37 — Wave 6: storage_key NOT in Content-Type
     @patch("apps.payments.views.portal.default_storage")
-    def test_pdf_path_not_in_content_type_header(self, mock_storage):
+    def test_storage_key_not_in_content_type_header(self, mock_storage):
         mock_storage.open.return_value = BytesIO(b"%PDF-1.4 fake")
         self._login_donor()
         url = self._receipt_download_url(self.receipt)
         response = self.client.get(url)
         ct = response.get("Content-Type", "")
-        self.assertNotIn(self.receipt.pdf_path, ct)
+        self.assertNotIn(self.receipt.document._storage_key, ct)
 
     # Test 38 — Missing file from storage → 404, not 500
     @patch("apps.payments.views.portal.default_storage")
@@ -611,9 +637,9 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
         cd = response.get("Content-Disposition", "")
         self.assertIn(f"receipt-{self.receipt.serial_number}.pdf", cd)
 
-    # Test 41 — Log message contains serial= but NOT pdf_path
+    # Test 41 — Wave 6: Log contains serial= but NOT the storage key (PIPEDA)
     @patch("apps.payments.views.portal.default_storage")
-    def test_log_contains_serial_not_pdf_path(self, mock_storage):
+    def test_log_contains_serial_not_storage_key(self, mock_storage):
         mock_storage.open.return_value = BytesIO(b"%PDF-1.4 fake")
         self._login_donor()
         url = self._receipt_download_url(self.receipt)
@@ -621,7 +647,7 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
             self.client.get(url)
         log_output = "\n".join(cm.output)
         self.assertIn(self.receipt.serial_number, log_output)
-        self.assertNotIn(self.receipt.pdf_path, log_output)
+        self.assertNotIn(self.receipt.document._storage_key, log_output)
 
     # Test 42 — Log does NOT contain donor email or name
     @patch("apps.payments.views.portal.default_storage")
@@ -641,10 +667,10 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
         response = self.client.get("/donate/portal/receipts/not-a-uuid/download/")
         self.assertEqual(response.status_code, 404)
 
-    # Test 44 — Correct status but wrong donor → 404
+    # Test 44 — Correct status but wrong donor → 404 (IDOR prevention)
     @patch("apps.payments.views.portal.default_storage")
     def test_correct_status_wrong_donor_returns_404(self, mock_storage):
-        # other_receipt is issued with pdf_path, but donor is not the owner
+        # other_receipt is ISSUED and has a Document linked, but donor is not the owner
         self._login_donor()
         url = self._receipt_download_url(self.other_receipt)
         response = self.client.get(url)
@@ -672,9 +698,9 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
         cd = response.get("Content-Disposition", "")
         self.assertIn("attachment", cd)
 
-    # Test 47 — Missing file: error log contains serial= but NOT pdf_path
+    # Test 47 — Wave 6: Missing file error log has serial= but NOT storage key (PIPEDA)
     @patch("apps.payments.views.portal.default_storage")
-    def test_missing_file_error_log_contains_serial_not_pdf_path(self, mock_storage):
+    def test_missing_file_error_log_contains_serial_not_storage_key(self, mock_storage):
         mock_storage.open.side_effect = OSError("no such file")
         self._login_donor()
         url = self._receipt_download_url(self.receipt)
@@ -683,7 +709,7 @@ class ReceiptDownloadViewTests(BasePortalTestCase):
         self.assertEqual(response.status_code, 404)
         log_output = "\n".join(cm.output)
         self.assertIn(self.receipt.serial_number, log_output)
-        self.assertNotIn(self.receipt.pdf_path, log_output)
+        self.assertNotIn(self.receipt.document._storage_key, log_output)
 
 
 # ===========================================================================
@@ -709,7 +735,6 @@ class ReceiptListViewTests(BasePortalTestCase):
         cancelled = make_receipt(
             self.donation,
             status=OfficialDonationReceipt.RECEIPT_STATUS_CANCELLED,
-            pdf_path="receipts/cancelled.pdf",
         )
         self._login_donor()
         response = self.client.get(RECEIPT_LIST_URL)
@@ -748,7 +773,7 @@ class ReceiptListViewTests(BasePortalTestCase):
         # (unique-issued-per-donation constraint prevents two issued receipts per donation)
         for _ in range(29):
             fresh = make_donation(self.donor, amount=Decimal("10.00"))
-            make_receipt(fresh, status="issued", pdf_path="receipts/x.pdf")
+            make_receipt(fresh, status="issued")
         self._login_donor()
         response = self.client.get(RECEIPT_LIST_URL)
         self.assertEqual(len(response.context["receipts"]), 25)
@@ -785,15 +810,13 @@ class ReceiptListViewTests(BasePortalTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context["receipts"]), 0)
 
-    # Test 58 — Download links use donor_portal:receipt_download URL
+    # Test 58 — Download links use donor_portal:receipt_download URL (UUID-based, no storage key)
     def test_download_links_use_receipt_download_url(self):
         # Use a fresh donation to avoid violating the unique-issued-per-donation constraint
         fresh_donation = make_donation(self.donor, amount=Decimal("25.00"))
-        receipt_with_pdf = make_receipt(
-            fresh_donation,
-            status="issued",
-            pdf_path="receipts/donor_w_pdf.pdf",
-        )
+        # Wave 6: create receipt and link a Document BB record to simulate a generated PDF
+        receipt_with_pdf = make_receipt(fresh_donation, status="issued")
+        self._link_document_to_receipt(receipt_with_pdf)
         self._login_donor()
         response = self.client.get(RECEIPT_LIST_URL)
         content = response.content.decode()
@@ -802,16 +825,17 @@ class ReceiptListViewTests(BasePortalTestCase):
             kwargs={"receipt_pk": receipt_with_pdf.pk},
         )
         self.assertIn(expected_url, content)
-        # Also verify raw pdf_path is NOT in the URL (only UUID is)
-        self.assertNotIn("receipts/donor_w_pdf.pdf", expected_url)
+        # Verify the download URL uses only the receipt UUID, not the storage key path
+        self.assertNotIn("documents/active/", expected_url)
 
-    # Test 59 — pdf_path value never appears in HTML body
-    def test_pdf_path_not_in_html_response_body(self):
+    # Test 59 — Wave 6: storage key (documents/active/...) never appears in HTML body
+    def test_storage_key_not_in_html_response_body(self):
         self._login_donor()
         response = self.client.get(RECEIPT_LIST_URL)
         content = response.content.decode("utf-8", errors="replace")
-        self.assertNotIn("receipts/donor_receipt.pdf", content)
-        self.assertNotIn(self.receipt.pdf_path, content)
+        # Ensure the internal storage path format is not rendered to the browser
+        self.assertNotIn("documents/active/receipts/", content)
+        self.assertNotIn(self.receipt.document._storage_key, content)
 
 
 # ===========================================================================
@@ -1018,7 +1042,7 @@ class RecurringGiftDetailViewTests(BasePortalTestCase):
             recurring_plan=self.plan,
             is_recurring=True,
         )
-        plan_receipt = make_receipt(plan_donation, status="issued", pdf_path="receipts/plan.pdf")
+        plan_receipt = make_receipt(plan_donation, status="issued")
         self._login_donor()
         url = self._recurring_detail_url(self.plan)
         response = self.client.get(url)
