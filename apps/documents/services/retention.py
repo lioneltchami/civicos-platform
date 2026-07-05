@@ -535,13 +535,13 @@ def mark_purpose_fulfilled(
       2. Acquires a SELECT FOR UPDATE lock on the document row.
       3. Re-validates legal_hold, deleted_at, and is_transitory under lock
          (TOCTOU guard — concurrent processes may have changed state).
-      4. Sets expires_at = now() (purpose fulfilled timestamp).
-      5. Sets deleted_at = now(), scan_status = DELETED, deleted_by = actor,
-         deletion_reason = "transitory_purpose_fulfilled".
-      6. Saves all changed fields atomically with update_fields.
-      7. Writes a RECORD_DELETED audit entry inside the same atomic block
+      4. Sets expires_at, deleted_at, scan_status, deleted_by, and
+         deletion_reason in one atomic save() with update_fields.
+         (M-2: expires_at and the soft-delete fields are written together in
+         a single save — there is no separate expires_at update step.)
+      5. Writes a RECORD_DELETED audit entry inside the same atomic block
          (PIPEDA 4.5.3 — state change and audit trail commit together).
-      8. Schedules document_soft_deleted signal via transaction.on_commit()
+      6. Schedules document_soft_deleted signal via transaction.on_commit()
          (fires only after commit, never on rollback; send_robust() used).
 
     Per spec §11.4, this replaces the direct soft_delete() call for transitory
@@ -599,14 +599,16 @@ def mark_purpose_fulfilled(
     from apps.documents.models import Document
     from apps.documents.signals import document_soft_deleted
 
-    now = timezone.now()
-
     with transaction.atomic():
         doc = (
             Document.objects.select_related("category")
             .select_for_update()
             .get(pk=document.pk)
         )
+
+        # Capture now AFTER acquiring the lock so the timestamp is consistent
+        # with the locked DB row (eliminates cosmetic clock skew — LOW-4).
+        now = timezone.now()
 
         # Re-validate under lock — concurrent process may have changed state.
         if doc.deleted_at is not None:
