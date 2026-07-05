@@ -61,11 +61,14 @@ from django.test import TestCase
 
 from apps.appointments.models import (
     AppointmentType,
+    AvailabilityTemplate,
     Location,
     Organization,
     Resource,
     SchedulingPolicy,
     ServiceType,
+    Slot,
+    StaffException,
     StaffProfile,
 )
 
@@ -1112,3 +1115,518 @@ class PolicyCascadeTests(TestCase):
         )
         effective = at.get_effective_policy() or loc_no_policy.get_effective_policy()
         self.assertIsNone(effective)
+
+
+# ===========================================================================
+# Wave 2 Model Tests
+# ===========================================================================
+
+import uuid as _uuid_module
+from datetime import date, time, timedelta, datetime
+from zoneinfo import ZoneInfo
+
+_UTC = ZoneInfo("UTC")
+
+
+# ---------------------------------------------------------------------------
+# Wave 2 Factories (local to this section)
+# ---------------------------------------------------------------------------
+
+def _make_wave2_staff(location=None, suffix: str = "") -> StaffProfile:
+    """Create a StaffProfile linked to a staff user."""
+    user = User.objects.create_user(
+        email=f"w2staff{suffix}@example.com",
+        password="pass!",
+        is_staff=True,
+    )
+    if location is None:
+        org = Organization.objects.create(
+            slug=f"w2org{suffix}", name_en="W2 Org", name_fr="Org W2",
+        )
+        location = Location.objects.create(
+            organization=org,
+            slug=f"w2loc{suffix}",
+            name_en="W2 Location",
+            name_fr="Location W2",
+        )
+    return StaffProfile.objects.create(user=user, location=location)
+
+
+def _make_wave2_slot(staff=None, suffix: str = "") -> Slot:
+    """Create a minimal valid Slot for constraint testing."""
+    if staff is None:
+        staff = _make_wave2_staff(suffix=suffix)
+    org = Organization.objects.create(
+        slug=f"slotorg{suffix}", name_en="Slot Org", name_fr="Org Slot",
+    )
+    loc = Location.objects.create(
+        organization=org,
+        slug=f"slotloc{suffix}",
+        name_en="Slot Loc",
+        name_fr="Loc Slot",
+    )
+    svc = ServiceType.objects.create(
+        slug=f"slotsvc{suffix}", name_en="Slot SVC", name_fr="SVC Slot",
+    )
+    appt_type = AppointmentType.objects.create(
+        service_type=svc,
+        slug=f"slotat{suffix}",
+        name_en="Slot AT",
+        name_fr="AT Slot",
+    )
+    now = datetime(2026, 9, 1, 14, 0, tzinfo=_UTC)
+    end = now + timedelta(minutes=30)
+    return Slot.objects.create(
+        appointment_type=appt_type,
+        staff=staff,
+        location=loc,
+        start_datetime=now,
+        end_datetime=end,
+        effective_start=now,
+        effective_end=end,
+        capacity=1,
+        spaces_used=0,
+        status="available",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wave 2: AvailabilityTemplate model tests
+# ---------------------------------------------------------------------------
+
+class AvailabilityTemplateTests(TestCase):
+    """
+    Model-level tests for AvailabilityTemplate.
+    Tests for service-layer behaviour are in test_services_availability.py.
+    """
+
+    def setUp(self):
+        self.staff = _make_wave2_staff(suffix="-at2")
+
+    def test_create_valid_template(self):
+        tpl = AvailabilityTemplate.objects.create(
+            staff=self.staff,
+            day_of_week=1,
+            start_time=time(9, 0),
+            end_time=time(17, 0),
+            valid_from=date(2026, 1, 1),
+        )
+        self.assertEqual(tpl.day_of_week, 1)
+
+    def test_day_of_week_choices_1_to_7(self):
+        """All 7 ISO weekdays are defined."""
+        dow_values = [c[0] for c in AvailabilityTemplate.DAYS_OF_WEEK]
+        self.assertEqual(sorted(dow_values), list(range(1, 8)))
+
+    def test_str_no_pii(self):
+        tpl = AvailabilityTemplate.objects.create(
+            staff=self.staff,
+            day_of_week=2,
+            start_time=time(8, 0),
+            end_time=time(16, 0),
+            valid_from=date(2026, 1, 1),
+        )
+        self.assertNotIn("@", str(tpl))
+
+    def test_str_contains_staff_pk(self):
+        tpl = AvailabilityTemplate.objects.create(
+            staff=self.staff,
+            day_of_week=3,
+            start_time=time(9, 0),
+            end_time=time(12, 0),
+            valid_from=date(2026, 1, 1),
+        )
+        self.assertIn(str(self.staff.pk), str(tpl))
+
+    def test_clean_end_before_start_raises(self):
+        tpl = AvailabilityTemplate(
+            staff=self.staff,
+            day_of_week=1,
+            start_time=time(12, 0),
+            end_time=time(9, 0),
+            valid_from=date(2026, 1, 1),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            tpl.clean()
+        self.assertIn("end_time", cm.exception.message_dict)
+
+    def test_clean_end_equal_start_raises(self):
+        tpl = AvailabilityTemplate(
+            staff=self.staff,
+            day_of_week=1,
+            start_time=time(9, 0),
+            end_time=time(9, 0),
+            valid_from=date(2026, 1, 1),
+        )
+        with self.assertRaises(ValidationError):
+            tpl.clean()
+
+    def test_clean_valid_until_before_valid_from_raises(self):
+        tpl = AvailabilityTemplate(
+            staff=self.staff,
+            day_of_week=1,
+            start_time=time(9, 0),
+            end_time=time(17, 0),
+            valid_from=date(2026, 7, 1),
+            valid_until=date(2026, 6, 30),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            tpl.clean()
+        self.assertIn("valid_until", cm.exception.message_dict)
+
+    def test_clean_open_ended_valid_until_passes(self):
+        tpl = AvailabilityTemplate(
+            staff=self.staff,
+            day_of_week=1,
+            start_time=time(9, 0),
+            end_time=time(17, 0),
+            valid_from=date(2026, 1, 1),
+            valid_until=None,
+        )
+        tpl.clean()  # Must not raise
+
+    def test_cascade_delete_with_staff(self):
+        """Deleting StaffProfile cascades to AvailabilityTemplate."""
+        AvailabilityTemplate.objects.create(
+            staff=self.staff,
+            day_of_week=4,
+            start_time=time(9, 0),
+            end_time=time(17, 0),
+            valid_from=date(2026, 1, 1),
+        )
+        self.staff.delete()
+        self.assertEqual(AvailabilityTemplate.objects.count(), 0)
+
+    def test_ordering_day_of_week_then_start_time(self):
+        """Templates ordered by day_of_week ASC then start_time ASC."""
+        AvailabilityTemplate.objects.create(
+            staff=self.staff, day_of_week=3,
+            start_time=time(14, 0), end_time=time(15, 0), valid_from=date(2026, 1, 1),
+        )
+        AvailabilityTemplate.objects.create(
+            staff=self.staff, day_of_week=1,
+            start_time=time(10, 0), end_time=time(11, 0), valid_from=date(2026, 1, 1),
+        )
+        AvailabilityTemplate.objects.create(
+            staff=self.staff, day_of_week=1,
+            start_time=time(9, 0), end_time=time(10, 0), valid_from=date(2026, 1, 1),
+        )
+        templates = list(AvailabilityTemplate.objects.filter(staff=self.staff))
+        self.assertEqual(templates[0].day_of_week, 1)
+        self.assertEqual(templates[0].start_time, time(9, 0))
+        self.assertEqual(templates[1].start_time, time(10, 0))
+        self.assertEqual(templates[2].day_of_week, 3)
+
+
+# ---------------------------------------------------------------------------
+# Wave 2: StaffException model tests
+# ---------------------------------------------------------------------------
+
+class StaffExceptionModelConstraintTests(TestCase):
+    """
+    Model-level tests for StaffException.
+    Service-layer tests are in test_services_availability.py.
+    """
+
+    def setUp(self):
+        self.staff = _make_wave2_staff(suffix="-se2")
+
+    def test_create_holiday_exception(self):
+        exc = StaffException.objects.create(
+            staff=self.staff,
+            exception_date=date(2026, 7, 1),
+            exception_type="holiday",
+        )
+        self.assertEqual(exc.exception_type, "holiday")
+
+    def test_create_override_exception(self):
+        exc = StaffException.objects.create(
+            staff=self.staff,
+            exception_date=date(2026, 7, 2),
+            exception_type="override",
+            override_start_time=time(13, 0),
+            override_end_time=time(17, 0),
+        )
+        self.assertEqual(exc.exception_type, "override")
+
+    def test_str_no_pii(self):
+        exc = StaffException.objects.create(
+            staff=self.staff,
+            exception_date=date(2026, 7, 3),
+            exception_type="leave",
+        )
+        self.assertNotIn("@", str(exc))
+
+    def test_str_contains_date(self):
+        exc = StaffException.objects.create(
+            staff=self.staff,
+            exception_date=date(2026, 7, 4),
+            exception_type="training",
+        )
+        self.assertIn("2026-07-04", str(exc))
+
+    def test_unique_together_raises_integrity_error(self):
+        StaffException.objects.create(
+            staff=self.staff,
+            exception_date=date(2026, 7, 5),
+            exception_type="holiday",
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                StaffException.objects.create(
+                    staff=self.staff,
+                    exception_date=date(2026, 7, 5),
+                    exception_type="leave",
+                )
+
+    def test_clean_override_missing_both_times_raises(self):
+        exc = StaffException(
+            staff=self.staff,
+            exception_date=date(2026, 7, 6),
+            exception_type="override",
+        )
+        with self.assertRaises(ValidationError):
+            exc.clean()
+
+    def test_clean_override_only_start_time_raises(self):
+        exc = StaffException(
+            staff=self.staff,
+            exception_date=date(2026, 7, 7),
+            exception_type="override",
+            override_start_time=time(9, 0),
+            override_end_time=None,
+        )
+        with self.assertRaises(ValidationError):
+            exc.clean()
+
+    def test_clean_override_end_before_start_raises(self):
+        exc = StaffException(
+            staff=self.staff,
+            exception_date=date(2026, 7, 8),
+            exception_type="override",
+            override_start_time=time(15, 0),
+            override_end_time=time(14, 0),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            exc.clean()
+        self.assertIn("override_end_time", cm.exception.message_dict)
+
+    def test_clean_leave_no_times_passes(self):
+        exc = StaffException(
+            staff=self.staff,
+            exception_date=date(2026, 7, 9),
+            exception_type="leave",
+        )
+        exc.clean()  # Must not raise
+
+    def test_cascade_delete_with_staff(self):
+        StaffException.objects.create(
+            staff=self.staff,
+            exception_date=date(2026, 7, 10),
+            exception_type="holiday",
+        )
+        self.staff.delete()
+        self.assertEqual(StaffException.objects.count(), 0)
+
+    def test_exception_type_choices(self):
+        choices = {c[0] for c in StaffException.EXCEPTION_TYPE_CHOICES}
+        self.assertEqual(choices, {"holiday", "leave", "override", "training"})
+
+    def test_note_internal_default_blank(self):
+        exc = StaffException.objects.create(
+            staff=self.staff,
+            exception_date=date(2026, 7, 11),
+            exception_type="training",
+        )
+        self.assertEqual(exc.note_internal, "")
+
+
+# ---------------------------------------------------------------------------
+# Wave 2: Slot model constraint tests
+# ---------------------------------------------------------------------------
+
+class SlotModelConstraintTests(TestCase):
+    """
+    Model-level constraint tests for Slot.
+    Spec §22.2: SlotConstraintTests — spaces_used ≤ capacity; end > start.
+    """
+
+    def setUp(self):
+        org = Organization.objects.create(
+            slug="slot-test-org", name_en="Slot Org", name_fr="Org Slot",
+        )
+        self.location = Location.objects.create(
+            organization=org, slug="slot-test-loc",
+            name_en="Slot Loc", name_fr="Loc Slot",
+        )
+        svc = ServiceType.objects.create(
+            slug="slot-test-svc", name_en="SVC", name_fr="SVC",
+        )
+        self.appt_type = AppointmentType.objects.create(
+            service_type=svc, slug="slot-test-at",
+            name_en="AT", name_fr="AT",
+        )
+        self.staff = _make_wave2_staff(suffix="-slt")
+        self.now = datetime(2026, 9, 15, 14, 0, tzinfo=_UTC)
+        self.end = self.now + timedelta(minutes=30)
+
+    def _valid_slot(self, **overrides):
+        defaults = dict(
+            appointment_type=self.appt_type,
+            staff=self.staff,
+            location=self.location,
+            start_datetime=self.now,
+            end_datetime=self.end,
+            effective_start=self.now,
+            effective_end=self.end,
+            capacity=1,
+            spaces_used=0,
+            status="available",
+        )
+        defaults.update(overrides)
+        return Slot.objects.create(**defaults)
+
+    def test_uuid_primary_key_generated(self):
+        slot = self._valid_slot()
+        self.assertIsInstance(slot.pk, _uuid_module.UUID)
+
+    def test_available_spaces_property_calculation(self):
+        slot = self._valid_slot(capacity=4, spaces_used=1)
+        self.assertEqual(slot.available_spaces, 3)
+
+    def test_is_available_available_status(self):
+        slot = self._valid_slot(status="available", capacity=1, spaces_used=0)
+        self.assertTrue(slot.is_available)
+
+    def test_is_available_partial_status(self):
+        slot = self._valid_slot(status="partial", capacity=2, spaces_used=1)
+        self.assertTrue(slot.is_available)
+
+    def test_is_not_available_full(self):
+        slot = self._valid_slot(status="full", capacity=1, spaces_used=1)
+        self.assertFalse(slot.is_available)
+
+    def test_is_not_available_blocked(self):
+        slot = self._valid_slot(status="blocked")
+        self.assertFalse(slot.is_available)
+
+    def test_is_not_available_cancelled(self):
+        slot = self._valid_slot(status="cancelled")
+        self.assertFalse(slot.is_available)
+
+    def test_is_not_available_completed(self):
+        slot = self._valid_slot(status="completed")
+        self.assertFalse(slot.is_available)
+
+    def test_is_not_available_when_full_despite_partial_status(self):
+        """Status='partial' but spaces_used == capacity → not available."""
+        slot = self._valid_slot(status="partial", capacity=2, spaces_used=2)
+        self.assertFalse(slot.is_available)
+
+    def test_str_no_pii(self):
+        """
+        Slot.__str__ may contain '@' as a separator between appointment_type_id
+        and start_datetime (e.g. "Slot <uuid> — 1 @ 2026-09-15...").
+        Verify it does NOT contain an email address (i.e., "@example.com" or similar).
+        """
+        slot = self._valid_slot()
+        s = str(slot)
+        # Must not look like an email address
+        import re
+        self.assertIsNone(
+            re.search(r"@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", s),
+            f"Email address found in Slot.__str__: {s!r}",
+        )
+
+    def test_str_contains_uuid(self):
+        slot = self._valid_slot()
+        self.assertIn(str(slot.pk), str(slot))
+
+    def test_str_contains_status(self):
+        slot = self._valid_slot()
+        self.assertIn("available", str(slot))
+
+    def test_on_delete_appointment_type_protect(self):
+        self._valid_slot()
+        with self.assertRaises(ProtectedError):
+            with transaction.atomic():
+                self.appt_type.delete()
+
+    def test_on_delete_staff_protect(self):
+        self._valid_slot()
+        with self.assertRaises(ProtectedError):
+            with transaction.atomic():
+                self.staff.delete()
+
+    def test_on_delete_location_protect(self):
+        self._valid_slot()
+        with self.assertRaises(ProtectedError):
+            with transaction.atomic():
+                self.location.delete()
+
+    def test_resource_set_null_on_delete(self):
+        """Deleting a Resource sets slot.resource to NULL."""
+        resource = Resource.objects.create(
+            location=self.location,
+            name_en="Room", name_fr="Salle",
+            resource_type="room",
+        )
+        slot = self._valid_slot(resource=resource)
+        resource.delete()
+        slot.refresh_from_db()
+        self.assertIsNone(slot.resource)
+
+    def test_default_capacity_is_one(self):
+        slot = self._valid_slot()
+        self.assertEqual(slot.capacity, 1)
+
+    def test_default_spaces_used_is_zero(self):
+        slot = self._valid_slot()
+        self.assertEqual(slot.spaces_used, 0)
+
+    def test_default_status_is_available(self):
+        slot = self._valid_slot()
+        self.assertEqual(slot.status, "available")
+
+    def test_default_is_walk_in_slot_false(self):
+        slot = self._valid_slot()
+        self.assertFalse(slot.is_walk_in_slot)
+
+    def test_video_fields_default_empty(self):
+        slot = self._valid_slot()
+        self.assertEqual(slot.video_join_url_citizen, "")
+        self.assertEqual(slot.video_join_url_staff, "")
+        self.assertEqual(slot.video_meeting_id, "")
+        self.assertEqual(slot.video_provider, "")
+
+    def test_ordering_by_start_datetime(self):
+        t1 = self.now
+        t2 = self.now + timedelta(hours=1)
+        self._valid_slot(start_datetime=t2, end_datetime=t2 + timedelta(minutes=30),
+                         effective_start=t2, effective_end=t2 + timedelta(minutes=30))
+        self._valid_slot(start_datetime=t1, end_datetime=t1 + timedelta(minutes=30),
+                         effective_start=t1, effective_end=t1 + timedelta(minutes=30))
+        slots = list(Slot.objects.filter(appointment_type=self.appt_type))
+        self.assertEqual(slots[0].start_datetime, t1)
+        self.assertEqual(slots[1].start_datetime, t2)
+
+    def test_slot_status_choices_all_present(self):
+        expected = {"available", "partial", "full", "blocked", "cancelled", "completed"}
+        actual = {c[0] for c in Slot.SLOT_STATUS_CHOICES}
+        self.assertEqual(actual, expected)
+
+    def test_effective_start_before_start(self):
+        buffer = timedelta(minutes=5)
+        slot = self._valid_slot(
+            effective_start=self.now - buffer,
+            effective_end=self.end,
+        )
+        self.assertLessEqual(slot.effective_start, slot.start_datetime)
+
+    def test_effective_end_after_end(self):
+        buffer = timedelta(minutes=10)
+        slot = self._valid_slot(
+            effective_start=self.now,
+            effective_end=self.end + buffer,
+        )
+        self.assertGreaterEqual(slot.effective_end, slot.end_datetime)
