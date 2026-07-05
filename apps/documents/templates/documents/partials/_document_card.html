@@ -6,9 +6,9 @@
   Usage: {% include "documents/partials/_document_card.html" with document=doc %}
 #}
 <article class="card h-100"
-         aria-labelledby="doc-card-title-{{ document.pk }}">
+         aria-labelledby="doc-card-title-{{ document.pk|force_escape }}">
   <div class="card-body">
-    <h3 id="doc-card-title-{{ document.pk }}" class="h6 card-title text-truncate"
+    <h3 id="doc-card-title-{{ document.pk|force_escape }}" class="h6 card-title text-truncate"
         title="{{ document.original_filename|force_escape }}">
       <a href="{% url 'documents:detail' document.pk %}">
         {{ document.original_filename|force_escape }}

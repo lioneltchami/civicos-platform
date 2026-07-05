@@ -54,7 +54,7 @@
       <h2 class="h5 card-title">{% trans "Document Metadata" %}</h2>
       <dl class="row">
         <dt class="col-sm-4">{% trans "Document ID" %}</dt>
-        <dd class="col-sm-8"><code>{{ document.pk }}</code></dd>
+        <dd class="col-sm-8"><code>{{ document.pk|force_escape }}</code></dd>
 
         <dt class="col-sm-4">{% trans "Original Filename" %}</dt>
         <dd class="col-sm-8">{{ document.original_filename|force_escape }}</dd>
@@ -138,7 +138,7 @@
         #}
         <dt class="col-sm-4">{% trans "Uploaded By (User ID)" %}</dt>
         <dd class="col-sm-8">
-          <code>{{ document.uploaded_by_id }}</code>
+          <code>{{ document.uploaded_by_id|force_escape }}</code>
           <small class="text-muted ms-1">{% trans "(internal ID — see identity management system)" %}</small>
         </dd>
       </dl>

@@ -23,7 +23,7 @@
                    name="search"
                    id="id_search"
                    class="form-control"
-                   value="{{ filter_form.search.value|default:'' }}"
+                   value="{{ filter_form.search.value|default:''|force_escape }}"
                    placeholder="{% trans 'Filename…' %}">
           </div>
 
@@ -118,8 +118,8 @@
         {% for document in page_obj %}
         <tr>
           <td>
-            <code class="small" title="{{ document.pk }}">
-              {{ document.pk|stringformat:"s"|slice:":8" }}…
+            <code class="small" title="{{ document.pk|force_escape }}">
+              {{ document.pk|stringformat:"s"|slice:":8"|force_escape }}…
             </code>
           </td>
           <td>{{ document.original_filename|force_escape }}</td>

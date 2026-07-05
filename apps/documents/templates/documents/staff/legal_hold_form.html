@@ -41,7 +41,7 @@
         <dt class="col-sm-4">{% trans "File" %}</dt>
         <dd class="col-sm-8">{{ document.original_filename|force_escape }}</dd>
         <dt class="col-sm-4">{% trans "Document ID" %}</dt>
-        <dd class="col-sm-8"><code>{{ document.pk }}</code></dd>
+        <dd class="col-sm-8"><code>{{ document.pk|force_escape }}</code></dd>
         <dt class="col-sm-4">{% trans "Current Hold Status" %}</dt>
         <dd class="col-sm-8">
           {% if document.legal_hold %}

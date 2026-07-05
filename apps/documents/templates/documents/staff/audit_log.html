@@ -23,7 +23,7 @@
   <h1 id="audit-heading">{% trans "Audit Log" %}</h1>
   <p class="text-muted">
     {% trans "Document:" %} <strong>{{ document.original_filename|force_escape }}</strong>
-    &mdash; <code>{{ document.pk }}</code>
+    &mdash; <code>{{ document.pk|force_escape }}</code>
   </p>
 
   {% if page_obj.object_list %}

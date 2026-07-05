@@ -519,7 +519,7 @@ def mark_purpose_fulfilled(
     actor: "User",
 ) -> "Document":
     """
-    For transitory documents: trigger soft-delete once purpose is fulfilled.
+    For transitory documents: perform soft-delete inline once purpose is fulfilled.
 
     Transitory records (LAC Disposition Authorization #2016/001) are documents
     created for a specific purpose that have no fixed calendar expiry — they are
@@ -529,23 +529,36 @@ def mark_purpose_fulfilled(
     destroyed. Setting a calendar expires_at at creation would be premature
     (what if the export takes days to generate?).
 
-    This function:
+    This function performs the entire disposal inline inside a single
+    transaction.atomic() + select_for_update() block (M-2 fix):
       1. Validates the category is transitory (raises ValueError if not).
-      2. Sets expires_at = now() on the document (purpose is fulfilled NOW).
-      3. Calls soft_delete() with reason="transitory_purpose_fulfilled".
+      2. Acquires a SELECT FOR UPDATE lock on the document row.
+      3. Re-validates legal_hold, deleted_at, and is_transitory under lock
+         (TOCTOU guard — concurrent processes may have changed state).
+      4. Sets expires_at = now() (purpose fulfilled timestamp).
+      5. Sets deleted_at = now(), scan_status = DELETED, deleted_by = actor,
+         deletion_reason = "transitory_purpose_fulfilled".
+      6. Saves all changed fields atomically with update_fields.
+      7. Writes a RECORD_DELETED audit entry inside the same atomic block
+         (PIPEDA 4.5.3 — state change and audit trail commit together).
+      8. Schedules document_soft_deleted signal via transaction.on_commit()
+         (fires only after commit, never on rollback; send_robust() used).
 
-    Per spec §11.4, this replaces the direct soft_delete call for transitory docs.
+    Per spec §11.4, this replaces the direct soft_delete() call for transitory
+    docs. Merging both the expires_at update and the deletion into one continuous
+    lock eliminates the TOCTOU race that existed when they used separate
+    atomic() blocks.
 
     Args:
         document: The transitory Document to dispose.
         actor:    The User performing the action (for audit trail).
 
     Returns:
-        The soft-deleted Document instance.
+        The soft-deleted Document instance (reflects saved state).
 
     Raises:
         ValueError: document.category.is_transitory is False.
-        ValueError: document.legal_hold is True (propagated from soft_delete).
+        ValueError: document.legal_hold is True (raised directly by this function).
         ValueError: document is already soft-deleted.
     """
     if not document.category.is_transitory:
@@ -553,6 +566,21 @@ def mark_purpose_fulfilled(
             f"mark_purpose_fulfilled() called on non-transitory document {document.pk}. "
             f"Category {document.category.slug!r} has is_transitory=False. "
             "Only transitory categories (LAC DA #2016/001) may be disposed via this function."
+        )
+
+    # ── Pre-lock fast-path (avoids unnecessary SELECT FOR UPDATE on obvious failures) ──
+    # Mirrors soft_delete()'s pre-lock guards. The inside-lock guards below
+    # re-verify these same conditions under the lock for TOCTOU safety.
+    if document.legal_hold:
+        raise ValueError(
+            f"Document {document.pk} is on legal hold and cannot be disposed. "
+            "Remove the legal hold before marking purpose fulfilled."
+        )
+    if document.deleted_at is not None:
+        raise ValueError(
+            f"Document {document.pk} is already soft-deleted "
+            f"(deleted_at={document.deleted_at.isoformat()}). "
+            "Cannot mark purpose fulfilled on an already-disposed document."
         )
 
     # M-2 fix: Hold a SINGLE select_for_update() lock across BOTH the expires_at
