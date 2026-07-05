@@ -283,7 +283,7 @@ class DocumentLegalHoldView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 "DocumentLegalHoldView: ValidationError for user pk=%s, doc pk=%s: %s",
                 request.user.pk,
                 pk,
-                exc.message,
+                exc.messages[0] if exc.messages else str(exc),
             )
             form.add_error(None, exc)
             return render(

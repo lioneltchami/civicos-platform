@@ -12,8 +12,8 @@
 {% if messages %}
   <div aria-live="polite" aria-atomic="true">
     {% for message in messages %}
-      <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
-        {{ message }}
+      <div class="alert alert-{{ message.tags|default:'info'|force_escape }} alert-dismissible fade show" role="alert">
+        {{ message|force_escape }}
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{% trans 'Dismiss notification' %}"></button>
       </div>
     {% endfor %}

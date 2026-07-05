@@ -122,8 +122,8 @@
   {% if messages %}
     <div class="messages" role="status" aria-live="polite" aria-atomic="true">
       {% for message in messages %}
-        <div class="message message--{{ message.tags }}" role="alert">
-          {{ message }}
+        <div class="message message--{{ message.tags|force_escape }}" role="alert">
+          {{ message|force_escape }}
         </div>
       {% endfor %}
     </div>

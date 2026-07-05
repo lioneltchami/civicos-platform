@@ -425,14 +425,38 @@ def create_new_version(
         raise
 
     # ── Fire signal ───────────────────────────────────────────────────────────
-    # send_robust() ensures a bad receiver never propagates an exception here.
+    # on_commit() ensures the signal fires only after any surrounding transaction
+    # commits — if create_new_version() is called from within an outer transaction,
+    # the signal is deferred until that outer transaction commits (never fires on
+    # rollback). In autocommit mode (no outer transaction) on_commit() fires
+    # immediately. send_robust() ensures a bad receiver never propagates an
+    # exception to the caller. Return values are inspected so broken audit-writing
+    # receivers are visible in logs (PIPEDA 4.5.3 — auditability).
     # PIPEDA: kwargs contain only PKs and version_number — no PII.
-    document_version_created.send_robust(
-        sender=Document,
-        root_document_pk=str(chain_root.pk),
-        new_version_pk=str(new_doc.pk),
-        version_number=new_version_number,
-    )
+    _root_pk = str(chain_root.pk)
+    _new_pk = str(new_doc.pk)
+    _ver_num = new_version_number
+
+    def _fire_version_created(
+        _rpk=_root_pk,
+        _npk=_new_pk,
+        _vn=_ver_num,
+    ):
+        results = document_version_created.send_robust(
+            sender=Document,
+            root_document_pk=_rpk,
+            new_version_pk=_npk,
+            version_number=_vn,
+        )
+        for _receiver, _response in results:
+            if isinstance(_response, Exception):
+                logger.error(
+                    "create_new_version: signal receiver %r raised: %r",
+                    _receiver,
+                    _response,
+                )
+
+    transaction.on_commit(_fire_version_created)
 
     # PIPEDA: storage_key NEVER in the returned dict.
     return {
