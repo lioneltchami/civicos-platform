@@ -100,6 +100,13 @@ class DocumentListView(LoginRequiredMixin, ListView):
             .defer("_storage_key")
         )
 
+    def get_context_data(self, **kwargs: object) -> dict:
+        context = super().get_context_data(**kwargs)
+        # total_count: use the already-filtered queryset set by ListView so the
+        # count reflects only this citizen's own active documents.
+        context["total_count"] = self.object_list.count()
+        return context
+
 
 # ---------------------------------------------------------------------------
 # DocumentDetailView

@@ -51,7 +51,7 @@
             <select name="category" id="id_category" class="form-select">
               <option value="">{% trans "All" %}</option>
               {% for category in categories %}
-              <option value="{{ category.slug }}"
+              <option value="{{ category.slug|force_escape }}"
                 {% if filter_form.category.value == category.slug %}selected{% endif %}>
                 {% if LANGUAGE_CODE == "fr" %}{{ category.name_fr|force_escape }}{% else %}{{ category.name_en|force_escape }}{% endif %}
               </option>

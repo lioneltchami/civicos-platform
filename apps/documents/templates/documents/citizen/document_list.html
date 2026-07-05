@@ -14,6 +14,15 @@
     </a>
   </div>
 
+  {# Result count #}
+  <p class="text-muted mb-3">
+    {% blocktrans count count=total_count trimmed %}
+      {{ count }} document found.
+    {% plural %}
+      {{ count }} documents found.
+    {% endblocktrans %}
+  </p>
+
   {% if page_obj.object_list %}
 
   <div class="table-responsive">

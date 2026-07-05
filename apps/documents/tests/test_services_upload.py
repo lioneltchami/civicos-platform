@@ -1386,11 +1386,11 @@ class AuditWriteFailureTests(TransactionTestCase):
             security_classification=DocumentCategory.SecurityClassification.PROTECTED_B,
         )
 
-    def test_audit_failure_does_not_raise(self):
+    def test_audit_failure_raises(self):
         """
-        C-5 / PIPEDA 4.5.3: If record_event() raises, confirm_upload() must re-raise
-        so the atomic block rolls back the scan_status change. A state change without
-        an audit trail violates PIPEDA accountability (clause 4.5.3).
+        C-5 / PIPEDA 4.5.3: audit write failure MUST propagate — PIPEDA 4.5.3 requires
+        that state changes and their audit entries commit together. A failed audit must
+        roll back the operation, not silently succeed without an audit trail.
         """
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):

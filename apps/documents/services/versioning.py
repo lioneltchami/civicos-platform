@@ -324,38 +324,31 @@ def create_new_version(
         schedule_expiry(document=new_doc)
 
         # ── Audit log (inside atomic — PIPEDA 4.5.3) ──────────────────────────
-        # record_event() is inside atomic() so that an audit write failure does
-        # NOT roll back the version creation (try/except swallows the exception).
-        # PIPEDA 4.5.3: audit entries must be written atomically with the state
-        # change they record.
+        # record_event() is inside atomic() so that an audit write failure rolls
+        # back the entire version creation transaction. This enforces PIPEDA 4.5.3:
+        # a state change must NEVER be committed without an accompanying audit entry.
+        # If record_event() raises, the caller receives the exception and no version
+        # is persisted. The citizen can retry; there is no time-critical operation here.
         # PIPEDA constraints on event_detail:
         #   - NO original_filename (may contain PII)
         #   - NO storage_key (internal S3 path)
         # Only: root_document_pk, new_version_pk, version_number.
-        try:
-            record_event(
-                event_type=AuditEventType.RECORD_CREATED,
-                actor_id=str(user.pk),
-                resource_type="documents.Document",
-                resource_id=str(new_doc.pk),
-                event_detail={
-                    "root_document_pk": str(chain_root.pk),
-                    "new_version_pk": str(new_doc.pk),
-                    "version_number": new_version_number,
-                    "category_slug": category.slug,
-                    "mime_type": mime_type,
-                    "size_bytes": size_bytes,
-                    # original_filename deliberately excluded (PIPEDA)
-                    # storage_key deliberately excluded (security)
-                },
-            )
-        except Exception:
-            # Audit failure must NEVER prevent the version creation.
-            logger.exception(
-                "create_new_version: audit write failed for new doc pk=%s; "
-                "version creation unaffected.",
-                new_doc.pk,
-            )
+        record_event(
+            event_type=AuditEventType.RECORD_CREATED,
+            actor_id=str(user.pk),
+            resource_type="documents.Document",
+            resource_id=str(new_doc.pk),
+            event_detail={
+                "root_document_pk": str(chain_root.pk),
+                "new_version_pk": str(new_doc.pk),
+                "version_number": new_version_number,
+                "category_slug": category.slug,
+                "mime_type": mime_type,
+                "size_bytes": size_bytes,
+                # original_filename deliberately excluded (PIPEDA)
+                # storage_key deliberately excluded (security)
+            },
+        )
 
     # ── Generate presigned upload URL (outside transaction) ───────────────────
     # Network I/O (boto3 S3) must NOT run inside a DB transaction.

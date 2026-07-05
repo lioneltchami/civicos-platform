@@ -811,7 +811,7 @@ def run_disposal_schedule(self) -> dict:
                 logger.info(
                     "run_disposal_schedule: skipped doc pk=%r — %s",
                     str(doc_pk),
-                    type(exc).__name__,
+                    exc,  # str(exc) contains the specific guard message (legal_hold, deleted_at, etc.)
                 )
                 skipped_count += 1
             except Exception:
@@ -922,7 +922,7 @@ def run_hard_delete_schedule(self) -> dict:
                 logger.info(
                     "run_hard_delete_schedule: skipped doc pk=%r — %s",
                     str(doc_pk),
-                    type(exc).__name__,
+                    exc,  # str(exc) contains the specific guard message (legal_hold, deleted_at, grace period, etc.)
                 )
                 skipped_count += 1
             except Exception:

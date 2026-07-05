@@ -588,12 +588,13 @@ def mark_purpose_fulfilled(
     #
     # Previous code released the lock after updating expires_at, then called
     # soft_delete() which opened its OWN atomic()/select_for_update() block.
-    # The gap between the two atomic blocks was a TOCTOU race: a concurrent Celery
-    # worker running run_disposal_schedule() could observe expires_at=now() and
-    # call soft_delete() before step 4, succeeding; then step 4's soft_delete()
-    # would hit the "already deleted" guard and raise ValueError — even though the
-    # document was correctly soft-deleted. Merging both operations into one
-    # continuous lock eliminates this window entirely.
+    # The gap between those two separate atomic blocks was a TOCTOU race: a
+    # concurrent Celery worker running run_disposal_schedule() could observe
+    # expires_at=now() and race to call soft_delete() in that gap, leaving the
+    # subsequent soft-delete attempt to hit the "already deleted" guard. Merging
+    # both operations into one continuous lock eliminates this window entirely —
+    # no other process can observe an intermediate state where expires_at is set
+    # but the document is not yet deleted.
     from apps.audit.models import AuditEventType
     from apps.documents.models import Document
     from apps.documents.signals import document_soft_deleted

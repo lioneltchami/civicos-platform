@@ -8,7 +8,7 @@ Privacy constraints (MUST be enforced throughout this file):
   - `storage_key` (_storage_key) MUST NEVER appear in list_display,
     fieldsets, search_fields, or any admin response.
   - `original_filename` should only appear in readonly_fields for staff
-    with `documents.view_document` permission. It is NEVER in list views
+    with `documents.coordinator_view_document` permission. It is NEVER in list views
     (list_display) to avoid bulk PII exposure in admin index pages.
   - `scan_engine_result` is staff-internal; restrict to superusers.
   - `legal_hold_reason` and `deletion_reason` are staff-internal; never citizen-visible.
