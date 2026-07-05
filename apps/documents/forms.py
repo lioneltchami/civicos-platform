@@ -47,9 +47,9 @@ _DEFAULT_ALLOWED_MIME_TYPES: list[str] = [
 
 #: Maximum upload size (bytes). Read from CIVICOS settings; default 50 MB.
 _civicos: dict[str, Any] = getattr(settings, "CIVICOS", {})
-_MAX_UPLOAD_BYTES: int = _civicos.get("DOCUMENT_MAX_UPLOAD_BYTES", 50 * 1024 * 1024)
+_MAX_UPLOAD_BYTES: int = _civicos.get("DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES", 50 * 1024 * 1024)
 _ALLOWED_MIME_TYPES: list[str] = _civicos.get(
-    "DOCUMENT_ALLOWED_MIME_TYPES", _DEFAULT_ALLOWED_MIME_TYPES
+    "ALLOWED_UPLOAD_MIME_TYPES", _DEFAULT_ALLOWED_MIME_TYPES
 )
 
 

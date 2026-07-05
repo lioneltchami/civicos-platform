@@ -1361,7 +1361,14 @@ class ConfirmUploadIdempotencyHighTests(TransactionTestCase):
     },
 )
 class AuditWriteFailureTests(TransactionTestCase):
-    """H-5: A failed audit write must not cause a 500 — confirm_upload() must survive it."""
+    """
+    C-5 / PIPEDA 4.5.3: A failed audit write MUST roll back the scan_status change.
+
+    The previous behaviour (swallow the exception, return SCANNING) was a PIPEDA
+    violation: a state change without an audit trail is not permitted. The correct
+    invariant is: if record_event() fails inside the atomic block, the block rolls
+    back — the document stays in PENDING_UPLOAD and the exception propagates.
+    """
 
     def setUp(self):
         self.user = make_user()
@@ -1381,46 +1388,49 @@ class AuditWriteFailureTests(TransactionTestCase):
 
     def test_audit_failure_does_not_raise(self):
         """
-        H-5: If record_event() raises an exception (e.g. DB outage during audit write),
-        confirm_upload() must catch it and return normally. The citizen's upload has
-        already committed and the scan task is queued — a 500 here would be misleading.
+        C-5 / PIPEDA 4.5.3: If record_event() raises, confirm_upload() must re-raise
+        so the atomic block rolls back the scan_status change. A state change without
+        an audit trail violates PIPEDA accountability (clause 4.5.3).
         """
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
-                    return_value="application/pdf",  # H-4: must return str
+                    return_value="application/pdf",
                 ):
                     with patch("apps.documents.tasks.scan_document.apply_async"):
                         with patch(
                             "apps.audit.services.record_event",
                             side_effect=Exception("DB write failed"),
                         ):
-                            # Must NOT raise — audit failure is logged but swallowed
-                            result = confirm_upload(user=self.user, doc_id=str(doc.pk))
-
-        # Upload pipeline completed normally despite audit failure
-        self.assertEqual(result.scan_status, Document.ScanStatus.SCANNING)
+                            # MUST raise — audit failure rolls back the atomic block
+                            with self.assertRaises(Exception):
+                                confirm_upload(user=self.user, doc_id=str(doc.pk))
 
     def test_audit_failure_status_still_scanning(self):
-        """Document advances to SCANNING even if audit write fails."""
+        """
+        C-5 / PIPEDA 4.5.3: When audit write fails, the atomic block rolls back,
+        so the document must remain in PENDING_UPLOAD — not advance to SCANNING.
+        """
         doc = self._make_pending_doc()
         with patch("apps.documents.services.upload._verify_file_exists"):
             with patch("apps.documents.services.upload._read_first_bytes", return_value=b"%PDF-1.4"):
                 with patch(
                     "apps.documents.services.upload._validate_magic_bytes",
-                    return_value="application/pdf",  # H-4: must return str
+                    return_value="application/pdf",
                 ):
                     with patch("apps.documents.tasks.scan_document.apply_async"):
                         with patch(
                             "apps.audit.services.record_event",
                             side_effect=Exception("DB write failed"),
                         ):
-                            confirm_upload(user=self.user, doc_id=str(doc.pk))
+                            with self.assertRaises(Exception):
+                                confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         doc.refresh_from_db()
-        self.assertEqual(doc.scan_status, Document.ScanStatus.SCANNING)
+        # Rollback: document must still be PENDING_UPLOAD (not SCANNING)
+        self.assertEqual(doc.scan_status, Document.ScanStatus.PENDING_UPLOAD)
 
 
 class AppsReadyImportErrorTests(TestCase):

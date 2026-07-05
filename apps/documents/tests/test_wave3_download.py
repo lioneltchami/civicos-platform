@@ -258,13 +258,13 @@ class UserMayDownloadTests(TestCase):
         self.assertTrue(_user_may_download(user=su, document=self.doc))
 
     def test_staff_with_view_document_perm_may_download(self):
-        """Staff with documents.view_document may download any document."""
+        """Staff with documents.coordinator_view_document may download any document."""
         from django.contrib.auth.models import Permission
 
         staff = make_user()
         perm = Permission.objects.get(
             content_type__app_label="documents",
-            codename="view_document",
+            codename="coordinator_view_document",
         )
         staff.user_permissions.add(perm)
         # Refresh permission cache
@@ -423,13 +423,13 @@ class IssueAccessTokenTests(TestCase):
         self.assertIsInstance(token, DocumentAccessToken)
 
     def test_staff_with_view_perm_may_issue_token(self):
-        """Staff with documents.view_document may issue tokens for any document."""
+        """Staff with documents.coordinator_view_document may issue tokens for any document."""
         from django.contrib.auth.models import Permission
 
         staff = make_user()
         perm = Permission.objects.get(
             content_type__app_label="documents",
-            codename="view_document",
+            codename="coordinator_view_document",
         )
         staff.user_permissions.add(perm)
         staff = User.objects.get(pk=staff.pk)

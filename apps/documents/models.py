@@ -566,7 +566,7 @@ class Document(BaseModel):
         ordering = ["-created_at"]
         permissions = [
             # Granted to authenticated citizens — allows upload to public (non-staff-only) categories.
-            ("upload_document", "Can upload documents to public categories"),
+            ("upload_document", "Can upload documents"),
             # Granted to staff uploaders — allows upload to ALL categories, including staff-only ones.
             # Citizens who have this permission also bypass the staff_only restriction.
             ("upload_staff_document", "Can upload documents to staff-only categories"),
@@ -574,7 +574,13 @@ class Document(BaseModel):
             # Required to call apply_legal_hold() or release_legal_hold().
             # Legal holds supersede all automated retention schedules (ATIP / litigation holds).
             # Ref: TBS guidance on ATIP holds; retention.apply_legal_hold() enforces this check.
-            ("manage_legal_hold", "Can apply and release legal holds on documents"),
+            ("manage_legal_hold", "Can apply and release legal holds"),
+            # Granted to staff coordinators who need to view/download any document.
+            ("coordinator_view_document", "Can view and download any document (staff coordinator)"),
+            # Granted to staff who need to see the full staff document list.
+            ("view_all_documents", "Can view all documents in the staff list"),
+            # Granted to staff who can inspect quarantined documents.
+            ("view_quarantined", "Can view quarantined documents"),
         ]
         indexes = [
             models.Index(

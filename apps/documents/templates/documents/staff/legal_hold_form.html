@@ -106,7 +106,7 @@
       </div>
       {% if form.reason.errors %}
       <div id="reason-error" class="invalid-feedback" role="alert">
-        {% for error in form.reason.errors %}{{ error }}{% endfor %}
+        {% for error in form.reason.errors %}{{ error|force_escape }}{% endfor %}
       </div>
       {% endif %}
     </div>
@@ -137,7 +137,7 @@
         <div id="confirm-help" class="form-text">{% trans "This field is required to proceed." %}</div>
         {% if form.confirm_action.errors %}
         <div id="confirm-error" class="invalid-feedback" role="alert">
-          {% for error in form.confirm_action.errors %}{{ error }}{% endfor %}
+          {% for error in form.confirm_action.errors %}{{ error|force_escape }}{% endfor %}
         </div>
         {% endif %}
       </div>
@@ -147,7 +147,7 @@
     {% if form.non_field_errors %}
     <div class="alert alert-danger" role="alert" aria-live="assertive">
       {% for error in form.non_field_errors %}
-        <p class="mb-0">{{ error }}</p>
+        <p class="mb-0">{{ error|force_escape }}</p>
       {% endfor %}
     </div>
     {% endif %}

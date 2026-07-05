@@ -135,7 +135,10 @@ class DocumentDetailView(LoginRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            {"document": doc},
+            {
+                "document": doc,
+                "can_download": doc.scan_status == Document.ScanStatus.ACTIVE,
+            },
         )
 
 

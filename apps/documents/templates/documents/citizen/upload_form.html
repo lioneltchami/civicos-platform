@@ -48,7 +48,7 @@
       </select>
       {% if form.category_slug.errors %}
       <div id="category-error" class="invalid-feedback" role="alert">
-        {% for error in form.category_slug.errors %}{{ error }}{% endfor %}
+        {% for error in form.category_slug.errors %}{{ error|force_escape }}{% endfor %}
       </div>
       {% endif %}
     </div>
@@ -65,7 +65,7 @@
       <div class="form-text">{% trans "Optional. Maximum 500 characters." %}</div>
       {% if form.description.errors %}
       <div id="description-error" class="invalid-feedback" role="alert">
-        {% for error in form.description.errors %}{{ error }}{% endfor %}
+        {% for error in form.description.errors %}{{ error|force_escape }}{% endfor %}
       </div>
       {% endif %}
     </div>
@@ -87,7 +87,7 @@
       </div>
       {% if form.original_filename.errors %}
       <div id="filename-error" class="invalid-feedback" role="alert">
-        {% for error in form.original_filename.errors %}{{ error }}{% endfor %}
+        {% for error in form.original_filename.errors %}{{ error|force_escape }}{% endfor %}
       </div>
       {% endif %}
     </div>
@@ -119,7 +119,7 @@
     {% if form.non_field_errors %}
     <div class="alert alert-danger" role="alert" aria-live="assertive">
       {% for error in form.non_field_errors %}
-        <p class="mb-0">{{ error }}</p>
+        <p class="mb-0">{{ error|force_escape }}</p>
       {% endfor %}
     </div>
     {% endif %}

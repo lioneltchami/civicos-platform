@@ -43,6 +43,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -260,8 +261,29 @@ def validate_upload_request(
     # If the S3 call fails, the committed Document row is treated as an abandoned
     # PENDING_UPLOAD and purged by cleanup_stale_pending_uploads().
     # Best-effort immediate cleanup prevents accumulating zombie rows.
+
+    # Build absolute confirm URL for S3 success_action_redirect.
+    # SITE_URL must be set in production (e.g. "https://portal.example.gov.ca").
+    # In dev/test it is typically empty; the redirect is skipped and confirm_upload()
+    # must be called directly by the client (dev upload flow).
+    _base_url = getattr(settings, "SITE_URL", "").rstrip("/")
+    if not _base_url:
+        logger.warning(
+            "validate_upload_request: SITE_URL is not configured — "
+            "success_action_redirect will NOT be injected into the S3 presigned POST. "
+            "Set SITE_URL in production settings so the browser is redirected to the "
+            "confirm view after upload (otherwise documents stay in PENDING_UPLOAD)."
+        )
+    _confirm_path = reverse("documents:upload-confirm", args=[str(doc.pk)])
+    _confirm_url: str | None = f"{_base_url}{_confirm_path}" if _base_url else None
+
     try:
-        presigned = _generate_presigned_post(doc=doc, category=category, max_size=max_size)
+        presigned = _generate_presigned_post(
+            doc=doc,
+            category=category,
+            max_size=max_size,
+            success_redirect_url=_confirm_url,
+        )
     except Exception:
         try:
             doc.delete()
@@ -426,6 +448,38 @@ def confirm_upload(
         # writes the existing client-supplied value unchanged — no regression.
         doc.save(update_fields=["scan_status", "mime_type", "updated_at"])
 
+        # ── Audit INSIDE atomic — PIPEDA 4.5.3 requires atomicity ────────────────
+        # record_event() MUST be inside atomic() so a failed audit write rolls
+        # back the scan_status change. If we cannot audit the state change, we
+        # must not commit it (PIPEDA 4.5.3: accountability requires auditability).
+        # PIPEDA constraints on event_detail:
+        #   - NO original_filename (may contain PII)
+        #   - NO storage_key (internal S3 path)
+        #   - NO uploader email or name
+        try:
+            record_event(
+                event_type=AuditEventType.RECORD_CREATED,
+                actor_id=str(user.pk),
+                # actor_email intentionally omitted — see PIPEDA note above
+                resource_type="documents.Document",
+                resource_id=str(doc.pk),
+                event_detail={
+                    "category_slug": doc.category.slug,
+                    "mime_type": doc.mime_type,
+                    "size_bytes": doc.size_bytes,
+                    # original_filename deliberately excluded (PIPEDA)
+                },
+            )
+        except Exception:
+            logger.exception(
+                "confirm_upload: audit write failed for doc pk=%s; "
+                "rolling back scan_status change (PIPEDA 4.5.3).",
+                doc.pk,
+            )
+            # Re-raise so the atomic block rolls back — if we can't audit the
+            # state change, we must not commit it (PIPEDA accountability invariant).
+            raise
+
         # ── Dispatch ClamAV scan task on_commit ───────────────────────────────
         # on_commit ensures the DB row is flushed before the worker picks up the task.
         # The closure captures doc.pk by value so the lambda is safe after the
@@ -433,34 +487,6 @@ def confirm_upload(
         _doc_pk_str = str(doc.pk)
         transaction.on_commit(
             lambda: scan_document.apply_async(args=[_doc_pk_str], countdown=2)
-        )
-
-    # ── Audit log (after transaction) ─────────────────────────────────────────
-    # PIPEDA constraints on event_detail:
-    #   - NO original_filename (may contain PII)
-    #   - NO storage_key (internal S3 path)
-    #   - NO uploader email or name
-    # Wrapped in try/except: a failed audit write must never cause a 500 error
-    # for the citizen — the upload has already completed and the scan is queued.
-    try:
-        record_event(
-            event_type=AuditEventType.RECORD_CREATED,
-            actor_id=str(user.pk),
-            # actor_email intentionally omitted — see PIPEDA note above
-            resource_type="documents.Document",
-            resource_id=str(doc.pk),
-            event_detail={
-                "category_slug": doc.category.slug,
-                "mime_type": doc.mime_type,
-                "size_bytes": doc.size_bytes,
-                # original_filename deliberately excluded (PIPEDA)
-            },
-        )
-    except Exception:
-        logger.exception(
-            "confirm_upload: audit write failed for doc pk=%s; "
-            "upload pipeline unaffected.",
-            doc.pk,
         )
 
     # ── Fire signal ───────────────────────────────────────────────────────────
@@ -629,6 +655,7 @@ def _generate_presigned_post(
     doc: "Document",
     category: "DocumentCategory",
     max_size: int,
+    success_redirect_url: str | None = None,
 ) -> dict:
     """
     Generate a presigned POST URL for direct browser-to-S3 upload.
@@ -637,12 +664,15 @@ def _generate_presigned_post(
     In dev (filesystem): returns a placeholder that the dev upload view handles.
 
     Args:
-        doc:      The Document record (for storage_key and mime_type).
-        category: The DocumentCategory (for allowed_mime_types).
-        max_size: Caller-resolved size cap in bytes — already accounts for
-                  per-user (citizen vs staff) and category-level overrides.
-                  Passed explicitly so the S3 presigned POST enforces the
-                  SAME limit that Django already validated.
+        doc:                  The Document record (for storage_key and mime_type).
+        category:             The DocumentCategory (for allowed_mime_types).
+        max_size:             Caller-resolved size cap in bytes — already accounts for
+                              per-user (citizen vs staff) and category-level overrides.
+                              Passed explicitly so the S3 presigned POST enforces the
+                              SAME limit that Django already validated.
+        success_redirect_url: Absolute URL S3 should redirect the browser to after a
+                              successful upload (success_action_redirect field). If None,
+                              the redirect is omitted (acceptable in dev/test).
 
     Returns:
         {
@@ -666,6 +696,7 @@ def _generate_presigned_post(
             ttl_seconds=ttl_seconds,
             expires_at_str=expires_at_str,
             max_size=max_size,
+            success_redirect_url=success_redirect_url,
         )
     else:
         return _generate_dev_upload_placeholder(expires_at_str=expires_at_str)
@@ -678,6 +709,7 @@ def _generate_s3_presigned_post(
     ttl_seconds: int,
     expires_at_str: str,
     max_size: int,
+    success_redirect_url: str | None = None,
 ) -> dict:
     """
     Generate a boto3 presigned POST for direct browser→S3 upload.
@@ -691,10 +723,14 @@ def _generate_s3_presigned_post(
     the active prefix.
 
     Args:
-        max_size: Resolved size cap from validate_upload_request() — already
-                  accounts for citizen vs staff cap and category override.
-                  Using the caller-resolved value prevents the S3 policy from
-                  accidentally applying the staff cap to citizen uploads.
+        max_size:             Resolved size cap from validate_upload_request() — already
+                              accounts for citizen vs staff cap and category override.
+                              Using the caller-resolved value prevents the S3 policy from
+                              accidentally applying the staff cap to citizen uploads.
+        success_redirect_url: Absolute URL S3 redirects the browser to after a successful
+                              upload. Injected as success_action_redirect so the confirm
+                              view is reached and scan_status advances past PENDING_UPLOAD.
+                              If None, the field is omitted (acceptable in dev/test).
     """
     import boto3
     from botocore.exceptions import ClientError
@@ -730,11 +766,23 @@ def _generate_s3_presigned_post(
         conditions.append({"x-amz-server-side-encryption": "aws:kms"})
         conditions.append({"x-amz-server-side-encryption-aws-kms-key-id": kms_key_id})
 
+    # Inject success_action_redirect so S3 redirects the browser to the confirm
+    # view after the upload completes. Without this the browser has no redirect
+    # target and confirm_upload() is never called — the Document stays in
+    # PENDING_UPLOAD forever (Bug C-4).
+    if success_redirect_url:
+        conditions.append({"success_action_redirect": success_redirect_url})
+
+    fields: dict[str, str] = {}
+    if success_redirect_url:
+        fields["success_action_redirect"] = success_redirect_url
+
     try:
         s3_client = boto3.client("s3", region_name=region_name)
         presigned = s3_client.generate_presigned_post(
             Bucket=bucket_name,
             Key=doc.storage_key,
+            Fields=fields or None,
             Conditions=conditions,
             ExpiresIn=ttl_seconds,
         )

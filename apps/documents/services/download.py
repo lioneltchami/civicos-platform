@@ -74,7 +74,7 @@ def issue_access_token(
     Validates:
       - document.scan_status == ACTIVE (citizens cannot download non-ACTIVE docs).
       - document.deleted_at is None (soft-deleted docs are inaccessible).
-      - User is authorised: either the uploader, or staff with view_document perm.
+      - User is authorised: either the uploader, or staff with coordinator_view_document perm.
 
     IDOR prevention:
       - Non-owned PKs return Http404 (not 403). The view calling this function
@@ -104,60 +104,84 @@ def issue_access_token(
     from apps.audit.services import record_event
     from apps.documents.models import Document, DocumentAccessToken
 
-    # ── Scan status + soft-delete gate ────────────────────────────────────────
-    # Citizens may ONLY download ACTIVE documents. PENDING_UPLOAD, SCANNING,
-    # QUARANTINED, and DELETED documents are all inaccessible.
-    # Return 404 in all failure cases (IDOR: 403 would confirm document existence).
-    if document.scan_status != Document.ScanStatus.ACTIVE or document.deleted_at is not None:
-        raise Http404
-
-    # ── Ownership / permission check ──────────────────────────────────────────
+    # ── Ownership / permission check (pre-lock, on caller-supplied object) ─────
+    # This check uses the already-fetched document to avoid an extra DB round-trip
+    # for clearly unauthorised callers. The authoritative status check is performed
+    # under the lock below (defence-in-depth against TOCTOU).
     # Raises Http404 (not 403) for IDOR compliance.
     if not _user_may_download(user=user, document=document):
         raise Http404
 
-    # ── Create token ──────────────────────────────────────────────────────────
-    civicos: dict = getattr(settings, "CIVICOS", {})
-    ttl_seconds: int = civicos.get("DOCUMENT_ACCESS_TOKEN_TTL_SECONDS", _DEFAULT_TOKEN_TTL)
-    expires_at = timezone.now() + timedelta(seconds=ttl_seconds)
+    # ── IP masking (no I/O, safe to do before the lock) ──────────────────────
     masked_ip = _mask_ip(ip_address)
 
-    token = DocumentAccessToken.objects.create(
-        document=document,
-        issued_to=user,
-        expires_at=expires_at,
-        ip_address=masked_ip,
-        # `token` field uses default=_generate_token — 64-char cryptographic hex.
-        # `used_at` starts as None (unused).
-    )
+    # ── Atomic lock: re-fetch + status check + token creation ────────────────
+    # select_for_update() prevents a concurrent soft-delete or quarantine from
+    # racing between the view's plain SELECT and the token INSERT (TOCTOU fix).
+    # The lock is held for the entire token creation to guarantee atomicity.
+    # PIPEDA: record_event is called inside the atomic block so that audit
+    # writes are rolled back together with the token if the transaction fails.
+    with transaction.atomic():
+        try:
+            locked_doc = (
+                Document.objects
+                .select_for_update()
+                .get(pk=document.pk)
+            )
+        except Document.DoesNotExist:
+            raise Http404
 
-    # ── Audit log ─────────────────────────────────────────────────────────────
-    # PIPEDA constraints on event_detail:
-    #   - NO original_filename (may contain PII)
-    #   - NO storage_key (internal S3 path)
-    #   - NO uploader email or full name
-    #   Only doc_pk, token_pk, and ip_masked are recorded.
-    try:
-        record_event(
-            event_type=AuditEventType.RECORD_VIEWED,
-            actor_id=str(user.pk),
-            resource_type="documents.Document",
-            resource_id=str(document.pk),
-            event_detail={
-                "document_pk": str(document.pk),
-                "token_pk": str(token.pk),
-                "ip_masked": masked_ip or "",
-                "action": "token_issued",
-            },
+        # ── Scan status + soft-delete gate (under lock) ───────────────────────
+        # Citizens may ONLY download ACTIVE documents. PENDING_UPLOAD, SCANNING,
+        # QUARANTINED, and DELETED documents are all inaccessible.
+        # Return 404 in all failure cases (IDOR: 403 would confirm document existence).
+        if (
+            locked_doc.scan_status != Document.ScanStatus.ACTIVE
+            or locked_doc.deleted_at is not None
+        ):
+            raise Http404
+
+        # ── Create token ──────────────────────────────────────────────────────
+        civicos: dict = getattr(settings, "CIVICOS", {})
+        ttl_seconds: int = civicos.get("DOCUMENT_ACCESS_TOKEN_TTL_SECONDS", _DEFAULT_TOKEN_TTL)
+        expires_at = timezone.now() + timedelta(seconds=ttl_seconds)
+
+        token = DocumentAccessToken.objects.create(
+            document=locked_doc,
+            issued_to=user,
+            expires_at=expires_at,
+            ip_address=masked_ip,
+            # `token` field uses default=_generate_token — 64-char cryptographic hex.
+            # `used_at` starts as None (unused).
         )
-    except Exception:
-        # Audit failure must NEVER cause the citizen's download to fail.
-        logger.exception(
-            "issue_access_token: audit write failed for doc pk=%s token pk=%s; "
-            "token issuance unaffected.",
-            document.pk,
-            token.pk,
-        )
+
+        # ── Audit log (inside atomic — PIPEDA requires atomicity) ─────────────
+        # PIPEDA constraints on event_detail:
+        #   - NO original_filename (may contain PII)
+        #   - NO storage_key (internal S3 path)
+        #   - NO uploader email or full name
+        #   Only doc_pk, token_pk, and ip_masked are recorded.
+        try:
+            record_event(
+                event_type=AuditEventType.RECORD_VIEWED,
+                actor_id=str(user.pk),
+                resource_type="documents.Document",
+                resource_id=str(locked_doc.pk),
+                event_detail={
+                    "document_pk": str(locked_doc.pk),
+                    "token_pk": str(token.pk),
+                    "ip_masked": masked_ip or "",
+                    "action": "token_issued",
+                },
+            )
+        except Exception:
+            # Audit failure must NEVER cause the citizen's download to fail.
+            logger.exception(
+                "issue_access_token: audit write failed for doc pk=%s token pk=%s; "
+                "token issuance unaffected.",
+                locked_doc.pk,
+                token.pk,
+            )
 
     return token
 
@@ -376,7 +400,7 @@ def _user_may_download(
 
     Permission hierarchy:
       1. Superusers: always allowed.
-      2. Staff with documents.view_document permission: allowed (any document).
+      2. Staff with documents.coordinator_view_document permission: allowed (any document).
          This covers coordinators reviewing citizen submissions.
       3. Citizens: allowed only if document.uploaded_by == user.
          Citizens cannot view documents uploaded by other citizens.
@@ -394,7 +418,7 @@ def _user_may_download(
     if user.is_superuser:
         return True
 
-    if user.has_perm("documents.view_document"):
+    if user.has_perm("documents.coordinator_view_document"):
         # Staff coordinator or admin — may view any document.
         return True
 
