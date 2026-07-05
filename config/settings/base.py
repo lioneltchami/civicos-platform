@@ -628,7 +628,7 @@ CIVICOS = {
         # No-show suspension — global fallback if SchedulingPolicy does not set thresholds.
         "GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD": env.int("APPOINTMENTS_GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD", default=3),
 
-        # Slot generation (Wave 3+)
+        # Slot generation (Wave 2+)
         "DEFAULT_SLOT_DURATION_MINUTES": env.int("APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES", default=30),
         "DEFAULT_SLOT_INTERVAL_MINUTES": env.int("APPOINTMENTS_DEFAULT_SLOT_INTERVAL_MINUTES", default=15),
         "DEFAULT_BUFFER_BEFORE_MINUTES": env.int("APPOINTMENTS_DEFAULT_BUFFER_BEFORE_MINUTES", default=0),

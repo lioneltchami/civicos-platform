@@ -267,10 +267,7 @@ class SlotAvailabilityService:
                     AvailabilityTemplate.objects.filter(
                         staff=staff_member,
                         day_of_week=iso_weekday,
-                        valid_from__lte=current_date,
-                    ).filter(
-                        models_Q_valid_until(current_date)
-                    )
+                    ).active_on(current_date)
                 )
 
                 if not templates:
@@ -429,9 +426,3 @@ class SlotAvailabilityService:
             status__in=("confirmed", "completed"),
             slot__start_datetime__gte=cutoff,
         ).exists()
-
-
-def models_Q_valid_until(target_date: date):
-    """Return a Q object filtering AvailabilityTemplate.valid_until for the given date."""
-    from django.db.models import Q
-    return Q(valid_until__isnull=True) | Q(valid_until__gte=target_date)

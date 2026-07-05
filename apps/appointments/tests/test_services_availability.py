@@ -49,7 +49,6 @@ from apps.appointments.services.availability import (
     _overlaps,
     _policy_from_settings,
     _resolve_policy,
-    models_Q_valid_until,
 )
 from apps.appointments.services.slots import (
     SlotFullError,
@@ -223,13 +222,37 @@ class OverlapHelperTests(TestCase):
     def test_identical_intervals_overlap(self):
         self.assertTrue(_overlaps(self._dt(9), self._dt(10), self._dt(9), self._dt(10)))
 
+    def test_overlap_is_commutative(self):
+        """overlap(A, B) == overlap(B, A) for any two intervals."""
+        # Non-overlapping: A=09:00–10:00, B=10:00–11:00 (adjacent, no overlap)
+        self.assertEqual(
+            _overlaps(self._dt(9, 0), self._dt(10, 0), self._dt(10, 0), self._dt(11, 0)),
+            _overlaps(self._dt(10, 0), self._dt(11, 0), self._dt(9, 0), self._dt(10, 0)),
+        )
+        # Overlapping: A=09:00–10:30, B=10:00–11:00
+        self.assertEqual(
+            _overlaps(self._dt(9, 0), self._dt(10, 30), self._dt(10, 0), self._dt(11, 0)),
+            _overlaps(self._dt(10, 0), self._dt(11, 0), self._dt(9, 0), self._dt(10, 30)),
+        )
+
+    def test_zero_length_interval_does_not_overlap_adjacent(self):
+        """A degenerate (zero-length) interval does not overlap an adjacent interval.
+
+        _overlaps uses strict < so touching at a single point is NOT an overlap.
+        Zero-length at 10:00 against [10:00–11:00): a_start(10:00) < b_end(11:00) is True,
+        but a_end(10:00) > b_start(10:00) is False — result is False.
+        """
+        result = _overlaps(self._dt(10, 0), self._dt(10, 0), self._dt(10, 0), self._dt(11, 0))
+        self.assertFalse(result)
+
 
 # ---------------------------------------------------------------------------
-# models_Q_valid_until() unit tests
+# AvailabilityTemplateQuerySet.active_on() tests
+# (previously tested models_Q_valid_until — logic moved to model manager in L-9)
 # ---------------------------------------------------------------------------
 
-class ModelsQValidUntilTests(TestCase):
-    """Verify Q-object generator for valid_until filtering."""
+class ActiveOnQuerysetTests(TestCase):
+    """Verify AvailabilityTemplateQuerySet.active_on(date) filtering."""
 
     def setUp(self):
         self.org = make_org("q-test-org")
@@ -240,8 +263,7 @@ class ModelsQValidUntilTests(TestCase):
     def test_open_ended_template_matches_any_date(self):
         """valid_until=None → template is always active."""
         make_template(self.staff, 1, time(9, 0), time(17, 0), valid_until=None)
-        q = models_Q_valid_until(date(2030, 12, 31))
-        count = AvailabilityTemplate.objects.filter(q).count()
+        count = AvailabilityTemplate.objects.active_on(date(2030, 12, 31)).count()
         self.assertEqual(count, 1)
 
     def test_template_expiring_before_target_excluded(self):
@@ -250,8 +272,7 @@ class ModelsQValidUntilTests(TestCase):
             self.staff, 1, time(9, 0), time(17, 0),
             valid_until=date(2026, 6, 30),
         )
-        q = models_Q_valid_until(date(2026, 7, 7))
-        count = AvailabilityTemplate.objects.filter(q).count()
+        count = AvailabilityTemplate.objects.active_on(date(2026, 7, 7)).count()
         self.assertEqual(count, 0)
 
     def test_template_expiring_on_target_included(self):
@@ -260,8 +281,7 @@ class ModelsQValidUntilTests(TestCase):
             self.staff, 1, time(9, 0), time(17, 0),
             valid_until=date(2026, 7, 7),
         )
-        q = models_Q_valid_until(date(2026, 7, 7))
-        count = AvailabilityTemplate.objects.filter(q).count()
+        count = AvailabilityTemplate.objects.active_on(date(2026, 7, 7)).count()
         self.assertEqual(count, 1)
 
 
@@ -278,11 +298,12 @@ class SettingsPolicyTests(TestCase):
             p.slot_interval_minutes = 99  # type: ignore[misc]
 
     def test_policy_from_settings_defaults(self):
-        """With default CIVICOS settings, returns reasonable defaults."""
+        """With default CIVICOS settings, returns the concrete defaults defined in base.py."""
         p = _policy_from_settings()
         self.assertIsInstance(p, _SettingsPolicy)
-        self.assertGreater(p.slot_interval_minutes, 0)
-        self.assertGreater(p.max_advance_days, 0)
+        self.assertEqual(p.slot_interval_minutes, 15)   # DEFAULT_SLOT_INTERVAL_MINUTES default
+        self.assertEqual(p.min_lead_time_hours, 1)       # DEFAULT_MIN_LEAD_HOURS default
+        self.assertEqual(p.max_advance_days, 180)        # DEFAULT_MAX_ADVANCE_DAYS default
 
     @override_settings(CIVICOS={"APPOINTMENTS": {
         "DEFAULT_SLOT_DURATION_MINUTES": 60,      # duration (length of appointment)

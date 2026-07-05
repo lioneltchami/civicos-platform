@@ -462,3 +462,15 @@ identity. No other BB currently imports it, so migration is still low-risk.
 move `Organization` to `apps/core/models.py` using Django's
 `SeparateDatabaseAndState` migration pattern to avoid dropping the table.
 See the docstring on the `Organization` class for the full migration checklist.
+
+### appointments – StaffProfileAdmin filter_horizontal org-scoping gap
+**Severity:** HIGH (multi-tenant security gap)
+**Location:** `apps/appointments/admin.py` — `StaffProfileAdmin`
+**Problem:** The `filter_horizontal` widget for `appointment_types` uses the
+default autocomplete endpoint, which is not scoped by organization. An
+`is_staff` admin from Org A can see and assign `AppointmentType` records
+from Org B when editing a `StaffProfile`.
+**Fix required:** Override `formfield_for_manytomany()` in `StaffProfileAdmin`
+to filter the `AppointmentType` queryset by
+`location__organization == request.user.staff_profile.location.organization`.
+**Prerequisite:** Wave 3 fine-grained permission matrix.

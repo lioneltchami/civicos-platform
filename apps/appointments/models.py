@@ -1107,6 +1107,23 @@ class StaffProfile(TimestampedModel):
 # AvailabilityTemplate
 # ---------------------------------------------------------------------------
 
+class AvailabilityTemplateQuerySet(models.QuerySet):
+    def active_on(self, date) -> "AvailabilityTemplateQuerySet":
+        """
+        Return templates whose date range covers `date`.
+
+        A template is active on `date` if:
+          - valid_from <= date
+          - valid_until is NULL (open-ended) OR valid_until >= date
+        """
+        from django.db.models import Q
+        return self.filter(
+            valid_from__lte=date,
+        ).filter(
+            Q(valid_until__isnull=True) | Q(valid_until__gte=date)
+        )
+
+
 class AvailabilityTemplate(TimestampedModel):
     """
     Recurring weekly availability window for a staff member.
@@ -1132,6 +1149,8 @@ class AvailabilityTemplate(TimestampedModel):
         (6, _("Saturday")),
         (7, _("Sunday")),
     ]
+
+    objects = AvailabilityTemplateQuerySet.as_manager()
 
     staff = models.ForeignKey(
         StaffProfile,
@@ -1386,8 +1405,6 @@ class StaffException(TimestampedModel):
 # Slot
 # ---------------------------------------------------------------------------
 
-import uuid as _uuid_module  # avoid name clash with field value
-
 
 class Slot(TimestampedModel):
     """
@@ -1430,7 +1447,7 @@ class Slot(TimestampedModel):
 
     id = models.UUIDField(
         primary_key=True,
-        default=_uuid_module.uuid4,
+        default=uuid.uuid4,
         editable=False,
         verbose_name=_("Slot ID"),
     )
@@ -1642,8 +1659,8 @@ class Slot(TimestampedModel):
         ]
 
     def __str__(self) -> str:
-        # PIPEDA: use PK (UUID) only — no email, name, or user identifier.
-        return f"Slot {self.pk} — {self.appointment_type_id} @ {self.start_datetime} ({self.status})"
+        # PIPEDA: use PK (UUID) and status only — no scheduling metadata in logs.
+        return f"Slot {self.pk} ({self.status})"
 
     @property
     def available_spaces(self) -> int:

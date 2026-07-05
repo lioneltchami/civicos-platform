@@ -455,10 +455,17 @@ class StaffProfileAdmin(admin.ModelAdmin):
     # Do NOT add search_fields for user__email — that would expose PII in search.
     ordering = ("user_id",)
     autocomplete_fields = ("location",)
-    # TODO (Wave 2 permission matrix): filter_horizontal lets any is_staff admin
-    # reassign appointment types for any StaffProfile, including profiles in other
-    # organizations. Restrict to profiles scoped to the acting admin's organization
-    # once the fine-grained permission matrix is implemented.
+    # DEBT (HIGH — must fix before multi-tenant deployment):
+    # filter_horizontal for appointment_types has no org-scoping. Any is_staff
+    # admin can open StaffProfile records from their own org (get_queryset scopes
+    # the list) but the filter_horizontal widget's autocomplete endpoint is not
+    # scoped — it will enumerate AppointmentTypes from ALL organisations.
+    #
+    # Fix: override formfield_for_manytomany() to filter the AppointmentType
+    # queryset by location__organization of the StaffProfile being edited.
+    # This requires the Wave 3 fine-grained permission matrix to be in place.
+    #
+    # See CODEBASE_HANDOFF_FOR_AI.md §Known Technical Debt.
     filter_horizontal = ("appointment_types",)
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (
@@ -748,6 +755,7 @@ class SlotAdmin(admin.ModelAdmin):
     """
 
     form = SlotAdminForm
+    list_select_related = ("appointment_type", "location", "staff")
 
     list_display = (
         "pk_short",

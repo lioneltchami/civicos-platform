@@ -25,6 +25,7 @@ import logging
 from datetime import timedelta
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,8 @@ logger = logging.getLogger(__name__)
     default_retry_delay=300,  # 5 minutes
     acks_late=True,
     reject_on_worker_lost=True,
+    soft_time_limit=3300,  # 55 min — catch overruns and log cleanly before hard kill
+    time_limit=3600,       # 60 min hard kill
 )
 def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     """
@@ -107,33 +110,41 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
 
     # Iterate and process — per-combination errors are logged but do not abort
     # the run or retry the whole task.
-    for staff_member in staff_list:
-        staff_appt_type_pks = set(
-            staff_member.appointment_types.values_list("pk", flat=True)
-        )
-        eligible_pks = staff_appt_type_pks & active_appt_type_pks
+    try:
+        for staff_member in staff_list:
+            staff_appt_type_pks = set(
+                staff_member.appointment_types.values_list("pk", flat=True)
+            )
+            eligible_pks = staff_appt_type_pks & active_appt_type_pks
 
-        for appt_type_pk in eligible_pks:
-            appt_type = appt_type_by_pk[appt_type_pk]
-            try:
-                created = generate_slots_for_range(
-                    appointment_type=appt_type,
-                    staff=staff_member,
-                    date_from=today,
-                    date_to=date_to,
-                    created_by_task=True,
-                )
-                total_created += created
-                combinations += 1
-            except Exception as exc:
-                # Log but don't abort — continue with other combinations
-                logger.error(
-                    "generate_slots_for_period: error for staff_id=%s, "
-                    "appointment_type_id=%s: %s",
-                    staff_member.pk,
-                    appt_type_pk,
-                    type(exc).__name__,
-                )
+            for appt_type_pk in eligible_pks:
+                appt_type = appt_type_by_pk[appt_type_pk]
+                try:
+                    created = generate_slots_for_range(
+                        appointment_type=appt_type,
+                        staff=staff_member,
+                        date_from=today,
+                        date_to=date_to,
+                        created_by_task=True,
+                    )
+                    total_created += created
+                    combinations += 1
+                except Exception as exc:
+                    # Log but don't abort — continue with other combinations
+                    logger.error(
+                        "generate_slots_for_period: error for staff_id=%s, "
+                        "appointment_type_id=%s: %s",
+                        staff_member.pk,
+                        appt_type_pk,
+                        type(exc).__name__,
+                    )
+    except SoftTimeLimitExceeded:
+        logger.warning(
+            "generate_slots_for_period soft time limit reached; "
+            "processed partial staff list. Task will be re-queued on next Beat trigger."
+        )
+        # Do NOT re-raise — let the task complete gracefully with partial results.
+        # The next nightly run will cover any missed staff members.
 
     logger.info(
         "generate_slots_for_period: %d slots created across %d staff×type combinations "
