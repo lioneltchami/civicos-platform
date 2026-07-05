@@ -69,12 +69,12 @@ def _policy_from_settings() -> _SettingsPolicy:
         min_lead_time_hours=s.get("DEFAULT_MIN_LEAD_HOURS", 1),
         max_advance_days=s.get("DEFAULT_MAX_ADVANCE_DAYS", 180),
         max_active_bookings_per_citizen=s.get("DEFAULT_MAX_ACTIVE_BOOKINGS", 3),
-        booking_frequency_days=0,
+        booking_frequency_days=s.get("DEFAULT_BOOKING_FREQUENCY_DAYS", 0),
         waitlist_enabled=True,
         waitlist_acceptance_window_hours=s.get("WAITLIST_ACCEPTANCE_WINDOW_HOURS", 2),
         max_waitlist_per_slot=10,
         waitlist_notify_batch_size=s.get("WAITLIST_NOTIFY_BATCH_SIZE", 3),
-        no_show_warning_threshold=1,
+        no_show_warning_threshold=s.get("GLOBAL_NO_SHOW_WARNING_THRESHOLD", 1),
         no_show_suspension_threshold=s.get("GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD", 3),
         cancellation_notice_hours=24,
         reschedule_notice_hours=24,
@@ -201,32 +201,23 @@ class SlotAvailabilityService:
             )
             return []
 
-        # 2. Resolve policy (use first eligible staff's location for fallback)
-        first_location = eligible_staff[0].location
-        policy = _resolve_policy(appointment_type, location=first_location)
-
+        # 2. Duration is fixed per appointment type (not per location policy)
         duration_minutes = appointment_type.duration_minutes
-        buffer_before = policy.buffer_before_minutes
-        buffer_after = policy.buffer_after_minutes
-        slot_interval = policy.slot_interval_minutes
-        min_lead_hours = policy.min_lead_time_hours
-        max_advance = policy.max_advance_days
 
         now_utc = timezone.now()
-        earliest_allowed = now_utc + timedelta(hours=min_lead_hours)
-        latest_allowed = (
-            now_utc + timedelta(days=max_advance)
-            if max_advance > 0
-            else None
-        )
 
-        # 3. Frequency control — check if citizen is within cooldown window
+        # 3. Frequency control — check if citizen is within cooldown window.
+        # booking_frequency_days is a service-type-level concern; resolve policy
+        # from the appointment type only (no location) so we get one consistent
+        # answer before iterating staff. Per-location policy values (interval,
+        # buffers, lead time, advance cap) are resolved inside the staff loop.
+        _appt_policy_for_frequency = _resolve_policy(appointment_type, location=None)
         citizen_blocked = False
-        if citizen is not None and policy.booking_frequency_days > 0:
+        if citizen is not None and _appt_policy_for_frequency.booking_frequency_days > 0:
             citizen_blocked = self._citizen_within_frequency_window(
                 citizen=citizen,
                 appointment_type=appointment_type,
-                frequency_days=policy.booking_frequency_days,
+                frequency_days=_appt_policy_for_frequency.booking_frequency_days,
                 now_utc=now_utc,
             )
 
@@ -251,7 +242,24 @@ class SlotAvailabilityService:
                     )
                     continue
 
-                tz_name = staff_location.timezone or "America/Toronto"
+                # CR-2 fix: resolve policy per staff member using their own location.
+                # Before this fix, policy was resolved once from eligible_staff[0].location
+                # and shared across all staff, causing incorrect slot intervals, buffers,
+                # lead times, and advance caps for staff at different locations.
+                policy = _resolve_policy(appointment_type, location=staff_location)
+                buffer_before = policy.buffer_before_minutes
+                buffer_after = policy.buffer_after_minutes
+                slot_interval = policy.slot_interval_minutes
+                min_lead_hours = policy.min_lead_time_hours
+                max_advance = policy.max_advance_days
+                earliest_allowed = now_utc + timedelta(hours=min_lead_hours)
+                latest_allowed = (
+                    now_utc + timedelta(days=max_advance)
+                    if max_advance > 0
+                    else None
+                )
+
+                tz_name = staff_location.timezone or settings.CIVICOS.get("APPOINTMENTS", {}).get("DEFAULT_TIMEZONE", "America/Toronto")
                 try:
                     tz = ZoneInfo(tz_name)
                 except Exception:
@@ -273,22 +281,27 @@ class SlotAvailabilityService:
                 if not templates:
                     continue  # No availability this day
 
-                # b. Check for StaffException on this date
-                try:
-                    exception = StaffException.objects.get(
-                        staff=staff_member,
-                        exception_date=current_date,
-                    )
+                # b. Check for StaffException on this date.
+                # Use filter().order_by("-pk").first() instead of get() to
+                # handle the case where duplicate exception rows exist (e.g. via
+                # raw SQL or failed migration), avoiding MultipleObjectsReturned.
+                exception = (
+                    StaffException.objects
+                    .filter(staff=staff_member, exception_date=current_date)
+                    .order_by("-pk")
+                    .first()
+                )
+                if exception is None:
+                    # No exception — use all template windows
+                    avail_windows = [
+                        (tpl.start_time, tpl.end_time) for tpl in templates
+                    ]
+                else:
                     if exception.exception_type in ("holiday", "leave", "training"):
                         continue  # Staff unavailable all day
                     # override — use override hours
                     avail_windows = [
                         (exception.override_start_time, exception.override_end_time)
-                    ]
-                except StaffException.DoesNotExist:
-                    # No exception — use all template windows
-                    avail_windows = [
-                        (tpl.start_time, tpl.end_time) for tpl in templates
                     ]
 
                 # c. Collect existing busy times for this staff on this date (UTC)
@@ -301,11 +314,18 @@ class SlotAvailabilityService:
                 ).astimezone(ZoneInfo("UTC"))
                 _day_end_utc = _day_start_utc + timedelta(days=1)
 
+                # M-1 fix: expand the busy-times query window by the maximum
+                # buffer on each side so that slots from the previous day whose
+                # effective_end spills past UTC midnight are included, and slots
+                # from the next day whose effective_start begins before this
+                # day's UTC end are also caught.  This prevents double-booking
+                # at the buffer boundary between calendar days.
+                max_buffer = timedelta(minutes=max(buffer_before, buffer_after))
                 busy_times = list(
                     Slot.objects.filter(
                         staff=staff_member,
-                        start_datetime__gte=_day_start_utc,
-                        start_datetime__lt=_day_end_utc,
+                        effective_start__lt=_day_end_utc + max_buffer,
+                        effective_end__gt=_day_start_utc - max_buffer,
                         status__in=("available", "partial", "full", "blocked"),
                     ).values_list("effective_start", "effective_end")
                 )

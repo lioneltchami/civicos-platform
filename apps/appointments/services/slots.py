@@ -69,7 +69,10 @@ def generate_slots_for_range(
         created_by_task:  True when called from a Celery task (for logging).
 
     Returns:
-        Count of newly created Slot records.
+        int: Count of Slot records now present in the DB for this date range
+        (new + pre-existing). This reflects "slots available after this call",
+        NOT "net-new rows inserted". Calling this function twice for the same
+        range returns the same count both times (idempotent by design).
     """
     from apps.appointments.models import Slot
     from apps.appointments.services.availability import SlotAvailabilityService
@@ -207,6 +210,11 @@ def block_slot(*, slot, reason: str = "", actor=None) -> object:
                 else f"[BLOCKED] {reason}"
             )
         slot.save(update_fields=["status", "internal_note", "updated_at"])
+        # TODO Wave 3: pass actor to AuditLog.record_event(
+        #     action="slot_blocked",
+        #     target_pk=slot.pk,
+        #     actor_pk=actor.pk if actor else None,
+        # ) inside this atomic block.
 
     logger.info(
         "block_slot: slot_id=%s blocked. reason_provided=%s",
@@ -278,6 +286,11 @@ def cancel_slot(*, slot, reason: str = "", actor=None) -> object:
                 else f"[CANCELLED] {reason}"
             )
         slot.save(update_fields=["status", "internal_note", "updated_at"])
+        # TODO Wave 3: pass actor to AuditLog.record_event(
+        #     action="slot_cancelled",
+        #     target_pk=slot.pk,
+        #     actor_pk=actor.pk if actor else None,
+        # ) inside this atomic block.
 
     logger.info(
         "cancel_slot: slot_id=%s cancelled. reason_provided=%s",

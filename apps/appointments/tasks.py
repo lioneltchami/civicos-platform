@@ -99,11 +99,11 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
             .prefetch_related("appointment_types")
         )
     except Exception as exc:
-        logger.error(
+        logger.exception(
             "generate_slots_for_period: failed to fetch staff queryset: %s",
             type(exc).__name__,
         )
-        raise self.retry(exc=exc, countdown=300)
+        raise self.retry(exc=exc)
 
     total_created = 0
     combinations = 0
@@ -167,6 +167,8 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     default_retry_delay=300,  # 5 minutes — consistent with generate_slots_for_period
     acks_late=True,
     reject_on_worker_lost=True,
+    soft_time_limit=270,  # catch overruns before the hard kill
+    time_limit=300,       # hard kill — explicit, self-documenting
 )
 def mark_past_slots_completed(self) -> dict:
     """
@@ -188,10 +190,17 @@ def mark_past_slots_completed(self) -> dict:
 
     try:
         now = timezone.now()
-        count = Slot.objects.filter(
-            end_datetime__lt=now,
-            status__in=["available", "partial", "full"],
-        ).update(status="completed")
+        try:
+            count = Slot.objects.filter(
+                end_datetime__lt=now,
+                status__in=["available", "partial", "full"],
+            ).update(status="completed")
+        except SoftTimeLimitExceeded:
+            logger.warning(
+                "mark_past_slots_completed: soft time limit reached before update "
+                "completed. Remaining slots will be processed on the next Beat trigger."
+            )
+            return {"slots_updated": 0, "timed_out": True}
 
         logger.info("mark_past_slots_completed: %d slots marked completed", count)
         return {"slots_updated": count}

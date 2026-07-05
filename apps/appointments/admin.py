@@ -19,6 +19,7 @@ Wave 1 models registered here:
 
 from django import forms
 from django.contrib import admin
+from django.db import transaction
 from django.utils import timezone as django_timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
@@ -571,7 +572,8 @@ class SlotAdminForm(forms.ModelForm):
                     _(
                         "Capacity (%(cap)d) cannot be less than the number of spaces "
                         "already used (%(used)d). Cancel bookings first."
-                    ) % {"cap": capacity, "used": spaces_used}
+                    ),
+                    params={"cap": capacity, "used": spaces_used},
                 )
         return capacity
 
@@ -661,6 +663,23 @@ class AvailabilityTemplateAdmin(admin.ModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        """
+        H-3 security fix: scope queryset to the acting admin's own organization.
+
+        Non-superuser admins see only templates whose staff member belongs to
+        their own organization. Fail-closed: return empty queryset if the admin
+        user has no staff_profile or their location is unset.
+        """
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        try:
+            admin_org = request.user.staff_profile.location.organization
+            return qs.filter(staff__location__organization=admin_org)
+        except AttributeError:
+            return qs.none()
+
     @admin.display(description=_("Staff ID"))
     def staff_id_display(self, obj: AvailabilityTemplate) -> str:
         # PIPEDA: return PK only — no email or name.
@@ -717,21 +736,51 @@ class StaffExceptionAdmin(admin.ModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        """
+        H-3 security fix: scope queryset to the acting admin's own organization.
+
+        Non-superuser admins see only exceptions whose staff member belongs to
+        their own organization. Fail-closed: return empty queryset if the admin
+        user has no staff_profile or their location is unset.
+        """
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        try:
+            admin_org = request.user.staff_profile.location.organization
+            return qs.filter(staff__location__organization=admin_org)
+        except AttributeError:
+            return qs.none()
+
     def save_model(self, request, obj, form, change):
         """
         M-7: Append note_addition to internal_note with a UTC timestamp and
         the acting admin's user PK. No name or email is stored (PIPEDA).
+
+        H-5: Re-fetch the instance under select_for_update() inside
+        transaction.atomic() before appending, so concurrent submissions
+        cannot silently overwrite each other's note entries.
         """
-        addition = form.cleaned_data.get("note_addition", "").strip()
-        if addition:
-            ts = django_timezone.now().strftime("%Y-%m-%d %H:%M UTC")
-            actor_pk = request.user.pk
-            entry = f"[{ts} — admin #{actor_pk}] {addition}"
-            if obj.internal_note:
-                obj.internal_note = f"{obj.internal_note}\n{entry}"
-            else:
-                obj.internal_note = entry
+        # Save all fields except internal_note first.
         super().save_model(request, obj, form, change)
+
+        addition = form.cleaned_data.get("note_addition", "").strip()
+        if not addition:
+            return
+
+        ts = django_timezone.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        actor_pk = request.user.pk
+        entry = f"[{ts} — admin #{actor_pk}] {addition}"
+
+        # Re-fetch under lock to prevent concurrent note overwrites (H-5).
+        with transaction.atomic():
+            fresh = StaffException.objects.select_for_update().get(pk=obj.pk)
+            if fresh.internal_note:
+                fresh.internal_note = f"{fresh.internal_note}\n{entry}"
+            else:
+                fresh.internal_note = entry
+            fresh.save(update_fields=["internal_note"])
 
     @admin.display(description=_("Staff ID"))
     def staff_id_display(self, obj: StaffException) -> str:

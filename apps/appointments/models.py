@@ -1116,11 +1116,8 @@ class AvailabilityTemplateQuerySet(models.QuerySet):
           - valid_from <= date
           - valid_until is NULL (open-ended) OR valid_until >= date
         """
-        from django.db.models import Q
-        return self.filter(
-            valid_from__lte=date,
-        ).filter(
-            Q(valid_until__isnull=True) | Q(valid_until__gte=date)
+        return self.filter(valid_from__lte=date).filter(
+            models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=date)
         )
 
 
@@ -1357,7 +1354,6 @@ class StaffException(TimestampedModel):
     )
 
     class Meta:
-        unique_together = [("staff", "exception_date")]
         ordering = ["exception_date"]
         verbose_name = _("Staff exception")
         verbose_name_plural = _("Staff exceptions")
@@ -1375,6 +1371,10 @@ class StaffException(TimestampedModel):
                 ),
                 name="appt_staffexc_override_requires_times",
             ),
+            models.UniqueConstraint(
+                fields=["staff", "exception_date"],
+                name="appt_staffexc_staff_date_uniq",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -1388,12 +1388,9 @@ class StaffException(TimestampedModel):
         from django.core.exceptions import ValidationError
         super().clean()
         if self.exception_type == "override":
-            if not self.override_start_time or not self.override_end_time:
+            if self.override_start_time is None or self.override_end_time is None:
                 raise ValidationError(
-                    _(
-                        "Both override_start_time and override_end_time are required "
-                        "when exception_type is 'override'."
-                    )
+                    {"override_start_time": _("Both override_start_time and override_end_time are required when exception_type is 'override'.")}
                 )
             if self.override_end_time <= self.override_start_time:
                 raise ValidationError(
@@ -1661,6 +1658,39 @@ class Slot(TimestampedModel):
     def __str__(self) -> str:
         # PIPEDA: use PK (UUID) and status only — no scheduling metadata in logs.
         return f"Slot {self.pk} ({self.status})"
+
+    def clean(self) -> None:
+        """Python-layer validation mirroring DB CheckConstraints for friendly admin errors."""
+        from django.core.exceptions import ValidationError
+        errors = {}
+        if self.capacity is not None and self.capacity < 1:
+            errors["capacity"] = _("Capacity must be at least 1.")
+        if (
+            self.capacity is not None
+            and self.spaces_used is not None
+            and self.spaces_used > self.capacity
+        ):
+            errors["spaces_used"] = _(
+                "Spaces used (%(used)d) cannot exceed capacity (%(cap)d)."
+            ) % {"used": self.spaces_used, "cap": self.capacity}
+        if (
+            self.effective_start is not None
+            and self.start_datetime is not None
+            and self.effective_start > self.start_datetime
+        ):
+            errors["effective_start"] = _(
+                "Effective start must be before or equal to start_datetime."
+            )
+        if (
+            self.effective_end is not None
+            and self.end_datetime is not None
+            and self.effective_end < self.end_datetime
+        ):
+            errors["effective_end"] = _(
+                "Effective end must be after or equal to end_datetime."
+            )
+        if errors:
+            raise ValidationError(errors)
 
     @property
     def available_spaces(self) -> int:

@@ -349,7 +349,8 @@ CELERY_TASK_ROUTES = {
     # Document Management BB — ClamAV scan, retention disposal, token purge
     "apps.documents.tasks.*": {"queue": "documents"},
     # Appointments & Scheduling BB — slot generation, reminders, waitlist expiry
-    "apps.appointments.tasks.*": {"queue": "appointments"},
+    "appointments.generate_slots_for_period": {"queue": "appointments"},
+    "appointments.mark_past_slots_completed": {"queue": "appointments"},
     # Webhook-triggered tasks — fast, latency-sensitive.
     # Must reach workers within Stripe's 30-second retry window.
     "apps.payments.tasks.process_stripe_webhook": {"queue": "webhooks"},
@@ -625,7 +626,8 @@ CIVICOS = {
         "ICS_ORGANIZER_NAME_EN": env("APPOINTMENTS_ICS_ORGANIZER_NAME_EN", default="CivicOS Scheduler"),
         "ICS_ORGANIZER_NAME_FR": env("APPOINTMENTS_ICS_ORGANIZER_NAME_FR", default="Planificateur CivicOS"),
 
-        # No-show suspension — global fallback if SchedulingPolicy does not set thresholds.
+        # No-show thresholds — global fallbacks if SchedulingPolicy does not set them.
+        "GLOBAL_NO_SHOW_WARNING_THRESHOLD": env.int("APPOINTMENTS_GLOBAL_NO_SHOW_WARNING_THRESHOLD", default=1),
         "GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD": env.int("APPOINTMENTS_GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD", default=3),
 
         # Slot generation (Wave 2+)
@@ -633,6 +635,8 @@ CIVICOS = {
         "DEFAULT_SLOT_INTERVAL_MINUTES": env.int("APPOINTMENTS_DEFAULT_SLOT_INTERVAL_MINUTES", default=15),
         "DEFAULT_BUFFER_BEFORE_MINUTES": env.int("APPOINTMENTS_DEFAULT_BUFFER_BEFORE_MINUTES", default=0),
         "DEFAULT_BUFFER_AFTER_MINUTES": env.int("APPOINTMENTS_DEFAULT_BUFFER_AFTER_MINUTES", default=0),
+        "DEFAULT_BOOKING_FREQUENCY_DAYS": env.int("APPOINTMENTS_DEFAULT_BOOKING_FREQUENCY_DAYS", default=0),
+        "DEFAULT_TIMEZONE": env("APPOINTMENTS_DEFAULT_TIMEZONE", default="America/Toronto"),
         "SLOT_GENERATION_HORIZON_DAYS": env.int("APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS", default=60),
         "PENDING_BOOKING_TIMEOUT_MINUTES": env.int("APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES", default=15),
 

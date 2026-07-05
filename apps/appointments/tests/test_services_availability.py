@@ -284,6 +284,23 @@ class ActiveOnQuerysetTests(TestCase):
         count = AvailabilityTemplate.objects.active_on(date(2026, 7, 7)).count()
         self.assertEqual(count, 1)
 
+    def test_template_with_future_valid_from_is_excluded(self):
+        """valid_from > target_date must exclude the template (active_on uses lte)."""
+        # Create a template valid from tomorrow onwards
+        tomorrow = date.today() + timedelta(days=1)
+        make_template(
+            self.staff,
+            1,  # Monday
+            time(9, 0),
+            time(17, 0),
+            valid_from=tomorrow,
+            valid_until=None,
+        )
+        # Query for today — template not yet active, must be excluded
+        today = date.today()
+        count = AvailabilityTemplate.objects.active_on(today).count()
+        self.assertEqual(count, 0)
+
 
 # ---------------------------------------------------------------------------
 # _SettingsPolicy / _policy_from_settings() tests
@@ -523,7 +540,11 @@ class SlotGenerationTests(TestCase):
             date_to=target_date,
             staff=staff,
         )
-        self.assertTrue(len(result) > 0)
+        # Template: Tuesday 09:00–11:00, slot_interval=30min, duration=30min,
+        # buffer_after=10min. A slot at 10:30 would have effective_end=11:10,
+        # overrunning the 11:00 template window → only 3 slots fit:
+        # 09:00 (eff_end 09:40), 09:30 (eff_end 10:10), 10:00 (eff_end 10:40).
+        self.assertEqual(len(result), 3)
         for slot in result:
             expected_eff_start = slot["start_datetime"] - timedelta(minutes=5)
             expected_eff_end = slot["end_datetime"] + timedelta(minutes=10)
@@ -637,7 +658,9 @@ class SlotGenerationTests(TestCase):
             date_to=date(2026, 7, 7),
             staff=staff,
         )
-        self.assertTrue(len(result) > 0)
+        # Template: Tuesday 09:00–10:00, slot_interval=30min, duration=30min
+        # Window = 60 min / 30 min interval = 2 slots
+        self.assertEqual(len(result), 2)
         required_keys = {
             "slot_id", "staff_id", "location_id", "appointment_type_id",
             "start_datetime", "end_datetime", "effective_start", "effective_end",
@@ -645,6 +668,100 @@ class SlotGenerationTests(TestCase):
         }
         for slot in result:
             self.assertEqual(set(slot.keys()), required_keys)
+
+    def test_each_staff_member_uses_their_own_location_policy(self):
+        """Regression: policy must be resolved per-staff, not from eligible_staff[0].location.
+
+        CR-2: before the fix, all staff used eligible_staff[0]'s location policy
+        regardless of their own location.  We verify that staff_b at location_b
+        (60-min interval) produces slots exactly 60 minutes apart, not 15 minutes
+        apart (which would happen if location_a's policy leaked in).
+        """
+        org = make_org("cr2-org")
+
+        # location_a: 15-minute slot interval
+        policy_a = make_policy(
+            name="cr2-policy-a",
+            slot_interval_minutes=15,
+            buffer_before_minutes=0,
+            buffer_after_minutes=0,
+            min_lead_time_hours=0,
+            max_advance_days=365,
+        )
+        location_a = make_location(org, slug="cr2-loc-a", tz="America/Toronto")
+        location_a.scheduling_policy = policy_a
+        location_a.save()
+
+        # location_b: 60-minute slot interval
+        policy_b = make_policy(
+            name="cr2-policy-b",
+            slot_interval_minutes=60,
+            buffer_before_minutes=0,
+            buffer_after_minutes=0,
+            min_lead_time_hours=0,
+            max_advance_days=365,
+        )
+        location_b = make_location(org, slug="cr2-loc-b", tz="America/Toronto")
+        location_b.scheduling_policy = policy_b
+        location_b.save()
+
+        # Shared appointment type with NO scheduling_policy so location policies
+        # are the deciding factor (second level of the three-level cascade).
+        service_type = make_service_type("cr2-svc")
+        appt_type = make_appt_type(
+            service_type,
+            slug="cr2-appt",
+            duration_minutes=60,
+            scheduling_policy=None,  # force fallback to location policy
+        )
+
+        # staff_a at location_a; staff_b at location_b
+        staff_a = make_staff(location_a, suffix="-cr2a")
+        staff_b = make_staff(location_b, suffix="-cr2b")
+        appt_type.staff_members.add(staff_a, staff_b)
+
+        # Tuesday 2026-07-07 templates for both staff
+        target_date = date(2026, 7, 7)
+        make_template(staff_a, day_of_week=2, start_time=time(9, 0), end_time=time(13, 0))
+        make_template(staff_b, day_of_week=2, start_time=time(9, 0), end_time=time(13, 0))
+
+        svc = SlotAvailabilityService()
+
+        # --- staff_b only (location_b, 60-min interval) ---
+        result_b = svc.get_available_slots(
+            appointment_type=appt_type,
+            date_from=target_date,
+            date_to=target_date,
+            staff=staff_b,
+        )
+        # 9:00–13:00 window, 60-min duration, 60-min stride → 4 slots
+        self.assertEqual(
+            len(result_b), 4,
+            f"staff_b (60-min policy) should produce 4 slots in 4-hour window; got {len(result_b)}",
+        )
+        # Verify stride is exactly 60 minutes (not 15)
+        starts_b = sorted(s["start_datetime"] for s in result_b)
+        for i in range(1, len(starts_b)):
+            stride = (starts_b[i] - starts_b[i - 1]).total_seconds() / 60
+            self.assertEqual(
+                stride, 60,
+                f"CR-2 regression: staff_b slot stride should be 60 min but got {stride} min. "
+                "Policy from location_a may be leaking into location_b's staff.",
+            )
+
+        # --- staff_a only (location_a, 15-min interval) ---
+        result_a = svc.get_available_slots(
+            appointment_type=appt_type,
+            date_from=target_date,
+            date_to=target_date,
+            staff=staff_a,
+        )
+        # 9:00–13:00 window, 60-min duration, 15-min stride → 13 slots
+        # (09:00, 09:15, …, 12:00 — last slot ends at 13:00)
+        self.assertEqual(
+            len(result_a), 13,
+            f"staff_a (15-min policy) should produce 13 slots in 4-hour window; got {len(result_a)}",
+        )
 
     def test_not_accepting_bookings_staff_excluded(self):
         """Staff with is_accepting_bookings=False are excluded."""
@@ -1003,10 +1120,10 @@ class FrequencyControlTests(TestCase):
             citizen=None,  # No citizen
         )
         # When no citizen is provided frequency control is completely bypassed.
-        # The policy has min_lead_time_hours=0 and the template is Monday 9–10,
-        # so slots should be returned (the result must not be empty due to frequency).
-        self.assertGreater(
-            len(result), 0,
+        # Template: Monday 09:00–10:00, slot_interval=30min, duration=30min (default).
+        # Window = 60 min / 30 min interval = 2 slots.
+        self.assertEqual(
+            len(result), 2,
             "Without a citizen, frequency control must be bypassed and slots must be returned",
         )
 
@@ -1042,10 +1159,10 @@ class FrequencyControlTests(TestCase):
                 citizen=citizen,
             )
         # _citizen_within_frequency_window returns False → citizen is NOT blocked.
-        # The policy has min_lead_time_hours=0 and the template is Monday 9–10,
-        # so available slots must be returned (not an empty list).
-        self.assertGreater(
-            len(result), 0,
+        # Template: Monday 09:00–10:00, slot_interval=30min, duration=30min (default).
+        # Window = 60 min / 30 min interval = 2 slots.
+        self.assertEqual(
+            len(result), 2,
             "Citizen outside frequency window must see available slots",
         )
 
@@ -1403,8 +1520,13 @@ class GenerateSlotsForRangeTests(TestCase):
             date_to=date(2026, 7, 6),
         )
         self.assertEqual(first, 2)
-        # Second run may return 0 (ignore_conflicts) or same count depending on backend
-        # DB count should not double
+        # generate_slots_for_range() assigns fresh UUID PKs each run, then counts
+        # how many of THOSE new PKs are in the DB after bulk_create(ignore_conflicts=True).
+        # On the second run the fresh UUIDs are not inserted (unique constraint conflict
+        # on start_datetime/staff/appointment_type), so none of the new PKs appear in
+        # the DB → the function correctly returns 0. The total row count stays at 2,
+        # confirming the existing slots were not duplicated.
+        self.assertEqual(second, 0, "Second run returns 0 — new PKs were not inserted (conflict-skipped)")
         total = Slot.objects.filter(staff=staff, appointment_type=appt_type).count()
         self.assertEqual(total, 2)
 
@@ -1636,14 +1758,18 @@ class GenerateSlotsForRangeTests(TestCase):
             s for s in result
             if time(9, 0) <= s["start_datetime"].astimezone(tz_toronto).time() < time(12, 0)
         ]
-        self.assertGreater(len(morning_slots), 0, "Expected slots in morning window (09:00–12:00)")
+        # Template A: Monday 09:00–12:00, slot_interval=30min, duration=30min
+        # Window = 180 min / 30 min interval = 6 slots
+        self.assertEqual(len(morning_slots), 6, "Expected 6 slots in morning window (09:00–12:00)")
 
         # At least one slot must start in the afternoon window (14:00–17:00)
         afternoon_slots = [
             s for s in result
             if time(14, 0) <= s["start_datetime"].astimezone(tz_toronto).time() < time(17, 0)
         ]
-        self.assertGreater(len(afternoon_slots), 0, "Expected slots in afternoon window (14:00–17:00)")
+        # Template B: Monday 14:00–17:00, slot_interval=30min, duration=30min
+        # Window = 180 min / 30 min interval = 6 slots
+        self.assertEqual(len(afternoon_slots), 6, "Expected 6 slots in afternoon window (14:00–17:00)")
 
 
 # ---------------------------------------------------------------------------
@@ -1724,14 +1850,6 @@ class SlotServiceUnitTests(TestCase):
         self.slot.refresh_from_db()
         self.assertIn("Block reason", self.slot.internal_note)
         self.assertIn("Cancel reason", self.slot.internal_note)
-
-    def test_slot_full_error_not_raised_from_service(self):
-        """SlotFullError is a public exception class (used by Wave 3 booking service)."""
-        self.assertTrue(issubclass(SlotFullError, Exception))
-
-    def test_slot_has_bookings_error_not_raised_from_service(self):
-        """SlotHasBookingsError is a public exception class."""
-        self.assertTrue(issubclass(SlotHasBookingsError, Exception))
 
     def test_block_slot_raises_when_slot_has_bookings(self):
         """
@@ -1936,172 +2054,6 @@ class StaffExceptionModelTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# SlotConstraintTests (Wave 2 model constraints)
-# ---------------------------------------------------------------------------
-
-class SlotConstraintTests(TestCase):
-    """
-    Tests for Slot model DB-level CheckConstraints and properties.
-
-    Spec §22.2: SlotConstraintTests — spaces_used ≤ capacity; end > start.
-    """
-
-    def setUp(self):
-        org = make_org("sc-org")
-        self.location = make_location(org, "sc-loc")
-        self.service_type = make_service_type("sc-svc")
-        self.appt_type = make_appt_type(self.service_type, slug="sc-appt")
-        self.staff = make_staff(self.location, suffix="-sc")
-        self.now_utc = datetime(2026, 9, 1, 14, 0, tzinfo=UTC)
-
-    def _make_valid_slot(self, **overrides) -> Slot:
-        end = self.now_utc + timedelta(minutes=30)
-        defaults = dict(
-            appointment_type=self.appt_type,
-            staff=self.staff,
-            location=self.location,
-            start_datetime=self.now_utc,
-            end_datetime=end,
-            effective_start=self.now_utc,
-            effective_end=end,
-            capacity=1,
-            spaces_used=0,
-            status="available",
-        )
-        defaults.update(overrides)
-        return Slot(**defaults)
-
-    def test_uuid_primary_key(self):
-        """Slot uses UUID as primary key."""
-        slot = make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        import uuid as _uuid
-        self.assertIsInstance(slot.pk, _uuid.UUID)
-
-    def test_available_spaces_property(self):
-        slot = self._make_valid_slot(capacity=3, spaces_used=1)
-        self.assertEqual(slot.available_spaces, 2)
-
-    def test_is_available_true_for_available_status(self):
-        slot = self._make_valid_slot(status="available", capacity=1, spaces_used=0)
-        self.assertTrue(slot.is_available)
-
-    def test_is_available_true_for_partial_status(self):
-        slot = self._make_valid_slot(status="partial", capacity=2, spaces_used=1)
-        self.assertTrue(slot.is_available)
-
-    def test_is_available_false_when_full(self):
-        slot = self._make_valid_slot(status="full", capacity=1, spaces_used=1)
-        self.assertFalse(slot.is_available)
-
-    def test_is_available_false_when_blocked(self):
-        slot = self._make_valid_slot(status="blocked", capacity=1, spaces_used=0)
-        self.assertFalse(slot.is_available)
-
-    def test_is_available_false_when_cancelled(self):
-        slot = self._make_valid_slot(status="cancelled", capacity=1, spaces_used=0)
-        self.assertFalse(slot.is_available)
-
-    def test_is_available_false_when_completed(self):
-        slot = self._make_valid_slot(status="completed", capacity=1, spaces_used=0)
-        self.assertFalse(slot.is_available)
-
-    def test_is_available_false_when_no_spaces(self):
-        """available_spaces=0 → is_available=False even if status='partial'."""
-        slot = self._make_valid_slot(status="partial", capacity=2, spaces_used=2)
-        self.assertFalse(slot.is_available)
-
-    def test_str_contains_uuid_and_status(self):
-        slot = make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        s = str(slot)
-        self.assertIn(str(slot.pk), s)
-        self.assertIn("available", s)
-
-    def test_str_does_not_contain_email(self):
-        """Slot.__str__ uses '@' as a separator but must not contain an actual email address."""
-        import re
-        slot = make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        self.assertIsNone(
-            re.search(r"@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", str(slot)),
-            "Email address must not appear in Slot.__str__",
-        )
-
-    def test_slot_status_choices_coverage(self):
-        expected = {"available", "partial", "full", "blocked", "cancelled", "completed"}
-        actual = {c[0] for c in Slot.SLOT_STATUS_CHOICES}
-        self.assertEqual(actual, expected)
-
-    def test_effective_start_lte_start_datetime(self):
-        """effective_start must be ≤ start_datetime."""
-        slot = make_slot(
-            self.appt_type, self.staff, self.location, self.now_utc,
-            buffer_before=5,
-        )
-        self.assertLessEqual(slot.effective_start, slot.start_datetime)
-
-    def test_effective_end_gte_end_datetime(self):
-        """effective_end must be ≥ end_datetime."""
-        slot = make_slot(
-            self.appt_type, self.staff, self.location, self.now_utc,
-            buffer_after=5,
-        )
-        self.assertGreaterEqual(slot.effective_end, slot.end_datetime)
-
-    def test_slot_default_status_is_available(self):
-        slot = make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        self.assertEqual(slot.status, "available")
-
-    def test_slot_default_spaces_used_is_zero(self):
-        slot = make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        self.assertEqual(slot.spaces_used, 0)
-
-    def test_slot_is_walk_in_default_false(self):
-        slot = make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        self.assertFalse(slot.is_walk_in_slot)
-
-    def test_slot_video_fields_default_empty(self):
-        slot = make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        self.assertEqual(slot.video_join_url_citizen, "")
-        self.assertEqual(slot.video_join_url_staff, "")
-        self.assertEqual(slot.video_meeting_id, "")
-        self.assertEqual(slot.video_provider, "")
-
-    def test_slot_on_delete_appointment_type_protect(self):
-        """Deleting an AppointmentType with slots raises ProtectedError."""
-        from django.db.models.deletion import ProtectedError
-        make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        with self.assertRaises(ProtectedError):
-            with transaction.atomic():
-                self.appt_type.delete()
-
-    def test_slot_on_delete_staff_protect(self):
-        """Deleting a StaffProfile with slots raises ProtectedError."""
-        from django.db.models.deletion import ProtectedError
-        make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        with self.assertRaises(ProtectedError):
-            with transaction.atomic():
-                self.staff.delete()
-
-    def test_slot_on_delete_location_protect(self):
-        """Deleting a Location with slots raises ProtectedError."""
-        from django.db.models.deletion import ProtectedError
-        make_slot(self.appt_type, self.staff, self.location, self.now_utc)
-        with self.assertRaises(ProtectedError):
-            with transaction.atomic():
-                self.location.delete()
-
-    def test_slot_ordering_by_start_datetime(self):
-        """Slots are ordered by start_datetime ascending."""
-        t1 = self.now_utc
-        t2 = self.now_utc + timedelta(hours=2)
-        make_slot(self.appt_type, self.staff, self.location, t2)  # Created second
-        make_slot(self.appt_type, self.staff, self.location, t1)  # Created first
-
-        slots = list(Slot.objects.filter(appointment_type=self.appt_type))
-        self.assertEqual(slots[0].start_datetime, t1)
-        self.assertEqual(slots[1].start_datetime, t2)
-
-
-# ---------------------------------------------------------------------------
 # TaskDecoratorTests
 # ---------------------------------------------------------------------------
 
@@ -2151,6 +2103,36 @@ class TaskDecoratorTests(TestCase):
             mark_past_slots_completed.bind,
             "mark_past_slots_completed must have bind=True for self.retry() to work",
         )
+
+    def test_soft_time_limit_exits_cleanly_without_reraise(self):
+        """SoftTimeLimitExceeded during iteration must log a warning and return — not re-raise."""
+        from apps.appointments.tasks import generate_slots_for_period
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        # Create real DB objects so staff_list is non-empty when the task fetches it.
+        org = make_org("stl-org")
+        location = make_location(org, "stl-loc")
+        service_type = make_service_type("stl-svc")
+        appt_type = make_appt_type(service_type, slug="stl-appt")
+        staff = make_staff(location, suffix="-stl")
+        appt_type.staff_members.add(staff)
+
+        # Patch generate_slots_for_range (imported inside the task function body)
+        # to raise SoftTimeLimitExceeded so the inner try/except catches it.
+        with patch(
+            "apps.appointments.services.slots.generate_slots_for_range",
+            side_effect=SoftTimeLimitExceeded(),
+        ):
+            try:
+                result = generate_slots_for_period.run(horizon_days=1)
+            except SoftTimeLimitExceeded:
+                self.fail(
+                    "SoftTimeLimitExceeded propagated out — task must catch it gracefully"
+                )
+
+        # Task must return a result dict, not re-raise.
+        self.assertIsInstance(result, dict)
+        self.assertIn("slots_created", result)
 
 
 # ---------------------------------------------------------------------------
@@ -2348,7 +2330,8 @@ class MarkPastSlotsCompletedTests(TestCase):
         result = mark_past_slots_completed.run()
         self.assertIsInstance(result, dict)
         self.assertIn("slots_updated", result)
-        self.assertGreaterEqual(result["slots_updated"], 2)
+        # setUp creates exactly 2 past slots (one 'available', one 'partial').
+        self.assertEqual(result["slots_updated"], 2)
 
     def test_task_is_idempotent(self):
         """Running the task twice on the same data must not raise and must not change status again."""

@@ -1456,6 +1456,126 @@ class StaffExceptionModelConstraintTests(TestCase):
         )
         self.assertEqual(exc.internal_note, "")
 
+    def test_midnight_override_times_are_valid(self):
+        """time(0, 0) is falsy in Python — must not be treated as missing."""
+        exc = StaffException(
+            staff=self.staff,
+            exception_date=date.today() + timedelta(days=1),
+            exception_type="override",
+            override_start_time=time(0, 0),   # midnight — falsy but valid
+            override_end_time=time(8, 0),
+        )
+        # Should not raise ValidationError — absence of exception IS the assertion
+        exc.clean()
+
+
+# ---------------------------------------------------------------------------
+# Wave 2: StaffExceptionAdmin.save_model() tests
+# ---------------------------------------------------------------------------
+
+class StaffExceptionAdminSaveModelTests(TestCase):
+    """Tests for StaffExceptionAdmin.save_model() append-only note behaviour."""
+
+    def setUp(self):
+        # Create org, location, staff using the wave-2 factory helper.
+        self.staff = _make_wave2_staff(suffix="-adminse")
+
+        # Admin user (is_staff=True) to act as the request user.
+        self.admin_user = User.objects.create_user(
+            email="adminactor@example.com",
+            password="pass!",
+            is_staff=True,
+        )
+
+        # Create a StaffException with a known internal_note so it has a PK.
+        self.exc = StaffException.objects.create(
+            staff=self.staff,
+            exception_date=date(2026, 8, 1),
+            exception_type="holiday",
+            internal_note="",
+        )
+
+    def _make_request(self):
+        from django.test import RequestFactory
+        request = RequestFactory().post("/")
+        request.user = self.admin_user
+        return request
+
+    def _make_admin(self):
+        from apps.appointments.admin import StaffExceptionAdmin
+        from django.contrib.admin import site
+        return StaffExceptionAdmin(StaffException, site)
+
+    def test_note_addition_appended_with_timestamp_and_actor_pk(self):
+        """note_addition is appended to internal_note with [timestamp — admin #pk] prefix."""
+        from apps.appointments.admin import StaffExceptionAdminForm
+        from unittest.mock import MagicMock
+
+        admin_instance = self._make_admin()
+        request = self._make_request()
+
+        # Build a minimal mock form: save() is a no-op (obj already in DB),
+        # cleaned_data carries note_addition.
+        form = MagicMock(spec=StaffExceptionAdminForm)
+        form.cleaned_data = {"note_addition": "Test note text"}
+        form.save.return_value = self.exc
+
+        admin_instance.save_model(request, self.exc, form, change=True)
+
+        self.exc.refresh_from_db()
+        self.assertIn("Test note text", self.exc.internal_note)
+        self.assertIn(f"admin #{request.user.pk}", self.exc.internal_note)
+        # Must NOT contain the admin's email or username (PIPEDA)
+        self.assertNotIn(request.user.email, self.exc.internal_note)
+
+    def test_empty_note_addition_leaves_internal_note_unchanged(self):
+        """If note_addition is blank, internal_note must not be modified."""
+        from apps.appointments.admin import StaffExceptionAdminForm
+        from unittest.mock import MagicMock
+
+        # Pre-set a known internal_note value.
+        self.exc.internal_note = "Pre-existing note"
+        self.exc.save(update_fields=["internal_note"])
+        original_note = self.exc.internal_note
+
+        admin_instance = self._make_admin()
+        request = self._make_request()
+
+        form = MagicMock(spec=StaffExceptionAdminForm)
+        form.cleaned_data = {"note_addition": ""}
+        form.save.return_value = self.exc
+
+        admin_instance.save_model(request, self.exc, form, change=True)
+
+        self.exc.refresh_from_db()
+        self.assertEqual(self.exc.internal_note, original_note)
+
+    def test_second_note_addition_appends_not_overwrites(self):
+        """Two note additions must produce two entries in internal_note."""
+        from apps.appointments.admin import StaffExceptionAdminForm
+        from unittest.mock import MagicMock
+
+        admin_instance = self._make_admin()
+        request = self._make_request()
+
+        # First save
+        form1 = MagicMock(spec=StaffExceptionAdminForm)
+        form1.cleaned_data = {"note_addition": "First note"}
+        form1.save.return_value = self.exc
+        admin_instance.save_model(request, self.exc, form1, change=True)
+
+        self.exc.refresh_from_db()
+
+        # Second save
+        form2 = MagicMock(spec=StaffExceptionAdminForm)
+        form2.cleaned_data = {"note_addition": "Second note"}
+        form2.save.return_value = self.exc
+        admin_instance.save_model(request, self.exc, form2, change=True)
+
+        self.exc.refresh_from_db()
+        self.assertIn("First note", self.exc.internal_note)
+        self.assertIn("Second note", self.exc.internal_note)
+
 
 # ---------------------------------------------------------------------------
 # Wave 2: Slot model constraint tests
@@ -1646,3 +1766,71 @@ class SlotModelConstraintTests(TestCase):
             effective_end=self.end + buffer,
         )
         self.assertGreaterEqual(slot.effective_end, slot.end_datetime)
+
+
+# ---------------------------------------------------------------------------
+# Wave 2: SlotAdminForm.clean_capacity() tests
+# ---------------------------------------------------------------------------
+
+class SlotAdminFormTests(TestCase):
+    """Tests for SlotAdminForm.clean_capacity() validation."""
+
+    def setUp(self):
+        org = Organization.objects.create(
+            slug="saf-org", name_en="SAF Org", name_fr="Org SAF",
+        )
+        self.location = Location.objects.create(
+            organization=org, slug="saf-loc",
+            name_en="SAF Loc", name_fr="Loc SAF",
+        )
+        svc = ServiceType.objects.create(
+            slug="saf-svc", name_en="SAF SVC", name_fr="SVC SAF",
+        )
+        self.appt_type = AppointmentType.objects.create(
+            service_type=svc, slug="saf-at",
+            name_en="SAF AT", name_fr="AT SAF",
+        )
+        self.staff = _make_wave2_staff(suffix="-saf")
+        now = datetime(2026, 9, 1, 14, 0, tzinfo=_UTC)
+        end = now + timedelta(minutes=30)
+        # Create a slot with capacity=5, spaces_used=2
+        self.slot = Slot.objects.create(
+            appointment_type=self.appt_type,
+            staff=self.staff,
+            location=self.location,
+            start_datetime=now,
+            end_datetime=end,
+            effective_start=now,
+            effective_end=end,
+            capacity=5,
+            spaces_used=2,
+            status="partial",
+        )
+
+    def test_new_slot_any_capacity_passes(self):
+        """New slot (no pk) — clean_capacity() should not raise for any capacity."""
+        from apps.appointments.admin import SlotAdminForm
+        form = SlotAdminForm(instance=Slot())
+        form.instance = Slot()  # no pk
+        form.cleaned_data = {"capacity": 1}
+        result = form.clean_capacity()
+        self.assertEqual(result, 1)
+
+    def test_existing_slot_capacity_gte_spaces_used_passes(self):
+        """Existing slot where new capacity >= spaces_used — should pass."""
+        from apps.appointments.admin import SlotAdminForm
+        form = SlotAdminForm(instance=self.slot)
+        form.instance = self.slot
+        form.cleaned_data = {"capacity": 5}  # same as current, >= spaces_used=2
+        result = form.clean_capacity()
+        self.assertEqual(result, 5)
+
+    def test_existing_slot_capacity_below_spaces_used_raises(self):
+        """Existing slot where new capacity < spaces_used — must raise ValidationError."""
+        from apps.appointments.admin import SlotAdminForm
+        from django.core.exceptions import ValidationError as CoreValidationError
+        form = SlotAdminForm(instance=self.slot)
+        form.instance = self.slot
+        form.cleaned_data = {"capacity": 1}  # 1 < spaces_used=2 — must fail
+        with self.assertRaises(CoreValidationError):
+            form.clean_capacity()
