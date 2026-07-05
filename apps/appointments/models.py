@@ -7,7 +7,7 @@ Wave 1 covers the scheduling catalogue and configuration layer:
   StaffProfile (extends auth_extension.User for staff)
 
 Later waves add:
-  Wave 2: AvailabilityTemplate, StaffException, Slot
+  Wave 2 (implemented): AvailabilityTemplate, StaffException, Slot
   Wave 3: Booking, Attendee, BookingAuditLog
   Wave 4: WaitlistEntry, QueueEntry, ClientNoShowRecord
 
@@ -30,6 +30,8 @@ Security invariants:
   - LoginRequiredMixin ALWAYS before PermissionRequiredMixin in view MRO (Wave 5).
 """
 from __future__ import annotations
+
+import uuid
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -1099,3 +1101,497 @@ class StaffProfile(TimestampedModel):
             raise ValidationError(
                 {"user": _("The selected user must have is_staff=True to be assigned as a staff profile.")}
             )
+
+
+# ---------------------------------------------------------------------------
+# AvailabilityTemplate
+# ---------------------------------------------------------------------------
+
+class AvailabilityTemplate(TimestampedModel):
+    """
+    Recurring weekly availability window for a staff member.
+
+    Times are pure TimeField values in the staff's location timezone.
+    Multiple rows per staff member — one per working day-of-week they are available.
+    valid_from / valid_until allow seasonal schedule changes without deleting
+    old templates (e.g., summer hours vs. winter hours).
+
+    The slot generation algorithm reads these templates and converts them to UTC
+    using staff.location.timezone (IANA identifier) before generating Slot records.
+
+    day_of_week uses ISO 8601: 1=Monday, 7=Sunday — consistent with Python's
+    date.isoweekday().
+    """
+
+    DAYS_OF_WEEK = [
+        (1, _("Monday")),
+        (2, _("Tuesday")),
+        (3, _("Wednesday")),
+        (4, _("Thursday")),
+        (5, _("Friday")),
+        (6, _("Saturday")),
+        (7, _("Sunday")),
+    ]
+
+    staff = models.ForeignKey(
+        StaffProfile,
+        on_delete=models.CASCADE,
+        related_name="availability_templates",
+        verbose_name=_("Staff profile"),
+    )
+    day_of_week = models.PositiveSmallIntegerField(
+        choices=DAYS_OF_WEEK,
+        verbose_name=_("Day of week"),
+        help_text=_("ISO 8601 weekday: 1=Monday, 7=Sunday. Consistent with Python date.isoweekday()."),
+    )
+    start_time = models.TimeField(
+        verbose_name=_("Start time"),
+        help_text=_(
+            "Start of availability window in the staff member's location timezone "
+            "(see staff.location.timezone). The slot generation service converts this "
+            "to UTC before creating Slot records."
+        ),
+    )
+    end_time = models.TimeField(
+        verbose_name=_("End time"),
+        help_text=_(
+            "End of availability window (exclusive) in the staff's location timezone. "
+            "Must be strictly after start_time."
+        ),
+    )
+    valid_from = models.DateField(
+        verbose_name=_("Valid from"),
+        help_text=_("First calendar date this template is active (inclusive)."),
+    )
+    valid_until = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Valid until"),
+        help_text=_(
+            "Last calendar date this template is active (inclusive). "
+            "None = open-ended (no expiry). "
+            "Must be on or after valid_from when set."
+        ),
+    )
+
+    class Meta:
+        ordering = ["day_of_week", "start_time"]
+        verbose_name = _("Availability template")
+        verbose_name_plural = _("Availability templates")
+        indexes = [
+            models.Index(
+                fields=["staff", "day_of_week", "valid_from"],
+                name="appt_avail_staff_dow_from",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_time__gt=models.F("start_time")),
+                name="appt_avail_end_after_start",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(valid_until__isnull=True)
+                    | models.Q(valid_until__gte=models.F("valid_from"))
+                ),
+                name="appt_avail_until_gte_from",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(day_of_week__gte=1) & models.Q(day_of_week__lte=7),
+                name="appt_avail_dow_1_to_7",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        # PIPEDA: no PII — use staff PK only.
+        return (
+            f"StaffProfile #{self.staff_id} — "
+            f"{self.get_day_of_week_display()} "
+            f"{self.start_time}–{self.end_time}"
+        )
+
+    def clean(self) -> None:
+        from django.core.exceptions import ValidationError
+        super().clean()
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            raise ValidationError(
+                {"end_time": _("End time must be after start time.")}
+            )
+        if self.valid_from and self.valid_until and self.valid_until < self.valid_from:
+            raise ValidationError(
+                {"valid_until": _("Valid until must be on or after valid from.")}
+            )
+
+
+# ---------------------------------------------------------------------------
+# StaffException
+# ---------------------------------------------------------------------------
+
+class StaffException(TimestampedModel):
+    """
+    Date-level override for a staff member's availability.
+
+    Overrides the AvailabilityTemplate for a specific calendar date.
+
+    exception_type semantics:
+      holiday  — staff is unavailable (public holiday, scheduled day off).
+                 No slots generated for this date.
+      leave    — sick or personal leave, possibly last-minute.
+                 No slots generated.
+      override — custom hours for this date (partial day, different start/end).
+                 Slots generated using override_start_time / override_end_time.
+      training — staff is at training or conference.
+                 No slots generated.
+
+    override_start_time / override_end_time are only set for exception_type='override'.
+
+    PRIVACY: note_internal is staff/admin-only and MUST NEVER be shown to citizens.
+    """
+
+    EXCEPTION_TYPE_CHOICES = [
+        ("holiday", _("Public Holiday / Day Off")),
+        ("leave", _("Sick / Personal Leave")),
+        ("override", _("Override Hours")),
+        ("training", _("Training / Conference")),
+    ]
+
+    staff = models.ForeignKey(
+        StaffProfile,
+        on_delete=models.CASCADE,
+        related_name="exceptions",
+        verbose_name=_("Staff profile"),
+    )
+    exception_date = models.DateField(
+        db_index=True,
+        verbose_name=_("Exception date"),
+        help_text=_("Calendar date this exception applies to."),
+    )
+    exception_type = models.CharField(
+        max_length=20,
+        choices=EXCEPTION_TYPE_CHOICES,
+        verbose_name=_("Exception type"),
+        help_text=_(
+            "holiday/leave/training → no slots generated for this date. "
+            "override → slots generated using override_start_time / override_end_time."
+        ),
+    )
+    override_start_time = models.TimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Override start time"),
+        help_text=_(
+            "Custom start time in the staff's location timezone. "
+            "Only required when exception_type='override'."
+        ),
+    )
+    override_end_time = models.TimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Override end time"),
+        help_text=_(
+            "Custom end time in the staff's location timezone. "
+            "Must be after override_start_time. "
+            "Only required when exception_type='override'."
+        ),
+    )
+    note_internal = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("Internal note"),
+        help_text=_(
+            "Staff/admin-facing note about this exception. "
+            "MUST NOT be shown to citizens or included in any citizen-facing communication."
+        ),
+    )
+
+    class Meta:
+        unique_together = [("staff", "exception_date")]
+        ordering = ["exception_date"]
+        verbose_name = _("Staff exception")
+        verbose_name_plural = _("Staff exceptions")
+
+    def __str__(self) -> str:
+        # PIPEDA: no PII — use staff PK only.
+        return (
+            f"StaffProfile #{self.staff_id} — "
+            f"{self.exception_date} ({self.get_exception_type_display()})"
+        )
+
+    def clean(self) -> None:
+        from django.core.exceptions import ValidationError
+        super().clean()
+        if self.exception_type == "override":
+            if not self.override_start_time or not self.override_end_time:
+                raise ValidationError(
+                    _(
+                        "Both override_start_time and override_end_time are required "
+                        "when exception_type is 'override'."
+                    )
+                )
+            if self.override_end_time <= self.override_start_time:
+                raise ValidationError(
+                    {"override_end_time": _("Override end time must be after override start time.")}
+                )
+
+
+# ---------------------------------------------------------------------------
+# Slot
+# ---------------------------------------------------------------------------
+
+import uuid as _uuid_module  # avoid name clash with field value
+
+
+class Slot(TimestampedModel):
+    """
+    Concrete bookable occurrence of an AppointmentType.
+
+    Created ahead of time (pre-stored) by the generate_slots_for_range() service
+    function or its Celery task. The SlotAvailabilityService can also compute
+    virtual (non-persisted) slots for display before they are written to the DB.
+
+    All datetime fields are stored in UTC. Display uses location.timezone (IANA).
+
+    Status state machine:
+      available → partial  (first booking created)
+      partial   → full     (capacity reached)
+      full      → partial  (booking cancelled, space freed)
+      partial   → available (all bookings cancelled)
+      any       → blocked  (admin action; prevents new bookings)
+      any       → cancelled (admin action; cascades cancellation to all Bookings)
+      any       → completed (end-of-day batch; slot is in the past)
+
+    Concurrency: capacity checks use SELECT FOR UPDATE inside atomic() in the
+    booking service layer (Wave 3). This model does not enforce atomicity —
+    the service layer does.
+
+    SECURITY: video_join_url_citizen MUST NEVER appear in unauthenticated email
+    or any API response that is not behind an authenticated session. Deliver
+    only inside an authenticated portal session at /appointments/booking/<uuid>/join/.
+
+    spaces_used ≤ capacity is enforced by DB CheckConstraint.
+    """
+
+    SLOT_STATUS_CHOICES = [
+        ("available", _("Available")),
+        ("partial", _("Partially Booked")),
+        ("full", _("Fully Booked")),
+        ("blocked", _("Blocked")),
+        ("cancelled", _("Cancelled")),
+        ("completed", _("Completed")),
+    ]
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=_uuid_module.uuid4,
+        editable=False,
+        verbose_name=_("Slot ID"),
+    )
+    appointment_type = models.ForeignKey(
+        AppointmentType,
+        on_delete=models.PROTECT,
+        related_name="slots",
+        verbose_name=_("Appointment type"),
+        help_text=_("The schedulable appointment variant this slot provides."),
+    )
+    staff = models.ForeignKey(
+        StaffProfile,
+        on_delete=models.PROTECT,
+        related_name="slots",
+        verbose_name=_("Staff member"),
+        help_text=_("The staff member assigned to conduct this appointment."),
+    )
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.PROTECT,
+        related_name="slots",
+        verbose_name=_("Location"),
+        help_text=_("Physical or virtual location where this appointment takes place."),
+    )
+    resource = models.ForeignKey(
+        Resource,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="slots",
+        verbose_name=_("Resource"),
+        help_text=_(
+            "Optional physical resource (meeting room, equipment) reserved for this slot. "
+            "Used when the resource must be booked alongside the staff member."
+        ),
+    )
+
+    # ── Datetime fields (all UTC) ─────────────────────────────────────────────
+
+    start_datetime = models.DateTimeField(
+        db_index=True,
+        verbose_name=_("Start (UTC)"),
+        help_text=_(
+            "Appointment start time in UTC. "
+            "Convert to location.timezone for citizen-facing display."
+        ),
+    )
+    end_datetime = models.DateTimeField(
+        db_index=True,
+        verbose_name=_("End (UTC)"),
+        help_text=_("Appointment end time in UTC. Must be after start_datetime."),
+    )
+    effective_start = models.DateTimeField(
+        verbose_name=_("Effective start (UTC)"),
+        help_text=_(
+            "start_datetime minus buffer_before_minutes from the effective SchedulingPolicy. "
+            "Used for busy-time collision detection — ensures back-to-back slots cannot overlap "
+            "considering setup time."
+        ),
+    )
+    effective_end = models.DateTimeField(
+        verbose_name=_("Effective end (UTC)"),
+        help_text=_(
+            "end_datetime plus buffer_after_minutes. "
+            "Used for busy-time collision detection — ensures wrap-up time is reserved."
+        ),
+    )
+
+    # ── Capacity ─────────────────────────────────────────────────────────────
+
+    capacity = models.PositiveSmallIntegerField(
+        default=1,
+        verbose_name=_("Capacity"),
+        help_text=_(
+            "Maximum number of clients that can be booked into this slot. "
+            "Matches appointment_type.capacity_per_slot at generation time. "
+            "May be reduced by admin for specific slots (e.g., staff illness mid-day)."
+        ),
+    )
+    spaces_used = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Spaces used"),
+        help_text=_(
+            "Count of confirmed bookings occupying this slot. "
+            "Incremented by create_booking(); decremented by cancel_booking(). "
+            "Always ≤ capacity (enforced by DB CheckConstraint). "
+            "Updated with SELECT FOR UPDATE inside atomic() in the booking service."
+        ),
+    )
+
+    # ── Status ───────────────────────────────────────────────────────────────
+
+    status = models.CharField(
+        max_length=20,
+        choices=SLOT_STATUS_CHOICES,
+        default="available",
+        db_index=True,
+        verbose_name=_("Status"),
+        help_text=_(
+            "Slot availability status. Transitions: available→partial→full (as bookings are added); "
+            "full/partial→available/partial (as bookings are cancelled); "
+            "any→blocked (admin action); any→cancelled (admin action); "
+            "any→completed (end-of-day batch for past slots)."
+        ),
+    )
+    is_walk_in_slot = models.BooleanField(
+        default=False,
+        verbose_name=_("Walk-in slot"),
+        help_text=_(
+            "If True, this slot is reserved for walk-in clients and does not appear "
+            "in the advance booking flow. Used when appointment_type.allow_walk_in=True."
+        ),
+    )
+
+    # ── Virtual appointment (Wave 7) ─────────────────────────────────────────
+
+    # SECURITY: video_join_url_citizen MUST NEVER be delivered in unauthenticated email.
+    # Serve only inside authenticated portal session at /appointments/booking/<uuid>/join/.
+    video_join_url_citizen = models.URLField(
+        blank=True,
+        verbose_name=_("Citizen video join URL"),
+        help_text=_(
+            "Pre-generated video conference join link for the citizen. "
+            "SECURITY: NEVER include in unauthenticated email. "
+            "Deliver only inside authenticated portal session. Wave 7+."
+        ),
+    )
+    video_join_url_staff = models.URLField(
+        blank=True,
+        verbose_name=_("Staff video join URL"),
+        help_text=_("Pre-generated host/moderator link for the staff member. Wave 7+."),
+    )
+    video_meeting_id = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("Video meeting ID"),
+        help_text=_("Platform-specific meeting ID (e.g., Zoom meeting ID, Teams thread ID). Wave 7+."),
+    )
+    video_provider = models.CharField(
+        max_length=20,
+        blank=True,
+        verbose_name=_("Video provider"),
+        help_text=_("Video platform for this slot: 'teams', 'zoom', 'jitsi'. Wave 7+."),
+    )
+
+    internal_note = models.TextField(
+        blank=True,
+        verbose_name=_("Internal note"),
+        help_text=_(
+            "Staff/admin notes about this slot. "
+            "MUST NOT be shown to citizens or included in citizen-facing communications."
+        ),
+    )
+
+    class Meta:
+        ordering = ["start_datetime"]
+        verbose_name = _("Slot")
+        verbose_name_plural = _("Slots")
+        indexes = [
+            models.Index(
+                fields=["appointment_type", "start_datetime", "status"],
+                name="appt_slot_appttype_dt_status",
+            ),
+            models.Index(
+                fields=["staff", "start_datetime"],
+                name="appt_slot_staff_dt",
+            ),
+            models.Index(
+                fields=["location", "start_datetime", "status"],
+                name="appt_slot_loc_dt_status",
+            ),
+            models.Index(
+                fields=["effective_start", "effective_end"],
+                name="appt_slot_eff_start_end",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_datetime__gt=models.F("start_datetime")),
+                name="appt_slot_end_after_start",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(spaces_used__lte=models.F("capacity")),
+                name="appt_slot_spaces_lte_capacity",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(effective_start__lte=models.F("start_datetime")),
+                name="appt_slot_eff_start_lte_start",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(effective_end__gte=models.F("end_datetime")),
+                name="appt_slot_eff_end_gte_end",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(capacity__gte=1),
+                name="appt_slot_capacity_gte_1",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        # PIPEDA: use PK (UUID) only — no email, name, or user identifier.
+        return f"Slot {self.pk} — {self.appointment_type_id} @ {self.start_datetime} ({self.status})"
+
+    @property
+    def available_spaces(self) -> int:
+        """Remaining bookable spaces in this slot."""
+        return self.capacity - self.spaces_used
+
+    @property
+    def is_available(self) -> bool:
+        """True if the slot can accept new bookings."""
+        return self.status in ("available", "partial") and self.available_spaces > 0

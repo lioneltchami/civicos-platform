@@ -285,7 +285,10 @@ class SettingsPolicyTests(TestCase):
         self.assertGreater(p.max_advance_days, 0)
 
     @override_settings(CIVICOS={"APPOINTMENTS": {
-        "DEFAULT_SLOT_DURATION_MINUTES": 45,
+        "DEFAULT_SLOT_DURATION_MINUTES": 60,      # duration (length of appointment)
+        "DEFAULT_SLOT_INTERVAL_MINUTES": 45,       # C-4 fix: interval is a separate key from duration
+        "DEFAULT_BUFFER_BEFORE_MINUTES": 0,
+        "DEFAULT_BUFFER_AFTER_MINUTES": 0,
         "DEFAULT_MIN_LEAD_HOURS": 2,
         "DEFAULT_MAX_ADVANCE_DAYS": 90,
         "DEFAULT_MAX_ACTIVE_BOOKINGS": 5,
@@ -295,7 +298,7 @@ class SettingsPolicyTests(TestCase):
     }})
     def test_policy_from_settings_reads_overrides(self):
         p = _policy_from_settings()
-        self.assertEqual(p.slot_interval_minutes, 45)
+        self.assertEqual(p.slot_interval_minutes, 45)  # reads DEFAULT_SLOT_INTERVAL_MINUTES
         self.assertEqual(p.min_lead_time_hours, 2)
         self.assertEqual(p.max_advance_days, 90)
         self.assertEqual(p.max_active_bookings_per_citizen, 5)

@@ -23,11 +23,14 @@ from django.utils.translation import gettext_lazy as _
 
 from .models import (
     AppointmentType,
+    AvailabilityTemplate,
     Location,
     Organization,
     Resource,
     SchedulingPolicy,
     ServiceType,
+    Slot,
+    StaffException,
     StaffProfile,
 )
 
@@ -501,3 +504,224 @@ class StaffProfileAdmin(admin.ModelAdmin):
     @admin.display(description=_("Walk-ins"), boolean=False)
     def accepts_walk_ins_icon(self, obj: StaffProfile) -> str:
         return _bool_icon(obj.accepts_walk_ins)
+
+
+# ===========================================================================
+# Wave 2 Admin: AvailabilityTemplate, StaffException, Slot
+# ===========================================================================
+
+
+class AvailabilityTemplateInline(admin.TabularInline):
+    """
+    Read-only inline showing availability templates on a StaffProfile detail page.
+    Added to StaffProfileAdmin.inlines after class definition (see bottom of file).
+    """
+
+    model = AvailabilityTemplate
+    verbose_name = _("Availability template")
+    verbose_name_plural = _("Availability templates")
+    extra = 0
+    can_delete = False
+    readonly_fields = ("day_of_week", "start_time", "end_time", "valid_from", "valid_until")
+
+    def has_add_permission(self, request, obj=None):  # type: ignore[override]
+        return False
+
+    def has_change_permission(self, request, obj=None):  # type: ignore[override]
+        return False
+
+
+@admin.register(AvailabilityTemplate)
+class AvailabilityTemplateAdmin(admin.ModelAdmin):
+    """
+    Admin for staff availability templates.
+    PIPEDA: list view shows staff_id (PK), not name or email.
+    """
+
+    list_display = (
+        "id",
+        "staff_id_display",
+        "day_of_week",
+        "start_time",
+        "end_time",
+        "valid_from",
+        "valid_until",
+    )
+    list_filter = ("day_of_week",)
+    search_fields = ("staff__location__name_en",)
+    ordering = ("staff_id", "day_of_week", "start_time")
+    readonly_fields = ("created_at", "updated_at")
+    fieldsets = (
+        (None, {
+            "fields": (
+                "staff",
+                "day_of_week",
+                ("start_time", "end_time"),
+                ("valid_from", "valid_until"),
+            ),
+        }),
+        (_("Timestamps"), {
+            "classes": ("collapse",),
+            "fields": ("created_at", "updated_at"),
+        }),
+    )
+
+    @admin.display(description=_("Staff ID"))
+    def staff_id_display(self, obj: AvailabilityTemplate) -> str:
+        # PIPEDA: return PK only — no email or name.
+        return str(obj.staff_id)
+
+
+@admin.register(StaffException)
+class StaffExceptionAdmin(admin.ModelAdmin):
+    """
+    Admin for date-level staff availability exceptions.
+    PIPEDA: list view shows staff_id (PK), not name or email.
+    note_internal is staff/admin-only — never shown to citizens.
+    """
+
+    list_display = (
+        "id",
+        "staff_id_display",
+        "exception_date",
+        "exception_type",
+        "override_start_time",
+        "override_end_time",
+    )
+    list_filter = ("exception_type",)
+    search_fields = ("staff__location__name_en",)
+    date_hierarchy = "exception_date"
+    ordering = ("-exception_date",)
+    readonly_fields = ("created_at", "updated_at")
+    fieldsets = (
+        (None, {
+            "fields": (
+                "staff",
+                "exception_date",
+                "exception_type",
+                ("override_start_time", "override_end_time"),
+            ),
+        }),
+        (_("Internal note (staff only)"), {
+            "description": _(
+                "⚠ This note is for staff and admin use only. "
+                "Never display to citizens."
+            ),
+            "fields": ("note_internal",),
+        }),
+        (_("Timestamps"), {
+            "classes": ("collapse",),
+            "fields": ("created_at", "updated_at"),
+        }),
+    )
+
+    @admin.display(description=_("Staff ID"))
+    def staff_id_display(self, obj: StaffException) -> str:
+        return str(obj.staff_id)
+
+
+@admin.register(Slot)
+class SlotAdmin(admin.ModelAdmin):
+    """
+    Admin for Slot records.
+
+    SECURITY:
+      - video_join_url_citizen is gated behind appointments.view_slot_video_urls
+        permission — never shown by default.
+      - list_display never includes the citizen video URL.
+      - internal_note is staff/admin only.
+    """
+
+    list_display = (
+        "pk_short",
+        "appointment_type",
+        "location",
+        "staff_id_display",
+        "start_datetime",
+        "status",
+        "spaces_used",
+        "capacity",
+        "is_walk_in_slot",
+    )
+    list_filter = (
+        "status",
+        "is_walk_in_slot",
+        "appointment_type__mode",
+        "location__organization",
+    )
+    search_fields = ("appointment_type__slug", "location__name_en")
+    date_hierarchy = "start_datetime"
+    ordering = ("-start_datetime",)
+    readonly_fields = (
+        "id",
+        "appointment_type",
+        "staff",
+        "location",
+        "resource",
+        "start_datetime",
+        "end_datetime",
+        "effective_start",
+        "effective_end",
+        "spaces_used",
+        "created_at",
+        "updated_at",
+    )
+    fieldsets = (
+        (None, {
+            "fields": (
+                "id",
+                "appointment_type",
+                ("staff", "location", "resource"),
+                ("start_datetime", "end_datetime"),
+                ("effective_start", "effective_end"),
+                ("capacity", "spaces_used"),
+                ("status", "is_walk_in_slot"),
+            ),
+        }),
+        (_("Internal note (staff only)"), {
+            "classes": ("collapse",),
+            "fields": ("internal_note",),
+        }),
+        (_("Video (Wave 7) — restricted"), {
+            "classes": ("collapse",),
+            "description": _(
+                "⚠ SECURITY: Citizen video join URL must NEVER appear in "
+                "unauthenticated email. Visible only to users with "
+                "appointments.view_slot_video_urls permission."
+            ),
+            "fields": (
+                "video_join_url_citizen",
+                "video_join_url_staff",
+                "video_meeting_id",
+                "video_provider",
+            ),
+        }),
+        (_("Timestamps"), {
+            "classes": ("collapse",),
+            "fields": ("created_at", "updated_at"),
+        }),
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        """Gate video URLs behind explicit permission."""
+        ro = list(self.readonly_fields)
+        if not request.user.has_perm("appointments.view_slot_video_urls"):
+            ro += [
+                "video_join_url_citizen",
+                "video_join_url_staff",
+                "video_meeting_id",
+                "video_provider",
+            ]
+        return ro
+
+    @admin.display(description=_("ID"))
+    def pk_short(self, obj: Slot) -> str:
+        return str(obj.pk)[:8] + "…"
+
+    @admin.display(description=_("Staff ID"))
+    def staff_id_display(self, obj: Slot) -> str:
+        return str(obj.staff_id)
+
+
+# Add AvailabilityTemplate inline to StaffProfileAdmin
+StaffProfileAdmin.inlines = list(StaffProfileAdmin.inlines) + [AvailabilityTemplateInline]

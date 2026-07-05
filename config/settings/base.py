@@ -322,6 +322,8 @@ ADMINS = [
 # Celery
 # ---------------------------------------------------------------------------
 
+from celery.schedules import crontab  # noqa: E402 — imported here for Beat schedule clarity
+
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/1")
 CELERY_RESULT_BACKEND = "django-db"
 CELERY_CACHE_BACKEND = "django-cache"
@@ -362,6 +364,20 @@ CELERY_TASK_ROUTES = {
 # Task time limits — prevent runaway workers
 CELERY_TASK_SOFT_TIME_LIMIT = 300   # 5 min — SoftTimeLimitExceeded is raised
 CELERY_TASK_TIME_LIMIT = 360        # 6 min — worker SIGKILL after this
+
+# Periodic task schedule (static Beat entries; dynamic schedules use DatabaseScheduler).
+CELERY_BEAT_SCHEDULE = {
+    "appointments-generate-slots-daily": {
+        "task": "appointments.generate_slots_for_period",
+        "schedule": crontab(hour=2, minute=0),  # 02:00 UTC daily
+        "options": {"queue": "appointments"},
+    },
+    "appointments-mark-past-slots-completed": {
+        "task": "appointments.mark_past_slots_completed",
+        "schedule": crontab(hour=23, minute=30),  # 23:30 UTC daily
+        "options": {"queue": "appointments"},
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Volunteer Management BB
@@ -614,6 +630,9 @@ CIVICOS = {
 
         # Slot generation (Wave 3+)
         "DEFAULT_SLOT_DURATION_MINUTES": env.int("APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES", default=30),
+        "DEFAULT_SLOT_INTERVAL_MINUTES": env.int("APPOINTMENTS_DEFAULT_SLOT_INTERVAL_MINUTES", default=15),
+        "DEFAULT_BUFFER_BEFORE_MINUTES": env.int("APPOINTMENTS_DEFAULT_BUFFER_BEFORE_MINUTES", default=0),
+        "DEFAULT_BUFFER_AFTER_MINUTES": env.int("APPOINTMENTS_DEFAULT_BUFFER_AFTER_MINUTES", default=0),
         "SLOT_GENERATION_HORIZON_DAYS": env.int("APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS", default=60),
         "PENDING_BOOKING_TIMEOUT_MINUTES": env.int("APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES", default=15),
 
@@ -626,6 +645,26 @@ CIVICOS = {
         "BOOKING_SESSION_TIMEOUT_SECONDS": env.int("APPOINTMENTS_BOOKING_SESSION_TIMEOUT_SECONDS", default=900),     # 15 min
         "WAITLIST_TOKEN_TTL_SECONDS": env.int("APPOINTMENTS_WAITLIST_TOKEN_TTL_SECONDS", default=7200),              # 2 hours
         "ANON_BOOKING_TOKEN_TTL_DAYS": env.int("APPOINTMENTS_ANON_BOOKING_TOKEN_TTL_DAYS", default=7),
+        # Queue retention
+        "QUEUE_ENTRY_RETENTION_DAYS": env.int("APPOINTMENTS_QUEUE_ENTRY_RETENTION_DAYS", default=90),
+        # Video URL auto-null (minutes after slot end)
+        "VIDEO_URL_EXPIRY_MINUTES": env.int("APPOINTMENTS_VIDEO_URL_EXPIRY_MINUTES", default=60),
+        # Video conference credentials (Wave 7)
+        "TEAMS_TENANT_ID": env("TEAMS_TENANT_ID", default=""),
+        "TEAMS_CLIENT_ID": env("TEAMS_CLIENT_ID", default=""),
+        "TEAMS_CLIENT_SECRET": env("TEAMS_CLIENT_SECRET", default=""),
+        "ZOOM_ACCOUNT_ID": env("ZOOM_ACCOUNT_ID", default=""),
+        "ZOOM_CLIENT_ID": env("ZOOM_CLIENT_ID", default=""),
+        "ZOOM_CLIENT_SECRET": env("ZOOM_CLIENT_SECRET", default=""),
+        "JITSI_DOMAIN": env("JITSI_DOMAIN", default="meet.civicos.ca"),
+        "JITSI_SECRET": env("JITSI_SECRET", default=""),
+        # SMS notifications via Twilio (Wave 6)
+        "TWILIO_ACCOUNT_SID": env("TWILIO_ACCOUNT_SID", default=""),
+        "TWILIO_AUTH_TOKEN": env("TWILIO_AUTH_TOKEN", default=""),
+        "TWILIO_FROM_NUMBER": env("TWILIO_FROM_NUMBER", default=""),
+        "SMS_ENABLED": env.bool("APPOINTMENTS_SMS_ENABLED", default=False),
+        "SMS_QUIET_HOURS_START": 21,  # 9 PM recipient local time — do not SMS after this hour
+        "SMS_QUIET_HOURS_END": 8,    # 8 AM recipient local time — do not SMS before this hour
     },
 }
 

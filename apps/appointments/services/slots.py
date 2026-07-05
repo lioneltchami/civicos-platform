@@ -108,31 +108,40 @@ def generate_slots_for_range(
             )
         )
 
-    # bulk_create with ignore_conflicts — idempotent for retry safety
-    # Note: ignore_conflicts=True means existing rows are silently skipped.
-    # We cannot get the exact count of newly inserted rows on all DB backends,
-    # so we count before and after.
+    # bulk_create with ignore_conflicts — idempotent for retry safety.
+    # Note: on PostgreSQL, bulk_create(ignore_conflicts=True) ALWAYS returns
+    # every input object regardless of how many rows were actually inserted —
+    # so len(created) would equal len(slots_to_create) even on a 100% duplicate
+    # run. Instead we capture the PKs we attempted to insert (Slot uses UUID PKs
+    # assigned in Python before the DB call) and query after the fact to find
+    # how many of those PKs are now present in the database. Pre-existing rows
+    # that triggered a conflict are already counted here, which is fine: the
+    # function contract is idempotent generation, and this count represents
+    # "slots available after this call" for the requested range.
     if not slots_to_create:
         return 0
 
-    with transaction.atomic():
-        created = Slot.objects.bulk_create(
-            slots_to_create,
-            ignore_conflicts=True,
-        )
+    slot_pks = [s.pk for s in slots_to_create]
 
-    count = len(created)
+    with transaction.atomic():
+        Slot.objects.bulk_create(slots_to_create, ignore_conflicts=True)
+
+    # Count how many of the attempted PKs are now in the DB.
+    # New inserts + pre-existing rows that survived conflict-skip are included.
+    inserted_count = Slot.objects.filter(pk__in=slot_pks).count()
+
     logger.info(
-        "generate_slots_for_range: created %d slots — staff_id=%s, "
-        "appointment_type_id=%s, %s->%s%s",
-        count,
+        "generate_slots_for_range: %d/%d slots available after upsert — "
+        "staff_id=%s, appointment_type_id=%s, %s->%s%s",
+        inserted_count,
+        len(slot_pks),
         staff.pk,
         appointment_type.pk,
         date_from,
         date_to,
         " (via task)" if created_by_task else "",
     )
-    return count
+    return inserted_count
 
 
 # ---------------------------------------------------------------------------
