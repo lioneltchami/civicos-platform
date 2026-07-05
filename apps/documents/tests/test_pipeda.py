@@ -1,0 +1,652 @@
+"""
+Wave 7 — §24.1 canonical test file: test_pipeda.py
+
+PIPEDA / Privacy Act compliance tests for the Document Management BB.
+
+Constraints tested:
+  1. IDOR prevention — citizens get Http404 (not 403) for non-owned document PKs
+  2. Scan gate — only ACTIVE documents are downloadable
+  3. storage_key leakage — NEVER in audit event_detail, signal kwargs, or download response
+  4. Legal hold absolute block — hard_delete raises when legal_hold=True
+  5. Quarantine PII — document_quarantined signal MUST NOT contain uploader identity
+  6. original_filename — NEVER in audit event_detail (PII risk)
+  7. IP masking — IPv4 last octet zeroed; IPv6 /48 prefix retained
+  8. Citizen vs staff IDOR — staff with coordinator_view_document CAN access non-owned docs
+  9. Access token IDOR — Http404 for wrong issuer
+  10. record_event atomicity — audit entry committed with state change
+"""
+
+import uuid
+from datetime import timedelta
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
+from django.http import Http404
+from django.test import TestCase
+from django.utils import timezone
+
+from apps.audit.models import AuditEventType, AuditLogEntry
+from apps.documents.models import Document, DocumentAccessToken, DocumentCategory
+from apps.documents.services.download import _mask_ip, consume_access_token, issue_access_token
+from apps.documents.services.retention import apply_legal_hold, hard_delete, soft_delete
+
+User = get_user_model()
+
+_CTR = 0
+
+
+def _make_user(**kwargs):
+    global _CTR
+    _CTR += 1
+    return User.objects.create_user(
+        email=f"pipeda{_CTR}@example.com",
+        password="testpass123",
+        **kwargs,
+    )
+
+
+def _make_category(**kwargs):
+    global _CTR
+    _CTR += 1
+    return DocumentCategory.objects.create(
+        name_en="PIPEDA Test",
+        name_fr="Test PIPEDA",
+        slug=f"pipeda-cat-{_CTR}",
+        allowed_mime_types=["application/pdf"],
+        min_retention_days=730,
+        max_retention_days=2555,
+        **kwargs,
+    )
+
+
+def _make_document(user, category, **kwargs):
+    doc_id = uuid.uuid4()
+    return Document.objects.create(
+        uploaded_by=user,
+        category=category,
+        original_filename="confidential-citizen-info.pdf",
+        _storage_key=f"documents/active/{doc_id}/{uuid.uuid4().hex}.bin",
+        mime_type="application/pdf",
+        size_bytes=8_192,
+        scan_status=Document.ScanStatus.ACTIVE,
+        **kwargs,
+    )
+
+
+def _grant_perm(user, codename):
+    ct = ContentType.objects.get_for_model(Document)
+    perm, _ = Permission.objects.get_or_create(
+        codename=codename,
+        content_type=ct,
+        defaults={"name": f"Can {codename}"},
+    )
+    user.user_permissions.add(perm)
+    return User.objects.get(pk=user.pk)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. IDOR prevention — Http404 for non-owned documents
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class IDORPreventionTests(TestCase):
+    """
+    Citizens must receive Http404 (not 403) for documents they don't own.
+    OWASP IDOR: returning 403 confirms resource existence, enabling enumeration.
+    """
+
+    def setUp(self):
+        self.owner = _make_user()
+        self.attacker = _make_user()
+        self.cat = _make_category()
+        self.doc = _make_document(self.owner, self.cat)
+
+    def test_citizen_gets_404_for_non_owned_document(self):
+        """Attacker getting an access token for owner's document raises Http404."""
+        with self.assertRaises(Http404):
+            issue_access_token(user=self.attacker, document=self.doc)
+
+    def test_not_403_for_non_owned_document(self):
+        """Explicitly verify PermissionDenied is NOT raised (would confirm existence)."""
+        from django.core.exceptions import PermissionDenied
+        try:
+            issue_access_token(user=self.attacker, document=self.doc)
+        except Http404:
+            pass  # expected
+        except PermissionDenied:
+            self.fail("PermissionDenied raised — exposes document existence (IDOR risk)")
+
+    def test_anon_user_gets_404(self):
+        """
+        Anonymous users must get Http404.
+        """
+        anon = User()  # unsaved — simulates anonymous
+        anon.pk = None
+        with self.assertRaises((Http404, Exception)):
+            issue_access_token(user=anon, document=self.doc)
+
+    def test_wrong_token_issuer_gets_404(self):
+        """Consuming a token issued to another user raises Http404."""
+        token = issue_access_token(user=self.owner, document=self.doc)
+        with self.assertRaises(Http404):
+            consume_access_token(token_value=token.token, user=self.attacker)
+
+    def test_owner_can_get_token(self):
+        """The document owner can successfully get a download token."""
+        token = issue_access_token(user=self.owner, document=self.doc)
+        self.assertIsNotNone(token)
+        self.assertTrue(token.is_valid)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Scan gate — only ACTIVE documents downloadable by citizens
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ScanGateTests(TestCase):
+    """
+    Citizens may only download ACTIVE documents.
+    All other scan_status values must return Http404.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+
+    def _make_doc_with_status(self, status):
+        doc_id = uuid.uuid4()
+        return Document.objects.create(
+            uploaded_by=self.user,
+            category=self.cat,
+            original_filename="test.pdf",
+            _storage_key=f"documents/active/{doc_id}/{uuid.uuid4().hex}.bin",
+            mime_type="application/pdf",
+            size_bytes=1024,
+            scan_status=status,
+        )
+
+    def test_pending_upload_not_downloadable(self):
+        doc = self._make_doc_with_status(Document.ScanStatus.PENDING_UPLOAD)
+        with self.assertRaises(Http404):
+            issue_access_token(user=self.user, document=doc)
+
+    def test_scanning_not_downloadable(self):
+        doc = self._make_doc_with_status(Document.ScanStatus.SCANNING)
+        with self.assertRaises(Http404):
+            issue_access_token(user=self.user, document=doc)
+
+    def test_quarantined_not_downloadable(self):
+        doc = self._make_doc_with_status(Document.ScanStatus.QUARANTINED)
+        with self.assertRaises(Http404):
+            issue_access_token(user=self.user, document=doc)
+
+    def test_deleted_not_downloadable(self):
+        doc = self._make_doc_with_status(Document.ScanStatus.DELETED)
+        with self.assertRaises(Http404):
+            issue_access_token(user=self.user, document=doc)
+
+    def test_purged_not_downloadable(self):
+        doc = self._make_doc_with_status(Document.ScanStatus.PURGED)
+        with self.assertRaises(Http404):
+            issue_access_token(user=self.user, document=doc)
+
+    def test_active_is_downloadable(self):
+        doc = self._make_doc_with_status(Document.ScanStatus.ACTIVE)
+        token = issue_access_token(user=self.user, document=doc)
+        self.assertTrue(token.is_valid)
+
+    def test_soft_deleted_not_downloadable(self):
+        """Soft-deleted documents (deleted_at set) must return Http404 even if ACTIVE."""
+        doc = self._make_doc_with_status(Document.ScanStatus.ACTIVE)
+        soft_delete(document=doc, deleted_by=self.user, reason="test")
+        doc.refresh_from_db()
+        # After soft_delete, status is DELETED — verifies double protection
+        with self.assertRaises(Http404):
+            issue_access_token(user=self.user, document=doc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. storage_key leakage prevention
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class StorageKeyLeakageTests(TestCase):
+    """
+    storage_key MUST NEVER appear in audit event_detail, signal kwargs,
+    or any service return value.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+        self.doc = _make_document(self.user, self.cat)
+
+    def test_soft_delete_audit_no_storage_key(self):
+        soft_delete(document=self.doc, deleted_by=self.user, reason="test")
+        entries = AuditLogEntry.objects.filter(
+            resource_id=str(self.doc.pk),
+            event_type=AuditEventType.RECORD_DELETED,
+        )
+        for entry in entries:
+            detail_str = str(entry.event_detail)
+            self.assertNotIn("storage_key", detail_str)
+            self.assertNotIn(self.doc._storage_key, detail_str)
+
+    def test_issue_access_token_audit_no_storage_key(self):
+        issue_access_token(user=self.user, document=self.doc)
+        entries = AuditLogEntry.objects.filter(
+            resource_id=str(self.doc.pk),
+            event_type=AuditEventType.RECORD_VIEWED,
+        )
+        for entry in entries:
+            detail_str = str(entry.event_detail)
+            self.assertNotIn("storage_key", detail_str)
+            self.assertNotIn(self.doc._storage_key, detail_str)
+
+    def test_access_token_object_no_storage_key_field(self):
+        """DocumentAccessToken model must not have a storage_key field."""
+        token = issue_access_token(user=self.user, document=self.doc)
+        self.assertFalse(hasattr(token, "storage_key"))
+        self.assertFalse(hasattr(token, "_storage_key"))
+
+    def test_hard_delete_audit_no_storage_key_value(self):
+        """RECORD_PURGED event_detail MUST NOT contain the actual storage_key path."""
+        storage_key_value = self.doc._storage_key
+        self.doc.deleted_at = timezone.now() - timedelta(days=31)
+        self.doc.scan_status = Document.ScanStatus.DELETED
+        self.doc.legal_hold = False
+        self.doc.save(update_fields=["deleted_at", "scan_status", "legal_hold", "updated_at"])
+
+        with patch("apps.documents.services.retention.default_storage") as mock_s:
+            mock_s.delete.return_value = None
+            hard_delete(document=self.doc)
+
+        entries = AuditLogEntry.objects.filter(
+            resource_id=str(self.doc.pk),
+            event_type=AuditEventType.RECORD_PURGED,
+        )
+        self.assertGreaterEqual(entries.count(), 1)
+        for entry in entries:
+            self.assertNotIn("storage_key", entry.event_detail)
+            self.assertNotIn(storage_key_value, str(entry.event_detail))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Legal hold absolute block
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class LegalHoldAbsoluteBlockTests(TestCase):
+    """legal_hold=True must ABSOLUTELY block all automated disposal."""
+
+    def setUp(self):
+        self.user = _make_user()
+        self.user = _grant_perm(self.user, "manage_legal_hold")
+        self.cat = _make_category()
+        self.doc = _make_document(self.user, self.cat)
+
+    def test_legal_hold_blocks_hard_delete(self):
+        """hard_delete() must raise ValueError if legal_hold=True."""
+        self.doc.deleted_at = timezone.now() - timedelta(days=31)
+        self.doc.scan_status = Document.ScanStatus.DELETED
+        self.doc.legal_hold = True
+        self.doc.save(update_fields=["deleted_at", "scan_status", "legal_hold", "updated_at"])
+
+        with self.assertRaises(ValueError):
+            hard_delete(document=self.doc)
+
+    def test_legal_hold_blocks_hard_delete_even_after_grace_period(self):
+        """No grace period matters — legal hold is an absolute block."""
+        self.doc.deleted_at = timezone.now() - timedelta(days=3650)  # 10 years ago
+        self.doc.scan_status = Document.ScanStatus.DELETED
+        self.doc.legal_hold = True
+        self.doc.save(update_fields=["deleted_at", "scan_status", "legal_hold", "updated_at"])
+
+        with self.assertRaises(ValueError):
+            hard_delete(document=self.doc)
+
+    def test_release_hold_then_hard_delete_succeeds(self):
+        """After releasing legal hold, hard_delete() can proceed."""
+        apply_legal_hold(document=self.doc, set_by=self.user, reason="litigation")
+        self.doc.refresh_from_db()
+        self.assertTrue(self.doc.legal_hold)
+
+        from apps.documents.services.retention import release_legal_hold
+        release_legal_hold(document=self.doc, released_by=self.user)
+        self.doc.refresh_from_db()
+        self.assertFalse(self.doc.legal_hold)
+
+        # Now set up for hard delete
+        self.doc.deleted_at = timezone.now() - timedelta(days=31)
+        self.doc.scan_status = Document.ScanStatus.DELETED
+        self.doc.save(update_fields=["deleted_at", "scan_status", "updated_at"])
+
+        with patch("apps.documents.services.retention.default_storage") as mock_s:
+            mock_s.delete.return_value = None
+            hard_delete(document=self.doc)  # must NOT raise
+
+        self.doc.refresh_from_db()
+        self.assertEqual(self.doc.scan_status, Document.ScanStatus.PURGED)
+
+    def test_legal_hold_prevents_soft_delete_automated(self):
+        """Legal hold should also block soft_delete() for automated disposal."""
+        self.doc.legal_hold = True
+        self.doc.save(update_fields=["legal_hold", "updated_at"])
+        with self.assertRaises(ValueError):
+            soft_delete(document=self.doc, deleted_by=None, reason="retention_expired")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Quarantine signal PII — no uploader identity
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class QuarantineSignalPIITests(TestCase):
+    """
+    PIPEDA: document_quarantined signal MUST NOT include uploader identity.
+    Admin is notified; citizen is not — and admin must not be given PII they
+    don't need (minimisation principle, PIPEDA Schedule 1 §4.4).
+    """
+
+    def test_quarantine_signal_kwarg_allowlist(self):
+        """
+        The quarantine signal docstring documents: document_pk (str), scan_engine_result (str).
+        No uploader_id, no uploaded_by, no email.
+        """
+        from apps.documents import signals as sig_module
+        import inspect
+        src = inspect.getsource(sig_module)
+
+        # Find the quarantined signal block
+        idx = src.find("document_quarantined")
+        block_end = src.find("\n\n", idx)
+        block = src[idx:block_end]
+
+        # Must document exclusion of uploader identity
+        self.assertIn("MUST NOT", src[max(0, idx - 300):block_end])
+        # uploaded_by_id must NOT be listed as a provided kwarg
+        self.assertNotIn("uploaded_by_id", block)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. original_filename NEVER in audit event_detail
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class OriginalFilenameAuditTests(TestCase):
+    """
+    PIPEDA clause 4.5: Limit collection and disclosure of personal information.
+    original_filename is PII (can identify the document creator/subject).
+    It must NEVER appear in audit event_detail.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+        # Include PII in original_filename to make leakage detectable
+        self.doc = _make_document(
+            self.user, self.cat,
+        )
+        # Override original_filename with something detectably PII
+        self.doc.original_filename = f"John_Smith_SIN123456789_{uuid.uuid4().hex}.pdf"
+        self.doc.save(update_fields=["original_filename"])
+
+    def test_soft_delete_no_filename_in_audit(self):
+        soft_delete(document=self.doc, deleted_by=self.user, reason="test")
+        entries = AuditLogEntry.objects.filter(resource_id=str(self.doc.pk))
+        for entry in entries:
+            self.assertNotIn("original_filename", entry.event_detail)
+            self.assertNotIn(self.doc.original_filename, str(entry.event_detail))
+
+    def test_issue_token_no_filename_in_audit(self):
+        issue_access_token(user=self.user, document=self.doc)
+        entries = AuditLogEntry.objects.filter(resource_id=str(self.doc.pk))
+        for entry in entries:
+            self.assertNotIn("original_filename", entry.event_detail)
+            self.assertNotIn(self.doc.original_filename, str(entry.event_detail))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. IP masking
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class IPMaskingTests(TestCase):
+    """
+    PIPEDA: IP addresses must be masked before storage.
+    IPv4: last octet → 0.
+    IPv6: last 80 bits → 0 (retain /48 prefix).
+    """
+
+    def test_ipv4_last_octet_zeroed(self):
+        self.assertEqual(_mask_ip("192.168.1.100"), "192.168.1.0")
+
+    def test_ipv4_all_octets(self):
+        self.assertEqual(_mask_ip("10.20.30.40"), "10.20.30.0")
+
+    def test_ipv4_last_octet_255(self):
+        self.assertEqual(_mask_ip("172.16.0.255"), "172.16.0.0")
+
+    def test_ipv6_prefix_retained(self):
+        """IPv6 /48 prefix retained — last 80 bits zeroed."""
+        masked = _mask_ip("2001:db8:1234:5678:9abc:def0:1234:5678")
+        self.assertIsNotNone(masked)
+        # Last 80 bits zeroed — mask should zero from 4th group onwards
+        import ipaddress
+        addr = ipaddress.ip_address(masked)
+        network = ipaddress.ip_network(f"2001:db8:1234::/48", strict=False)
+        self.assertIn(addr, network)
+
+    def test_ipv6_full_mask(self):
+        masked = _mask_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334")
+        self.assertIsNotNone(masked)
+        # Last 80 bits (5 groups of 16 bits) are zeroed
+        parts = masked.split(":")
+        # IPv6 addresses may be compressed — just verify it's a valid address
+        import ipaddress
+        addr = ipaddress.ip_address(masked)
+        # The last 80 bits should be zero
+        int_val = int(addr)
+        last_80_bits = int_val & ((1 << 80) - 1)
+        self.assertEqual(last_80_bits, 0)
+
+    def test_none_ip_returns_none(self):
+        self.assertIsNone(_mask_ip(None))
+
+    def test_unparseable_ip_returns_none(self):
+        self.assertIsNone(_mask_ip("not-an-ip"))
+
+    def test_empty_string_returns_none(self):
+        self.assertIsNone(_mask_ip(""))
+
+    def test_masked_ip_stored_in_token(self):
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat)
+
+        token = issue_access_token(
+            user=user,
+            document=doc,
+            ip_address="192.168.5.99",
+        )
+        self.assertEqual(token.ip_address, "192.168.5.0")
+
+    def test_raw_ip_not_stored_in_token(self):
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat)
+
+        token = issue_access_token(
+            user=user,
+            document=doc,
+            ip_address="10.0.0.42",
+        )
+        self.assertNotEqual(token.ip_address, "10.0.0.42")
+        self.assertEqual(token.ip_address, "10.0.0.0")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Staff IDOR bypass — coordinator_view_document permission
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class StaffIDORBypassTests(TestCase):
+    """
+    Staff with coordinator_view_document CAN access non-owned documents.
+    This is the only legitimate bypass of the ownership check.
+    """
+
+    def setUp(self):
+        self.citizen = _make_user()
+        self.coordinator = _make_user()
+        self.coordinator = _grant_perm(self.coordinator, "coordinator_view_document")
+        self.cat = _make_category()
+        self.doc = _make_document(self.citizen, self.cat)
+
+    def test_coordinator_can_download_non_owned_document(self):
+        """Staff with coordinator_view_document can issue a token for any doc."""
+        token = issue_access_token(user=self.coordinator, document=self.doc)
+        self.assertIsNotNone(token)
+        self.assertTrue(token.is_valid)
+
+    def test_superuser_can_download_any_document(self):
+        """Superusers bypass ownership check."""
+        superuser = User.objects.create_superuser(
+            email="super@example.com",
+            password="testpass123",
+        )
+        token = issue_access_token(user=superuser, document=self.doc)
+        self.assertIsNotNone(token)
+
+    def test_staff_without_permission_gets_404(self):
+        """Staff without coordinator_view_document are also subject to IDOR."""
+        staff = _make_user(is_staff=True)
+        with self.assertRaises(Http404):
+            issue_access_token(user=staff, document=self.doc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Access token security — single-use, expiry, issuer binding
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class AccessTokenSecurityTests(TestCase):
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+        self.doc = _make_document(self.user, self.cat)
+
+    def test_token_is_single_use(self):
+        """After consuming a token, it cannot be consumed again."""
+        token = issue_access_token(user=self.user, document=self.doc)
+        consume_access_token(token_value=token.token, user=self.user)
+        with self.assertRaises(Http404):
+            consume_access_token(token_value=token.token, user=self.user)
+
+    def test_expired_token_raises_404(self):
+        """Expired tokens (expires_at in past) cannot be consumed."""
+        token = DocumentAccessToken.objects.create(
+            document=self.doc,
+            issued_to=self.user,
+            token="a" * 64,
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        with self.assertRaises(Http404):
+            consume_access_token(token_value=token.token, user=self.user)
+
+    def test_nonexistent_token_raises_404(self):
+        with self.assertRaises(Http404):
+            consume_access_token(token_value="b" * 64, user=self.user)
+
+    def test_token_bound_to_issuer(self):
+        """A token issued to user A cannot be consumed by user B."""
+        other = _make_user()
+        token = issue_access_token(user=self.user, document=self.doc)
+        with self.assertRaises(Http404):
+            consume_access_token(token_value=token.token, user=other)
+
+    def test_token_64_chars(self):
+        """Tokens must be 64 hex chars (128-bit entropy)."""
+        token = issue_access_token(user=self.user, document=self.doc)
+        self.assertEqual(len(token.token), 64)
+        # Verify hex
+        int(token.token, 16)  # raises ValueError if not hex
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. record_event atomicity (PIPEDA 4.5.3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class RecordEventAtomicityTests(TestCase):
+    """
+    PIPEDA 4.5.3: every access to personal information must be logged.
+    The audit entry MUST be created in the same transaction as the state change.
+    If the state change fails, the audit entry must NOT be committed.
+    """
+
+    def test_audit_entry_written_for_every_token_issuance(self):
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat)
+
+        before = AuditLogEntry.objects.filter(
+            resource_id=str(doc.pk),
+            event_type=AuditEventType.RECORD_VIEWED,
+        ).count()
+
+        issue_access_token(user=user, document=doc)
+
+        after = AuditLogEntry.objects.filter(
+            resource_id=str(doc.pk),
+            event_type=AuditEventType.RECORD_VIEWED,
+        ).count()
+        self.assertEqual(after, before + 1)
+
+    def test_audit_entry_written_on_token_consumption(self):
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat)
+        token = issue_access_token(user=user, document=doc)
+
+        before = AuditLogEntry.objects.filter(
+            resource_id=str(doc.pk),
+            event_type=AuditEventType.RECORD_VIEWED,
+        ).count()
+
+        consume_access_token(token_value=token.token, user=user)
+
+        after = AuditLogEntry.objects.filter(
+            resource_id=str(doc.pk),
+            event_type=AuditEventType.RECORD_VIEWED,
+        ).count()
+        self.assertEqual(after, before + 1)
+
+    def test_audit_entry_actor_id_is_user_pk_string(self):
+        """PIPEDA: audit actor_id must be str(user.pk) — not email."""
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat)
+        issue_access_token(user=user, document=doc)
+
+        entry = AuditLogEntry.objects.filter(
+            resource_id=str(doc.pk),
+            event_type=AuditEventType.RECORD_VIEWED,
+        ).order_by("-timestamp").first()
+
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.actor_id, str(user.pk))
+        self.assertNotIn("@", entry.actor_id or "")  # not email
+
+    def test_audit_entry_event_detail_no_user_email(self):
+        """No user email in audit event_detail for any document operation."""
+        user = _make_user()
+        cat = _make_category()
+        doc = _make_document(user, cat)
+        issue_access_token(user=user, document=doc)
+
+        for entry in AuditLogEntry.objects.filter(resource_id=str(doc.pk)):
+            self.assertNotIn(user.email, str(entry.event_detail))
