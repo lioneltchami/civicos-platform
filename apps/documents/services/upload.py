@@ -865,11 +865,8 @@ def _verify_s3_object_exists(storage_key: str) -> None:
                 _("File was not found in storage. Please upload the file and try again.")
             ) from exc
         # Unexpected S3 error — propagate
-        logger.error(
-            "Unexpected S3 error verifying object key=%r: %s",
-            storage_key,
-            exc,
-        )
+        # PIPEDA: storage_key MUST NOT appear in logs. Log exception only.
+        logger.error("Unexpected S3 error verifying object existence: %s", exc)
         raise ValidationError(
             _("Could not verify file upload. Please try again.")
         ) from exc
@@ -935,11 +932,8 @@ def _read_s3_first_bytes(storage_key: str, *, length: int) -> bytes:
         )
         return resp["Body"].read()
     except ClientError as exc:
-        logger.error(
-            "Failed to read first bytes for magic-byte check: key=%r, error=%s",
-            storage_key,
-            exc,
-        )
+        # PIPEDA: storage_key MUST NOT appear in logs. Log exception only.
+        logger.error("Failed to read first bytes for magic-byte check: %s", exc)
         raise ValidationError(
             _("Could not read uploaded file for validation. Please try again.")
         ) from exc
@@ -1008,11 +1002,8 @@ def _read_full_s3_file(storage_key: str) -> bytes:
         resp = s3_client.get_object(Bucket=bucket_name, Key=storage_key)
         return resp["Body"].read()
     except ClientError as exc:
-        logger.error(
-            "Failed to read full S3 file for ZIP bomb check: key=%r, error=%s",
-            storage_key,
-            exc,
-        )
+        # PIPEDA: storage_key MUST NOT appear in logs. Log exception only.
+        logger.error("Failed to read full S3 file for ZIP bomb check: %s", exc)
         raise ValidationError(
             _("Could not read uploaded file for validation. Please try again.")
         ) from exc

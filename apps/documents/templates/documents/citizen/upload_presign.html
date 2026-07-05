@@ -8,7 +8,7 @@
   <h1 id="presign-heading">{% trans "Upload Document" %}</h1>
   <p class="text-muted">{% trans "Step 2 of 2: Your file is being sent securely." %}</p>
 
-  <div class="alert alert-info" role="note">
+  <div class="alert alert-info" role="status">
     <strong>{% trans "Ready to upload." %}</strong>
     {% trans "Click the button below to send your file directly and securely. Do not navigate away from this page until the upload is complete." %}
   </div>
@@ -29,7 +29,7 @@
 
     {# S3 presigned POST fields — order matters; must come before the file field #}
     {% for field_name, field_value in upload_fields.items %}
-      <input type="hidden" name="{{ field_name }}" value="{{ field_value }}">
+      <input type="hidden" name="{{ field_name|force_escape }}" value="{{ field_value|force_escape }}">
     {% endfor %}
 
     {# S3 requires success_action_redirect as a form field if not already in upload_fields #}

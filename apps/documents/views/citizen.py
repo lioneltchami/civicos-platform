@@ -168,11 +168,11 @@ class DocumentUploadInitView(LoginRequiredMixin, View):
     presign_template = "documents/citizen/upload_presign.html"
 
     def get(self, request: HttpRequest) -> HttpResponse:
-        form = DocumentUploadIntentForm()
+        form = DocumentUploadIntentForm(user=request.user)
         return render(request, self.form_template, {"form": form})
 
     def post(self, request: HttpRequest) -> HttpResponse:
-        form = DocumentUploadIntentForm(request.POST)
+        form = DocumentUploadIntentForm(request.POST, user=request.user)
         if not form.is_valid():
             return render(request, self.form_template, {"form": form}, status=422)
 

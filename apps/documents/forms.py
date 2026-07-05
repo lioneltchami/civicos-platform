@@ -113,10 +113,17 @@ class DocumentUploadIntentForm(forms.Form):
     )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
 
         # Populate category choices from DB (slug → display name).
-        categories = DocumentCategory.objects.all().order_by("name_en")
+        # C-5 fix: citizens must never see staff-only categories in the rendered
+        # <select> element.  Only users who hold the upload_staff_document
+        # permission (or superusers) may see staff-only categories.
+        if user and (user.is_superuser or user.has_perm("documents.upload_staff_document")):
+            categories = DocumentCategory.objects.all().order_by("name_en")
+        else:
+            categories = DocumentCategory.objects.filter(staff_only=False).order_by("name_en")
         self.fields["category_slug"].widget = forms.Select(  # type: ignore[assignment]
             choices=[("", _("— Select category —"))]
             + [(c.slug, c.name_en) for c in categories]

@@ -253,28 +253,29 @@ def consume_access_token(
         token.used_at = timezone.now()
         token.save(update_fields=["used_at"])
 
-    # ── Audit log (after commit) ───────────────────────────────────────────────
-    # PIPEDA: event_detail contains only doc_pk, token_pk — no PII.
-    try:
-        record_event(
-            event_type=AuditEventType.RECORD_VIEWED,
-            actor_id=str(user.pk),
-            resource_type="documents.Document",
-            resource_id=str(token.document_id),
-            event_detail={
-                "document_pk": str(token.document_id),
-                "token_pk": str(token.pk),
-                "ip_masked": masked_redemption_ip or "",
-                "action": "token_redeemed",
-            },
-        )
-    except Exception:
-        logger.exception(
-            "consume_access_token: audit write failed for doc pk=%s token pk=%s; "
-            "download unaffected.",
-            token.document_id,
-            token.pk,
-        )
+        # ── Audit log (inside atomic — PIPEDA 4.5.3) ──────────────────────────
+        # PIPEDA: event_detail contains only doc_pk, token_pk — no PII.
+        # Audit failure must NOT prevent the citizen's download from completing.
+        try:
+            record_event(
+                event_type=AuditEventType.RECORD_VIEWED,
+                actor_id=str(user.pk),
+                resource_type="documents.Document",
+                resource_id=str(token.document_id),
+                event_detail={
+                    "document_pk": str(token.document_id),
+                    "token_pk": str(token.pk),
+                    "ip_masked": masked_redemption_ip or "",
+                    "action": "token_redeemed",
+                },
+            )
+        except Exception:
+            logger.exception(
+                "consume_access_token: audit write failed for doc pk=%s token pk=%s; "
+                "download unaffected.",
+                token.document_id,
+                token.pk,
+            )
 
     return token.document
 
