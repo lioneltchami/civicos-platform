@@ -264,6 +264,7 @@ class SchedulingPolicyTests(TestCase):
     def test_buffer_minutes_max_value_validator(self):
         """buffer_before/after_minutes must not exceed 240 minutes."""
         from django.core.exceptions import ValidationError
+        # MaxValueValidator runs at full_clean() (Python-level) — no DB save needed.
         policy = SchedulingPolicy(
             name="test-buffer-max",
             buffer_before_minutes=241,
@@ -275,6 +276,7 @@ class SchedulingPolicyTests(TestCase):
     def test_buffer_after_minutes_max_value_validator(self):
         """buffer_after_minutes must not exceed 240."""
         from django.core.exceptions import ValidationError
+        # MaxValueValidator runs at full_clean() (Python-level) — no DB save needed.
         policy = SchedulingPolicy(
             name="test-buffer-after-max",
             buffer_before_minutes=0,
@@ -382,6 +384,14 @@ class ServiceTypeTests(TestCase):
                 privacy_sensitivity=choice,
             )
             svc.full_clean()  # should not raise for valid choices
+
+    def test_privacy_sensitivity_invalid_choice_raises(self):
+        """An unrecognised privacy_sensitivity value must fail full_clean()."""
+        from django.core.exceptions import ValidationError
+        svc = make_service_type(slug="bad-sensitivity")
+        svc.privacy_sensitivity = "top_secret"  # not a valid choice
+        with self.assertRaises(ValidationError):
+            svc.full_clean()
 
     def test_str_does_not_contain_email(self):
         svc = make_service_type(slug="pipeda-svc")
@@ -782,10 +792,13 @@ class ResourceTests(TestCase):
         self.assertFalse(Resource.objects.filter(pk=resource_pk).exists())
 
     def test_ordering_by_name_en(self):
-        make_resource(location=self.location, name_en="Z Room")
-        make_resource(location=self.location, name_en="A Room")
-        names = list(Resource.objects.filter(location=self.location).values_list("name_en", flat=True))
-        self.assertEqual(names, sorted(names))
+        """Resources are ordered by name_en ascending."""
+        r1 = make_resource(location=self.location, name_en="Aardvark Room")
+        r2 = make_resource(location=self.location, name_en="Zebra Room")
+        r3 = make_resource(location=self.location, name_en="Mango Room")
+        qs = Resource.objects.filter(location=self.location).order_by("name_en")
+        names = list(qs.values_list("name_en", flat=True))
+        self.assertEqual(names, ["Aardvark Room", "Mango Room", "Zebra Room"])
 
     def test_str_does_not_contain_email(self):
         res = make_resource(location=self.location)

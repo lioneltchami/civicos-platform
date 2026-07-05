@@ -53,10 +53,11 @@ class AppointmentsConfig(AppConfig):
         # available for other apps to connect to via their ready() hooks.
         import apps.appointments.signals  # noqa: F401 — side-effect import
 
-        # Conditionally import receivers so Wave 1 works before receivers.py
-        # is implemented in later waves. Uses the same safe-import pattern as
-        # apps.documents.apps — distinguishes "file absent" (skip silently)
-        # from "file present but broken import" (re-raise so operator sees error).
+        # Safe-import guard: importlib.util.find_spec() returns None only when the
+        # module file does not exist. It does NOT protect against broken imports
+        # *inside* the file — those will raise ImportError/SyntaxError and propagate
+        # normally, which is the desired behaviour (operators must see broken receiver
+        # files rather than having them silently skipped).
         import importlib.util
 
         _receivers_spec = importlib.util.find_spec("apps.appointments.receivers")

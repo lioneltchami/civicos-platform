@@ -450,6 +450,10 @@ class StaffProfileAdmin(admin.ModelAdmin):
     # Do NOT add search_fields for user__email — that would expose PII in search.
     ordering = ("user_id",)
     autocomplete_fields = ("location",)
+    # TODO (Wave 2 permission matrix): filter_horizontal lets any is_staff admin
+    # reassign appointment types for any StaffProfile, including profiles in other
+    # organizations. Restrict to profiles scoped to the acting admin's organization
+    # once the fine-grained permission matrix is implemented.
     filter_horizontal = ("appointment_types",)
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (

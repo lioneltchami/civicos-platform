@@ -5,6 +5,11 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+# NOTE: Some indexes are declared inside CreateModel(options={"indexes": [...]})
+# and others appear as AddIndex operations later in this same migration.
+# Before running squashmigrations, consolidate all indexes into
+# CreateModel(options={"indexes": [...]}) for consistency.
+
 
 class Migration(migrations.Migration):
 

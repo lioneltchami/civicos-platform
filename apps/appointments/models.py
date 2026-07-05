@@ -815,7 +815,17 @@ class Location(TimestampedModel):
         return self.name_fr if lang.startswith("fr") else self.name_en
 
     def get_effective_policy(self) -> SchedulingPolicy | None:
-        """Return the location-level scheduling policy (or None if unset)."""
+        """
+        Return this location's own SchedulingPolicy, or None if unset.
+
+        Callers are responsible for the three-level fallback chain:
+          1. AppointmentType.get_effective_policy() — most specific
+          2. Location.get_effective_policy()          — location default  (this method)
+          3. settings.CIVICOS['APPOINTMENTS'] defaults — global fallback
+
+        When this method returns None, callers must fall back to
+        ``settings.CIVICOS['APPOINTMENTS']`` defaults. This method only handles step 2.
+        """
         return self.scheduling_policy
 
 
