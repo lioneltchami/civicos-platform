@@ -57,7 +57,7 @@
             <span class="badge bg-dark">{% trans "Purged" %}</span>
           {% endif %}
         </td>
-        <td class="text-nowrap">{{ document.size_bytes|filesizeformat }}</td>
+        <td class="text-nowrap">{{ document.size_bytes|filesizeformat|force_escape }}</td>
         <td class="text-nowrap">
           <time datetime="{{ document.created_at|date:'c' }}">
             {{ document.created_at|date:"Y-m-d" }}

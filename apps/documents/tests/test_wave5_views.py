@@ -332,6 +332,16 @@ class CitizenDocumentDetailTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIs(response.context["can_download"], False)
 
+    def test_detail_soft_deleted_doc_returns_404(self):
+        """Citizen's own soft-deleted document returns 404 (not 200)."""
+        from django.utils import timezone
+        Document.objects.filter(pk=self.doc.pk).update(deleted_at=timezone.now())
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("documents:detail", kwargs={"pk": self.doc.pk})
+        )
+        self.assertEqual(response.status_code, 404)
+
 
 # ---------------------------------------------------------------------------
 # 4. CitizenUploadInitTests
@@ -377,7 +387,13 @@ class CitizenUploadInitTests(TestCase):
             return_value=mock_result,
         ) as mock_validate:
             response = self.client.post(self.url, data=self._valid_post_data())
-        mock_validate.assert_called_once()
+        mock_validate.assert_called_once_with(
+            user=self.user,
+            category_slug="upload-cat",
+            original_filename="report.pdf",
+            mime_type="application/pdf",
+            size_bytes=1024,
+        )
         # Successful presign → render presign template (200)
         self.assertEqual(response.status_code, 200)
 
@@ -648,6 +664,38 @@ class CitizenTokenRedeemTests(TestCase):
         header_values = " ".join(str(v) for v in response.headers.values())
         self.assertNotIn(storage_key, header_values)
         self.assertNotIn("quarantine/", header_values)
+
+    def test_redeem_valid_token_large_file_redirects(self) -> None:
+        """Large files (> proxy threshold) redirect to presigned URL — storage_key not in headers."""
+        from apps.documents.services.download import _PROXY_SIZE_THRESHOLD_BYTES
+
+        large_doc = make_document(
+            self.user, self.category, size_bytes=_PROXY_SIZE_THRESHOLD_BYTES + 1
+        )
+        presigned_url = "https://s3.example.com/bucket/key?X-Amz-Signature=abc123"
+
+        with (
+            patch(
+                "apps.documents.views.citizen.consume_access_token",
+                return_value=large_doc,
+            ) as mock_consume,
+            patch(
+                "apps.documents.views.citizen.default_storage"
+            ) as mock_storage,
+        ):
+            mock_storage.url.return_value = presigned_url
+            response = self.client.get(self._url("f" * 64))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], presigned_url)
+        # The raw storage_key must NOT appear literally in the Location header path
+        # (before the query string where the S3 signature params begin).
+        redirect_path = response["Location"].split("?")[0]
+        self.assertNotIn(large_doc._storage_key, redirect_path)
+        # Verify the token was consumed
+        mock_consume.assert_called_once()
+        # Verify default_storage.url() was called (not direct storage_key exposure)
+        mock_storage.url.assert_called_once_with(large_doc.storage_key)
 
 
 # ---------------------------------------------------------------------------
@@ -925,9 +973,11 @@ class LegalHoldViewTests(TestCase):
                     "confirm_action": True,  # LegalHoldForm.confirm_action required
                 },
             )
-        mock_apply.assert_called_once()
-        call_kwargs = mock_apply.call_args.kwargs
-        self.assertEqual(call_kwargs["document"], self.doc)
+        mock_apply.assert_called_once_with(
+            document=self.doc,
+            set_by=self.staff,
+            reason="Litigation hold required.",
+        )
         self.assertRedirects(
             response,
             reverse("documents:staff-detail", args=[self.doc.pk]),
@@ -948,7 +998,11 @@ class LegalHoldViewTests(TestCase):
                     "confirm_action": True,
                 },
             )
-        mock_release.assert_called_once()
+        mock_release.assert_called_once_with(
+            document=self.doc,
+            released_by=self.staff,
+            reason="Litigation concluded.",
+        )
         self.assertRedirects(
             response,
             reverse("documents:staff-detail", args=[self.doc.pk]),

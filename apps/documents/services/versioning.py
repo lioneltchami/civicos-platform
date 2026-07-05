@@ -452,7 +452,7 @@ def get_version_history(
     Return the full version chain for a document, ordered by version_number ascending.
 
     Only ACTIVE and SCANNING versions are included (QUARANTINED and DELETED
-    are excluded from citizen views; staff with documents.view_document see all).
+    are excluded from citizen views; staff with documents.coordinator_view_document see all).
 
     Args:
         user:             The authenticated user making the request.

@@ -51,7 +51,7 @@
           <td>
             {% include "documents/partials/_scan_status_badge.html" with scan_status=document.scan_status %}
           </td>
-          <td>{{ document.version_number }}</td>
+          <td>{{ document.version_number|force_escape }}</td>
           <td>
             <time datetime="{{ document.created_at|date:'c' }}">
               {{ document.created_at|date:"Y-m-d" }}

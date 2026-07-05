@@ -555,11 +555,20 @@ def mark_purpose_fulfilled(
             "Only transitory categories (LAC DA #2016/001) may be disposed via this function."
         )
 
-    # H-10: lock the document row before updating expires_at to prevent concurrent
-    # disposition attempts from both succeeding.  Without the lock, two concurrent
-    # callers can both pass the pre-check (deleted_at is None) and both update
-    # expires_at, producing a confusing ValueError from the second soft_delete().
+    # M-2 fix: Hold a SINGLE select_for_update() lock across BOTH the expires_at
+    # update AND the soft-delete (deleted_at + scan_status=DELETED + audit + signal).
+    #
+    # Previous code released the lock after updating expires_at, then called
+    # soft_delete() which opened its OWN atomic()/select_for_update() block.
+    # The gap between the two atomic blocks was a TOCTOU race: a concurrent Celery
+    # worker running run_disposal_schedule() could observe expires_at=now() and
+    # call soft_delete() before step 4, succeeding; then step 4's soft_delete()
+    # would hit the "already deleted" guard and raise ValueError — even though the
+    # document was correctly soft-deleted. Merging both operations into one
+    # continuous lock eliminates this window entirely.
+    from apps.audit.models import AuditEventType
     from apps.documents.models import Document
+    from apps.documents.signals import document_soft_deleted
 
     now = timezone.now()
 
@@ -588,21 +597,78 @@ def mark_purpose_fulfilled(
                 f"Category {doc.category.slug!r} has is_transitory=False."
             )
 
-        Document.objects.filter(pk=document.pk).update(expires_at=now)
-        document.expires_at = now
+        # Set expires_at AND perform the soft-delete in the same locked transaction.
+        # This closes the TOCTOU window — no other process can observe expires_at=now()
+        # and race to call soft_delete() before we complete the deletion ourselves.
+        doc.expires_at = now
+        doc.deleted_at = now
+        doc.scan_status = Document.ScanStatus.DELETED  # CONTRACT: required for pending_hard_delete()
+        doc.deleted_by = actor
+        doc.deletion_reason = "transitory_purpose_fulfilled"
+        doc.save(
+            update_fields=[
+                "expires_at",
+                "deleted_at",
+                "scan_status",
+                "deleted_by",
+                "deletion_reason",
+                "updated_at",
+            ]
+        )
+
+        # Audit: purpose fulfilled + soft-delete recorded atomically (PIPEDA 4.5.3).
+        # PIPEDA: NO original_filename, NO storage_key in event_detail.
+        record_event(
+            event_type=AuditEventType.RECORD_DELETED,
+            actor_id=str(actor.pk),
+            resource_type="documents.Document",
+            resource_id=str(doc.pk),
+            event_detail={
+                "deletion_reason": "transitory_purpose_fulfilled",
+                "deleted_by_pk": actor.pk,
+            },
+        )
+
+        # Signal via on_commit — fires only after this transaction commits, never
+        # on rollback. send_robust() inspects receiver exceptions and logs at ERROR.
+        # PIPEDA: kwargs contain ONLY document_pk and deleted_by_id — no PII.
+        _doc_pk_s = str(doc.pk)
+        _actor_pk = actor.pk
+
+        def _fire_soft_deleted(
+            _pk=_doc_pk_s,
+            _dbpk=_actor_pk,
+        ):
+            results = document_soft_deleted.send_robust(
+                sender=Document,
+                document_pk=_pk,
+                deleted_by_id=_dbpk,
+            )
+            for _receiver, _response in results:
+                if isinstance(_response, Exception):
+                    logger.error(
+                        "mark_purpose_fulfilled: signal receiver %r raised: %r",
+                        _receiver,
+                        _response,
+                    )
+
+        transaction.on_commit(_fire_soft_deleted)
+
+    # Update the caller's in-memory instance to reflect the saved state.
+    document.expires_at = doc.expires_at
+    document.deleted_at = doc.deleted_at
+    document.scan_status = doc.scan_status
+    document.deleted_by = doc.deleted_by
+    document.deletion_reason = doc.deletion_reason
 
     logger.info(
         "mark_purpose_fulfilled: doc pk=%r transitory purpose fulfilled; "
-        "initiating soft_delete. actor_pk=%r",
+        "soft-deleted within single lock. actor_pk=%r",
         str(document.pk),
         actor.pk,
     )
 
-    return soft_delete(
-        document=document,
-        deleted_by=actor,
-        reason="transitory_purpose_fulfilled",
-    )
+    return document
 
 
 def apply_legal_hold(

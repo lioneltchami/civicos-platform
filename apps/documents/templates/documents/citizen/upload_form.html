@@ -61,7 +61,7 @@
                 class="form-control{% if form.description.errors %} is-invalid{% endif %}"
                 rows="3"
                 maxlength="500"
-                {% if form.description.errors %}aria-describedby="description-error" aria-invalid="true"{% endif %}>{{ form.description.value|default:'' }}</textarea>
+                {% if form.description.errors %}aria-describedby="description-error" aria-invalid="true"{% endif %}>{{ form.description.value|default:''|force_escape }}</textarea>
       <div class="form-text">{% trans "Optional. Maximum 500 characters." %}</div>
       {% if form.description.errors %}
       <div id="description-error" class="invalid-feedback" role="alert">
@@ -104,11 +104,11 @@
 
     {# Hidden fields populated by JS from file picker #}
     <input type="hidden" name="original_filename" id="id_original_filename"
-           value="{{ form.original_filename.value|default:'' }}">
+           value="{{ form.original_filename.value|default:''|force_escape }}">
     <input type="hidden" name="mime_type" id="id_mime_type"
-           value="{{ form.mime_type.value|default:'' }}">
+           value="{{ form.mime_type.value|default:''|force_escape }}">
     <input type="hidden" name="size_bytes" id="id_size_bytes"
-           value="{{ form.size_bytes.value|default:'' }}">
+           value="{{ form.size_bytes.value|default:''|force_escape }}">
 
     {# File metadata preview — shown after JS populates fields #}
     <div id="file-metadata-preview" class="card mb-3 d-none" aria-live="polite" aria-atomic="true">

@@ -56,7 +56,7 @@
           </td>
           <td>
             {# PIPEDA: show actor_id (int/UUID), never email or name #}
-            <code class="small">{{ entry.actor_id }}</code>
+            <code class="small">{{ entry.actor_id|force_escape }}</code>
           </td>
           <td>
             {% if entry.event_detail %}

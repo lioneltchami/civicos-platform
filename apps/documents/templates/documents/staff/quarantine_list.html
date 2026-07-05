@@ -15,7 +15,11 @@
   </div>
 
   <p class="text-muted">
-    {% blocktrans with count=total_count %}{{ count }} quarantined document(s).{% endblocktrans %}
+    {% blocktrans count count=total_count trimmed %}
+      {{ count }} quarantined document.
+    {% plural %}
+      {{ count }} quarantined documents.
+    {% endblocktrans %}
   </p>
 
   {% if page_obj.object_list %}

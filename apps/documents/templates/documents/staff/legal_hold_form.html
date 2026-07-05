@@ -96,7 +96,7 @@
                 required
                 aria-required="true"
                 aria-describedby="reason-help{% if form.reason.errors %} reason-error{% endif %}"
-                {% if form.reason.errors %}aria-invalid="true"{% endif %}>{{ form.reason.value|default:'' }}</textarea>
+                {% if form.reason.errors %}aria-invalid="true"{% endif %}>{{ form.reason.value|default:''|force_escape }}</textarea>
       <div id="reason-help" class="form-text">
         {% if document.legal_hold %}
           {% trans "Provide a reason for releasing the hold. This will be recorded in the audit log." %}

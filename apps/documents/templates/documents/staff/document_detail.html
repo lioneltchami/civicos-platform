@@ -63,7 +63,7 @@
         <dd class="col-sm-8">
           {% if document.category %}
             {% if LANGUAGE_CODE == "fr" %}{{ document.category.name_fr|force_escape }}{% else %}{{ document.category.name_en|force_escape }}{% endif %}
-            <span class="text-muted ms-1">({{ document.category.slug }})</span>
+            <span class="text-muted ms-1">({{ document.category.slug|force_escape }})</span>
           {% else %}
             <span class="text-muted">{% trans "Uncategorised" %}</span>
           {% endif %}
@@ -83,8 +83,8 @@
 
         <dt class="col-sm-4">{% trans "File Size" %}</dt>
         <dd class="col-sm-8">
-          {{ document.size_bytes|filesizeformat }}
-          <span class="text-muted">({{ document.size_bytes }} {% trans "bytes" %})</span>
+          {{ document.size_bytes|filesizeformat|force_escape }}
+          <span class="text-muted">({{ document.size_bytes|force_escape }} {% trans "bytes" %})</span>
         </dd>
 
         <dt class="col-sm-4">{% trans "Security Classification" %}</dt>
@@ -105,12 +105,12 @@
           {% elif document.scan_status == 'purged' %}
             <span class="badge bg-dark">{% trans "Purged" %}</span>
           {% endif %}
-          <span class="ms-1 text-muted">({{ document.get_scan_status_display }})</span>
+          <span class="ms-1 text-muted">({{ document.get_scan_status_display|force_escape }})</span>
         </dd>
 
         <dt class="col-sm-4">{% trans "Version" %}</dt>
         <dd class="col-sm-8">
-          {{ document.version_number }}
+          {{ document.version_number|force_escape }}
           {% if document.is_latest_version %}
             <span class="badge bg-secondary ms-1">{% trans "Latest" %}</span>
           {% endif %}

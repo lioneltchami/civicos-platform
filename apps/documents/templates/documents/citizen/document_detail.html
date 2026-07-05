@@ -83,7 +83,7 @@
         </dd>
 
         <dt class="col-sm-4">{% trans "File size" %}</dt>
-        <dd class="col-sm-8">{{ document.size_bytes|filesizeformat }}</dd>
+        <dd class="col-sm-8">{{ document.size_bytes|filesizeformat|force_escape }}</dd>
 
         <dt class="col-sm-4">{% trans "Status" %}</dt>
         <dd class="col-sm-8">
@@ -104,7 +104,7 @@
 
         <dt class="col-sm-4">{% trans "Version" %}</dt>
         <dd class="col-sm-8">
-          {{ document.version_number }}
+          {{ document.version_number|force_escape }}
           {% if document.is_latest_version %}
             <span class="badge bg-secondary ms-1">{% trans "Latest" %}</span>
           {% endif %}

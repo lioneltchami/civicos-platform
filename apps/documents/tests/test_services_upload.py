@@ -1408,7 +1408,7 @@ class AuditWriteFailureTests(TransactionTestCase):
                             with self.assertRaises(Exception):
                                 confirm_upload(user=self.user, doc_id=str(doc.pk))
 
-    def test_audit_failure_status_still_scanning(self):
+    def test_audit_failure_rolls_back_to_pending_upload(self):
         """
         C-5 / PIPEDA 4.5.3: When audit write fails, the atomic block rolls back,
         so the document must remain in PENDING_UPLOAD — not advance to SCANNING.
