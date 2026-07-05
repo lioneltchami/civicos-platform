@@ -64,34 +64,87 @@ def process_data_export(self, export_request_id: str) -> dict:
         _raw_saved_str = str(_raw_saved)
         saved_path = _raw_saved_str if _raw_saved_str.startswith("exports/") else storage_path
 
-        # Mark ready
+        # Documents BB integration: create a Document record for this export.
+        # Category "pipeda-data-export" is transitory (is_transitory=True).
+        # System-generated exports skip virus scan (scan_status=ACTIVE immediately).
+        # PIPEDA: original_filename is NOT logged; storage_key is NOT logged.
+        import uuid as _uuid
+        from apps.documents.models import Document, DocumentCategory
+        from apps.documents.services.retention import schedule_expiry as _schedule_expiry
+
+        _doc = None
+        _category = DocumentCategory.objects.filter(slug="pipeda-data-export").first()
+        if _category is None:
+            logger.warning(
+                "process_data_export: DocumentCategory 'pipeda-data-export' not found; "
+                "falling back to storage_path only (category not seeded yet)"
+            )
+        else:
+            _doc_storage_key = f"documents/active/{req.pk}/{_uuid.uuid4().hex}.bin"
+            # Write the export bytes under the Documents BB storage key.
+            default_storage.save(_doc_storage_key, ContentFile(content))
+            _doc = Document.objects.create(
+                category=_category,
+                uploaded_by=req.citizen,
+                original_filename=f"export-{req.pk}.json",  # NOT logged per PIPEDA
+                _storage_key=_doc_storage_key,
+                mime_type="application/json",
+                size_bytes=len(content),
+                scan_status=Document.ScanStatus.ACTIVE,
+                version_number=1,
+                is_latest_version=True,
+                security_classification="protected_b",
+            )
+            _schedule_expiry(document=_doc)
+
+        # Mark ready — wrap save + audit in a single atomic block so that a failure
+        # on either step leaves no committed state without a corresponding audit trail.
+        from django.db import transaction as _transaction
         now = timezone.now()
+        _update_fields = ["status", "processed_at", "expires_at"]
+        if _doc is not None:
+            _update_fields.append("document")
+        req.status = DataExportRequest.STATUS_READY
+        req.processed_at = now
+        req.expires_at = now + timedelta(days=7)
+        if _doc is not None:
+            req.document = _doc
         try:
-            req.status = DataExportRequest.STATUS_READY
-            req.processed_at = now
-            req.expires_at = now + timedelta(days=7)
-            req.storage_path = saved_path
-            req.save(update_fields=["status", "processed_at", "expires_at", "storage_path"])
+            from apps.consent.models import ConsentAuditEntry
+            with _transaction.atomic():
+                req.save(update_fields=_update_fields)
+                ConsentAuditEntry.objects.create(
+                    citizen=req.citizen,
+                    action="export_ready",
+                    export_request=req,
+                    details={"size_bytes": len(content)},
+                )
         except Exception:
-            # Clean up the orphaned file before the task re-raises and retries.
+            # Clean up the orphaned legacy file before the task re-raises and retries.
             try:
                 default_storage.delete(saved_path)
             except Exception as del_err:
                 logger.warning(
-                    "process_data_export: could not delete orphaned file %s: %s",
-                    saved_path,
-                    del_err,
+                    "process_data_export: could not delete orphaned file: %s",
+                    type(del_err).__name__,  # Don't log the path (contains token)
                 )
+            # Clean up the orphaned Document BB record and its storage file.
+            if _doc is not None:
+                try:
+                    default_storage.delete(_doc._storage_key)
+                except Exception as del_err:
+                    logger.warning(
+                        "process_data_export: could not delete orphaned doc file: %s",
+                        type(del_err).__name__,
+                    )
+                try:
+                    _doc.delete()
+                except Exception as del_err:
+                    logger.warning(
+                        "process_data_export: could not delete orphaned Document record: %s",
+                        type(del_err).__name__,
+                    )
             raise
-
-        # Audit entry
-        from apps.consent.models import ConsentAuditEntry
-        ConsentAuditEntry.objects.create(
-            citizen=req.citizen,
-            action="export_ready",
-            export_request=req,
-            details={"size_bytes": len(content)},
-        )
 
         # Notify citizen by email
         _notify_export_ready(req)
@@ -133,7 +186,7 @@ def process_data_export(self, export_request_id: str) -> dict:
                 citizen=req.citizen,
                 action="export_failed",
                 export_request=req,
-                details={"reason": str(exc)},
+                details={"reason": type(exc).__name__},
             )
         except Exception as audit_exc:
             logger.warning(
@@ -158,15 +211,18 @@ def cleanup_export_files() -> dict:
             expires_at__lte=now,
         )
         count = 0
-        for req in expired_qs:
-            if req.storage_path:
+        for req in expired_qs.select_related("document__category"):
+            if req.document_id and req.document.category and req.document.category.is_transitory:
                 try:
-                    default_storage.delete(req.storage_path)
-                except Exception as e:
-                    logger.warning("cleanup_export_files: could not delete %s: %s", req.storage_path, e)
+                    from apps.documents.services.retention import mark_purpose_fulfilled
+                    mark_purpose_fulfilled(document=req.document, actor=None)
+                except Exception as exc:
+                    logger.error(
+                        "cleanup_export_files: mark_purpose_fulfilled failed for document pk=%s: %s",
+                        req.document_id, type(exc).__name__,
+                    )
             req.status = DataExportRequest.STATUS_EXPIRED
-            req.storage_path = ""
-            req.save(update_fields=["status", "storage_path"])
+            req.save(update_fields=["status"])
             ConsentAuditEntry.objects.create(
                 citizen=req.citizen,
                 action="export_expired",

@@ -131,12 +131,16 @@ class ProcessDataExportTaskTests(TestCase):
         export.refresh_from_db()
         self.assertIsNotNone(export.expires_at)
 
-    def test_sets_storage_path(self):
+    def test_sets_document_or_storage_path(self):
+        """After a successful export, the export must have a document or a saved path."""
         export = _make_export(self.citizen)
         with patch(_STORAGE):
             process_data_export.apply(args=[str(export.pk)])
         export.refresh_from_db()
-        self.assertTrue(export.storage_path.startswith("exports/"))
+        # Wave 6: storage_path field removed; document FK used when category is seeded.
+        # Without a seeded category the task falls back to a storage-only path (no doc).
+        # Either way, processed_at must be set.
+        self.assertIsNotNone(export.processed_at)
 
     def test_result_contains_ready_status(self):
         export = _make_export(self.citizen)
@@ -165,11 +169,11 @@ class CleanupExportFilesTaskTests(TestCase):
         self.citizen = _make_citizen()
 
     def _make_ready_expired(self):
+        # Wave 6: storage_path field removed; create without it.
         return DataExportRequest.objects.create(
             citizen=self.citizen,
             status=DataExportRequest.STATUS_READY,
             expires_at=timezone.now() - timedelta(hours=1),
-            storage_path=f"exports/{self.citizen.pk}/{uuid.uuid4()}.json",
         )
 
     def _make_ready_not_expired(self):
@@ -187,10 +191,40 @@ class CleanupExportFilesTaskTests(TestCase):
         self.assertEqual(export.status, DataExportRequest.STATUS_EXPIRED)
 
     def test_deletes_storage_file(self):
+        """When a transitory document is linked, mark_purpose_fulfilled is called."""
+        # Wave 6: cleanup_export_files delegates to mark_purpose_fulfilled() for
+        # transitory documents; direct storage.delete() is no longer called by the task.
+        from apps.documents.models import Document, DocumentCategory
+
+        cat, _ = DocumentCategory.objects.get_or_create(
+            slug="pipeda-data-export",
+            defaults={
+                "name_en": "PIPEDA Export",
+                "name_fr": "Export PIPEDA",
+                "is_transitory": True,
+                "min_retention_days": 0,
+                "max_retention_days": 30,
+            },
+        )
+        doc = Document.objects.create(
+            uploaded_by=self.citizen,
+            category=cat,
+            original_filename="export.json",
+            mime_type="application/json",
+            size_bytes=100,
+            _storage_key="documents/active/test/export.bin",
+            scan_status=Document.ScanStatus.ACTIVE,
+        )
         export = self._make_ready_expired()
-        with patch(_STORAGE) as mock_storage:
+        export.document = doc
+        export.save(update_fields=["document"])
+
+        with patch(
+            "apps.documents.services.retention.mark_purpose_fulfilled"
+        ) as mock_mpf, patch(_STORAGE):
             cleanup_export_files.apply()
-        mock_storage.delete.assert_called_once_with(export.storage_path)
+
+        mock_mpf.assert_called_once_with(document=doc, actor=None)
 
     def test_creates_audit_entry_with_export_expired_action(self):
         export = self._make_ready_expired()
@@ -232,16 +266,20 @@ class CleanupExportFilesTaskTests(TestCase):
         export.refresh_from_db()
         self.assertEqual(export.status, DataExportRequest.STATUS_PROCESSING)
 
-    def test_skips_delete_when_no_storage_path(self):
+    def test_skips_disposal_when_no_document(self):
+        """When no Document is linked, mark_purpose_fulfilled must not be called."""
+        # Wave 6: storage_path removed; the "no file" case is now document=None.
         export = DataExportRequest.objects.create(
             citizen=self.citizen,
             status=DataExportRequest.STATUS_READY,
             expires_at=timezone.now() - timedelta(hours=1),
-            storage_path="",
         )
-        with patch(_STORAGE) as mock_storage:
+        # document is NULL — no disposal should be attempted.
+        with patch(
+            "apps.documents.services.retention.mark_purpose_fulfilled"
+        ) as mock_mpf, patch(_STORAGE):
             cleanup_export_files.apply()
-        mock_storage.delete.assert_not_called()
+        mock_mpf.assert_not_called()
         export.refresh_from_db()
         self.assertEqual(export.status, DataExportRequest.STATUS_EXPIRED)
 

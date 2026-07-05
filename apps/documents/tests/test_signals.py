@@ -64,6 +64,7 @@ def _make_category(**kwargs):
 
 def _make_document(user, category, **kwargs):
     doc_id = uuid.uuid4()
+    kwargs.setdefault("scan_status", Document.ScanStatus.ACTIVE)
     return Document.objects.create(
         uploaded_by=user,
         category=category,
@@ -71,7 +72,6 @@ def _make_document(user, category, **kwargs):
         _storage_key=f"documents/active/{doc_id}/{uuid.uuid4().hex}.bin",
         mime_type="application/pdf",
         size_bytes=4_096,
-        scan_status=Document.ScanStatus.ACTIVE,
         **kwargs,
     )
 
@@ -555,7 +555,7 @@ class UploadInitiatedSignalContractTests(TestCase):
                 "apps.documents.services.upload._generate_presigned_post",
                 return_value=fake_presigned,
             ), patch(
-                "apps.documents.services.upload.schedule_expiry",
+                "apps.documents.services.retention.schedule_expiry",
                 return_value=None,
             ):
                 result = validate_upload_request(
@@ -633,6 +633,9 @@ class DocumentConfirmedSignalContractTests(TestCase):
             with patch(
                 "apps.documents.services.upload._verify_file_exists",
                 return_value=None,
+            ), patch(
+                "apps.documents.services.upload._read_first_bytes",
+                return_value=b"%PDF-1.4",
             ), patch(
                 "apps.documents.services.upload._validate_magic_bytes",
                 return_value=None,  # None = magic bypassed; mime_type unchanged

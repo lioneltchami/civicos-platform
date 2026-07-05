@@ -13,10 +13,10 @@ Security invariants (enforced on every view):
 - LoginRequiredMixin first base class on every view class.
 - All ORM queries filter by donor=request.user or equivalent FK chain — IDOR
   protection is never opt-in; it is baked into get_queryset().
-- pdf_path is NEVER in any HTTP response header, URL, log line, or template.
-- FileResponse.filename uses receipt.serial_number, not pdf_path.
+- document._storage_key is NEVER in any HTTP response header, URL, log line, or template.
+- FileResponse.filename uses receipt.serial_number, not the storage key.
 - No donor_email, donor_name, or donor_address in any log call.
-- Receipt download returns 202 when pdf_path is empty (async generation).
+- Receipt download returns 202 when document is None (async generation).
 - Pagination via Paginator, not queryset slicing.
 """
 from __future__ import annotations
@@ -99,10 +99,10 @@ class DonorPortalDashboardView(LoginRequiredMixin, TemplateView):
         total_donated = donation_stats["total"] or Decimal("0.00")
         donation_count = donation_stats["count"] or 0
 
-        # Pending receipts = receipts without a generated PDF yet.
+        # Pending receipts = receipts without a generated PDF document yet.
         pending_receipt_count = OfficialDonationReceipt.objects.filter(
             donation__donor=user,
-            pdf_path="",
+            document__isnull=True,
             status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
         ).count()
 
@@ -183,7 +183,7 @@ class ReceiptDownloadView(LoginRequiredMixin, View):
     IDOR guard: lookup filters donation__donor=request.user so a donor
     cannot download another donor's receipt by guessing a UUID.
 
-    pdf_path is NEVER returned in any HTTP header, URL, or log line.
+    document._storage_key is NEVER returned in any HTTP header, URL, or log line.
     FileResponse filename is derived from receipt.serial_number only.
     """
 
@@ -192,7 +192,7 @@ class ReceiptDownloadView(LoginRequiredMixin, View):
         # donor can access this receipt.  Status filter prevents serving
         # cancelled or superseded PDFs.
         try:
-            receipt = OfficialDonationReceipt.objects.get(
+            receipt = OfficialDonationReceipt.objects.select_related("document").get(
                 pk=receipt_pk,
                 donation__donor=request.user,
                 status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED,
@@ -201,16 +201,16 @@ class ReceiptDownloadView(LoginRequiredMixin, View):
             raise Http404
 
         # PDF not yet generated — return 202 Accepted; generation is async.
-        if not receipt.pdf_path:
+        if not receipt.document_id:
             return HttpResponse(
                 "Receipt PDF is being prepared and will be emailed to you shortly.",
                 status=202,
             )
 
         try:
-            fileobj = default_storage.open(receipt.pdf_path, "rb")
+            fileobj = default_storage.open(receipt.document._storage_key, "rb")
         except (FileNotFoundError, OSError):
-            # Log serial number only — never pdf_path, never user identity.
+            # Log serial number only — never storage key, never user identity.
             logger.error(
                 "payments.portal.receipt_file_missing serial=%s",
                 receipt.serial_number,
@@ -225,7 +225,7 @@ class ReceiptDownloadView(LoginRequiredMixin, View):
                 "payments.portal.receipt_download serial=%s",
                 receipt.serial_number,
             )
-            # filename uses serial_number — pdf_path is NEVER in any response header.
+            # filename uses serial_number — storage key is NEVER in any response header.
             return FileResponse(
                 fileobj,
                 content_type="application/pdf",
@@ -246,7 +246,7 @@ class ReceiptListView(LoginRequiredMixin, ListView):
     Paginated list of donation receipts for the authenticated donor.
 
     Supports optional GET ?year=YYYY filtering by receipt_date year.
-    pdf_path is never in this view's context — only serial_number and
+    document._storage_key is never in this view's context — only serial_number and
     the download URL (which contains only the receipt UUID).
     """
 

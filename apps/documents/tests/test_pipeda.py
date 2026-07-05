@@ -63,6 +63,7 @@ def _make_category(**kwargs):
 
 def _make_document(user, category, **kwargs):
     doc_id = uuid.uuid4()
+    kwargs.setdefault("scan_status", Document.ScanStatus.ACTIVE)
     return Document.objects.create(
         uploaded_by=user,
         category=category,
@@ -70,7 +71,6 @@ def _make_document(user, category, **kwargs):
         _storage_key=f"documents/active/{doc_id}/{uuid.uuid4().hex}.bin",
         mime_type="application/pdf",
         size_bytes=8_192,
-        scan_status=Document.ScanStatus.ACTIVE,
         **kwargs,
     )
 

@@ -125,7 +125,7 @@ class ConsentRecordModelTests(TestCase):
             category=self.category,
             status=ConsentRecord.STATUS_PENDING,
         )
-        self.assertIn(self.category.slug, str(record))
+        self.assertIn(f"ConsentRecord #{record.pk}", str(record))
         self.assertIn("pending", str(record))
 
     def test_unique_together_citizen_category(self):

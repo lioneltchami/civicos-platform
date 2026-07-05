@@ -8,6 +8,7 @@ import secrets
 import string
 
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -88,6 +89,15 @@ class ServiceRequest(BaseModel):
         blank=True,
         db_index=True,
         verbose_name=_("Expires at"),
+    )
+
+    # Documents BB integration — supporting evidence + decision letters
+    # Use DocumentAttachment generic linker; never store raw file paths here.
+    document_attachments = GenericRelation(
+        "documents.DocumentAttachment",
+        content_type_field="content_type",
+        object_id_field="object_id",
+        related_query_name="service_request",
     )
 
     class Meta:
@@ -195,6 +205,14 @@ class StatusUpdate(BaseModel):
         blank=True,
         verbose_name=_("Public note"),
         help_text=_("Shown to the citizen in their portal. Keep plain and non-technical."),
+    )
+
+    # Documents BB — optional decision letter attachment
+    document_attachments = GenericRelation(
+        "documents.DocumentAttachment",
+        content_type_field="content_type",
+        object_id_field="object_id",
+        related_query_name="status_update",
     )
 
     class Meta:

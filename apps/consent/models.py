@@ -124,7 +124,7 @@ class ConsentRecord(UUIDModel, TimestampedModel):
         verbose_name_plural = "Consent Records"
 
     def __str__(self) -> str:
-        return f"{self.citizen} — {self.category} ({self.status})"
+        return f"ConsentRecord #{self.pk} ({self.status})"
 
     def save(self, *args, **kwargs):
         if self.status == self.STATUS_GRANTED and self.granted_at is None:
@@ -180,11 +180,19 @@ class DataExportRequest(UUIDModel):
         help_text="7 days after processed_at.",
     )
     download_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    storage_path = models.CharField(
-        max_length=500,
+    # Documents BB: replaces storage_path CharField.
+    # Category: "pipeda-data-export" (is_transitory=True, max_retention_days=30).
+    # mark_purpose_fulfilled() must be called on this document after export delivery.
+    document = models.OneToOneField(
+        "documents.Document",
+        null=True,
         blank=True,
-        help_text="Internal file path — do not expose to citizens.",
+        on_delete=models.PROTECT,
+        related_name="data_export",
+        help_text="Documents BB record for the export archive. "
+                  "PIPEDA transitory — disposed after delivery.",
     )
+
     notes = models.TextField(blank=True, help_text="Staff notes.")
 
     class Meta:
@@ -200,7 +208,7 @@ class DataExportRequest(UUIDModel):
         ]
 
     def __str__(self) -> str:
-        return f"Export {self.pk} — {self.citizen} ({self.status})"
+        return f"DataExportRequest #{self.pk} ({self.status})"
 
 
 class ConsentAuditEntry(models.Model):
@@ -272,7 +280,7 @@ class ConsentAuditEntry(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.action} — {self.citizen} @ {self.timestamp}"
+        return f"ConsentAuditEntry #{self.pk}: {self.action} @ {self.timestamp}"
 
     def save(self, *args, **kwargs):
         if self.pk:

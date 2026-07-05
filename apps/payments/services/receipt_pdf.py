@@ -118,66 +118,76 @@ def _build_receipt_context(receipt) -> dict:
 
 def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
     """
-    Save PDF bytes to storage and record the path on the receipt.
+    Save PDF bytes to the Documents BB and link them to the receipt.
 
-    Idempotent: if the file already exists in storage (from a failed previous
-    attempt where the DB update failed but the file was written), reuses it
-    instead of creating a duplicate with an auto-deduplicated filename.
-    Returns the saved path.
+    Creates a Document record (category=donation-receipt-pdf, scan_status=ACTIVE)
+    and sets receipt.document via _base_manager to bypass the append-only guard.
 
-    PIPEDA: only logs serial_number, never the storage path or donor PII.
+    Idempotent: if receipt.document_id is already set, skips creation and returns
+    the existing document's storage key.
+
+    PIPEDA: only logs serial_number, never the storage key, storage path, or donor PII.
+    Returns the storage key string (internal — never expose to callers beyond this service).
     """
+    import uuid as _uuid
     from django.core.files.base import ContentFile
     from django.core.files.storage import default_storage
+    from apps.documents.models import Document, DocumentCategory
+    from apps.documents.services.retention import schedule_expiry
 
-    # Derive a deterministic filename from the serial number (stable across retries).
-    # Using serial_number (not default_storage.save auto-deduplication) ensures the
-    # same receipt always maps to the same storage path.
     serial = receipt.serial_number
-    filename = f"receipts/{serial}.pdf"
 
-    if receipt.pdf_path:
-        # In-memory guard: the receipt object already has a pdf_path set.
-        # This covers the normal idempotency case (task reruns after success).
+    if receipt.document_id:
+        # Idempotency: document already linked — nothing to do.
         logger.info(
             "payments.receipt_pdf.already_saved serial=%s",
             serial,
         )
-        return receipt.pdf_path
+        return receipt.document._storage_key  # type: ignore[union-attr]
 
-    saved_path = None  # resolved below via reuse or fresh write
+    # Get or create the CRA receipt document category (seeded by Wave 6 migration).
+    category = DocumentCategory.objects.filter(slug="donation-receipt-pdf").first()
+    if category is None:
+        raise ValueError(
+            "DocumentCategory 'donation-receipt-pdf' is not seeded. "
+            "Run apps/documents/migrations/0007_seed_document_categories.py first."
+        )
 
-    if default_storage.exists(filename):
-        # Storage-level guard: file was written in a previous attempt but the
-        # DB update (below) failed, leaving pdf_path empty in the DB.
-        # Before reusing, verify the file is non-corrupt (non-zero, starts with
-        # %PDF header). A partial/interrupted write leaves a 0-byte or truncated
-        # file that would be silently delivered as a corrupt PDF attachment.
+    # Build a deterministic storage key from serial number so retries are idempotent.
+    # Using serial number only ensures that if the file write succeeds but the DB
+    # update fails, a retry will find and reuse the existing file rather than
+    # creating an orphan at a new random path.
+    storage_key = f"documents/active/receipts/{serial}/receipt.bin"
+
+    # Storage-level idempotency: if a prior attempt wrote the file but the DB update
+    # failed, reuse the file rather than creating a duplicate.
+    saved_key = None
+    if default_storage.exists(storage_key):
         try:
-            with default_storage.open(filename, "rb") as _fh:
+            with default_storage.open(storage_key, "rb") as _fh:
                 _header = _fh.read(4)
             if _header == b"%PDF":
                 logger.info(
                     "payments.save_receipt_pdf.reusing_existing_file serial=%s",
                     serial,
                 )
-                saved_path = filename
+                saved_key = storage_key
             else:
                 logger.warning(
-                    "payments.receipt_pdf.corrupt_existing_file_regenerating path=%s",
-                    filename,  # path only -- no PII
+                    "payments.receipt_pdf.corrupt_existing_file_regenerating serial=%s",
+                    serial,
                 )
-                default_storage.delete(filename)
+                default_storage.delete(storage_key)
         except (OSError, IOError):
             logger.warning(
-                "payments.receipt_pdf.unreadable_file_regenerating path=%s",
-                filename,
+                "payments.receipt_pdf.unreadable_file_regenerating serial=%s",
+                serial,
             )
 
-    if saved_path is None:
-        # Either no existing file, or it was corrupt/unreadable and deleted above.
+    if saved_key is None:
         try:
-            saved_path = default_storage.save(filename, ContentFile(pdf_bytes))
+            default_storage.save(storage_key, ContentFile(pdf_bytes))
+            saved_key = storage_key
         except Exception as exc:
             logger.error(
                 "payments.receipt_pdf.save_error serial=%s error_type=%s",
@@ -190,11 +200,35 @@ def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
             serial,
         )
 
+    # Create the Document BB record.
+    donor = getattr(receipt, "donation", None)
+    uploaded_by = getattr(donor, "donor", None) if donor else None
+    if uploaded_by is None:
+        raise ValueError(
+            f"save_receipt_pdf: could not resolve donation.donor for receipt serial={serial}. "
+            "Ensure receipt is fetched with select_related('donation__donor')."
+        )
+
+    doc = Document.objects.create(
+        category=category,
+        uploaded_by=uploaded_by,
+        # original_filename: uses serial number only — NEVER donor name or PII.
+        original_filename=f"receipt-{serial}.pdf",
+        _storage_key=saved_key,
+        mime_type="application/pdf",
+        size_bytes=len(pdf_bytes),
+        scan_status=Document.ScanStatus.ACTIVE,
+        version_number=1,
+        is_latest_version=True,
+        security_classification="protected_b",
+    )
+    schedule_expiry(document=doc)
+
     # Update the DB record outside the storage write — safe to retry independently.
-    # Use _base_manager to bypass append-only guard on pdf_path (mutable field).
+    # Use _base_manager to bypass append-only guard (document is a mutable field).
     receipt.__class__._base_manager.filter(pk=receipt.pk).update(
-        pdf_path=saved_path,
+        document=doc,
         updated_at=timezone.now(),
     )
-    receipt.pdf_path = saved_path
-    return saved_path
+    receipt.document = doc
+    return saved_key

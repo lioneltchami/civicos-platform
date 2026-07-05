@@ -3,8 +3,8 @@ test_immutable_fields.py
 
 Tests for OfficialDonationReceipt append-only field enforcement:
   - Each immutable field cannot be changed after first save
-  - pdf_path CAN be changed (it is explicitly mutable)
-  - has_pdf property reflects pdf_path state
+  - document FK is explicitly mutable (has_pdf reflects document_id state)
+  - has_pdf property reflects document_id state (True when document_id is not None)
   - status can be changed (mutable field)
   - cancellation_reason can be changed (mutable field)
 
@@ -118,26 +118,30 @@ def make_receipt(donation, **kwargs):
 # ---------------------------------------------------------------------------
 
 class HasPdfPropertyTests(TestCase):
-    """Unit tests for has_pdf property — no DB interaction needed."""
+    """Unit tests for has_pdf property — no DB interaction needed.
 
-    def test_has_pdf_false_when_pdf_path_empty_string(self):
+    Wave 6: has_pdf is now bool(self.document_id), not bool(self.pdf_path).
+    """
+
+    def test_has_pdf_false_when_document_id_is_none(self):
         r = OfficialDonationReceipt()
-        r.pdf_path = ""
+        # document_id defaults to None when no Document is linked
+        self.assertIsNone(r.document_id)
         self.assertFalse(r.has_pdf)
 
-    def test_has_pdf_false_when_pdf_path_not_set(self):
+    def test_has_pdf_false_by_default_on_new_instance(self):
         r = OfficialDonationReceipt()
-        # pdf_path defaults to "" per field definition
+        # A fresh unsaved instance has no linked Document
         self.assertFalse(r.has_pdf)
 
-    def test_has_pdf_true_when_pdf_path_set(self):
+    def test_has_pdf_true_when_document_id_set(self):
         r = OfficialDonationReceipt()
-        r.pdf_path = "receipts/2024-000001.pdf"
+        r.document_id = uuid.uuid4()
         self.assertTrue(r.has_pdf)
 
-    def test_has_pdf_true_with_any_non_empty_path(self):
+    def test_has_pdf_true_with_any_non_none_document_id(self):
         r = OfficialDonationReceipt()
-        r.pdf_path = "s3://bucket/path/to/receipt.pdf"
+        r.document_id = uuid.uuid4()
         self.assertTrue(r.has_pdf)
 
 
@@ -258,23 +262,17 @@ class MutableFieldsTests(TestCase):
         self.donation = make_donation(self.user, self.intent)
         self.receipt = make_receipt(self.donation)
 
-    def test_pdf_path_can_be_changed(self):
-        """pdf_path is NOT in _IMMUTABLE_FIELDS — it must be updatable."""
-        self.assertNotIn("pdf_path", OfficialDonationReceipt._IMMUTABLE_FIELDS)
-        self.receipt.refresh_from_db()
-        self.receipt.pdf_path = "receipts/2024-000001.pdf"
-        # Must not raise
-        self.receipt.save()
-        self.receipt.refresh_from_db()
-        self.assertEqual(self.receipt.pdf_path, "receipts/2024-000001.pdf")
+    def test_document_can_be_changed(self):
+        """document FK is NOT in _IMMUTABLE_FIELDS — it must be updatable via _base_manager."""
+        self.assertNotIn("document", OfficialDonationReceipt._IMMUTABLE_FIELDS)
+        self.assertNotIn("document_id", OfficialDonationReceipt._IMMUTABLE_FIELDS)
 
-    def test_pdf_path_update_sets_has_pdf_true(self):
-        """Updating pdf_path causes has_pdf to return True after refresh."""
+    def test_document_sets_has_pdf_true(self):
+        """Setting document_id causes has_pdf to return True (in-memory check only)."""
         self.receipt.refresh_from_db()
         self.assertFalse(self.receipt.has_pdf)
-        self.receipt.pdf_path = "receipts/2024-000001.pdf"
-        self.receipt.save()
-        self.receipt.refresh_from_db()
+        # Simulate a linked Document by setting document_id directly (no DB write needed)
+        self.receipt.document_id = uuid.uuid4()
         self.assertTrue(self.receipt.has_pdf)
 
     def test_cancellation_reason_can_be_set(self):

@@ -105,14 +105,18 @@ class SQLiteGuardTest(TestCase):
         cat = _make_category()
         doc = _make_document(user, cat)
 
-        with self.assertRaises(ImproperlyConfigured) as cm:
-            create_new_version(
-                user=user,
-                root_document=doc,
-                original_filename="v2.pdf",
-                mime_type="application/pdf",
-                size_bytes=1_024,
-            )
+        with patch(
+            "apps.documents.services.versioning.connection"
+        ) as mock_conn:
+            mock_conn.vendor = "sqlite"
+            with self.assertRaises(ImproperlyConfigured) as cm:
+                create_new_version(
+                    user=user,
+                    root_document=doc,
+                    original_filename="v2.pdf",
+                    mime_type="application/pdf",
+                    size_bytes=1_024,
+                )
         self.assertIn("SELECT FOR UPDATE", str(cm.exception))
         self.assertIn("SQLite", str(cm.exception))
 
@@ -126,14 +130,18 @@ class SQLiteGuardTest(TestCase):
         cat = _make_category()
         doc = _make_document(_make_user(), cat)  # owned by someone else
 
-        with self.assertRaises(ImproperlyConfigured):
-            create_new_version(
-                user=user,
-                root_document=doc,
-                original_filename="v2.pdf",
-                mime_type="application/pdf",
-                size_bytes=1_024,
-            )
+        with patch(
+            "apps.documents.services.versioning.connection"
+        ) as mock_conn:
+            mock_conn.vendor = "sqlite"
+            with self.assertRaises(ImproperlyConfigured):
+                create_new_version(
+                    user=user,
+                    root_document=doc,
+                    original_filename="v2.pdf",
+                    mime_type="application/pdf",
+                    size_bytes=1_024,
+                )
 
     def test_soft_delete_guard_fires_before_sqlite_guard(self):
         """

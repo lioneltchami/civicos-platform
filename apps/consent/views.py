@@ -20,7 +20,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.http import FileResponse, Http404, HttpResponseBadRequest, HttpResponseForbidden
+from django.http import FileResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
@@ -168,54 +168,48 @@ class ExportStatusView(LoginRequiredMixin, TemplateView):
 class ExportDownloadView(LoginRequiredMixin, View):
     def get(self, request, token):
         from apps.consent.models import ConsentAuditEntry, DataExportRequest
+        from apps.documents.services.retention import mark_purpose_fulfilled
 
-        storage_path_to_serve = None
+        storage_key_to_serve = None
         export_pk = None
+        _doc_for_disposal = None
+        is_transitory = False
 
-        # Phase 1: all DB work — IDOR check, expiry, status transition, audit — inside one transaction.
-        # File I/O is deliberately deferred to Phase 2 so we never hold a DB lock during network/disk I/O.
         with transaction.atomic():
             try:
-                req = DataExportRequest.objects.select_for_update().get(
-                    download_token=token,
-                )
+                req = DataExportRequest.objects.select_for_update().select_related(
+                    "document__category"
+                ).get(download_token=token)
             except DataExportRequest.DoesNotExist:
                 raise Http404
 
-            # IDOR guard — 403 if a citizen tries to access another citizen's export
+            # IDOR guard — 404 (not 403) for non-owned exports; 403 leaks existence
             if req.citizen_id != request.user.pk:
-                return HttpResponseForbidden(
-                    _("You do not have permission to download this export.")
-                )
+                raise Http404
 
             now = timezone.now()
             if req.status == DataExportRequest.STATUS_READY and req.expires_at and req.expires_at < now:
-                # Mark expired inside the lock so concurrent requests can't double-deliver
-                old_path = req.storage_path
+                # Mark expired inside the lock
                 req.status = DataExportRequest.STATUS_EXPIRED
-                req.storage_path = ""
-                req.save(update_fields=["status", "storage_path"])
-                if old_path:
-                    try:
-                        default_storage.delete(old_path)
-                    except Exception:
-                        pass
-                # Raise Http404 — the link is gone. A redirect would re-issue a 302
-                # to the export-status page, which the test (and correct HTTP semantics)
-                # reject: an expired token URL should be a dead end, not a soft redirect.
+                req.save(update_fields=["status"])
+                # Capture reference for disposal AFTER commit — mark_purpose_fulfilled
+                # opens its own atomic block, so calling it inside the parent transaction
+                # causes savepoint nesting issues.
+                if req.document_id and req.document.category and req.document.category.is_transitory:
+                    _doc_for_disposal = req.document
                 raise Http404
 
             if req.status != DataExportRequest.STATUS_READY:
                 raise Http404
 
-            if not req.storage_path or not default_storage.exists(req.storage_path):
+            if not req.document_id:
                 logger.error(
-                    "ExportDownloadView: storage_path missing or not found for export pk=%s", req.pk
+                    "ExportDownloadView: no document linked for export pk=%s", req.pk
                 )
                 messages.error(request, _("Export file not found. Please contact support."))
                 return redirect("consent:export-status")
 
-            # Mark delivered inside the transaction — concurrent requests hit STATUS_READY guard above
+            # Mark delivered inside the transaction
             req.status = DataExportRequest.STATUS_DELIVERED
             req.save(update_fields=["status"])
 
@@ -229,12 +223,37 @@ class ExportDownloadView(LoginRequiredMixin, View):
                 details={"download_initiated": True},
             )
 
-            storage_path_to_serve = req.storage_path
+            storage_key_to_serve = req.document._storage_key
             export_pk = req.pk
+            document_obj = req.document
+            is_transitory = (
+                document_obj.category is not None and document_obj.category.is_transitory
+            )
 
-        # Phase 2: open and stream the file OUTSIDE the transaction — no DB lock held during I/O
+        # Expired path: dispose transitory document OUTSIDE the transaction
+        if _doc_for_disposal is not None:
+            try:
+                mark_purpose_fulfilled(document=_doc_for_disposal, actor=None)
+            except Exception:
+                logger.exception(
+                    "ExportDownloadView: mark_purpose_fulfilled failed for doc pk=%s",
+                    _doc_for_disposal.pk,
+                )
+            raise Http404
+
+        # Call mark_purpose_fulfilled OUTSIDE the transaction — it opens its own atomic block
+        if is_transitory:
+            try:
+                mark_purpose_fulfilled(document=document_obj, actor=request.user)
+            except Exception as exc:
+                logger.error(
+                    "ExportDownloadView: mark_purpose_fulfilled failed for document pk=%s: %s",
+                    document_obj.pk, type(exc).__name__,
+                )
+
+        # Phase 2: open and stream the file OUTSIDE the transaction
         try:
-            file_handle = default_storage.open(storage_path_to_serve, "rb")
+            file_handle = default_storage.open(storage_key_to_serve, "rb")
         except Exception:
             logger.exception(
                 "ExportDownloadView: failed to open file for export pk=%s", export_pk

@@ -1223,6 +1223,21 @@ class ScreeningRecord(TimestampedModel):
         ),
     )
 
+    # Documents BB: chain-of-custody confirmation document reference.
+    # PIPEDA: stores reference only — criminal check result NEVER stored here.
+    vsc_confirmation_doc = models.ForeignKey(
+        "documents.Document",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="screening_vsc_confirmations",
+        verbose_name=_("VSC confirmation document"),
+        help_text=_(
+            "PIPEDA: stores reference to chain-of-custody confirmation document only. "
+            "Must never reference or store the criminal check result."
+        ),
+    )
+
     class Meta:
         verbose_name = _("Screening record")
         verbose_name_plural = _("Screening records")
@@ -1412,18 +1427,6 @@ class Certification(TimestampedModel):
         help_text=_("Null = no expiry."),
     )
 
-    # Uploaded certificate scan — private S3 path
-    document = models.FileField(
-        upload_to="volunteers/certifications/",
-        null=True,
-        blank=True,
-        verbose_name=_("Certificate document"),
-        help_text=_(
-            "Scanned certificate (PDF or image). "
-            "Stored in private S3 bucket — not publicly accessible."
-        ),
-    )
-
     verified_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -1434,6 +1437,22 @@ class Certification(TimestampedModel):
     )
     verified_at = models.DateTimeField(
         null=True, blank=True, verbose_name=_("Verified at")
+    )
+
+    # Documents BB: replaces the raw FileField below.
+    # Phase 1: FK added (null=True); Phase 2: backfilled via migrate_existing_files;
+    # Phase 3: old FileField dropped. Use document_v2 for all new code.
+    document_v2 = models.ForeignKey(
+        "documents.Document",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="certification_documents",
+        verbose_name=_("Certificate document (Documents BB)"),
+        help_text=_(
+            "FK to the Documents BB record. "
+            "Replaces the deprecated document FileField after migration."
+        ),
     )
 
     class Meta:
@@ -1565,6 +1584,21 @@ class Honorarium(TimestampedModel):
         on_delete=models.PROTECT,
         related_name="created_honoraria",
         verbose_name=_("Created by"),
+    )
+
+    # Documents BB: issued T4A slip document reference.
+    # Set by the T4A generation service when the slip is ready.
+    t4a_document = models.OneToOneField(
+        "documents.Document",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="honorarium_t4a",
+        verbose_name=_("T4A document (Documents BB)"),
+        help_text=_(
+            "FK to the issued T4A slip Document record. "
+            "Set after CRA T4A generation workflow completes."
+        ),
     )
 
     class Meta:

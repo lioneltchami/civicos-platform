@@ -60,7 +60,7 @@ class DataExportRequestAdmin(admin.ModelAdmin):
         "requested_at",
         "processed_at",
         "expires_at",
-        "storage_path",
+        "document",
     ]
     fields = [
         "citizen",
@@ -71,7 +71,7 @@ class DataExportRequestAdmin(admin.ModelAdmin):
         "requested_at",
         "processed_at",
         "expires_at",
-        "storage_path",
+        "document",
     ]
 
     @admin.display(description="Citizen PK")

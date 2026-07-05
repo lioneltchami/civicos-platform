@@ -125,9 +125,12 @@ class SetupPeriodicTasksDryRunTest(TestCase):
     def test_dry_run_does_not_create_crontab(self):
         from django_celery_beat.models import CrontabSchedule
 
+        # Documents BB seed migrations may pre-create CrontabSchedule rows.
+        # We only care that dry_run does NOT add any NEW rows.
+        count_before = CrontabSchedule.objects.count()
         _call_setup(dry_run=True)
 
-        self.assertEqual(CrontabSchedule.objects.count(), 0)
+        self.assertEqual(CrontabSchedule.objects.count(), count_before)
 
     def test_dry_run_does_not_create_periodic_task(self):
         from django_celery_beat.models import PeriodicTask

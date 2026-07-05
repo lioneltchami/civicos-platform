@@ -5,7 +5,7 @@ Security invariants:
 - No raw PANs, no CVVs — card_last_four (4 chars) only.
 - All monetary values: DecimalField (never FloatField).
 - PaymentAuditEntry and OfficialDonationReceipt are append-only.
-- pdf_path is stored but never exposed in API, templates, or admin lists.
+- document._storage_key is NEVER in any HTTP response header, URL, log line, or template context.
 - Currency always CAD.
 - PII never written to application logs.
 """
@@ -1702,10 +1702,10 @@ class OfficialDonationReceipt(TimestampedModel):
     """
     CRA-compliant official donation tax receipt.
     Append-only: core financial fields are immutable after issue.
-    Only status, cancellation_reason, superseded_by, and pdf_path may change.
+    Only status, cancellation_reason, superseded_by, and document may change.
     Cancel and re-issue to correct errors.
-    pdf_path is stored internally and MUST NEVER be exposed in any API,
-    template output, or admin list_display.
+    The document FK references the Documents BB record for the receipt PDF and
+    MUST NEVER be exposed in any API, template output, or admin list_display.
     """
 
     RECEIPT_STATUS_ISSUED = "issued"
@@ -1854,14 +1854,6 @@ class OfficialDonationReceipt(TimestampedModel):
         max_length=255,
         verbose_name=_("Authorized Signatory Title"),
     )
-    pdf_path = models.CharField(
-        max_length=500,
-        blank=True,
-        verbose_name=_("PDF Path"),
-        help_text=(
-            "Internal storage path — NEVER expose in API, templates, or admin list_display."
-        ),
-    )
     issued_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name=_("Issued At"),
@@ -1877,6 +1869,22 @@ class OfficialDonationReceipt(TimestampedModel):
         help_text=(
             "Set to True once the CRA receipt email has been delivered. "
             "Guards against duplicate delivery on Celery retry races."
+        ),
+    )
+
+    # Documents BB: replaces pdf_path CharField.
+    # Phase 1: FK added (null=True); Phase 2: backfilled via migrate_existing_files;
+    # Phase 3: pdf_path dropped. Use document FK for all new code.
+    document = models.OneToOneField(
+        "documents.Document",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="donation_receipt",
+        verbose_name=_("Receipt document (Documents BB)"),
+        help_text=_(
+            "FK to the Documents BB record for this receipt PDF. "
+            "Replaces the deprecated pdf_path CharField after migration."
         ),
     )
 
@@ -1922,8 +1930,8 @@ class OfficialDonationReceipt(TimestampedModel):
 
     @property
     def has_pdf(self) -> bool:
-        """True if a PDF file has been stored for this receipt."""
-        return bool(self.pdf_path)
+        """True if a PDF document has been stored for this receipt."""
+        return bool(self.document_id)
 
     def save(self, *args, **kwargs):
         if not self.serial_number:

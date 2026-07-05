@@ -297,35 +297,60 @@ class ExportDownloadViewTests(TestCase):
         self.other_citizen = _make_citizen()
 
     def _make_ready_export(self, citizen=None):
-        citizen = citizen or self.citizen
+        """
+        Create a STATUS_READY DataExportRequest with a linked Document BB record
+        and a real file in storage.  Wave 6 removed the storage_path field; the
+        download view now reads from req.document._storage_key.
+        """
         import json
-        import tempfile
-        import os
         from django.core.files.base import ContentFile
         from django.core.files.storage import default_storage
+        from apps.documents.models import Document, DocumentCategory
 
+        citizen = citizen or self.citizen
+
+        cat, _ = DocumentCategory.objects.get_or_create(
+            slug="pipeda-data-export",
+            defaults={
+                "name_en": "PIPEDA Export",
+                "name_fr": "Export PIPEDA",
+                "is_transitory": True,
+                "min_retention_days": 0,
+                "max_retention_days": 30,
+            },
+        )
         export = DataExportRequest.objects.create(
             citizen=citizen,
             status=DataExportRequest.STATUS_READY,
             expires_at=timezone.now() + timedelta(days=7),
         )
-        # Write a real file to storage so the download view can serve it
-        filename = f"exports/{citizen.pk}/{export.pk}.json"
+        storage_key = f"documents/active/exports/{export.pk}/export.bin"
         content = json.dumps({"export_id": str(export.pk)}).encode()
-        if default_storage.exists(filename):
-            default_storage.delete(filename)
-        default_storage.save(filename, ContentFile(content))
-        export.storage_path = filename
-        export.save(update_fields=["storage_path"])
+        if default_storage.exists(storage_key):
+            default_storage.delete(storage_key)
+        default_storage.save(storage_key, ContentFile(content))
+
+        doc = Document.objects.create(
+            uploaded_by=citizen,
+            category=cat,
+            original_filename="export.json",
+            mime_type="application/json",
+            size_bytes=len(content),
+            _storage_key=storage_key,
+            scan_status=Document.ScanStatus.ACTIVE,
+        )
+        export.document = doc
+        export.save(update_fields=["document"])
         return export
 
-    def test_wrong_citizen_gets_403(self):
+    def test_wrong_citizen_gets_404(self):
+        """Wave 6 IDOR fix: non-owner receives 404 (not 403) to prevent existence leak."""
         export = self._make_ready_export(citizen=self.citizen)
         self.client.login(email=self.other_citizen.email, password=VALID_PASSWORD)
         resp = self.client.get(
             reverse("consent:export-download", kwargs={"token": export.download_token})
         )
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 404)
 
     def test_status_not_ready_returns_404(self):
         export = DataExportRequest.objects.create(
@@ -339,11 +364,11 @@ class ExportDownloadViewTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_expired_export_returns_404(self):
+        # Wave 6: storage_path removed; just create with an expired expires_at.
         export = DataExportRequest.objects.create(
             citizen=self.citizen,
             status=DataExportRequest.STATUS_READY,
             expires_at=timezone.now() - timedelta(hours=1),
-            storage_path="exports/some/path.json",
         )
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
         resp = self.client.get(

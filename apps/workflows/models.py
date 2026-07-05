@@ -19,7 +19,7 @@ Security:
 """
 
 from django.conf import settings
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -155,6 +155,14 @@ class WorkItem(BaseModel):
         help_text=_("Set when status transitions to completed or cancelled."),
     )
 
+    # Documents BB — staff attach evidence during review
+    document_attachments = GenericRelation(
+        "documents.DocumentAttachment",
+        content_type_field="content_type",
+        object_id_field="object_id",
+        related_query_name="work_item",
+    )
+
     class Meta:
         verbose_name = _("Work item")
         verbose_name_plural = _("Work items")
@@ -256,6 +264,14 @@ class WorkItemComment(BaseModel):
         verbose_name=_("Author"),
     )
     body = models.TextField(verbose_name=_("Comment"))
+
+    # Documents BB — inline attachment alongside comment body
+    document_attachments = GenericRelation(
+        "documents.DocumentAttachment",
+        content_type_field="content_type",
+        object_id_field="object_id",
+        related_query_name="work_item_comment",
+    )
 
     class Meta:
         verbose_name = _("Work item comment")

@@ -96,7 +96,7 @@ def make_document(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@override_settings(CIVICOS=CIVICOS_DEV)
+@override_settings(CIVICOS=CIVICOS_DEV, DEBUG=True)
 class ScanDocumentDevBypassTests(TestCase):
     """
     Tests for scan_document() in dev mode (CLAMAV_HOST="" + CLAMAV_REQUIRED=False).
