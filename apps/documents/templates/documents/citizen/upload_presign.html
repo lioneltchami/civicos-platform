@@ -1,0 +1,109 @@
+{% extends "documents/base.html" %}
+{% load i18n %}
+
+{% block documents_title %}{% trans "Upload Document — Step 2" %}{% endblock %}
+
+{% block documents_content %}
+<section aria-labelledby="presign-heading">
+  <h1 id="presign-heading">{% trans "Upload Document" %}</h1>
+  <p class="text-muted">{% trans "Step 2 of 2: Your file is being sent securely." %}</p>
+
+  <div class="alert alert-info" role="note">
+    <strong>{% trans "Ready to upload." %}</strong>
+    {% trans "Click the button below to send your file directly and securely. Do not navigate away from this page until the upload is complete." %}
+  </div>
+
+  {#
+    S3 Presigned POST form.
+    action points to the S3 bucket endpoint provided by the view.
+    All upload_fields are injected as hidden inputs.
+    A success_action_redirect field (included in upload_fields by the view)
+    instructs S3 to redirect the browser back to confirm_url on success.
+  #}
+  <form method="post"
+        action="{{ upload_url }}"
+        enctype="multipart/form-data"
+        id="s3-upload-form"
+        novalidate
+        aria-describedby="upload-instructions">
+
+    {# S3 presigned POST fields — order matters; must come before the file field #}
+    {% for field_name, field_value in upload_fields.items %}
+      <input type="hidden" name="{{ field_name }}" value="{{ field_value }}">
+    {% endfor %}
+
+    {# S3 requires success_action_redirect as a form field if not already in upload_fields #}
+    {% if confirm_url and "success_action_redirect" not in upload_fields %}
+      <input type="hidden" name="success_action_redirect" value="{{ confirm_url }}">
+    {% endif %}
+
+    <p id="upload-instructions" class="visually-hidden">
+      {% trans "This form uploads your file directly to secure storage. The file field below must be selected." %}
+    </p>
+
+    {# File input — required by S3 presigned POST; must be named 'file' #}
+    <div class="mb-3">
+      <label class="form-label" for="id_s3_file">
+        {% trans "File" %} <span class="text-danger" aria-hidden="true">*</span>
+        <span class="visually-hidden">{% trans "(required)" %}</span>
+      </label>
+      <input type="file"
+             name="file"
+             id="id_s3_file"
+             class="form-control"
+             required
+             aria-required="true"
+             aria-describedby="s3-file-help">
+      <div id="s3-file-help" class="form-text">
+        {% trans "Select the same file you described in step 1." %}
+      </div>
+    </div>
+
+    {# Upload progress region — shown by JS during upload #}
+    <div id="upload-progress-region" class="mb-3 d-none" aria-live="polite" aria-atomic="true">
+      <div class="progress" role="progressbar"
+           aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"
+           aria-label="{% trans 'Upload progress' %}">
+        <div class="progress-bar progress-bar-striped progress-bar-animated"
+             id="upload-progress-bar"
+             style="width: 0%"></div>
+      </div>
+      <p class="mt-2 text-center" id="upload-status-text">{% trans "Uploading…" %}</p>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary" id="upload-submit-btn">
+        {% trans "Upload File" %}
+      </button>
+      <a href="{% url 'documents:list' %}" class="btn btn-outline-secondary">
+        {% trans "Cancel" %}
+      </a>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  const form        = document.getElementById('s3-upload-form');
+  const submitBtn   = document.getElementById('upload-submit-btn');
+  const progressReg = document.getElementById('upload-progress-region');
+  const progressBar = document.getElementById('upload-progress-bar');
+  const statusText  = document.getElementById('upload-status-text');
+
+  form.addEventListener('submit', function (e) {
+    // Show progress UI; disable button to prevent double-submit
+    submitBtn.disabled = true;
+    progressReg.classList.remove('d-none');
+
+    // If the browser supports XHR progress, we use it;
+    // otherwise let the native form submit handle the redirect.
+    // For a simple implementation, let the form submit naturally — S3
+    // will honour success_action_redirect and bounce the user back.
+  });
+})();
+</script>
+{% endblock %}

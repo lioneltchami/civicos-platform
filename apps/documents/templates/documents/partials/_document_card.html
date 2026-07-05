@@ -1,0 +1,72 @@
+{% load i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+{#
+  Reusable document card partial.
+  Context: `document` — a Document model instance.
+  Usage: {% include "documents/partials/_document_card.html" with document=doc %}
+#}
+<article class="card h-100"
+         aria-labelledby="doc-card-title-{{ document.pk }}">
+  <div class="card-body">
+    <h3 id="doc-card-title-{{ document.pk }}" class="h6 card-title text-truncate"
+        title="{{ document.original_filename|force_escape }}">
+      <a href="{% url 'documents:detail' document.pk %}">
+        {{ document.original_filename|force_escape }}
+      </a>
+    </h3>
+
+    <dl class="small mb-2">
+      <dt class="visually-hidden">{% trans "Category" %}</dt>
+      <dd class="text-muted mb-1">
+        {% if document.category %}
+          {% if LANGUAGE_CODE == "fr" %}
+            {{ document.category.name_fr|force_escape }}
+          {% else %}
+            {{ document.category.name_en|force_escape }}
+          {% endif %}
+        {% else %}
+          {% trans "Uncategorised" %}
+        {% endif %}
+      </dd>
+
+      <dt class="visually-hidden">{% trans "Status" %}</dt>
+      <dd class="mb-1">
+        {% if document.scan_status == 'active' %}
+          <span class="badge bg-success">{% trans "Active" %}</span>
+        {% elif document.scan_status == 'scanning' %}
+          <span class="badge bg-info text-dark">{% trans "Scanning" %}</span>
+        {% elif document.scan_status == 'pending_upload' %}
+          <span class="badge bg-secondary">{% trans "Pending Upload" %}</span>
+        {% elif document.scan_status == 'quarantined' %}
+          <span class="badge bg-danger">{% trans "Quarantined" %}</span>
+        {% elif document.scan_status == 'deleted' %}
+          <span class="badge bg-dark">{% trans "Deleted" %}</span>
+        {% elif document.scan_status == 'purged' %}
+          <span class="badge bg-dark">{% trans "Purged" %}</span>
+        {% endif %}
+      </dd>
+
+      <dt class="visually-hidden">{% trans "Uploaded" %}</dt>
+      <dd class="text-muted small mb-0">
+        <time datetime="{{ document.created_at|date:'c' }}">
+          {{ document.created_at|date:"Y-m-d" }}
+        </time>
+      </dd>
+    </dl>
+  </div>
+
+  <div class="card-footer bg-transparent d-flex justify-content-between align-items-center">
+    <a href="{% url 'documents:detail' document.pk %}"
+       class="btn btn-sm btn-outline-secondary"
+       aria-label="{% blocktrans with name=document.original_filename|force_escape %}View details for {{ name }}{% endblocktrans %}">
+      {% trans "View" %}
+    </a>
+    {% if document.scan_status == 'active' %}
+    <a href="{% url 'documents:download' document.pk %}"
+       class="btn btn-sm btn-outline-primary"
+       aria-label="{% blocktrans with name=document.original_filename|force_escape %}Download {{ name }}{% endblocktrans %}">
+      {% trans "Download" %}
+    </a>
+    {% endif %}
+  </div>
+</article>

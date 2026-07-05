@@ -1,0 +1,90 @@
+{% load i18n %}
+{% get_current_language as LANGUAGE_CODE %}
+{#
+  Reusable document table partial.
+  Context: `documents` — a queryset or list of Document instances.
+            `caption`   — optional override for the table caption string.
+  Usage:
+    {% include "documents/partials/_document_table.html" with documents=doc_list %}
+    {% include "documents/partials/_document_table.html" with documents=doc_list caption="Related documents" %}
+#}
+<div class="table-responsive">
+  <table class="table table-hover align-middle table-sm">
+    <caption>
+      {% if caption %}{{ caption }}{% else %}{% trans "Attached documents" %}{% endif %}
+    </caption>
+    <thead class="table-light">
+      <tr>
+        <th scope="col">{% trans "File Name" %}</th>
+        <th scope="col">{% trans "Category" %}</th>
+        <th scope="col">{% trans "Status" %}</th>
+        <th scope="col">{% trans "Size" %}</th>
+        <th scope="col">{% trans "Uploaded" %}</th>
+        <th scope="col"><span class="visually-hidden">{% trans "Actions" %}</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for document in documents %}
+      <tr>
+        <td>
+          <a href="{% url 'documents:detail' document.pk %}">
+            {{ document.original_filename|force_escape }}
+          </a>
+        </td>
+        <td>
+          {% if document.category %}
+            {% if LANGUAGE_CODE == "fr" %}
+              {{ document.category.name_fr|force_escape }}
+            {% else %}
+              {{ document.category.name_en|force_escape }}
+            {% endif %}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if document.scan_status == 'active' %}
+            <span class="badge bg-success">{% trans "Active" %}</span>
+          {% elif document.scan_status == 'scanning' %}
+            <span class="badge bg-info text-dark">{% trans "Scanning" %}</span>
+          {% elif document.scan_status == 'pending_upload' %}
+            <span class="badge bg-secondary">{% trans "Pending Upload" %}</span>
+          {% elif document.scan_status == 'quarantined' %}
+            <span class="badge bg-danger">{% trans "Quarantined" %}</span>
+          {% elif document.scan_status == 'deleted' %}
+            <span class="badge bg-dark">{% trans "Deleted" %}</span>
+          {% elif document.scan_status == 'purged' %}
+            <span class="badge bg-dark">{% trans "Purged" %}</span>
+          {% endif %}
+        </td>
+        <td class="text-nowrap">{{ document.size_bytes|filesizeformat }}</td>
+        <td class="text-nowrap">
+          <time datetime="{{ document.created_at|date:'c' }}">
+            {{ document.created_at|date:"Y-m-d" }}
+          </time>
+        </td>
+        <td class="text-end text-nowrap">
+          <a href="{% url 'documents:detail' document.pk %}"
+             class="btn btn-sm btn-outline-secondary me-1"
+             aria-label="{% blocktrans with name=document.original_filename|force_escape %}View details for {{ name }}{% endblocktrans %}">
+            {% trans "View" %}
+          </a>
+          {% if document.scan_status == 'active' %}
+          <a href="{% url 'documents:download' document.pk %}"
+             class="btn btn-sm btn-outline-primary"
+             aria-label="{% blocktrans with name=document.original_filename|force_escape %}Download {{ name }}{% endblocktrans %}">
+            {% trans "Download" %}
+          </a>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="6" class="text-center text-muted py-4">
+          {% trans "No documents attached." %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

@@ -1,0 +1,17 @@
+{# Scan status badge partial. Usage: {% include "documents/partials/_scan_status_badge.html" with scan_status=document.scan_status %} #}
+{% load i18n %}
+{% if scan_status == "active" %}
+  <span class="badge bg-success">{% trans "Active" %}</span>
+{% elif scan_status == "scanning" %}
+  <span class="badge bg-info text-dark">{% trans "Scanning" %}</span>
+{% elif scan_status == "pending_upload" %}
+  <span class="badge bg-secondary">{% trans "Pending Upload" %}</span>
+{% elif scan_status == "quarantined" %}
+  <span class="badge bg-danger">{% trans "Quarantined" %}</span>
+{% elif scan_status == "deleted" %}
+  <span class="badge bg-dark">{% trans "Deleted" %}</span>
+{% elif scan_status == "purged" %}
+  <span class="badge bg-dark">{% trans "Purged" %}</span>
+{% else %}
+  <span class="badge bg-secondary">{{ scan_status }}</span>
+{% endif %}

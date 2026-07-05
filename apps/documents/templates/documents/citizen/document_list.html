@@ -1,0 +1,138 @@
+{% extends "documents/base.html" %}
+{% load i18n %}
+
+{% block documents_title %}{% trans "My Documents" %}{% endblock %}
+
+{% block documents_content %}
+{% get_current_language as LANGUAGE_CODE %}
+
+<section aria-labelledby="docs-heading">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 id="docs-heading">{% trans "My Documents" %}</h1>
+    <a href="{% url 'documents:upload-init' %}" class="btn btn-primary">
+      {% trans "Upload Document" %}
+    </a>
+  </div>
+
+  {% if page_obj.object_list %}
+
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <caption class="visually-hidden">{% trans "Your uploaded documents" %}</caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "File Name" %}</th>
+          <th scope="col">{% trans "Category" %}</th>
+          <th scope="col">{% trans "Status" %}</th>
+          <th scope="col">{% trans "Version" %}</th>
+          <th scope="col">{% trans "Uploaded" %}</th>
+          <th scope="col"><span class="visually-hidden">{% trans "Actions" %}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for document in page_obj %}
+        <tr>
+          <td>
+            <a href="{% url 'documents:detail' document.pk %}">
+              {{ document.original_filename|force_escape }}
+            </a>
+          </td>
+          <td>
+            {% if document.category %}
+              {% if LANGUAGE_CODE == "fr" %}
+                {{ document.category.name_fr|force_escape }}
+              {% else %}
+                {{ document.category.name_en|force_escape }}
+              {% endif %}
+            {% else %}
+              <span class="text-muted">{% trans "Uncategorised" %}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% include "documents/partials/_scan_status_badge.html" with scan_status=document.scan_status %}
+          </td>
+          <td>{{ document.version_number }}</td>
+          <td>
+            <time datetime="{{ document.created_at|date:'c' }}">
+              {{ document.created_at|date:"Y-m-d" }}
+            </time>
+          </td>
+          <td class="text-end text-nowrap">
+            <a href="{% url 'documents:detail' document.pk %}"
+               class="btn btn-sm btn-outline-secondary me-1"
+               aria-label="{% blocktrans with name=document.original_filename|force_escape %}View details for {{ name }}{% endblocktrans %}">
+              {% trans "View" %}
+            </a>
+            {% if document.scan_status == 'active' %}
+            <a href="{% url 'documents:download' document.pk %}"
+               class="btn btn-sm btn-outline-primary"
+               aria-label="{% blocktrans with name=document.original_filename|force_escape %}Download {{ name }}{% endblocktrans %}">
+              {% trans "Download" %}
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% if page_obj.has_other_pages %}
+  <nav aria-label="{% trans 'Document list pagination' %}">
+    <ul class="pagination justify-content-center">
+      {% if page_obj.has_previous %}
+      <li class="page-item">
+        <a class="page-link"
+           href="?page={{ page_obj.previous_page_number }}"
+           aria-label="{% trans 'Previous page' %}">
+          &laquo; {% trans "Previous" %}
+        </a>
+      </li>
+      {% else %}
+      <li class="page-item disabled" aria-disabled="true">
+        <span class="page-link">&laquo; {% trans "Previous" %}</span>
+      </li>
+      {% endif %}
+
+      {% for num in page_obj.paginator.page_range %}
+        {% if page_obj.number == num %}
+        <li class="page-item active" aria-current="page">
+          <span class="page-link">{{ num }}</span>
+        </li>
+        {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+        <li class="page-item">
+          <a class="page-link" href="?page={{ num }}">{{ num }}</a>
+        </li>
+        {% endif %}
+      {% endfor %}
+
+      {% if page_obj.has_next %}
+      <li class="page-item">
+        <a class="page-link"
+           href="?page={{ page_obj.next_page_number }}"
+           aria-label="{% trans 'Next page' %}">
+          {% trans "Next" %} &raquo;
+        </a>
+      </li>
+      {% else %}
+      <li class="page-item disabled" aria-disabled="true">
+        <span class="page-link">{% trans "Next" %} &raquo;</span>
+      </li>
+      {% endif %}
+    </ul>
+  </nav>
+  {% endif %}
+
+  {% else %}
+  {# Empty state #}
+  <div class="text-center py-5">
+    <p class="lead text-muted">{% trans "You have not uploaded any documents yet." %}</p>
+    <a href="{% url 'documents:upload-init' %}" class="btn btn-primary">
+      {% trans "Upload your first document" %}
+    </a>
+  </div>
+  {% endif %}
+
+</section>
+{% endblock %}

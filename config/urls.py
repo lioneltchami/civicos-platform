@@ -62,6 +62,8 @@ urlpatterns = [
     # Back-office — staff-only; access control enforced via StaffRequiredMixin on every view.
     # Mounted outside i18n_patterns: staff tools do not require language prefixes.
     path("backoffice/", include("apps.backoffice.urls", namespace="backoffice")),
+    # Document Management building block — citizen + staff views
+    path("docs/", include("apps.documents.urls", namespace="documents")),
     # Payments building block — gateway webhooks and payment flows (no language prefix)
     path("payments/", include("apps.payments.urls", namespace="payments")),
     # Donations public-facing flows

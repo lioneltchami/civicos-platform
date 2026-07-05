@@ -1,0 +1,212 @@
+{% extends "documents/base.html" %}
+{% load i18n %}
+
+{% block documents_title %}{% trans "Staff — Document List" %}{% endblock %}
+
+{% block documents_content %}
+{% get_current_language as LANGUAGE_CODE %}
+
+<section aria-labelledby="staff-docs-heading">
+  <h1 id="staff-docs-heading">{% trans "Document Management" %}</h1>
+
+  {# Filter form #}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5 card-title">{% trans "Filter Documents" %}</h2>
+      <form method="get" action="" id="filter-form" role="search" aria-label="{% trans 'Document filters' %}">
+        <div class="row g-3">
+
+          {# Search #}
+          <div class="col-md-4">
+            <label class="form-label" for="id_search">{% trans "Search filename" %}</label>
+            <input type="search"
+                   name="search"
+                   id="id_search"
+                   class="form-control"
+                   value="{{ filter_form.search.value|default:'' }}"
+                   placeholder="{% trans 'Filename…' %}">
+          </div>
+
+          {# Scan status #}
+          <div class="col-md-2">
+            <label class="form-label" for="id_scan_status">{% trans "Status" %}</label>
+            <select name="scan_status" id="id_scan_status" class="form-select">
+              <option value="">{% trans "All" %}</option>
+              <option value="pending_upload" {% if filter_form.scan_status.value == "pending_upload" %}selected{% endif %}>{% trans "Pending Upload" %}</option>
+              <option value="scanning" {% if filter_form.scan_status.value == "scanning" %}selected{% endif %}>{% trans "Scanning" %}</option>
+              <option value="active" {% if filter_form.scan_status.value == "active" %}selected{% endif %}>{% trans "Active" %}</option>
+              <option value="quarantined" {% if filter_form.scan_status.value == "quarantined" %}selected{% endif %}>{% trans "Quarantined" %}</option>
+              <option value="deleted" {% if filter_form.scan_status.value == "deleted" %}selected{% endif %}>{% trans "Deleted" %}</option>
+              <option value="purged" {% if filter_form.scan_status.value == "purged" %}selected{% endif %}>{% trans "Purged" %}</option>
+            </select>
+          </div>
+
+          {# Category #}
+          <div class="col-md-3">
+            <label class="form-label" for="id_category">{% trans "Category" %}</label>
+            <select name="category" id="id_category" class="form-select">
+              <option value="">{% trans "All" %}</option>
+              {% for category in filter_form.category.field.queryset %}
+              <option value="{{ category.slug }}"
+                {% if filter_form.category.value == category.slug %}selected{% endif %}>
+                {% if LANGUAGE_CODE == "fr" %}{{ category.name_fr|force_escape }}{% else %}{{ category.name_en|force_escape }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          {# Legal hold #}
+          <div class="col-md-2">
+            <label class="form-label" for="id_legal_hold">{% trans "Legal Hold" %}</label>
+            <select name="legal_hold" id="id_legal_hold" class="form-select">
+              <option value="">{% trans "All" %}</option>
+              <option value="true" {% if filter_form.legal_hold.value == "true" %}selected{% endif %}>{% trans "On hold" %}</option>
+              <option value="false" {% if filter_form.legal_hold.value == "false" %}selected{% endif %}>{% trans "No hold" %}</option>
+            </select>
+          </div>
+
+          <div class="col-md-1 d-flex align-items-end">
+            <button type="submit" class="btn btn-primary w-100">{% trans "Filter" %}</button>
+          </div>
+        </div>
+
+        {% if request.GET %}
+        <div class="mt-2">
+          <a href="{% url 'documents:staff-list' %}" class="btn btn-sm btn-outline-secondary">
+            {% trans "Clear filters" %}
+          </a>
+        </div>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  {# Result count #}
+  <p class="text-muted">
+    {% blocktrans with count=total_count %}{{ count }} document(s) found.{% endblocktrans %}
+  </p>
+
+  {% if page_obj.object_list %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle table-sm">
+      <caption>{% trans "Filtered document list for staff review" %}</caption>
+      <thead class="table-light">
+        <tr>
+          <th scope="col">{% trans "ID (short)" %}</th>
+          <th scope="col">{% trans "File Name" %}</th>
+          <th scope="col">{% trans "Category" %}</th>
+          <th scope="col">{% trans "Status" %}</th>
+          <th scope="col">{% trans "Legal Hold" %}</th>
+          <th scope="col">{% trans "Version" %}</th>
+          <th scope="col">{% trans "Uploaded" %}</th>
+          <th scope="col"><span class="visually-hidden">{% trans "Actions" %}</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for document in page_obj %}
+        <tr>
+          <td>
+            <code class="small" title="{{ document.pk }}">
+              {{ document.pk|stringformat:"s"|slice:":8" }}…
+            </code>
+          </td>
+          <td>{{ document.original_filename|force_escape }}</td>
+          <td>
+            {% if document.category %}
+              {% if LANGUAGE_CODE == "fr" %}{{ document.category.name_fr|force_escape }}{% else %}{{ document.category.name_en|force_escape }}{% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if document.scan_status == 'active' %}
+              <span class="badge bg-success">{% trans "Active" %}</span>
+            {% elif document.scan_status == 'scanning' %}
+              <span class="badge bg-info text-dark">{% trans "Scanning" %}</span>
+            {% elif document.scan_status == 'pending_upload' %}
+              <span class="badge bg-secondary">{% trans "Pending Upload" %}</span>
+            {% elif document.scan_status == 'quarantined' %}
+              <span class="badge bg-danger">{% trans "Quarantined" %}</span>
+            {% elif document.scan_status == 'deleted' %}
+              <span class="badge bg-dark">{% trans "Deleted" %}</span>
+            {% elif document.scan_status == 'purged' %}
+              <span class="badge bg-dark">{% trans "Purged" %}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if document.legal_hold %}
+              <span class="badge bg-warning text-dark" title="{{ document.legal_hold_reason|force_escape }}">
+                {% trans "Hold" %}
+              </span>
+            {% else %}
+              <span class="text-muted">{% trans "No" %}</span>
+            {% endif %}
+          </td>
+          <td>{{ document.version_number }}</td>
+          <td>
+            <time datetime="{{ document.created_at|date:'c' }}">
+              {{ document.created_at|date:"Y-m-d" }}
+            </time>
+          </td>
+          <td class="text-end text-nowrap">
+            <a href="{% url 'documents:staff-detail' document.pk %}"
+               class="btn btn-sm btn-outline-secondary"
+               aria-label="{% blocktrans with name=document.original_filename|force_escape %}Staff detail for {{ name }}{% endblocktrans %}">
+              {% trans "View" %}
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% if page_obj.has_other_pages %}
+  <nav aria-label="{% trans 'Document list pagination' %}">
+    <ul class="pagination justify-content-center">
+      {% if page_obj.has_previous %}
+      <li class="page-item">
+        <a class="page-link" href="?{% for key, val in request.GET.items %}{% if key != 'page' %}{{ key }}={{ val }}&{% endif %}{% endfor %}page={{ page_obj.previous_page_number }}"
+           aria-label="{% trans 'Previous page' %}">&laquo; {% trans "Previous" %}</a>
+      </li>
+      {% else %}
+      <li class="page-item disabled" aria-disabled="true">
+        <span class="page-link">&laquo; {% trans "Previous" %}</span>
+      </li>
+      {% endif %}
+
+      {% for num in page_obj.paginator.page_range %}
+        {% if page_obj.number == num %}
+        <li class="page-item active" aria-current="page">
+          <span class="page-link">{{ num }}</span>
+        </li>
+        {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+        <li class="page-item">
+          <a class="page-link" href="?{% for key, val in request.GET.items %}{% if key != 'page' %}{{ key }}={{ val }}&{% endif %}{% endfor %}page={{ num }}">{{ num }}</a>
+        </li>
+        {% endif %}
+      {% endfor %}
+
+      {% if page_obj.has_next %}
+      <li class="page-item">
+        <a class="page-link" href="?{% for key, val in request.GET.items %}{% if key != 'page' %}{{ key }}={{ val }}&{% endif %}{% endfor %}page={{ page_obj.next_page_number }}"
+           aria-label="{% trans 'Next page' %}">{% trans "Next" %} &raquo;</a>
+      </li>
+      {% else %}
+      <li class="page-item disabled" aria-disabled="true">
+        <span class="page-link">{% trans "Next" %} &raquo;</span>
+      </li>
+      {% endif %}
+    </ul>
+  </nav>
+  {% endif %}
+
+  {% else %}
+  <div class="text-center py-5">
+    <p class="lead text-muted">{% trans "No documents match the selected filters." %}</p>
+  </div>
+  {% endif %}
+
+</section>
+{% endblock %}

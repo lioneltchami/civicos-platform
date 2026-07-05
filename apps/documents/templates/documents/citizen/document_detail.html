@@ -1,0 +1,129 @@
+{% extends "documents/base.html" %}
+{% load i18n %}
+
+{% block documents_title %}{{ document.original_filename|force_escape }}{% endblock %}
+
+{% block documents_content %}
+{% get_current_language as LANGUAGE_CODE %}
+
+<nav aria-label="{% trans 'Breadcrumb' %}">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item">
+      <a href="{% url 'documents:list' %}">{% trans "My Documents" %}</a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page">
+      {{ document.original_filename|force_escape }}
+    </li>
+  </ol>
+</nav>
+
+<section aria-labelledby="doc-heading">
+  <div class="d-flex justify-content-between align-items-start mb-3">
+    <h1 id="doc-heading" class="h2">{{ document.original_filename|force_escape }}</h1>
+    {% if can_download %}
+    <a href="{% url 'documents:download' document.pk %}"
+       class="btn btn-primary"
+       aria-label="{% blocktrans with name=document.original_filename|force_escape %}Download {{ name }}{% endblocktrans %}">
+      {% trans "Download" %}
+    </a>
+    {% endif %}
+  </div>
+
+  {# Scan status alert #}
+  {% if document.scan_status == 'quarantined' %}
+  <div class="alert alert-danger" role="alert">
+    {% trans "This document has been quarantined and is not available for download. Please contact support if you believe this is in error." %}
+  </div>
+  {% elif document.scan_status == 'pending_upload' or document.scan_status == 'scanning' %}
+  <div class="alert alert-info" role="alert">
+    {% trans "This document is being processed. Please check back shortly." %}
+  </div>
+  {% elif document.scan_status == 'deleted' or document.scan_status == 'purged' %}
+  <div class="alert alert-warning" role="alert">
+    {% trans "This document is no longer available." %}
+  </div>
+  {% endif %}
+
+  {# Legal hold notice — inform citizen without revealing internal details #}
+  {% if document.legal_hold %}
+  <div class="alert alert-warning" role="alert">
+    {% trans "This document is currently subject to a legal hold and cannot be deleted." %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-body">
+      <h2 class="h5 card-title">{% trans "Document Details" %}</h2>
+      <dl class="row">
+        <dt class="col-sm-4">{% trans "Category" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.category %}
+            {% if LANGUAGE_CODE == "fr" %}
+              {{ document.category.name_fr|force_escape }}
+            {% else %}
+              {{ document.category.name_en|force_escape }}
+            {% endif %}
+          {% else %}
+            <span class="text-muted">{% trans "Uncategorised" %}</span>
+          {% endif %}
+        </dd>
+
+        <dt class="col-sm-4">{% trans "Description" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.description %}
+            {{ document.description|force_escape }}
+          {% else %}
+            <span class="text-muted">{% trans "No description provided." %}</span>
+          {% endif %}
+        </dd>
+
+        <dt class="col-sm-4">{% trans "File type" %}</dt>
+        <dd class="col-sm-8">
+          <code>{{ document.mime_type|force_escape }}</code>
+        </dd>
+
+        <dt class="col-sm-4">{% trans "File size" %}</dt>
+        <dd class="col-sm-8">{{ document.size_bytes|filesizeformat }}</dd>
+
+        <dt class="col-sm-4">{% trans "Status" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.scan_status == 'active' %}
+            <span class="badge bg-success">{% trans "Active" %}</span>
+          {% elif document.scan_status == 'scanning' %}
+            <span class="badge bg-info text-dark">{% trans "Scanning" %}</span>
+          {% elif document.scan_status == 'pending_upload' %}
+            <span class="badge bg-secondary">{% trans "Pending Upload" %}</span>
+          {% elif document.scan_status == 'quarantined' %}
+            <span class="badge bg-danger">{% trans "Quarantined" %}</span>
+          {% elif document.scan_status == 'deleted' %}
+            <span class="badge bg-dark">{% trans "Deleted" %}</span>
+          {% elif document.scan_status == 'purged' %}
+            <span class="badge bg-dark">{% trans "Purged" %}</span>
+          {% endif %}
+        </dd>
+
+        <dt class="col-sm-4">{% trans "Version" %}</dt>
+        <dd class="col-sm-8">
+          {{ document.version_number }}
+          {% if document.is_latest_version %}
+            <span class="badge bg-secondary ms-1">{% trans "Latest" %}</span>
+          {% endif %}
+        </dd>
+
+        <dt class="col-sm-4">{% trans "Uploaded" %}</dt>
+        <dd class="col-sm-8">
+          <time datetime="{{ document.created_at|date:'c' }}">
+            {{ document.created_at|date:"Y-m-d H:i" }}
+          </time>
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <a href="{% url 'documents:list' %}" class="btn btn-outline-secondary">
+      &larr; {% trans "Back to My Documents" %}
+    </a>
+  </div>
+</section>
+{% endblock %}

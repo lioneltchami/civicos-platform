@@ -1,0 +1,164 @@
+{% extends "documents/base.html" %}
+{% load i18n %}
+
+{% block documents_title %}
+  {% if document.legal_hold %}{% trans "Release Legal Hold" %}{% else %}{% trans "Apply Legal Hold" %}{% endif %}
+  — {{ document.original_filename|force_escape }}
+{% endblock %}
+
+{% block documents_content %}
+
+<nav aria-label="{% trans 'Breadcrumb' %}">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item">
+      <a href="{% url 'documents:staff-list' %}">{% trans "Document Management" %}</a>
+    </li>
+    <li class="breadcrumb-item">
+      <a href="{% url 'documents:staff-detail' document.pk %}">
+        {{ document.original_filename|force_escape }}
+      </a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page">
+      {% if document.legal_hold %}{% trans "Release Legal Hold" %}{% else %}{% trans "Apply Legal Hold" %}{% endif %}
+    </li>
+  </ol>
+</nav>
+
+<section aria-labelledby="hold-heading">
+  <h1 id="hold-heading">
+    {% if document.legal_hold %}
+      {% trans "Release Legal Hold" %}
+    {% else %}
+      {% trans "Apply Legal Hold" %}
+    {% endif %}
+  </h1>
+
+  {# Current hold status summary #}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h6 card-title">{% trans "Document" %}</h2>
+      <dl class="row mb-0">
+        <dt class="col-sm-4">{% trans "File" %}</dt>
+        <dd class="col-sm-8">{{ document.original_filename|force_escape }}</dd>
+        <dt class="col-sm-4">{% trans "Document ID" %}</dt>
+        <dd class="col-sm-8"><code>{{ document.pk }}</code></dd>
+        <dt class="col-sm-4">{% trans "Current Hold Status" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.legal_hold %}
+            <span class="badge bg-warning text-dark">{% trans "Legal Hold Active" %}</span>
+          {% else %}
+            <span class="badge bg-light text-dark border">{% trans "No Legal Hold" %}</span>
+          {% endif %}
+        </dd>
+        {% if document.legal_hold and document.legal_hold_reason %}
+        <dt class="col-sm-4">{% trans "Current Hold Reason" %}</dt>
+        <dd class="col-sm-8">{{ document.legal_hold_reason|force_escape }}</dd>
+        {% endif %}
+      </dl>
+    </div>
+  </div>
+
+  {# Danger zone for releasing #}
+  {% if document.legal_hold %}
+  <div class="alert alert-warning" role="alert">
+    <strong>{% trans "Warning:" %}</strong>
+    {% trans "Releasing a legal hold allows this document to be deleted or purged in normal retention processes. Ensure authorisation has been obtained before proceeding." %}
+  </div>
+  {% else %}
+  <div class="alert alert-info" role="alert">
+    <strong>{% trans "Note:" %}</strong>
+    {% trans "Applying a legal hold will prevent this document from being deleted until the hold is released. This action is logged in the audit trail." %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'documents:legal-hold' document.pk %}" novalidate>
+    {% csrf_token %}
+
+    {# Reason field #}
+    <div class="mb-3">
+      <label class="form-label" for="id_reason">
+        {% trans "Reason" %}
+        {% if not document.legal_hold %}
+          <span class="text-danger" aria-hidden="true">*</span>
+          <span class="visually-hidden">{% trans "(required)" %}</span>
+        {% endif %}
+      </label>
+      <textarea name="reason"
+                id="id_reason"
+                class="form-control{% if form.reason.errors %} is-invalid{% endif %}"
+                rows="4"
+                {% if not document.legal_hold %}required aria-required="true"{% endif %}
+                aria-describedby="reason-help{% if form.reason.errors %} reason-error{% endif %}"
+                {% if form.reason.errors %}aria-invalid="true"{% endif %}>{{ form.reason.value|default:'' }}</textarea>
+      <div id="reason-help" class="form-text">
+        {% if document.legal_hold %}
+          {% trans "Provide a reason for releasing the hold. This will be recorded in the audit log." %}
+        {% else %}
+          {% trans "Provide a reason for the legal hold. This will be recorded in the audit log. Required." %}
+        {% endif %}
+      </div>
+      {% if form.reason.errors %}
+      <div id="reason-error" class="invalid-feedback" role="alert">
+        {% for error in form.reason.errors %}{{ error }}{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {#
+      Explicit confirmation checkbox — no JS confirm() dialogs.
+      WCAG 2.1 AA: dangerous actions require an explicit step, not a browser dialog.
+    #}
+    <div class="mb-4">
+      <div class="form-check">
+        <input type="checkbox"
+               name="confirm_action"
+               id="id_confirm_action"
+               class="form-check-input{% if form.confirm_action.errors %} is-invalid{% endif %}"
+               value="1"
+               required
+               aria-required="true"
+               aria-describedby="confirm-help{% if form.confirm_action.errors %} confirm-error{% endif %}"
+               {% if form.confirm_action.errors %}aria-invalid="true"{% endif %}>
+        <label class="form-check-label" for="id_confirm_action">
+          {% if document.legal_hold %}
+            {% trans "I confirm that I want to release the legal hold on this document, and that the appropriate authorisation has been obtained." %}
+          {% else %}
+            {% trans "I confirm that I want to apply a legal hold to this document, and that the appropriate authorisation has been obtained." %}
+          {% endif %}
+          <span class="text-danger" aria-hidden="true">*</span>
+        </label>
+        <div id="confirm-help" class="form-text">{% trans "This field is required to proceed." %}</div>
+        {% if form.confirm_action.errors %}
+        <div id="confirm-error" class="invalid-feedback" role="alert">
+          {% for error in form.confirm_action.errors %}{{ error }}{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Non-field errors #}
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger" role="alert" aria-live="assertive">
+      {% for error in form.non_field_errors %}
+        <p class="mb-0">{{ error }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="d-flex gap-2">
+      {% if document.legal_hold %}
+      <button type="submit" class="btn btn-warning">
+        {% trans "Release Legal Hold" %}
+      </button>
+      {% else %}
+      <button type="submit" class="btn btn-danger">
+        {% trans "Apply Legal Hold" %}
+      </button>
+      {% endif %}
+      <a href="{% url 'documents:staff-detail' document.pk %}" class="btn btn-outline-secondary">
+        {% trans "Cancel" %}
+      </a>
+    </div>
+  </form>
+</section>
+{% endblock %}

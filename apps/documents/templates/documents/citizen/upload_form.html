@@ -1,0 +1,192 @@
+{% extends "documents/base.html" %}
+{% load i18n %}
+
+{% block documents_title %}{% trans "Upload Document" %}{% endblock %}
+
+{% block documents_content %}
+<section aria-labelledby="upload-heading">
+  <h1 id="upload-heading">{% trans "Upload Document" %}</h1>
+  <p class="text-muted">{% trans "Step 1 of 2: Provide document details." %}</p>
+
+  {# No-JS fallback notice #}
+  <noscript>
+    <div class="alert alert-warning" role="alert">
+      {% trans "JavaScript is required to automatically detect file name, type, and size from your selected file. Please ensure JavaScript is enabled in your browser." %}
+    </div>
+  </noscript>
+
+  <form method="post" action="{% url 'documents:upload-init' %}" id="upload-init-form" novalidate>
+    {% csrf_token %}
+
+    {# Category #}
+    <div class="mb-3">
+      <label class="form-label" for="id_category">
+        {% trans "Category" %} <span class="text-danger" aria-hidden="true">*</span>
+        <span class="visually-hidden">{% trans "(required)" %}</span>
+      </label>
+      <select name="category"
+              id="id_category"
+              class="form-select{% if form.category.errors %} is-invalid{% endif %}"
+              required
+              aria-required="true"
+              {% if form.category.errors %}aria-describedby="category-error" aria-invalid="true"{% endif %}>
+        <option value="">{% trans "— Select a category —" %}</option>
+        {% for category in categories %}
+          <option value="{{ category.pk }}"
+            {% if form.category.value == category.pk|stringformat:"s" %}selected{% endif %}>
+            {{ category.name_en|force_escape }}
+          </option>
+        {% endfor %}
+      </select>
+      {% if form.category.errors %}
+      <div id="category-error" class="invalid-feedback" role="alert">
+        {% for error in form.category.errors %}{{ error }}{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {# Description #}
+    <div class="mb-3">
+      <label class="form-label" for="id_description">{% trans "Description" %}</label>
+      <textarea name="description"
+                id="id_description"
+                class="form-control{% if form.description.errors %} is-invalid{% endif %}"
+                rows="3"
+                maxlength="500"
+                {% if form.description.errors %}aria-describedby="description-error" aria-invalid="true"{% endif %}>{{ form.description.value|default:'' }}</textarea>
+      <div class="form-text">{% trans "Optional. Maximum 500 characters." %}</div>
+      {% if form.description.errors %}
+      <div id="description-error" class="invalid-feedback" role="alert">
+        {% for error in form.description.errors %}{{ error }}{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {# File input — JS reads metadata and populates hidden fields #}
+    <div class="mb-3">
+      <label class="form-label" for="id_file_picker">
+        {% trans "Select File" %} <span class="text-danger" aria-hidden="true">*</span>
+        <span class="visually-hidden">{% trans "(required)" %}</span>
+      </label>
+      <input type="file"
+             id="id_file_picker"
+             class="form-control{% if form.original_filename.errors or form.mime_type.errors or form.size_bytes.errors %} is-invalid{% endif %}"
+             aria-describedby="file-help{% if form.original_filename.errors %} filename-error{% endif %}"
+             {% if form.original_filename.errors %}aria-invalid="true"{% endif %}
+             required>
+      <div id="file-help" class="form-text">
+        {% trans "Select the file you want to upload. Accepted formats depend on your category." %}
+      </div>
+      {% if form.original_filename.errors %}
+      <div id="filename-error" class="invalid-feedback" role="alert">
+        {% for error in form.original_filename.errors %}{{ error }}{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {# Hidden fields populated by JS from file picker #}
+    <input type="hidden" name="original_filename" id="id_original_filename"
+           value="{{ form.original_filename.value|default:'' }}">
+    <input type="hidden" name="mime_type" id="id_mime_type"
+           value="{{ form.mime_type.value|default:'' }}">
+    <input type="hidden" name="size_bytes" id="id_size_bytes"
+           value="{{ form.size_bytes.value|default:'' }}">
+
+    {# File metadata preview — shown after JS populates fields #}
+    <div id="file-metadata-preview" class="card mb-3 d-none" aria-live="polite" aria-atomic="true">
+      <div class="card-body">
+        <h2 class="h6 card-title">{% trans "Selected File Details" %}</h2>
+        <dl class="row mb-0">
+          <dt class="col-sm-4">{% trans "File name" %}</dt>
+          <dd class="col-sm-8" id="preview-filename">—</dd>
+          <dt class="col-sm-4">{% trans "File type" %}</dt>
+          <dd class="col-sm-8" id="preview-mimetype">—</dd>
+          <dt class="col-sm-4">{% trans "File size" %}</dt>
+          <dd class="col-sm-8" id="preview-size">—</dd>
+        </dl>
+      </div>
+    </div>
+
+    {# Non-field errors #}
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger" role="alert" aria-live="assertive">
+      {% for error in form.non_field_errors %}
+        <p class="mb-0">{{ error }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary" id="submit-btn" disabled>
+        {% trans "Continue to Upload" %}
+      </button>
+      <a href="{% url 'documents:list' %}" class="btn btn-outline-secondary">
+        {% trans "Cancel" %}
+      </a>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  const filePicker   = document.getElementById('id_file_picker');
+  const hiddenName   = document.getElementById('id_original_filename');
+  const hiddenMime   = document.getElementById('id_mime_type');
+  const hiddenSize   = document.getElementById('id_size_bytes');
+  const preview      = document.getElementById('file-metadata-preview');
+  const previewName  = document.getElementById('preview-filename');
+  const previewMime  = document.getElementById('preview-mimetype');
+  const previewSize  = document.getElementById('preview-size');
+  const submitBtn    = document.getElementById('submit-btn');
+  const categorySelect = document.getElementById('id_category');
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  function updateSubmitState() {
+    const hasFile = filePicker.files && filePicker.files.length > 0;
+    const hasCategory = categorySelect.value !== '';
+    submitBtn.disabled = !(hasFile && hasCategory);
+  }
+
+  filePicker.addEventListener('change', function () {
+    const file = filePicker.files[0];
+    if (!file) {
+      hiddenName.value = '';
+      hiddenMime.value = '';
+      hiddenSize.value = '';
+      preview.classList.add('d-none');
+      updateSubmitState();
+      return;
+    }
+
+    hiddenName.value = file.name;
+    hiddenMime.value = file.type || 'application/octet-stream';
+    hiddenSize.value = file.size;
+
+    previewName.textContent = file.name;
+    previewMime.textContent = file.type || 'application/octet-stream';
+    previewSize.textContent = formatBytes(file.size);
+
+    preview.classList.remove('d-none');
+    updateSubmitState();
+  });
+
+  categorySelect.addEventListener('change', updateSubmitState);
+
+  // Enable submit if values already present (e.g. form re-render after error)
+  if (hiddenName.value && categorySelect.value) {
+    submitBtn.disabled = false;
+  }
+})();
+</script>
+{% endblock %}

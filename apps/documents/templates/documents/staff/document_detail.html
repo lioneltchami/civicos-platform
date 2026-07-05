@@ -1,0 +1,177 @@
+{% extends "documents/base.html" %}
+{% load i18n %}
+
+{% block documents_title %}{% trans "Staff Detail" %} — {{ document.original_filename|force_escape }}{% endblock %}
+
+{% block documents_content %}
+{% get_current_language as LANGUAGE_CODE %}
+
+<nav aria-label="{% trans 'Breadcrumb' %}">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item">
+      <a href="{% url 'documents:staff-list' %}">{% trans "Document Management" %}</a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page">
+      {{ document.original_filename|force_escape }}
+    </li>
+  </ol>
+</nav>
+
+<section aria-labelledby="staff-detail-heading">
+  <h1 id="staff-detail-heading" class="h2">{{ document.original_filename|force_escape }}</h1>
+
+  {# Action buttons #}
+  <div class="d-flex gap-2 mb-4 flex-wrap">
+    <a href="{% url 'documents:legal-hold' document.pk %}"
+       class="btn btn-warning">
+      {% trans "Manage Legal Hold" %}
+    </a>
+    <a href="{% url 'documents:audit-log' document.pk %}"
+       class="btn btn-outline-secondary">
+      {% trans "View Audit Log" %}
+    </a>
+    {% if document.scan_status == 'active' %}
+    <a href="{% url 'documents:download' document.pk %}"
+       class="btn btn-outline-primary">
+      {% trans "Download" %}
+    </a>
+    {% endif %}
+  </div>
+
+  {# Legal hold alert #}
+  {% if document.legal_hold %}
+  <div class="alert alert-warning" role="alert">
+    <strong>{% trans "Legal Hold Active" %}</strong>
+    {% if document.legal_hold_reason %}
+      — {{ document.legal_hold_reason|force_escape }}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# Core metadata #}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5 card-title">{% trans "Document Metadata" %}</h2>
+      <dl class="row">
+        <dt class="col-sm-4">{% trans "Document ID" %}</dt>
+        <dd class="col-sm-8"><code>{{ document.pk }}</code></dd>
+
+        <dt class="col-sm-4">{% trans "Original Filename" %}</dt>
+        <dd class="col-sm-8">{{ document.original_filename|force_escape }}</dd>
+
+        <dt class="col-sm-4">{% trans "Category" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.category %}
+            {% if LANGUAGE_CODE == "fr" %}{{ document.category.name_fr|force_escape }}{% else %}{{ document.category.name_en|force_escape }}{% endif %}
+            <span class="text-muted ms-1">({{ document.category.slug }})</span>
+          {% else %}
+            <span class="text-muted">{% trans "Uncategorised" %}</span>
+          {% endif %}
+        </dd>
+
+        <dt class="col-sm-4">{% trans "Description" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.description %}
+            {{ document.description|force_escape }}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </dd>
+
+        <dt class="col-sm-4">{% trans "MIME Type" %}</dt>
+        <dd class="col-sm-8"><code>{{ document.mime_type|force_escape }}</code></dd>
+
+        <dt class="col-sm-4">{% trans "File Size" %}</dt>
+        <dd class="col-sm-8">
+          {{ document.size_bytes|filesizeformat }}
+          <span class="text-muted">({{ document.size_bytes }} {% trans "bytes" %})</span>
+        </dd>
+
+        <dt class="col-sm-4">{% trans "Security Classification" %}</dt>
+        <dd class="col-sm-8">{{ document.security_classification|force_escape }}</dd>
+
+        <dt class="col-sm-4">{% trans "Scan Status" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.scan_status == 'active' %}
+            <span class="badge bg-success">{% trans "Active" %}</span>
+          {% elif document.scan_status == 'scanning' %}
+            <span class="badge bg-info text-dark">{% trans "Scanning" %}</span>
+          {% elif document.scan_status == 'pending_upload' %}
+            <span class="badge bg-secondary">{% trans "Pending Upload" %}</span>
+          {% elif document.scan_status == 'quarantined' %}
+            <span class="badge bg-danger">{% trans "Quarantined" %}</span>
+          {% elif document.scan_status == 'deleted' %}
+            <span class="badge bg-dark">{% trans "Deleted" %}</span>
+          {% elif document.scan_status == 'purged' %}
+            <span class="badge bg-dark">{% trans "Purged" %}</span>
+          {% endif %}
+          <span class="ms-1 text-muted">({{ document.get_scan_status_display }})</span>
+        </dd>
+
+        <dt class="col-sm-4">{% trans "Version" %}</dt>
+        <dd class="col-sm-8">
+          {{ document.version_number }}
+          {% if document.is_latest_version %}
+            <span class="badge bg-secondary ms-1">{% trans "Latest" %}</span>
+          {% endif %}
+        </dd>
+
+        <dt class="col-sm-4">{% trans "Legal Hold" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.legal_hold %}
+            <span class="badge bg-warning text-dark">{% trans "Active" %}</span>
+          {% else %}
+            <span class="badge bg-light text-dark border">{% trans "None" %}</span>
+          {% endif %}
+        </dd>
+
+        <dt class="col-sm-4">{% trans "Uploaded" %}</dt>
+        <dd class="col-sm-8">
+          <time datetime="{{ document.created_at|date:'c' }}">
+            {{ document.created_at|date:"Y-m-d H:i:s" }}
+          </time>
+        </dd>
+
+        {#
+          PIPEDA compliance: show only the internal user ID, never email or full name.
+          The reviewer can look up the user ID in the identity management system separately.
+        #}
+        <dt class="col-sm-4">{% trans "Uploaded By (User ID)" %}</dt>
+        <dd class="col-sm-8">
+          <code>{{ document.uploaded_by_id }}</code>
+          <small class="text-muted ms-1">{% trans "(internal ID — see identity management system)" %}</small>
+        </dd>
+      </dl>
+    </div>
+  </div>
+
+  {#
+    Quarantine / scan engine details — only visible to staff with
+    the `documents.view_quarantined` permission.
+    scan_engine_result is NEVER shown to citizens.
+  #}
+  {% if can_view_quarantine_details %}
+  <div class="card mb-4 border-danger">
+    <div class="card-header bg-danger text-white">
+      <h2 class="h5 mb-0">{% trans "Quarantine Details" %} — {% trans "Restricted" %}</h2>
+    </div>
+    <div class="card-body">
+      <div class="alert alert-danger mb-3" role="alert">
+        {% trans "The following information is restricted to authorised staff only and must not be disclosed to the document owner." %}
+      </div>
+      <dl class="row">
+        <dt class="col-sm-4">{% trans "Scan Engine Result" %}</dt>
+        <dd class="col-sm-8">
+          {% if document.scan_engine_result %}
+            <pre class="bg-light p-2 rounded small">{{ document.scan_engine_result|force_escape }}</pre>
+          {% else %}
+            <span class="text-muted">{% trans "No result recorded." %}</span>
+          {% endif %}
+        </dd>
+      </dl>
+    </div>
+  </div>
+  {% endif %}
+
+</section>
+{% endblock %}
