@@ -27,7 +27,7 @@ from datetime import timedelta
 from celery import shared_task
 from django.utils import timezone
 
-logger = logging.getLogger("civicos.appointments.tasks")
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -71,16 +71,6 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     today = timezone.now().date()
     date_to = today + timedelta(days=horizon_days)
 
-    # Fetch active staff with at least one linked appointment type
-    staff_qs = (
-        StaffProfile.objects.filter(
-            is_accepting_bookings=True,
-            location__is_active=True,
-        )
-        .select_related("location")
-        .prefetch_related("appointment_types")
-    )
-
     # Fetch active appointment types
     active_appt_types = list(
         AppointmentType.objects.filter(is_active=True)
@@ -88,48 +78,62 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     active_appt_type_pks = {at.pk for at in active_appt_types}
     appt_type_by_pk = {at.pk: at for at in active_appt_types}
 
+    # Fetch active staff with at least one linked appointment type.
+    # Wrapped in try so a DB connection failure at fetch time retries the task.
+    # list() forces queryset evaluation here rather than lazily at iteration —
+    # this ensures the outer except actually catches a connection error at fetch
+    # time. Do NOT use .iterator() — it disables Django's result cache and
+    # thereby silently drops prefetch_related("appointment_types"), causing an
+    # extra DB query per staff member (N+1). The queryset is bounded by
+    # active/accepting staff so loading it fully into memory is acceptable.
+    try:
+        staff_list = list(
+            StaffProfile.objects.filter(
+                is_accepting_bookings=True,
+                location__is_active=True,
+            )
+            .select_related("location")
+            .prefetch_related("appointment_types")
+        )
+    except Exception as exc:
+        logger.error(
+            "generate_slots_for_period: failed to fetch staff queryset: %s",
+            type(exc).__name__,
+        )
+        raise self.retry(exc=exc, countdown=300)
+
     total_created = 0
     combinations = 0
 
-    try:
-        # Do NOT use .iterator() here — it disables Django's result cache and
-        # thereby silently drops prefetch_related("appointment_types"), causing
-        # an extra DB query per staff member (N+1). The queryset is bounded by
-        # active/accepting staff so loading it fully into memory is acceptable.
-        for staff_member in staff_qs:
-            staff_appt_type_pks = set(
-                staff_member.appointment_types.values_list("pk", flat=True)
-            )
-            eligible_pks = staff_appt_type_pks & active_appt_type_pks
-
-            for appt_type_pk in eligible_pks:
-                appt_type = appt_type_by_pk[appt_type_pk]
-                try:
-                    created = generate_slots_for_range(
-                        appointment_type=appt_type,
-                        staff=staff_member,
-                        date_from=today,
-                        date_to=date_to,
-                        created_by_task=True,
-                    )
-                    total_created += created
-                    combinations += 1
-                except Exception as exc:
-                    # Log but don't abort — continue with other combinations
-                    logger.error(
-                        "generate_slots_for_period: error for staff_id=%s, "
-                        "appointment_type_id=%s: %s",
-                        staff_member.pk,
-                        appt_type_pk,
-                        type(exc).__name__,
-                    )
-
-    except Exception as exc:
-        logger.exception(
-            "generate_slots_for_period: fatal error — retrying. error_type=%s",
-            type(exc).__name__,
+    # Iterate and process — per-combination errors are logged but do not abort
+    # the run or retry the whole task.
+    for staff_member in staff_list:
+        staff_appt_type_pks = set(
+            staff_member.appointment_types.values_list("pk", flat=True)
         )
-        raise self.retry(exc=exc)
+        eligible_pks = staff_appt_type_pks & active_appt_type_pks
+
+        for appt_type_pk in eligible_pks:
+            appt_type = appt_type_by_pk[appt_type_pk]
+            try:
+                created = generate_slots_for_range(
+                    appointment_type=appt_type,
+                    staff=staff_member,
+                    date_from=today,
+                    date_to=date_to,
+                    created_by_task=True,
+                )
+                total_created += created
+                combinations += 1
+            except Exception as exc:
+                # Log but don't abort — continue with other combinations
+                logger.error(
+                    "generate_slots_for_period: error for staff_id=%s, "
+                    "appointment_type_id=%s: %s",
+                    staff_member.pk,
+                    appt_type_pk,
+                    type(exc).__name__,
+                )
 
     logger.info(
         "generate_slots_for_period: %d slots created across %d staff×type combinations "
@@ -149,7 +153,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     bind=True,
     name="appointments.mark_past_slots_completed",
     max_retries=3,
-    default_retry_delay=60,
+    default_retry_delay=300,  # 5 minutes — consistent with generate_slots_for_period
     acks_late=True,
     reject_on_worker_lost=True,
 )

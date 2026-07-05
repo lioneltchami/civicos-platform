@@ -1278,7 +1278,7 @@ class StaffException(TimestampedModel):
 
     override_start_time / override_end_time are only set for exception_type='override'.
 
-    PRIVACY: note_internal is staff/admin-only and MUST NEVER be shown to citizens.
+    PRIVACY: internal_note is staff/admin-only and MUST NEVER be shown to citizens.
     """
 
     EXCEPTION_TYPE_CHOICES = [
@@ -1327,7 +1327,7 @@ class StaffException(TimestampedModel):
             "Only required when exception_type='override'."
         ),
     )
-    note_internal = models.CharField(
+    internal_note = models.CharField(
         max_length=200,
         blank=True,
         verbose_name=_("Internal note"),
@@ -1561,7 +1561,12 @@ class Slot(TimestampedModel):
     video_join_url_staff = models.URLField(
         blank=True,
         verbose_name=_("Staff video join URL"),
-        help_text=_("Pre-generated host/moderator link for the staff member. Wave 7+."),
+        help_text=_(
+            "Pre-generated host/moderator link for the staff member. "
+            "SECURITY: NEVER expose this field in citizen-facing API responses, "
+            "email templates, or public serializers. This URL grants host/moderator "
+            "access to the video session. Wave 7+."
+        ),
     )
     video_meeting_id = models.CharField(
         max_length=200,

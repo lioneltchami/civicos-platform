@@ -1448,13 +1448,13 @@ class StaffExceptionModelConstraintTests(TestCase):
         choices = {c[0] for c in StaffException.EXCEPTION_TYPE_CHOICES}
         self.assertEqual(choices, {"holiday", "leave", "override", "training"})
 
-    def test_note_internal_default_blank(self):
+    def test_internal_note_default_blank(self):
         exc = StaffException.objects.create(
             staff=self.staff,
             exception_date=date(2026, 7, 11),
             exception_type="training",
         )
-        self.assertEqual(exc.note_internal, "")
+        self.assertEqual(exc.internal_note, "")
 
 
 # ---------------------------------------------------------------------------

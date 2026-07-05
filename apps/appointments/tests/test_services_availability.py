@@ -1531,6 +1531,99 @@ class GenerateSlotsForRangeTests(TestCase):
             "Template with future valid_from must not generate slots before its start date",
         )
 
+    def test_multiple_templates_same_day_generate_from_both_windows(self):
+        """Two templates for the same weekday generate slots from both time windows.
+
+        Staff member has:
+          - Template A: Monday 09:00–12:00 (30-min slots, 30-min interval → 6 slots)
+          - Template B: Monday 14:00–17:00 (30-min slots, 30-min interval → 6 slots)
+
+        Expected: 12 slots total, none overlap, all in the morning or afternoon window.
+
+        Implementation note: AvailabilityTemplate.clean() (H-5) blocks two templates
+        for the same (staff, day_of_week) whose date ranges overlap. Django's
+        objects.create() does NOT call full_clean() / clean(), so we bypass H-5 here to
+        set up the multi-template scenario. This is intentional — the test exercises the
+        slot generation code path (availability.py iterates all matching avail_windows)
+        without testing the admin/form validation layer.
+        """
+        policy = make_policy(
+            slot_interval_minutes=30,
+            buffer_before_minutes=0,
+            buffer_after_minutes=0,
+            min_lead_time_hours=0,
+            max_advance_days=365,
+        )
+        appt_type = make_appt_type(
+            self.service_type, slug="gsfr-multi-tmpl",
+            scheduling_policy=policy, duration_minutes=30,
+        )
+        staff = make_staff(self.location, suffix="-mt")
+        appt_type.staff_members.add(staff)
+
+        # Use a fixed Monday that is well within max_advance_days (365)
+        target_monday = date(2026, 7, 6)  # Known Monday
+
+        # Template A: 09:00–12:00 Monday → 6 slots (09:00, 09:30, 10:00, 10:30, 11:00, 11:30)
+        # Template B: 14:00–17:00 Monday → 6 slots (14:00, 14:30, 15:00, 15:30, 16:00, 16:30)
+        # objects.create() bypasses clean() — no H-5 overlap check runs here.
+        AvailabilityTemplate.objects.create(
+            staff=staff,
+            day_of_week=1,  # Monday (ISO)
+            start_time=time(9, 0),
+            end_time=time(12, 0),
+            valid_from=target_monday,
+            valid_until=None,
+        )
+        AvailabilityTemplate.objects.create(
+            staff=staff,
+            day_of_week=1,  # Monday (ISO)
+            start_time=time(14, 0),
+            end_time=time(17, 0),
+            valid_from=target_monday,
+            valid_until=None,
+        )
+
+        svc = SlotAvailabilityService()
+        result = svc.get_available_slots(
+            appointment_type=appt_type,
+            date_from=target_monday,
+            date_to=target_monday,
+            staff=staff,
+        )
+
+        self.assertEqual(len(result), 12, f"Expected 12 slots from two windows, got {len(result)}")
+
+        # All slots must be on target_monday in Toronto time
+        tz_toronto = ZoneInfo("America/Toronto")
+        for slot in result:
+            local_dt = slot["start_datetime"].astimezone(tz_toronto)
+            self.assertEqual(local_dt.date(), target_monday)
+
+        # No slot must start in the 12:00–14:00 gap
+        for slot in result:
+            local_hour = slot["start_datetime"].astimezone(tz_toronto).hour
+            local_minute = slot["start_datetime"].astimezone(tz_toronto).minute
+            local_time = time(local_hour, local_minute)
+            self.assertFalse(
+                time(12, 0) <= local_time < time(14, 0),
+                f"Slot at {local_time} falls in the 12:00–14:00 gap between windows",
+            )
+
+        # At least one slot must start in the morning window (09:00–12:00)
+        morning_slots = [
+            s for s in result
+            if time(9, 0) <= s["start_datetime"].astimezone(tz_toronto).time() < time(12, 0)
+        ]
+        self.assertGreater(len(morning_slots), 0, "Expected slots in morning window (09:00–12:00)")
+
+        # At least one slot must start in the afternoon window (14:00–17:00)
+        afternoon_slots = [
+            s for s in result
+            if time(14, 0) <= s["start_datetime"].astimezone(tz_toronto).time() < time(17, 0)
+        ]
+        self.assertGreater(len(afternoon_slots), 0, "Expected slots in afternoon window (14:00–17:00)")
+
 
 # ---------------------------------------------------------------------------
 # SlotServiceUnitTests (block_slot / cancel_slot)
@@ -1690,6 +1783,12 @@ class SlotServiceUnitTests(TestCase):
 class AvailabilityTemplateModelTests(TestCase):
     """
     Unit tests for AvailabilityTemplate model constraints and clean() validation.
+
+    Tests that have a stronger or equivalent counterpart in test_models.py
+    (AvailabilityTemplateTests) have been removed here to avoid maintenance
+    overhead. The remaining tests cover behaviour that is unique to this file:
+      - __str__ includes the human-readable weekday label ("Monday")
+      - valid_until == valid_from is accepted as a one-day-only schedule
     """
 
     def setUp(self):
@@ -1698,54 +1797,12 @@ class AvailabilityTemplateModelTests(TestCase):
         self.staff = make_staff(self.location, suffix="-at")
 
     def test_str_contains_day_and_times(self):
+        """__str__ includes the human-readable weekday label (e.g. 'Monday')."""
         tpl = make_template(
             self.staff, day_of_week=1, start_time=time(9, 0), end_time=time(17, 0)
         )
         s = str(tpl)
         self.assertIn("Monday", s)
-
-    def test_str_does_not_contain_email(self):
-        tpl = make_template(
-            self.staff, day_of_week=2, start_time=time(9, 0), end_time=time(17, 0)
-        )
-        self.assertNotIn("@", str(tpl))
-
-    def test_end_time_must_be_after_start_time_clean(self):
-        tpl = AvailabilityTemplate(
-            staff=self.staff,
-            day_of_week=1,
-            start_time=time(10, 0),
-            end_time=time(9, 0),  # Before start
-            valid_from=date(2026, 1, 1),
-        )
-        from django.core.exceptions import ValidationError
-        with self.assertRaises(ValidationError):
-            tpl.clean()
-
-    def test_equal_start_end_time_raises_clean(self):
-        tpl = AvailabilityTemplate(
-            staff=self.staff,
-            day_of_week=1,
-            start_time=time(9, 0),
-            end_time=time(9, 0),  # Equal — must fail
-            valid_from=date(2026, 1, 1),
-        )
-        from django.core.exceptions import ValidationError
-        with self.assertRaises(ValidationError):
-            tpl.clean()
-
-    def test_valid_until_before_valid_from_raises_clean(self):
-        tpl = AvailabilityTemplate(
-            staff=self.staff,
-            day_of_week=1,
-            start_time=time(9, 0),
-            end_time=time(17, 0),
-            valid_from=date(2026, 7, 1),
-            valid_until=date(2026, 6, 30),  # Before valid_from
-        )
-        from django.core.exceptions import ValidationError
-        with self.assertRaises(ValidationError):
-            tpl.clean()
 
     def test_valid_until_equals_valid_from_is_ok(self):
         """valid_until == valid_from is a one-day-only schedule — valid."""
@@ -1758,27 +1815,6 @@ class AvailabilityTemplateModelTests(TestCase):
             valid_until=date(2026, 7, 7),
         )
         tpl.clean()  # Must not raise
-
-    def test_null_valid_until_is_open_ended(self):
-        tpl = make_template(
-            self.staff, day_of_week=3, start_time=time(9, 0),
-            end_time=time(17, 0), valid_until=None,
-        )
-        self.assertIsNone(tpl.valid_until)
-
-    def test_iso_weekday_choices_cover_1_to_7(self):
-        choices = dict(AvailabilityTemplate.DAYS_OF_WEEK)
-        for i in range(1, 8):
-            self.assertIn(i, choices)
-
-    def test_ordering_by_day_of_week_then_start_time(self):
-        """Templates ordered by day_of_week then start_time."""
-        make_template(self.staff, day_of_week=3, start_time=time(14, 0), end_time=time(15, 0))
-        make_template(self.staff, day_of_week=1, start_time=time(10, 0), end_time=time(11, 0))
-        make_template(self.staff, day_of_week=1, start_time=time(9, 0), end_time=time(10, 0))
-        templates = list(AvailabilityTemplate.objects.filter(staff=self.staff))
-        days = [t.day_of_week for t in templates]
-        self.assertEqual(days, sorted(days))
 
 
 # ---------------------------------------------------------------------------

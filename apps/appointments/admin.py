@@ -17,7 +17,9 @@ Wave 1 models registered here:
   Location, Resource, StaffProfile.
 """
 
+from django import forms
 from django.contrib import admin
+from django.utils import timezone as django_timezone
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
@@ -534,6 +536,69 @@ class StaffProfileAdmin(admin.ModelAdmin):
 # ===========================================================================
 
 
+# ---------------------------------------------------------------------------
+# Custom ModelForms for Wave 2 admin guards
+# ---------------------------------------------------------------------------
+
+
+class SlotAdminForm(forms.ModelForm):
+    """
+    ModelForm for SlotAdmin.
+
+    M-1: Validates that capacity is not reduced below the current spaces_used
+    count, converting what would be a raw DB IntegrityError (CHECK constraint
+    violation) into a clean field-level ValidationError shown in the admin form.
+    """
+
+    class Meta:
+        model = Slot
+        fields = "__all__"
+
+    def clean_capacity(self):
+        capacity = self.cleaned_data.get("capacity")
+        # Only validate on existing instances (not on slot creation).
+        if self.instance and self.instance.pk:
+            spaces_used = self.instance.spaces_used
+            if capacity is not None and capacity < spaces_used:
+                raise forms.ValidationError(
+                    _(
+                        "Capacity (%(cap)d) cannot be less than the number of spaces "
+                        "already used (%(used)d). Cancel bookings first."
+                    ) % {"cap": capacity, "used": spaces_used}
+                )
+        return capacity
+
+
+class StaffExceptionAdminForm(forms.ModelForm):
+    """
+    ModelForm for StaffExceptionAdmin.
+
+    M-7: Makes internal_note append-only. The existing note history is
+    displayed as a read-only field; a separate note_addition CharField
+    lets admins append timestamped entries. The full internal_note field
+    is excluded from direct editing to prevent silent overwrites.
+
+    PIPEDA: timestamp entries record the actor's user PK only — no name
+    or email is stored in the note text.
+    """
+
+    note_addition = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 3}),
+        required=False,
+        label=_("Add note (appended with timestamp)"),
+        help_text=_(
+            "Enter text to append to the note history. "
+            "Previous notes are preserved — this field only adds new content."
+        ),
+    )
+
+    class Meta:
+        model = StaffException
+        # Exclude internal_note from direct editing; it is shown as a
+        # readonly display field and updated only via note_addition.
+        exclude = ("internal_note",)
+
+
 class AvailabilityTemplateInline(admin.TabularInline):
     """
     Read-only inline showing availability templates on a StaffProfile detail page.
@@ -600,8 +665,14 @@ class StaffExceptionAdmin(admin.ModelAdmin):
     """
     Admin for date-level staff availability exceptions.
     PIPEDA: list view shows staff_id (PK), not name or email.
-    note_internal is staff/admin-only — never shown to citizens.
+    internal_note is staff/admin-only — never shown to citizens.
+
+    M-7: internal_note is append-only. The existing note history is shown as
+    a read-only display field; new content is appended via the note_addition
+    field with a UTC timestamp and actor PK (no PII name/email — PIPEDA).
     """
+
+    form = StaffExceptionAdminForm
 
     list_display = (
         "id",
@@ -615,7 +686,7 @@ class StaffExceptionAdmin(admin.ModelAdmin):
     search_fields = ("staff__location__name_en",)
     date_hierarchy = "exception_date"
     ordering = ("-exception_date",)
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "updated_at", "internal_note")
     fieldsets = (
         (None, {
             "fields": (
@@ -628,15 +699,32 @@ class StaffExceptionAdmin(admin.ModelAdmin):
         (_("Internal note (staff only)"), {
             "description": _(
                 "⚠ This note is for staff and admin use only. "
-                "Never display to citizens."
+                "Never display to citizens. "
+                "Notes are append-only and include a UTC timestamp and actor ID."
             ),
-            "fields": ("note_internal",),
+            "fields": ("internal_note", "note_addition"),
         }),
         (_("Timestamps"), {
             "classes": ("collapse",),
             "fields": ("created_at", "updated_at"),
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        """
+        M-7: Append note_addition to internal_note with a UTC timestamp and
+        the acting admin's user PK. No name or email is stored (PIPEDA).
+        """
+        addition = form.cleaned_data.get("note_addition", "").strip()
+        if addition:
+            ts = django_timezone.now().strftime("%Y-%m-%d %H:%M UTC")
+            actor_pk = request.user.pk
+            entry = f"[{ts} — admin #{actor_pk}] {addition}"
+            if obj.internal_note:
+                obj.internal_note = f"{obj.internal_note}\n{entry}"
+            else:
+                obj.internal_note = entry
+        super().save_model(request, obj, form, change)
 
     @admin.display(description=_("Staff ID"))
     def staff_id_display(self, obj: StaffException) -> str:
@@ -653,7 +741,13 @@ class SlotAdmin(admin.ModelAdmin):
         permission — never shown by default.
       - list_display never includes the citizen video URL.
       - internal_note is staff/admin only.
+
+    M-1: SlotAdminForm.clean_capacity() prevents capacity from being reduced
+    below spaces_used, surfacing a friendly ValidationError instead of a raw
+    DB IntegrityError from the appt_slot_spaces_lte_capacity CheckConstraint.
     """
+
+    form = SlotAdminForm
 
     list_display = (
         "pk_short",
