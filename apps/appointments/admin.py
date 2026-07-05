@@ -200,12 +200,12 @@ class ServiceTypeAdmin(admin.ModelAdmin):
 class AppointmentTypeStaffInline(admin.TabularInline):
     """Read-only inline to preview which staff members are linked (Wave 1)."""
 
-    model = AppointmentType.staff_members.through
+    model = StaffProfile.appointment_types.through
     verbose_name = _("Staff member")
     verbose_name_plural = _("Staff members")
     extra = 0
     can_delete = False
-    readonly_fields = ("staffprofile",)
+    readonly_fields = ("staffprofile", "appointmenttype")
 
     def has_add_permission(self, request, obj=None):  # type: ignore[override]
         return False
@@ -446,7 +446,7 @@ class StaffProfileAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("is_accepting_bookings", "accepts_walk_ins", "location__organization", "video_provider")
-    search_fields = ("id", "location__name_en")
+    search_fields = ("location__name_en",)
     # Do NOT add search_fields for user__email — that would expose PII in search.
     ordering = ("user_id",)
     autocomplete_fields = ("location",)

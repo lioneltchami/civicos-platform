@@ -14,7 +14,7 @@ Coverage:
   ServiceType:
     - slug uniqueness, ordering (sort_order, name_en)
     - privacy_sensitivity choices, category choices
-    - is_active db_index (checked via field attribute)
+    - is_active default True (BooleanField default, not a Python field attribute)
 
   AppointmentType:
     - slug uniqueness, FK service_type PROTECT
@@ -167,23 +167,33 @@ class OrganizationTests(TestCase):
         org = make_org(slug="default-type-org")
         self.assertEqual(org.organization_type, "government_federal")
 
-    def test_organization_type_choices(self):
-        valid_types = {
-            "government_federal", "government_provincial", "government_municipal",
-            "ngo", "health", "other",
-        }
-        org = make_org(slug="ngo-org", organization_type="ngo")
-        self.assertIn(org.organization_type, valid_types)
+    def test_organization_type_choices_valid(self):
+        """Valid organization_type passes full_clean()."""
+        for org_type in ["government_federal", "government_provincial", "government_municipal", "ngo", "health", "other"]:
+            org = make_org(slug=f"org-type-{org_type}")
+            org.organization_type = org_type
+            org.full_clean()  # must not raise
+
+    def test_organization_type_choices_invalid(self):
+        """Invalid organization_type raises ValidationError."""
+        from django.core.exceptions import ValidationError
+        org = make_org(slug="org-type-invalid")
+        org.organization_type = "not_a_real_type"
+        with self.assertRaises(ValidationError):
+            org.full_clean()
 
     def test_timestamps_auto_set(self):
         org = make_org(slug="ts-org")
         self.assertIsNotNone(org.created_at)
         self.assertIsNotNone(org.updated_at)
 
-    def test_str_does_not_contain_email(self):
-        """PIPEDA: __str__ must never expose an email address."""
-        org = make_org(slug="pipeda-org")
-        self.assertNotIn("@", str(org))
+    def test_str_does_not_traverse_fk(self):
+        """Organization.__str__ returns name_en without any DB query."""
+        org = make_org(slug="org-str-fk")
+        fresh = Organization.objects.get(pk=org.pk)
+        with self.assertNumQueries(0):
+            result = str(fresh)
+        self.assertEqual(result, fresh.name_en)
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +260,75 @@ class SchedulingPolicyTests(TestCase):
     def test_default_waitlist_batch_size(self):
         policy = make_policy()
         self.assertEqual(policy.waitlist_notify_batch_size, 3)
+
+    def test_buffer_minutes_max_value_validator(self):
+        """buffer_before/after_minutes must not exceed 240 minutes."""
+        from django.core.exceptions import ValidationError
+        policy = SchedulingPolicy(
+            name="test-buffer-max",
+            buffer_before_minutes=241,
+            buffer_after_minutes=0,
+        )
+        with self.assertRaises(ValidationError):
+            policy.full_clean()
+
+    def test_buffer_after_minutes_max_value_validator(self):
+        """buffer_after_minutes must not exceed 240."""
+        from django.core.exceptions import ValidationError
+        policy = SchedulingPolicy(
+            name="test-buffer-after-max",
+            buffer_before_minutes=0,
+            buffer_after_minutes=999,
+        )
+        with self.assertRaises(ValidationError):
+            policy.full_clean()
+
+    # H-10: default field coverage
+
+    def test_buffer_before_minutes_default_zero(self):
+        """buffer_before_minutes defaults to 0 (no setup padding by default)."""
+        policy = make_policy("buf-before-default")
+        self.assertEqual(policy.buffer_before_minutes, 0)
+
+    def test_buffer_after_minutes_default_five(self):
+        """buffer_after_minutes defaults to 5 (standard wrap-up time)."""
+        policy = make_policy("buf-after-default")
+        self.assertEqual(policy.buffer_after_minutes, 5)
+
+    def test_cancellation_notice_hours_default(self):
+        """cancellation_notice_hours defaults to 24."""
+        policy = make_policy("cancel-notice-default")
+        self.assertEqual(policy.cancellation_notice_hours, 24)
+
+    def test_reschedule_notice_hours_default(self):
+        """reschedule_notice_hours defaults to 24."""
+        policy = make_policy("reschedule-notice-default")
+        self.assertEqual(policy.reschedule_notice_hours, 24)
+
+    def test_max_reschedule_count_default(self):
+        """max_reschedule_count defaults to 3."""
+        policy = make_policy("max-reschedule-default")
+        self.assertEqual(policy.max_reschedule_count, 3)
+
+    def test_max_active_bookings_per_citizen_default(self):
+        """max_active_bookings_per_citizen defaults to 3."""
+        policy = make_policy("max-bookings-default")
+        self.assertEqual(policy.max_active_bookings_per_citizen, 3)
+
+    def test_booking_frequency_days_default_zero(self):
+        """booking_frequency_days defaults to 0 (anti-hoarding control — disabled by default)."""
+        policy = make_policy("freq-days-default")
+        self.assertEqual(policy.booking_frequency_days, 0)
+
+    def test_waitlist_acceptance_window_hours_default(self):
+        """waitlist_acceptance_window_hours defaults to 2."""
+        policy = make_policy("waitlist-window-default")
+        self.assertEqual(policy.waitlist_acceptance_window_hours, 2)
+
+    def test_max_waitlist_per_slot_default(self):
+        """max_waitlist_per_slot defaults to 10."""
+        policy = make_policy("max-waitlist-default")
+        self.assertEqual(policy.max_waitlist_per_slot, 10)
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +533,15 @@ class AppointmentTypeTests(TestCase):
         appt = make_appt_type(service_type=self.service_type, slug="no-policy")
         self.assertIsNone(appt.get_effective_policy())
 
+    def test_get_effective_policy_returns_none_when_unset(self):
+        """get_effective_policy() returns None when no policy is attached."""
+        at = make_appt_type(
+            service_type=self.service_type,
+            slug="no-policy-unset",
+            scheduling_policy=None,
+        )
+        self.assertIsNone(at.get_effective_policy())
+
     def test_intake_form_schema_default_empty_dict(self):
         appt = make_appt_type(service_type=self.service_type, slug="schema-default")
         self.assertEqual(appt.intake_form_schema, {})
@@ -465,6 +553,79 @@ class AppointmentTypeTests(TestCase):
     def test_str_does_not_contain_email(self):
         appt = make_appt_type(service_type=self.service_type, slug="pipeda-appt")
         self.assertNotIn("@", str(appt))
+
+    def test_allow_anonymous_booking_defaults_false(self):
+        """allow_anonymous_booking must default to False — spec §18.5."""
+        at = make_appt_type(service_type=self.service_type, slug="anon-default")
+        self.assertFalse(at.allow_anonymous_booking)
+
+    def test_allow_anonymous_booking_can_be_set(self):
+        """allow_anonymous_booking can be explicitly enabled."""
+        at = make_appt_type(service_type=self.service_type, slug="anon-enabled", allow_anonymous_booking=True)
+        self.assertTrue(at.allow_anonymous_booking)
+        at.full_clean()  # must not raise
+
+    def test_str_does_not_traverse_fk(self):
+        """AppointmentType.__str__ must return name_en without a DB query."""
+        at = make_appt_type(service_type=self.service_type, slug="str-no-fk", name_en="Tax Filing Appointment")
+        # After loading from DB, str() should not cause an additional query
+        # (service_type should NOT be fetched)
+        at_fresh = AppointmentType.objects.get(pk=at.pk)
+        with self.assertNumQueries(0):
+            result = str(at_fresh)
+        self.assertEqual(result, "Tax Filing Appointment")
+
+    # H-11: gating field coverage
+
+    def test_requires_document_upload_default_false(self):
+        """requires_document_upload defaults to False."""
+        at = make_appt_type(service_type=self.service_type, slug="req-doc-default")
+        self.assertFalse(at.requires_document_upload)
+
+    def test_requires_payment_default_false(self):
+        """requires_payment defaults to False."""
+        at = make_appt_type(service_type=self.service_type, slug="req-pay-default")
+        self.assertFalse(at.requires_payment)
+
+    def test_requires_consent_default_false(self):
+        """requires_consent defaults to False."""
+        at = make_appt_type(service_type=self.service_type, slug="req-consent-default")
+        self.assertFalse(at.requires_consent)
+
+    def test_required_document_category_slug_blank_by_default(self):
+        """required_document_category_slug is blank when document upload not required."""
+        at = make_appt_type(service_type=self.service_type, slug="doc-slug-default")
+        self.assertEqual(at.required_document_category_slug, "")
+
+    def test_fee_code_blank_by_default(self):
+        """fee_code is blank when payment not required."""
+        at = make_appt_type(service_type=self.service_type, slug="fee-code-default")
+        self.assertEqual(at.fee_code, "")
+
+    def test_consent_category_slug_blank_by_default(self):
+        """consent_category_slug is blank when consent not required."""
+        at = make_appt_type(service_type=self.service_type, slug="consent-slug-default")
+        self.assertEqual(at.consent_category_slug, "")
+
+    def test_gating_fields_can_be_set_together(self):
+        """All three gating flags can be enabled simultaneously."""
+        at = make_appt_type(
+            service_type=self.service_type,
+            slug="all-gates",
+            requires_document_upload=True,
+            required_document_category_slug="passport",
+            requires_payment=True,
+            fee_code="FEE-001",
+            requires_consent=True,
+            consent_category_slug="appointment_data_processing",
+        )
+        at.full_clean()  # must not raise
+        self.assertTrue(at.requires_document_upload)
+        self.assertTrue(at.requires_payment)
+        self.assertTrue(at.requires_consent)
+        self.assertEqual(at.required_document_category_slug, "passport")
+        self.assertEqual(at.fee_code, "FEE-001")
+        self.assertEqual(at.consent_category_slug, "appointment_data_processing")
 
 
 # ---------------------------------------------------------------------------
@@ -499,11 +660,14 @@ class LocationTests(TestCase):
         self.assertEqual(loc.privacy_regime, "pipeda")
 
     def test_organization_on_delete_protect(self):
-        """Deleting an Organization with Locations must be blocked."""
-        make_location(organization=self.org, slug="prot-loc")
+        """Deleting an Organization with Locations must be blocked (PROTECT)."""
+        loc = make_location(organization=self.org, slug="prot-loc")
         with self.assertRaises(ProtectedError):
             with transaction.atomic():
                 self.org.delete()
+        # Rollback must have preserved both records
+        self.assertTrue(Organization.objects.filter(pk=self.org.pk).exists())
+        self.assertTrue(Location.objects.filter(pk=loc.pk).exists())
 
     def test_scheduling_policy_set_null_on_delete(self):
         policy = make_policy("Location Policy")
@@ -539,6 +703,32 @@ class LocationTests(TestCase):
     def test_str_does_not_contain_email(self):
         loc = make_location(organization=self.org, slug="pipeda-loc")
         self.assertNotIn("@", str(loc))
+
+    def test_str_does_not_expose_email(self):
+        """PIPEDA: Location.__str__ must not include the contact email."""
+        loc = make_location(
+            organization=self.org,
+            slug="pipeda-loc-email",
+            email="contact@city.gc.ca",
+        )
+        self.assertNotIn("@", str(loc))
+        self.assertNotIn("contact@city.gc.ca", str(loc))
+
+    def test_get_effective_policy_returns_policy(self):
+        """Location.get_effective_policy() returns the attached policy."""
+        from apps.appointments.models import SchedulingPolicy
+        policy = SchedulingPolicy.objects.create(name="loc-policy-test")
+        loc = make_location(
+            organization=self.org,
+            slug="loc-eff-policy",
+            scheduling_policy=policy,
+        )
+        self.assertEqual(loc.get_effective_policy(), policy)
+
+    def test_get_effective_policy_returns_none_when_unset(self):
+        """Location.get_effective_policy() returns None when no policy is attached."""
+        loc = make_location(organization=self.org, slug="loc-no-policy")
+        self.assertIsNone(loc.get_effective_policy())
 
 
 # ---------------------------------------------------------------------------
@@ -601,6 +791,14 @@ class ResourceTests(TestCase):
         res = make_resource(location=self.location)
         self.assertNotIn("@", str(res))
 
+    def test_str_does_not_traverse_fk(self):
+        """Resource.__str__ must return name_en without a DB query."""
+        resource = make_resource(location=self.location, name_en="Quiet Room 3")
+        resource_fresh = Resource.objects.get(pk=resource.pk)
+        with self.assertNumQueries(0):
+            result = str(resource_fresh)
+        self.assertEqual(result, "Quiet Room 3")
+
 
 # ---------------------------------------------------------------------------
 # StaffProfile — PIPEDA
@@ -628,9 +826,17 @@ class StaffProfileTests(TestCase):
         """PIPEDA: StaffProfile.__str__ must not contain the user's email address."""
         self.assertNotIn(self.staff_user.email, str(self.profile))
 
-    def test_str_does_not_contain_at_sign(self):
-        """Paranoid check: any '@' in str(profile) would signal PII leakage."""
-        self.assertNotIn("@", str(self.profile))
+    def test_str_contains_no_pii(self):
+        """StaffProfile.__str__ must not expose email, name, or @ symbol (PIPEDA §4.7)."""
+        user = make_user(email="jane.doe@example.com", is_staff=True)
+        profile = StaffProfile.objects.create(user=user, location=self.location)
+        result = str(profile)
+        self.assertNotIn("jane.doe@example.com", result)
+        self.assertNotIn("@", result)
+        self.assertNotIn("Jane", result)
+        self.assertNotIn("Doe", result)
+        # Must contain the PK so staff can debug
+        self.assertIn(str(profile.pk), result)
 
     # ── Defaults ────────────────────────────────────────────────────────────
 
@@ -678,11 +884,20 @@ class StaffProfileTests(TestCase):
     # ── M2M appointment_types ────────────────────────────────────────────────
 
     def test_appointment_types_m2m(self):
+        """StaffProfile ↔ AppointmentType M2M works in both directions."""
         svc = make_service_type(slug="appt-svc-m2m")
         at1 = make_appt_type(service_type=svc, slug="at-m2m-1")
         at2 = make_appt_type(service_type=svc, slug="at-m2m-2")
         self.profile.appointment_types.set([at1, at2])
+        # Forward accessor
         self.assertEqual(self.profile.appointment_types.count(), 2)
+        # Reverse accessor (related_name="staff_members")
+        self.assertIn(self.profile, at1.staff_members.all())
+        self.assertIn(self.profile, at2.staff_members.all())
+        # Removing also works in both directions
+        self.profile.appointment_types.remove(at1)
+        self.assertNotIn(self.profile, at1.staff_members.all())
+        self.assertIn(self.profile, at2.staff_members.all())
 
     def test_appointment_types_blank_default(self):
         self.assertEqual(self.profile.appointment_types.count(), 0)
@@ -712,6 +927,53 @@ class StaffProfileTests(TestCase):
         StaffProfile.objects.create(user=user2)
         profiles = list(StaffProfile.objects.values_list("user_id", flat=True))
         self.assertEqual(profiles, sorted(profiles))
+
+    def test_clean_rejects_non_staff_user(self):
+        """StaffProfile.clean() must raise ValidationError when user.is_staff=False."""
+        from django.core.exceptions import ValidationError
+        non_staff_user = make_user(email="notstaff@example.com", is_staff=False)
+        profile = StaffProfile(user=non_staff_user, location=self.location)
+        with self.assertRaises(ValidationError) as cm:
+            profile.clean()
+        self.assertIn("user", cm.exception.message_dict)
+
+    def test_get_display_name_returns_en_by_default(self):
+        """get_display_name() returns EN display name when language is English."""
+        from django.utils.translation import override
+        profile = self.profile  # use setUp profile
+        profile.display_name_en = "Dr. Smith"
+        profile.display_name_fr = "Dr Tremblay"
+        profile.save()
+        with override("en"):
+            self.assertEqual(profile.get_display_name(), "Dr. Smith")
+
+    def test_get_display_name_returns_fr_when_active(self):
+        """get_display_name() returns FR display name when language is French."""
+        from django.utils.translation import override
+        profile = self.profile
+        profile.display_name_en = "Dr. Smith"
+        profile.display_name_fr = "Dr Tremblay"
+        profile.save()
+        with override("fr"):
+            self.assertEqual(profile.get_display_name(), "Dr Tremblay")
+
+    def test_get_display_name_falls_back_to_en(self):
+        """get_display_name() falls back to EN if FR is blank."""
+        from django.utils.translation import override
+        profile = self.profile
+        profile.display_name_en = "Dr. Smith"
+        profile.display_name_fr = ""
+        profile.save()
+        with override("fr"):
+            self.assertEqual(profile.get_display_name(), "Dr. Smith")
+
+    def test_get_display_name_returns_empty_when_both_blank(self):
+        """get_display_name() returns empty string when both names are blank."""
+        profile = self.profile
+        profile.display_name_en = ""
+        profile.display_name_fr = ""
+        profile.save()
+        self.assertEqual(profile.get_display_name(), "")
 
 
 # ---------------------------------------------------------------------------
@@ -753,3 +1015,87 @@ class CrossModelTests(TestCase):
         profile.refresh_from_db()
         self.assertIsNone(profile.location)
         self.assertTrue(StaffProfile.objects.filter(pk=profile.pk).exists())
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+class SettingsTests(TestCase):
+    """Verify settings for the Appointments BB are correctly typed."""
+
+    def test_reminder_hours_are_integers(self):
+        """APPOINTMENTS_REMINDER_HOURS must be a list of ints (not strings)."""
+        from django.conf import settings
+        hours = settings.CIVICOS.get("APPOINTMENTS_REMINDER_HOURS", [])
+        self.assertIsInstance(hours, list)
+        self.assertTrue(len(hours) > 0)
+        for h in hours:
+            self.assertIsInstance(h, int, f"Expected int, got {type(h).__name__}: {h!r}")
+
+
+# ---------------------------------------------------------------------------
+# PolicyCascadeTests
+# ---------------------------------------------------------------------------
+
+class PolicyCascadeTests(TestCase):
+    """
+    Integration tests for the two-level scheduling policy override chain.
+
+    Documented in SPEC_APPOINTMENTS_BB.md §5.2 and in
+    AppointmentType.get_effective_policy() docstring:
+      1. AppointmentType.get_effective_policy() — most specific
+      2. Location.get_effective_policy()          — location default
+      3. settings.CIVICOS["APPOINTMENTS"] defaults — global fallback (Wave 3)
+
+    These tests verify that callers can correctly implement the cascade
+    by calling both methods in order.
+    """
+
+    def setUp(self):
+        from apps.appointments.models import SchedulingPolicy
+        self.org = make_org(slug="cascade-org")
+        self.service_type = make_service_type(slug="cascade-svc")
+        self.appt_policy = SchedulingPolicy.objects.create(name="appt-policy")
+        self.loc_policy = SchedulingPolicy.objects.create(name="loc-policy")
+        self.location = make_location(
+            organization=self.org,
+            slug="cascade-loc",
+            scheduling_policy=self.loc_policy,
+        )
+
+    def test_appt_policy_takes_precedence_over_location(self):
+        """AppointmentType policy overrides Location policy (most specific wins)."""
+        at = make_appt_type(
+            service_type=self.service_type,
+            slug="cascade-appt-wins",
+            scheduling_policy=self.appt_policy,
+        )
+        # Simulate the Wave 3 two-level cascade pattern
+        effective = at.get_effective_policy() or self.location.get_effective_policy()
+        self.assertEqual(effective, self.appt_policy)
+
+    def test_location_policy_used_when_appt_has_none(self):
+        """Location policy is the fallback when AppointmentType has no policy."""
+        at = make_appt_type(
+            service_type=self.service_type,
+            slug="cascade-loc-fallback",
+            scheduling_policy=None,
+        )
+        effective = at.get_effective_policy() or self.location.get_effective_policy()
+        self.assertEqual(effective, self.loc_policy)
+
+    def test_none_when_both_unset(self):
+        """Returns None when neither AppointmentType nor Location has a policy."""
+        loc_no_policy = make_location(
+            organization=self.org,
+            slug="cascade-no-policy",
+            scheduling_policy=None,
+        )
+        at = make_appt_type(
+            service_type=self.service_type,
+            slug="cascade-both-none",
+            scheduling_policy=None,
+        )
+        effective = at.get_effective_policy() or loc_no_policy.get_effective_policy()
+        self.assertIsNone(effective)

@@ -152,11 +152,13 @@ class SchedulingPolicy(TimestampedModel):
             "Setup time before the appointment. Expands the slot's effective busy-time "
             "footprint so back-to-back slots cannot be double-booked."
         ),
+        validators=[MaxValueValidator(240)],
     )
     buffer_after_minutes = models.PositiveIntegerField(
         default=5,
         verbose_name=_("Buffer after appointment (minutes)"),
         help_text=_("Wrap-up time after the appointment. Same function as buffer_before."),
+        validators=[MaxValueValidator(240)],
     )
 
     # ── Cancellation / rescheduling ──────────────────────────────────────────
@@ -228,7 +230,7 @@ class SchedulingPolicy(TimestampedModel):
         verbose_name=_("Waitlist notification batch size"),
         help_text=_(
             "How many waitlisted citizens to notify simultaneously when a slot opens. "
-            "Batch of 3 raises fill rate from ~50%% to 80%%+ (industry evidence). "
+            "Batch of 3 raises fill rate from ~50% to 80%+ (industry evidence). "
             "The first to accept gets the slot; others are notified it was taken."
         ),
     )
@@ -559,6 +561,16 @@ class AppointmentType(TimestampedModel):
             "and other services where a punitive approach is clinically harmful."
         ),
     )
+    allow_anonymous_booking = models.BooleanField(
+        default=False,
+        verbose_name=_("Allow anonymous booking"),
+        help_text=_(
+            "If True, citizens may book without creating a CivicOS account. "
+            "Bookings are identified by email address only. "
+            "NOT recommended for services collecting Protected B data — "
+            "anonymous bookings cannot be linked to PIPEDA subject access requests."
+        ),
+    )
 
     # ── Interpreter / accommodation ──────────────────────────────────────────
 
@@ -605,7 +617,7 @@ class AppointmentType(TimestampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.service_type.name_en} — {self.name_en}"
+        return self.name_en
 
     def get_name(self) -> str:
         """Return name in the currently active language."""
@@ -615,11 +627,13 @@ class AppointmentType(TimestampedModel):
 
     def get_effective_policy(self) -> SchedulingPolicy | None:
         """
-        Return the effective SchedulingPolicy for this appointment type.
+        Return this appointment type's own SchedulingPolicy, or None if unset.
 
-        Precedence: AppointmentType.scheduling_policy > None (caller falls back
-        to Location.scheduling_policy). Resolves the two-level override chain
-        documented in SPEC_APPOINTMENTS_BB.md §5.2.
+        Callers are responsible for the two-level fallback:
+          1. AppointmentType.get_effective_policy() — most specific
+          2. Location.get_effective_policy()          — location default
+          3. settings.CIVICOS["APPOINTMENTS"] defaults — global fallback
+        This method only handles step 1.
         """
         return self.scheduling_policy
 
@@ -853,7 +867,7 @@ class Resource(TimestampedModel):
         help_text=_("Calendar ID in the external provider. Used only when calendar_provider is set."),
     )
 
-    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    is_active = models.BooleanField(default=True, db_index=True, verbose_name=_("Active"))
 
     class Meta:
         ordering = ["name_en"]
@@ -867,7 +881,7 @@ class Resource(TimestampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.location.name_en} — {self.name_en}"
+        return self.name_en
 
     def get_name(self) -> str:
         """Return name in the currently active language."""
@@ -1038,3 +1052,13 @@ class StaffProfile(TimestampedModel):
         if lang.startswith("fr"):
             return self.display_name_fr or self.display_name_en
         return self.display_name_en or self.display_name_fr
+
+    def clean(self) -> None:
+        from django.core.exceptions import ValidationError
+        super().clean()
+        if self.user_id and not self.user.__class__.objects.filter(
+            pk=self.user_id, is_staff=True
+        ).exists():
+            raise ValidationError(
+                {"user": _("The selected user must have is_staff=True to be assigned as a staff profile.")}
+            )

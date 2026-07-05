@@ -608,9 +608,9 @@ CIVICOS = {
     # Reminder email schedule — sent by Celery Beat before appointment start.
     # List of integers representing hours before the appointment.
     # Default: 72 h, 24 h, 2 h (Government of Ontario DAPP standard).
-    "APPOINTMENTS_REMINDER_HOURS": env.list(
-        "APPOINTMENTS_REMINDER_HOURS", default=[72, 24, 2]
-    ),
+    "APPOINTMENTS_REMINDER_HOURS": [
+        int(h) for h in env.list("APPOINTMENTS_REMINDER_HOURS", default=["72", "24", "2"])
+    ],
 
     # Waitlist acceptance window (hours). Citizen must accept or decline within
     # this window after receiving the waitlist notification or their spot expires.
@@ -642,6 +642,57 @@ CIVICOS = {
     # Research shows batching 3 raises fill rate from ~50 % to ~80 %.
     "APPOINTMENTS_WAITLIST_NOTIFY_BATCH_SIZE": env.int(
         "APPOINTMENTS_WAITLIST_NOTIFY_BATCH_SIZE", default=3
+    ),
+
+    # ── Slot generation ──────────────────────────────────────────────────────
+    # Default slot duration when AppointmentType.duration_minutes is not set.
+    "APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES": env.int(
+        "APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES", default=30
+    ),
+
+    # How many days ahead to pre-generate availability slots.
+    # Longer horizon = more storage; shorter = citizens can't book far ahead.
+    "APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS": env.int(
+        "APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS", default=60
+    ),
+
+    # ── Booking lifecycle ────────────────────────────────────────────────────
+    # Minutes a PENDING booking holds a slot before auto-expiry if not confirmed.
+    # Prevents slots being blocked by abandoned booking flows.
+    "APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES": env.int(
+        "APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES", default=15
+    ),
+
+    # ── PIPEDA data retention ────────────────────────────────────────────────
+    # Completed/confirmed appointment records: 7 years per PIPEDA §4.5 + CRA audit.
+    "APPOINTMENTS_BOOKING_RETENTION_DAYS": env.int(
+        "APPOINTMENTS_BOOKING_RETENTION_DAYS", default=2555  # 7 years
+    ),
+
+    # Cancelled appointment records: 1 year (shorter — no completed service).
+    "APPOINTMENTS_CANCELLED_BOOKING_RETENTION_DAYS": env.int(
+        "APPOINTMENTS_CANCELLED_BOOKING_RETENTION_DAYS", default=365  # 1 year
+    ),
+
+    # No-show records: 2 years (needed for re-suspension checks + appeals).
+    "APPOINTMENTS_NO_SHOW_RECORD_RETENTION_DAYS": env.int(
+        "APPOINTMENTS_NO_SHOW_RECORD_RETENTION_DAYS", default=730  # 2 years
+    ),
+
+    # Maximum time (seconds) a booking session lock may be held before auto-expiry.
+    # Prevents abandoned booking flows from blocking slots.
+    "APPOINTMENTS_BOOKING_SESSION_TIMEOUT_SECONDS": env.int(
+        "APPOINTMENTS_BOOKING_SESSION_TIMEOUT_SECONDS", default=900  # 15 minutes
+    ),
+
+    # Token lifetime (seconds) for secure waitlist acceptance links sent by email.
+    "APPOINTMENTS_WAITLIST_TOKEN_TTL_SECONDS": env.int(
+        "APPOINTMENTS_WAITLIST_TOKEN_TTL_SECONDS", default=7200  # 2 hours
+    ),
+
+    # Maximum days an anonymous booking email confirmation token is valid.
+    "APPOINTMENTS_ANON_BOOKING_TOKEN_TTL_DAYS": env.int(
+        "APPOINTMENTS_ANON_BOOKING_TOKEN_TTL_DAYS", default=7
     ),
 }
 

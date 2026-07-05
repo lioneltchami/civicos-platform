@@ -30,6 +30,7 @@ Spec: SPEC_APPOINTMENTS_BB.md
 import logging
 
 from django.apps import AppConfig
+from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 
 logger = logging.getLogger(__name__)
@@ -61,3 +62,14 @@ class AppointmentsConfig(AppConfig):
         _receivers_spec = importlib.util.find_spec("apps.appointments.receivers")
         if _receivers_spec is not None:
             import apps.appointments.receivers  # noqa: F401
+
+        # Validate iCalendar organizer email in production (RFC 5545 §3.8.4.3).
+        if not settings.DEBUG:
+            civicos = getattr(settings, "CIVICOS", {})
+            email = civicos.get("APPOINTMENTS_ICS_ORGANIZER_EMAIL", "")
+            if not email:
+                logger.warning(
+                    "APPOINTMENTS_ICS_ORGANIZER_EMAIL is not configured. "
+                    "iCalendar invitations will be sent without an ORGANIZER field, "
+                    "which violates RFC 5545 §3.8.4.3 and may be rejected by some clients."
+                )
