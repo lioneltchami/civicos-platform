@@ -74,20 +74,27 @@
   <form method="post" action="{% url 'documents:legal-hold' document.pk %}" novalidate>
     {% csrf_token %}
 
-    {# Reason field #}
+    {#
+      Render the hidden `action` field so its value is submitted with the form.
+      The view's get() pre-populates it with "apply" or "release" based on the
+      current hold state, and re-populates it from POST on re-render after
+      validation failure.
+    #}
+    {{ form.action }}
+
+    {# Reason field — always required (server: LegalHoldForm.clean_reason enforces ≥10 chars) #}
     <div class="mb-3">
       <label class="form-label" for="id_reason">
         {% trans "Reason" %}
-        {% if not document.legal_hold %}
-          <span class="text-danger" aria-hidden="true">*</span>
-          <span class="visually-hidden">{% trans "(required)" %}</span>
-        {% endif %}
+        <span class="text-danger" aria-hidden="true">*</span>
+        <span class="visually-hidden">{% trans "(required)" %}</span>
       </label>
       <textarea name="reason"
                 id="id_reason"
                 class="form-control{% if form.reason.errors %} is-invalid{% endif %}"
                 rows="4"
-                {% if not document.legal_hold %}required aria-required="true"{% endif %}
+                required
+                aria-required="true"
                 aria-describedby="reason-help{% if form.reason.errors %} reason-error{% endif %}"
                 {% if form.reason.errors %}aria-invalid="true"{% endif %}>{{ form.reason.value|default:'' }}</textarea>
       <div id="reason-help" class="form-text">

@@ -210,18 +210,19 @@ class DocumentUploadInitView(LoginRequiredMixin, View):
 
         doc_id: str = result["doc_id"]
 
-        # Convert upload_fields dict → list of (name, value) pairs for easy
-        # template iteration (avoids dict key order issues in older Pythons and
-        # makes Jinja2/Django templates simpler).
-        upload_fields_list = list(result["upload_fields"].items())
-
         # SECURITY: storage_key is NOT in `result` (the service returns only
         # upload_url, upload_fields, doc_id, expires_at).  No further scrubbing
         # is required here, but we are explicit about what we pass to the
         # template context.
+        #
+        # upload_fields is passed as a dict so the template can use
+        # ``{% for name, val in upload_fields.items %}`` and the
+        # ``"success_action_redirect" not in upload_fields`` dict membership
+        # check both work correctly.  Python 3.7+ guarantees dict insertion
+        # order, so field ordering is deterministic.
         context = {
             "upload_url": result["upload_url"],
-            "upload_fields": upload_fields_list,
+            "upload_fields": result["upload_fields"],
             "doc_id": doc_id,
             "expires_at": result["expires_at"],
             "confirm_url": reverse("documents:upload-confirm", args=[doc_id]),

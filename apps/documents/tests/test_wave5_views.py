@@ -824,7 +824,11 @@ class LegalHoldViewTests(TestCase):
         ) as mock_apply:
             response = self.client.post(
                 self._url(),
-                data={"action": "apply", "reason": "Litigation hold required."},
+                data={
+                    "action": "apply",
+                    "reason": "Litigation hold required.",
+                    "confirm_action": True,  # LegalHoldForm.confirm_action required
+                },
             )
         mock_apply.assert_called_once()
         call_kwargs = mock_apply.call_args.kwargs
@@ -843,7 +847,11 @@ class LegalHoldViewTests(TestCase):
         ) as mock_release:
             response = self.client.post(
                 self._url(),
-                data={"action": "release", "reason": "Litigation concluded."},
+                data={
+                    "action": "release",
+                    "reason": "Litigation concluded.",
+                    "confirm_action": True,
+                },
             )
         mock_release.assert_called_once()
         self.assertRedirects(
@@ -856,7 +864,16 @@ class LegalHoldViewTests(TestCase):
         """POST action=apply with empty reason → LegalHoldForm invalid → 422."""
         response = self.client.post(
             self._url(),
-            data={"action": "apply", "reason": ""},
+            data={"action": "apply", "reason": "", "confirm_action": True},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_apply_hold_missing_confirm(self) -> None:
+        """POST without confirm_action checkbox → form invalid → 422 (server-side guard)."""
+        response = self.client.post(
+            self._url(),
+            data={"action": "apply", "reason": "Litigation hold required."},
+            # confirm_action omitted intentionally
         )
         self.assertEqual(response.status_code, 422)
 
@@ -869,7 +886,11 @@ class LegalHoldViewTests(TestCase):
         ):
             response = self.client.post(
                 self._url(),
-                data={"action": "apply", "reason": "Litigation hold required."},
+                data={
+                    "action": "apply",
+                    "reason": "Litigation hold required.",
+                    "confirm_action": True,
+                },
             )
         self.assertEqual(response.status_code, 403)
 

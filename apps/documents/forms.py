@@ -202,6 +202,22 @@ class LegalHoldForm(forms.Form):
             "Do not include personal information."
         ),
     )
+    #: Server-side enforcement of the confirmation checkbox in the template.
+    #: The checkbox ``name="confirm_action"`` in the HTML maps to this field.
+    #: Without this field, a crafted POST could bypass the browser-side
+    #: ``required`` attribute and submit without confirmation.
+    confirm_action = forms.BooleanField(
+        label=_(
+            "I confirm that I want to change the legal hold on this document "
+            "and that the appropriate authorisation has been obtained."
+        ),
+        required=True,
+        error_messages={
+            "required": _(
+                "You must confirm your intention before applying or releasing a legal hold."
+            )
+        },
+    )
 
     def clean_reason(self) -> str:
         reason: str = self.cleaned_data["reason"].strip()

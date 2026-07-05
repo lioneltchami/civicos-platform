@@ -46,8 +46,9 @@
         {% for entry in page_obj %}
         <tr>
           <td class="text-nowrap">
-            <time datetime="{{ entry.created_at|date:'c' }}">
-              {{ entry.created_at|date:"Y-m-d H:i:s" }}
+            {# AuditLogEntry uses .timestamp, not .created_at #}
+            <time datetime="{{ entry.timestamp|date:'c' }}">
+              {{ entry.timestamp|date:"Y-m-d H:i:s" }}
             </time>
           </td>
           <td>

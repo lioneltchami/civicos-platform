@@ -41,12 +41,16 @@
             </select>
           </div>
 
-          {# Category #}
+          {#
+            Category — the view injects `categories` (a DocumentCategory queryset)
+            so this dropdown is always populated.  filter_form.category is a
+            CharField whose value is a slug string, not a model PK.
+          #}
           <div class="col-md-3">
             <label class="form-label" for="id_category">{% trans "Category" %}</label>
             <select name="category" id="id_category" class="form-select">
               <option value="">{% trans "All" %}</option>
-              {% for category in filter_form.category.field.queryset %}
+              {% for category in categories %}
               <option value="{{ category.slug }}"
                 {% if filter_form.category.value == category.slug %}selected{% endif %}>
                 {% if LANGUAGE_CODE == "fr" %}{{ category.name_fr|force_escape }}{% else %}{{ category.name_en|force_escape }}{% endif %}
@@ -55,13 +59,17 @@
             </select>
           </div>
 
-          {# Legal hold #}
+          {#
+            Legal hold — values must match DocumentFilterForm.LEGAL_HOLD_CHOICES:
+            "yes" / "no" / "" (any).  Previously used "true"/"false" which never
+            matched the form values and silently returned all documents.
+          #}
           <div class="col-md-2">
             <label class="form-label" for="id_legal_hold">{% trans "Legal Hold" %}</label>
             <select name="legal_hold" id="id_legal_hold" class="form-select">
               <option value="">{% trans "All" %}</option>
-              <option value="true" {% if filter_form.legal_hold.value == "true" %}selected{% endif %}>{% trans "On hold" %}</option>
-              <option value="false" {% if filter_form.legal_hold.value == "false" %}selected{% endif %}>{% trans "No hold" %}</option>
+              <option value="yes" {% if filter_form.legal_hold.value == "yes" %}selected{% endif %}>{% trans "On hold" %}</option>
+              <option value="no" {% if filter_form.legal_hold.value == "no" %}selected{% endif %}>{% trans "No hold" %}</option>
             </select>
           </div>
 

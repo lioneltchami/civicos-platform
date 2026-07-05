@@ -18,29 +18,37 @@
   <form method="post" action="{% url 'documents:upload-init' %}" id="upload-init-form" novalidate>
     {% csrf_token %}
 
-    {# Category #}
+    {#
+      Category — field name is `category_slug` in DocumentUploadIntentForm.
+      Choices are populated from the DB in __init__ and available via the form
+      widget, so no `categories` context variable is needed.
+    #}
     <div class="mb-3">
-      <label class="form-label" for="id_category">
+      <label class="form-label" for="id_category_slug">
         {% trans "Category" %} <span class="text-danger" aria-hidden="true">*</span>
         <span class="visually-hidden">{% trans "(required)" %}</span>
       </label>
-      <select name="category"
-              id="id_category"
-              class="form-select{% if form.category.errors %} is-invalid{% endif %}"
+      <select name="category_slug"
+              id="id_category_slug"
+              class="form-select{% if form.category_slug.errors %} is-invalid{% endif %}"
               required
               aria-required="true"
-              {% if form.category.errors %}aria-describedby="category-error" aria-invalid="true"{% endif %}>
-        <option value="">{% trans "— Select a category —" %}</option>
-        {% for category in categories %}
-          <option value="{{ category.pk }}"
-            {% if form.category.value == category.pk|stringformat:"s" %}selected{% endif %}>
-            {{ category.name_en|force_escape }}
-          </option>
+              {% if form.category_slug.errors %}aria-describedby="category-error" aria-invalid="true"{% endif %}>
+        {# Iterate the form widget's choices (includes the "— Select —" empty option) #}
+        {% for value, label in form.category_slug.field.widget.choices %}
+          {% if value %}
+            <option value="{{ value }}"
+              {% if form.category_slug.value == value %}selected{% endif %}>
+              {{ label|force_escape }}
+            </option>
+          {% else %}
+            <option value="">{{ label|force_escape }}</option>
+          {% endif %}
         {% endfor %}
       </select>
-      {% if form.category.errors %}
+      {% if form.category_slug.errors %}
       <div id="category-error" class="invalid-feedback" role="alert">
-        {% for error in form.category.errors %}{{ error }}{% endfor %}
+        {% for error in form.category_slug.errors %}{{ error }}{% endfor %}
       </div>
       {% endif %}
     </div>
@@ -142,7 +150,8 @@
   const previewMime  = document.getElementById('preview-mimetype');
   const previewSize  = document.getElementById('preview-size');
   const submitBtn    = document.getElementById('submit-btn');
-  const categorySelect = document.getElementById('id_category');
+  // Field id matches name="category_slug" → id="id_category_slug"
+  const categorySelect = document.getElementById('id_category_slug');
 
   function formatBytes(bytes) {
     if (bytes === 0) return '0 B';

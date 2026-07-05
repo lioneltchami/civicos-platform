@@ -42,7 +42,7 @@ from django.views import View
 from django.views.generic import ListView
 
 from apps.documents.forms import DocumentFilterForm, LegalHoldForm
-from apps.documents.models import Document
+from apps.documents.models import Document, DocumentCategory
 from apps.documents.services.retention import (
     apply_legal_hold,
     release_legal_hold,
@@ -119,6 +119,11 @@ class DocumentAdminListView(LoginRequiredMixin, PermissionRequiredMixin, ListVie
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         ctx["filter_form"] = DocumentFilterForm(self.request.GET or None)
+        # total_count: use the already-evaluated queryset stored by ListView so
+        # we don't issue a second COUNT query.
+        ctx["total_count"] = self.object_list.count()
+        # categories: needed by the template's category filter dropdown.
+        ctx["categories"] = DocumentCategory.objects.order_by("name_en")
         return ctx
 
 
@@ -155,7 +160,14 @@ class StaffDocumentDetailView(LoginRequiredMixin, PermissionRequiredMixin, View)
         return render(
             request,
             self.template_name,
-            {"document": doc},
+            {
+                "document": doc,
+                # Passed explicitly so the template never needs to call has_perm
+                # inline, and so tests can inspect it directly on the context.
+                "can_view_quarantine_details": request.user.has_perm(
+                    "documents.view_quarantined"
+                ),
+            },
         )
 
 
@@ -195,7 +207,14 @@ class DocumentLegalHoldView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     def get(self, request: HttpRequest, pk: str) -> HttpResponse:
         doc = self._get_document(pk)
-        form = LegalHoldForm()
+        # Pre-populate the hidden `action` field so it renders with the correct
+        # value and the form validates on POST without requiring JS to set it.
+        initial_action = (
+            LegalHoldForm.ACTION_RELEASE
+            if doc.legal_hold
+            else LegalHoldForm.ACTION_APPLY
+        )
+        form = LegalHoldForm(initial={"action": initial_action})
         return render(
             request,
             self.template_name,
@@ -382,3 +401,9 @@ class DocumentQuarantineListView(LoginRequiredMixin, PermissionRequiredMixin, Li
             .defer("_storage_key")
             .order_by("-created_at")
         )
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        ctx = super().get_context_data(**kwargs)
+        # total_count used by the template's "N quarantined document(s)" summary.
+        ctx["total_count"] = self.object_list.count()
+        return ctx
