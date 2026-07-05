@@ -66,7 +66,7 @@ class AppointmentsConfig(AppConfig):
         # Validate iCalendar organizer email in production (RFC 5545 §3.8.4.3).
         if not settings.DEBUG:
             civicos = getattr(settings, "CIVICOS", {})
-            email = civicos.get("APPOINTMENTS_ICS_ORGANIZER_EMAIL", "")
+            email = civicos.get("APPOINTMENTS", {}).get("ICS_ORGANIZER_EMAIL", "")
             if not email:
                 logger.warning(
                     "APPOINTMENTS_ICS_ORGANIZER_EMAIL is not configured. "

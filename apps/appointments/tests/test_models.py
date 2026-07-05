@@ -1027,7 +1027,7 @@ class SettingsTests(TestCase):
     def test_reminder_hours_are_integers(self):
         """APPOINTMENTS_REMINDER_HOURS must be a list of ints (not strings)."""
         from django.conf import settings
-        hours = settings.CIVICOS.get("APPOINTMENTS_REMINDER_HOURS", [])
+        hours = settings.CIVICOS.get("APPOINTMENTS", {}).get("REMINDER_HOURS", [])
         self.assertIsInstance(hours, list)
         self.assertTrue(len(hours) > 0)
         for h in hours:

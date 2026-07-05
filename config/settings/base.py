@@ -585,115 +585,48 @@ CIVICOS = {
         "DOCUMENT_PROXY_MAX_BYTES", default=1 * 1024 * 1024  # 1 MB
     ),
 
-    # ── Appointments & Scheduling BB ─────────────────────────────────────────
+    # ── Appointments / Scheduling Building Block ─────────────────────────────
+    # Spec: SPEC_APPOINTMENTS_BB.md
+    # Key path: settings.CIVICOS["APPOINTMENTS"]["KEY"]
+    "APPOINTMENTS": {
+        # Booking window defaults (overridden by SchedulingPolicy on specific types)
+        "DEFAULT_MIN_LEAD_HOURS": env.int("APPOINTMENTS_DEFAULT_MIN_LEAD_HOURS", default=1),
+        "DEFAULT_MAX_ADVANCE_DAYS": env.int("APPOINTMENTS_DEFAULT_MAX_ADVANCE_DAYS", default=180),
+        "DEFAULT_MAX_ACTIVE_BOOKINGS": env.int("APPOINTMENTS_DEFAULT_MAX_ACTIVE_BOOKINGS", default=3),
 
-    # Default minimum lead time (hours) a citizen must book in advance.
-    # Applied when an AppointmentType has no SchedulingPolicy attached.
-    "APPOINTMENTS_DEFAULT_MIN_LEAD_HOURS": env.int(
-        "APPOINTMENTS_DEFAULT_MIN_LEAD_HOURS", default=1
-    ),
+        # Reminder schedule — list of int hours before appointment to send reminders.
+        "REMINDER_HOURS": [
+            int(h) for h in env.list("APPOINTMENTS_REMINDER_HOURS", default=["72", "24", "2"])
+        ],
 
-    # Default maximum advance booking window (days).
-    # Prevents calendars from filling up indefinitely.
-    "APPOINTMENTS_DEFAULT_MAX_ADVANCE_DAYS": env.int(
-        "APPOINTMENTS_DEFAULT_MAX_ADVANCE_DAYS", default=180
-    ),
+        # Waitlist
+        "WAITLIST_ACCEPTANCE_WINDOW_HOURS": env.int("APPOINTMENTS_WAITLIST_ACCEPTANCE_WINDOW_HOURS", default=2),
+        "WAITLIST_NOTIFY_BATCH_SIZE": env.int("APPOINTMENTS_WAITLIST_NOTIFY_BATCH_SIZE", default=3),
 
-    # Maximum number of active (pending/confirmed) bookings per citizen
-    # across ALL appointment types. Applies when no SchedulingPolicy overrides.
-    "APPOINTMENTS_DEFAULT_MAX_ACTIVE_BOOKINGS": env.int(
-        "APPOINTMENTS_DEFAULT_MAX_ACTIVE_BOOKINGS", default=3
-    ),
+        # iCalendar (RFC 5545) — ORGANIZER field in .ics attachments.
+        # Leave blank to omit ORGANIZER (not recommended — some clients reject such files).
+        "ICS_ORGANIZER_EMAIL": env("APPOINTMENTS_ICS_ORGANIZER_EMAIL", default=""),
+        "ICS_ORGANIZER_NAME_EN": env("APPOINTMENTS_ICS_ORGANIZER_NAME_EN", default="CivicOS Scheduler"),
+        "ICS_ORGANIZER_NAME_FR": env("APPOINTMENTS_ICS_ORGANIZER_NAME_FR", default="Planificateur CivicOS"),
 
-    # Reminder email schedule — sent by Celery Beat before appointment start.
-    # List of integers representing hours before the appointment.
-    # Default: 72 h, 24 h, 2 h (Government of Ontario DAPP standard).
-    "APPOINTMENTS_REMINDER_HOURS": [
-        int(h) for h in env.list("APPOINTMENTS_REMINDER_HOURS", default=["72", "24", "2"])
-    ],
+        # No-show suspension — global fallback if SchedulingPolicy does not set thresholds.
+        "GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD": env.int("APPOINTMENTS_GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD", default=3),
 
-    # Waitlist acceptance window (hours). Citizen must accept or decline within
-    # this window after receiving the waitlist notification or their spot expires.
-    "APPOINTMENTS_WAITLIST_ACCEPTANCE_WINDOW_HOURS": env.int(
-        "APPOINTMENTS_WAITLIST_ACCEPTANCE_WINDOW_HOURS", default=2
-    ),
+        # Slot generation (Wave 3+)
+        "DEFAULT_SLOT_DURATION_MINUTES": env.int("APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES", default=30),
+        "SLOT_GENERATION_HORIZON_DAYS": env.int("APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS", default=60),
+        "PENDING_BOOKING_TIMEOUT_MINUTES": env.int("APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES", default=15),
 
-    # iCalendar (.ics) organizer email — appears in RFC 5545 ORGANIZER property.
-    # Must be a valid shared/alias address; never a personal staff email.
-    "APPOINTMENTS_ICS_ORGANIZER_EMAIL": env(
-        "APPOINTMENTS_ICS_ORGANIZER_EMAIL", default=""
-    ),
+        # PIPEDA data retention (spec §20.1)
+        "BOOKING_RETENTION_DAYS": env.int("APPOINTMENTS_BOOKING_RETENTION_DAYS", default=2555),       # 7 years
+        "CANCELLED_BOOKING_RETENTION_DAYS": env.int("APPOINTMENTS_CANCELLED_BOOKING_RETENTION_DAYS", default=365),   # 1 year
+        "NO_SHOW_RECORD_RETENTION_DAYS": env.int("APPOINTMENTS_NO_SHOW_RECORD_RETENTION_DAYS", default=730),        # 2 years
 
-    # Organizer display name in iCalendar ORGANIZER property (bilingual: pick one).
-    "APPOINTMENTS_ICS_ORGANIZER_NAME_EN": env(
-        "APPOINTMENTS_ICS_ORGANIZER_NAME_EN", default="CivicOS Scheduler"
-    ),
-    "APPOINTMENTS_ICS_ORGANIZER_NAME_FR": env(
-        "APPOINTMENTS_ICS_ORGANIZER_NAME_FR", default="Planificateur CivicOS"
-    ),
-
-    # PIPEDA: suspend citizen booking access after this many confirmed no-shows.
-    # Applied globally when no SchedulingPolicy overrides per-type.
-    "APPOINTMENTS_GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD": env.int(
-        "APPOINTMENTS_GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD", default=3
-    ),
-
-    # Number of waitlist entries notified per batch (fill-rate optimisation).
-    # Research shows batching 3 raises fill rate from ~50 % to ~80 %.
-    "APPOINTMENTS_WAITLIST_NOTIFY_BATCH_SIZE": env.int(
-        "APPOINTMENTS_WAITLIST_NOTIFY_BATCH_SIZE", default=3
-    ),
-
-    # ── Slot generation ──────────────────────────────────────────────────────
-    # Default slot duration when AppointmentType.duration_minutes is not set.
-    "APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES": env.int(
-        "APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES", default=30
-    ),
-
-    # How many days ahead to pre-generate availability slots.
-    # Longer horizon = more storage; shorter = citizens can't book far ahead.
-    "APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS": env.int(
-        "APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS", default=60
-    ),
-
-    # ── Booking lifecycle ────────────────────────────────────────────────────
-    # Minutes a PENDING booking holds a slot before auto-expiry if not confirmed.
-    # Prevents slots being blocked by abandoned booking flows.
-    "APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES": env.int(
-        "APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES", default=15
-    ),
-
-    # ── PIPEDA data retention ────────────────────────────────────────────────
-    # Completed/confirmed appointment records: 7 years per PIPEDA §4.5 + CRA audit.
-    "APPOINTMENTS_BOOKING_RETENTION_DAYS": env.int(
-        "APPOINTMENTS_BOOKING_RETENTION_DAYS", default=2555  # 7 years
-    ),
-
-    # Cancelled appointment records: 1 year (shorter — no completed service).
-    "APPOINTMENTS_CANCELLED_BOOKING_RETENTION_DAYS": env.int(
-        "APPOINTMENTS_CANCELLED_BOOKING_RETENTION_DAYS", default=365  # 1 year
-    ),
-
-    # No-show records: 2 years (needed for re-suspension checks + appeals).
-    "APPOINTMENTS_NO_SHOW_RECORD_RETENTION_DAYS": env.int(
-        "APPOINTMENTS_NO_SHOW_RECORD_RETENTION_DAYS", default=730  # 2 years
-    ),
-
-    # Maximum time (seconds) a booking session lock may be held before auto-expiry.
-    # Prevents abandoned booking flows from blocking slots.
-    "APPOINTMENTS_BOOKING_SESSION_TIMEOUT_SECONDS": env.int(
-        "APPOINTMENTS_BOOKING_SESSION_TIMEOUT_SECONDS", default=900  # 15 minutes
-    ),
-
-    # Token lifetime (seconds) for secure waitlist acceptance links sent by email.
-    "APPOINTMENTS_WAITLIST_TOKEN_TTL_SECONDS": env.int(
-        "APPOINTMENTS_WAITLIST_TOKEN_TTL_SECONDS", default=7200  # 2 hours
-    ),
-
-    # Maximum days an anonymous booking email confirmation token is valid.
-    "APPOINTMENTS_ANON_BOOKING_TOKEN_TTL_DAYS": env.int(
-        "APPOINTMENTS_ANON_BOOKING_TOKEN_TTL_DAYS", default=7
-    ),
+        # Session and token TTLs
+        "BOOKING_SESSION_TIMEOUT_SECONDS": env.int("APPOINTMENTS_BOOKING_SESSION_TIMEOUT_SECONDS", default=900),     # 15 min
+        "WAITLIST_TOKEN_TTL_SECONDS": env.int("APPOINTMENTS_WAITLIST_TOKEN_TTL_SECONDS", default=7200),              # 2 hours
+        "ANON_BOOKING_TOKEN_TTL_DAYS": env.int("APPOINTMENTS_ANON_BOOKING_TOKEN_TTL_DAYS", default=7),
+    },
 }
 
 # ---------------------------------------------------------------------------

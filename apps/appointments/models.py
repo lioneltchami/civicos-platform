@@ -45,6 +45,33 @@ from apps.core.models import TimestampedModel
 
 class Organization(TimestampedModel):
     """
+    Represents a government department, NGO, or service-delivery org.
+
+    .. migration-target::
+
+        STRUCTURAL DEBT — tracked in CODEBASE_HANDOFF_FOR_AI.md §Known Technical Debt
+
+        This model belongs in ``apps.core``, not ``apps.appointments``.
+        The GovStack spec references ``core.Organization`` as the canonical
+        cross-BB identity for any service-delivery organisation.
+
+        Problem: ``Location.organization`` FK, ``StaffProfile → Location → Organization``
+        chain, and any future BB that needs an org FK must currently reach into
+        ``apps.appointments`` — violating app-layer boundaries.
+
+        Migration path (execute before adding a second BB org FK):
+          1. Add Organization to ``apps/core/models.py`` (keep same fields).
+          2. Add a ``SeparateDatabaseAndState`` migration in ``apps/core`` to
+             claim the existing ``appointments_organization`` table without
+             recreating it.
+          3. Add a ``SeparateDatabaseAndState`` migration in ``apps/appointments``
+             to remove the model from its state without dropping the table.
+          4. Update all imports and re-point FKs to ``core.Organization``.
+          5. Update OrganizationAdmin registration to ``apps/core/admin.py``.
+
+        Priority: HIGH before Wave 3 (when Booking model will add org-scoped
+        queries and a second BB org FK becomes likely).
+
     Top-level tenant boundary for the Appointments BB.
 
     Each organization owns one or more Locations. A single CivicOS deployment

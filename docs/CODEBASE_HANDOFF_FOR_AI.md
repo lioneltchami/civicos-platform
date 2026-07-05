@@ -444,3 +444,21 @@ Key admin registrations:
 - SMS delivery via GC Notify is wired (`GC_NOTIFY_API_KEY`) but notification templates for SMS are not implemented.
 - Wagtail search uses the DB backend; Elasticsearch config is commented out in `production.py` for when search volume warrants it.
 - No automated smoke test suite for the live production environment (would need a staging Stripe key).
+
+---
+
+## 11. Known Technical Debt
+
+### Organization model location (appointments → core)
+
+**File:** `apps/appointments/models.py` — `Organization` class
+**Status:** Wave 1 structural debt — tracked in source code docstring
+
+`Organization` was created inside `apps.appointments` for Wave 1 speed.
+The spec places it in `apps.core` as the canonical cross-BB organisation
+identity. No other BB currently imports it, so migration is still low-risk.
+
+**Action required before Wave 3** (when `Booking` model adds org-scoped queries):
+move `Organization` to `apps/core/models.py` using Django's
+`SeparateDatabaseAndState` migration pattern to avoid dropping the table.
+See the docstring on the `Organization` class for the full migration checklist.
