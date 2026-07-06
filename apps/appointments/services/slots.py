@@ -61,6 +61,10 @@ def generate_slots_for_range(
 
     Uses bulk_create with ignore_conflicts=True for efficiency.
 
+    Note: This is a batch generation function, not a user-triggered action, so it
+    does not carry an `actor` parameter. Audit logging will be handled in Wave 3
+    via the task context (Celery task ID + triggered_by staff PK).
+
     Args:
         appointment_type: AppointmentType to generate slots for.
         staff:            StaffProfile to generate slots for.
@@ -69,10 +73,10 @@ def generate_slots_for_range(
         created_by_task:  True when called from a Celery task (for logging).
 
     Returns:
-        int: Count of Slot records now present in the DB for this date range
-        (new + pre-existing). This reflects "slots available after this call",
-        NOT "net-new rows inserted". Calling this function twice for the same
-        range returns the same count both times (idempotent by design).
+        int: Count of new Slot PKs assigned during this call (0 on repeat runs
+        because get_available_slots() returns empty when busy_times already
+        contains the pre-existing "available" slots — bulk_create is never
+        reached on the second run).
     """
     from apps.appointments.models import Slot
     from apps.appointments.services.availability import SlotAvailabilityService
@@ -242,7 +246,7 @@ def cancel_slot(*, slot, reason: str = "", actor=None) -> object:
     Args:
         slot:   Slot instance to cancel.
         reason: Optional reason stored in slot.internal_note.
-        actor:  Optional User performing the action.
+        actor:  Optional User performing the action (for audit logs, Wave 3).
 
     Returns:
         Updated Slot instance.

@@ -259,7 +259,7 @@ class SlotAvailabilityService:
                     else None
                 )
 
-                tz_name = staff_location.timezone or settings.CIVICOS.get("APPOINTMENTS", {}).get("DEFAULT_TIMEZONE", "America/Toronto")
+                tz_name = staff_location.timezone or settings.CIVICOS["APPOINTMENTS"]["DEFAULT_TIMEZONE"]
                 try:
                     tz = ZoneInfo(tz_name)
                 except Exception:
