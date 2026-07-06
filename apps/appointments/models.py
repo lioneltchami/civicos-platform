@@ -1199,6 +1199,7 @@ class AvailabilityTemplate(TimestampedModel):
                 fields=["staff", "day_of_week", "valid_from"],
                 name="appt_avail_staff_dow_from",
             ),
+            models.Index(fields=["created_at"], name="appt_availtpl_created_at_idx"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -1357,6 +1358,9 @@ class StaffException(TimestampedModel):
         ordering = ["exception_date"]
         verbose_name = _("Staff exception")
         verbose_name_plural = _("Staff exceptions")
+        indexes = [
+            models.Index(fields=["created_at"], name="appt_staffexc_created_at_idx"),
+        ]
         constraints = [
             # H-2: DB-level guarantee that override exceptions always have both times set.
             # Mirrors the Python-layer check in clean(). Prevents direct SQL from creating
@@ -1661,8 +1665,17 @@ class Slot(TimestampedModel):
 
     def clean(self) -> None:
         """Python-layer validation mirroring DB CheckConstraints for friendly admin errors."""
+        super().clean()
         from django.core.exceptions import ValidationError
         errors = {}
+        if (
+            self.end_datetime is not None
+            and self.start_datetime is not None
+            and self.end_datetime <= self.start_datetime
+        ):
+            errors["end_datetime"] = _(
+                "End datetime must be after start_datetime."
+            )
         if self.capacity is not None and self.capacity < 1:
             errors["capacity"] = _("Capacity must be at least 1.")
         if (

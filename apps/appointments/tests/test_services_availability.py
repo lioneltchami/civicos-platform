@@ -1520,13 +1520,14 @@ class GenerateSlotsForRangeTests(TestCase):
             date_to=date(2026, 7, 6),
         )
         self.assertEqual(first, 2)
-        # generate_slots_for_range() assigns fresh UUID PKs each run, then counts
-        # how many of THOSE new PKs are in the DB after bulk_create(ignore_conflicts=True).
-        # On the second run the fresh UUIDs are not inserted (unique constraint conflict
-        # on start_datetime/staff/appointment_type), so none of the new PKs appear in
-        # the DB → the function correctly returns 0. The total row count stays at 2,
-        # confirming the existing slots were not duplicated.
-        self.assertEqual(second, 0, "Second run returns 0 — new PKs were not inserted (conflict-skipped)")
+        # generate_slots_for_range() returns 0 on the second run because
+        # get_available_slots() returns an empty list — the pre-existing "available"
+        # slots from the first run appear in busy_times, causing the collision check
+        # to block all candidate time slots. bulk_create is never called on the
+        # second run; there is no unique constraint on Slot that would trigger
+        # ignore_conflicts. The idempotency is enforced by the availability
+        # service's busy-time collision logic, not by a DB constraint.
+        self.assertEqual(second, 0, "Second run returns 0 — all candidate slots are blocked by existing busy_times")
         total = Slot.objects.filter(staff=staff, appointment_type=appt_type).count()
         self.assertEqual(total, 2)
 

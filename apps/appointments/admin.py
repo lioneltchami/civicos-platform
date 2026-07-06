@@ -911,6 +911,22 @@ class SlotAdmin(admin.ModelAdmin):
             ]
         return fieldsets
 
+    def save_model(self, request, obj, form, change):
+        """
+        M-1 / H-8: Call Slot.clean() before saving so that CheckConstraint
+        violations produce a friendly ValidationError in the admin rather than
+        a raw DB IntegrityError (500 error).
+
+        We call obj.clean() — not obj.full_clean() — to avoid re-running the
+        field-level validations already handled by SlotAdminForm.clean_capacity()
+        before this method is reached. Django 5.2's _changeform_view() catches
+        ValidationError raised from save_model() and displays it as a non-field
+        form error, so this is the correct and idiomatic approach.
+        """
+        from django.core.exceptions import ValidationError
+        obj.clean()  # Raises ValidationError if constraints are violated.
+        super().save_model(request, obj, form, change)
+
     @admin.display(description=_("ID"))
     def pk_short(self, obj: Slot) -> str:
         return str(obj.pk)[:8] + "…"

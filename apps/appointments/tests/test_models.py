@@ -1373,7 +1373,7 @@ class StaffExceptionModelConstraintTests(TestCase):
         )
         self.assertIn("2026-07-04", str(exc))
 
-    def test_unique_together_raises_integrity_error(self):
+    def test_unique_constraint_raises_integrity_error(self):
         StaffException.objects.create(
             staff=self.staff,
             exception_date=date(2026, 7, 5),
@@ -1392,9 +1392,16 @@ class StaffExceptionModelConstraintTests(TestCase):
             staff=self.staff,
             exception_date=date(2026, 7, 6),
             exception_type="override",
+            override_start_time=None,
+            override_end_time=None,
         )
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError) as ctx:
             exc.clean()
+        self.assertIn(
+            "override_start_time",
+            ctx.exception.message_dict,
+            "Error must be field-level on override_start_time, not a non-field error",
+        )
 
     def test_clean_override_only_start_time_raises(self):
         exc = StaffException(
@@ -1834,3 +1841,237 @@ class SlotAdminFormTests(TestCase):
         form.cleaned_data = {"capacity": 1}  # 1 < spaces_used=2 — must fail
         with self.assertRaises(CoreValidationError):
             form.clean_capacity()
+
+
+# ---------------------------------------------------------------------------
+# Wave 2: Slot.clean() unit tests
+# ---------------------------------------------------------------------------
+
+class SlotCleanMethodTests(TestCase):
+    """
+    Unit tests for Slot.clean() Python-layer validation.
+
+    Each test exercises one of the five checks that mirror the DB CheckConstraints:
+      1. capacity >= 1
+      2. spaces_used <= capacity
+      3. effective_start <= start_datetime
+      4. effective_end >= end_datetime
+      5. end_datetime > start_datetime
+
+    Tests use Slot(...) directly (no DB save) so that clean() can be called in
+    isolation before the DB constraints fire.
+    """
+
+    def setUp(self):
+        org = Organization.objects.create(
+            slug="scm-org", name_en="SCM Org", name_fr="Org SCM",
+        )
+        self.location = Location.objects.create(
+            organization=org, slug="scm-loc",
+            name_en="SCM Loc", name_fr="Loc SCM",
+        )
+        svc = ServiceType.objects.create(
+            slug="scm-svc", name_en="SCM SVC", name_fr="SVC SCM",
+        )
+        self.appt_type = AppointmentType.objects.create(
+            service_type=svc, slug="scm-at",
+            name_en="SCM AT", name_fr="AT SCM",
+        )
+        self.staff = _make_wave2_staff(suffix="-scm")
+
+    def _valid_slot_kwargs(self) -> dict:
+        """Return kwargs that produce a slot passing all clean() checks."""
+        now = datetime(2026, 7, 6, 9, 0, tzinfo=_UTC)
+        return dict(
+            appointment_type=self.appt_type,
+            staff=self.staff,
+            location=self.location,
+            start_datetime=now,
+            end_datetime=now + timedelta(minutes=30),
+            effective_start=now - timedelta(minutes=5),
+            effective_end=now + timedelta(minutes=35),
+            capacity=2,
+            spaces_used=0,
+            status="available",
+        )
+
+    def test_clean_passes_for_valid_slot(self):
+        """A properly constructed slot should pass all clean() checks without raising."""
+        slot = Slot(**self._valid_slot_kwargs())
+        slot.clean()  # Must not raise
+
+    def test_clean_raises_for_capacity_below_one(self):
+        """capacity < 1 must raise ValidationError with key 'capacity'."""
+        kwargs = self._valid_slot_kwargs()
+        kwargs["capacity"] = 0
+        slot = Slot(**kwargs)
+        with self.assertRaises(ValidationError) as ctx:
+            slot.clean()
+        self.assertIn("capacity", ctx.exception.message_dict)
+
+    def test_clean_raises_for_spaces_used_exceeds_capacity(self):
+        """spaces_used > capacity must raise ValidationError with key 'spaces_used'."""
+        kwargs = self._valid_slot_kwargs()
+        kwargs["capacity"] = 2
+        kwargs["spaces_used"] = 3
+        slot = Slot(**kwargs)
+        with self.assertRaises(ValidationError) as ctx:
+            slot.clean()
+        self.assertIn("spaces_used", ctx.exception.message_dict)
+
+    def test_clean_raises_for_effective_start_after_start_datetime(self):
+        """effective_start > start_datetime must raise ValidationError with key 'effective_start'."""
+        kwargs = self._valid_slot_kwargs()
+        now = datetime(2026, 7, 6, 9, 0, tzinfo=_UTC)
+        kwargs["start_datetime"] = now
+        kwargs["effective_start"] = now + timedelta(minutes=1)  # violates: must be <= start
+        slot = Slot(**kwargs)
+        with self.assertRaises(ValidationError) as ctx:
+            slot.clean()
+        self.assertIn("effective_start", ctx.exception.message_dict)
+
+    def test_clean_raises_for_effective_end_before_end_datetime(self):
+        """effective_end < end_datetime must raise ValidationError with key 'effective_end'."""
+        kwargs = self._valid_slot_kwargs()
+        now = datetime(2026, 7, 6, 9, 0, tzinfo=_UTC)
+        kwargs["end_datetime"] = now + timedelta(minutes=30)
+        kwargs["effective_end"] = now + timedelta(minutes=29)  # violates: must be >= end
+        slot = Slot(**kwargs)
+        with self.assertRaises(ValidationError) as ctx:
+            slot.clean()
+        self.assertIn("effective_end", ctx.exception.message_dict)
+
+    def test_clean_raises_for_end_not_after_start(self):
+        """end_datetime <= start_datetime must raise ValidationError with key 'end_datetime'."""
+        kwargs = self._valid_slot_kwargs()
+        now = datetime(2026, 7, 6, 9, 0, tzinfo=_UTC)
+        kwargs["start_datetime"] = now
+        kwargs["end_datetime"] = now  # equal — not strictly after
+        slot = Slot(**kwargs)
+        with self.assertRaises(ValidationError) as ctx:
+            slot.clean()
+        self.assertIn("end_datetime", ctx.exception.message_dict)
+
+    def test_clean_raises_for_end_before_start(self):
+        """end_datetime < start_datetime must raise ValidationError with key 'end_datetime'."""
+        kwargs = self._valid_slot_kwargs()
+        now = datetime(2026, 7, 6, 9, 0, tzinfo=_UTC)
+        kwargs["start_datetime"] = now
+        kwargs["end_datetime"] = now - timedelta(minutes=1)
+        slot = Slot(**kwargs)
+        with self.assertRaises(ValidationError) as ctx:
+            slot.clean()
+        self.assertIn("end_datetime", ctx.exception.message_dict)
+
+
+# ---------------------------------------------------------------------------
+# Wave 2: SlotAdmin.save_model() tests
+# ---------------------------------------------------------------------------
+
+class SlotAdminSaveModelTests(TestCase):
+    """
+    Verify SlotAdmin.save_model() invokes Slot.clean() so that CheckConstraint
+    violations produce a friendly ValidationError instead of a raw IntegrityError.
+    """
+
+    def setUp(self):
+        org = Organization.objects.create(
+            slug="sam-org", name_en="SAM Org", name_fr="Org SAM",
+        )
+        self.location = Location.objects.create(
+            organization=org, slug="sam-loc",
+            name_en="SAM Loc", name_fr="Loc SAM",
+        )
+        svc = ServiceType.objects.create(
+            slug="sam-svc", name_en="SAM SVC", name_fr="SVC SAM",
+        )
+        self.appt_type = AppointmentType.objects.create(
+            service_type=svc, slug="sam-at",
+            name_en="SAM AT", name_fr="AT SAM",
+        )
+        self.staff = _make_wave2_staff(suffix="-sam")
+        self.admin_user = User.objects.create_user(
+            email="sam-admin@example.com",
+            password="pass!",
+            is_staff=True,
+        )
+        now = datetime(2026, 10, 1, 9, 0, tzinfo=_UTC)
+        end = now + timedelta(minutes=30)
+        self.now = now
+        self.end = end
+
+    def _make_admin(self):
+        from apps.appointments.admin import SlotAdmin
+        from django.contrib.admin import site
+        return SlotAdmin(Slot, site)
+
+    def _make_request(self):
+        from django.test import RequestFactory
+        request = RequestFactory().post("/")
+        request.user = self.admin_user
+        return request
+
+    def _valid_slot_in_db(self, **overrides):
+        """Create and persist a valid Slot, then return it."""
+        defaults = dict(
+            appointment_type=self.appt_type,
+            staff=self.staff,
+            location=self.location,
+            start_datetime=self.now,
+            end_datetime=self.end,
+            effective_start=self.now,
+            effective_end=self.end,
+            capacity=5,
+            spaces_used=0,
+            status="available",
+        )
+        defaults.update(overrides)
+        return Slot.objects.create(**defaults)
+
+    def test_save_model_succeeds_for_valid_slot(self):
+        """save_model() must not raise for a slot that passes all constraints."""
+        from unittest.mock import MagicMock
+        slot = self._valid_slot_in_db()
+        admin_instance = self._make_admin()
+        request = self._make_request()
+        form = MagicMock()
+        # Should not raise.
+        admin_instance.save_model(request, slot, form, change=True)
+
+    def test_save_model_raises_for_capacity_below_one(self):
+        """
+        save_model() must raise ValidationError when capacity < 1.
+
+        Slot.clean() mirrors the appt_slot_capacity_gte_1 CheckConstraint.
+        Without this, the DB raises an IntegrityError (500 in admin) instead
+        of a friendly ValidationError.
+        """
+        from django.core.exceptions import ValidationError as CoreValidationError
+        from unittest.mock import MagicMock
+
+        slot = self._valid_slot_in_db()
+        # Manipulate in-memory only — do not bypass DB constraint by saving.
+        slot.capacity = 0
+        admin_instance = self._make_admin()
+        request = self._make_request()
+        form = MagicMock()
+        with self.assertRaises(CoreValidationError):
+            admin_instance.save_model(request, slot, form, change=True)
+
+    def test_save_model_raises_for_spaces_used_exceeds_capacity(self):
+        """
+        save_model() must raise ValidationError when spaces_used > capacity.
+
+        Slot.clean() mirrors the appt_slot_spaces_lte_capacity CheckConstraint.
+        """
+        from django.core.exceptions import ValidationError as CoreValidationError
+        from unittest.mock import MagicMock
+
+        slot = self._valid_slot_in_db(capacity=2, spaces_used=2)
+        # In-memory mutation: push spaces_used above capacity.
+        slot.spaces_used = 5
+        admin_instance = self._make_admin()
+        request = self._make_request()
+        form = MagicMock()
+        with self.assertRaises(CoreValidationError):
+            admin_instance.save_model(request, slot, form, change=True)
