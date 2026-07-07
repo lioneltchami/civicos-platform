@@ -734,9 +734,13 @@ class ServiceIndividualConsentRecordListView(APIView):
 
 class ServiceIndividualConsentRecordDetailView(APIView):
     """
-    GET    /service/individual/record/consent-record/{id}/ — read one record
-    PUT    /service/individual/record/consent-record/{id}/ — update opt_in (grant/withdraw)
-    DELETE /service/individual/record/consent-record/{id}/ — delete one record
+    GET /service/individual/record/consent-record/{id}/ — read one record
+    PUT /service/individual/record/consent-record/{id}/ — update opt_in (grant/withdraw)
+
+    NOTE: There is NO DELETE on this path per the GovStack spec. The only delete
+    path in the service namespace is DELETE /service/individual/record/ (RTBF),
+    which enforces forgettable=True and emits an audit entry. A per-record delete
+    outside that flow would bypass forgettable checks and the audit trail.
     """
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated]
@@ -757,12 +761,6 @@ class ServiceIndividualConsentRecordDetailView(APIView):
             "consentRecord": ConsentRecordGovStackSerializer(record).data,
             "revision": RevisionSerializer(revision).data if revision else None,
         })
-
-    def delete(self, request, consent_record_id):
-        """DELETE — GovStack serviceIndividualConsentRecordDelete"""
-        record = self._get_record(request, consent_record_id)
-        record.delete()
-        return Response(status=status.HTTP_200_OK)
 
     def put(self, request, consent_record_id):
         """UPDATE — GovStack serviceIndividualConsentRecordUpdate"""

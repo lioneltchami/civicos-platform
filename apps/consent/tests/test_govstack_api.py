@@ -345,6 +345,24 @@ class ConfigWebhookTests(GovStackAPIBase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertFalse(ConsentWebhook.objects.filter(pk=webhook.pk).exists())
 
+    def test_webhook_response_includes_secret_key(self):
+        """
+        secretKey is in the GovStack Webhook required schema — must appear in
+        all responses (POST/GET/PUT), not just on write (F5/Round-7 fix).
+        """
+        self._auth(self.admin)
+        r = self.client.post("/api/v1/consent/config/webhook/", {
+            "webhook": {
+                "payloadUrl": "https://example.com/secret-test",
+                "contentType": "application/json",
+                "secretKey": "verifiable-secret",
+                "events": [],
+            }
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("secretKey", r.data["webhook"])
+        self.assertEqual(r.data["webhook"]["secretKey"], "verifiable-secret")
+
 
 # ===========================================================================
 # Service — ConsentRecord CRUD
@@ -410,6 +428,22 @@ class ServiceConsentRecordTests(GovStackAPIBase):
             "consentRecord": {"dataAgreementId": str(uuid.uuid4())}
         }, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_on_consent_record_detail_returns_405(self):
+        """
+        GovStack spec has NO DELETE on /service/individual/record/consent-record/{id}/.
+        Only the RTBF endpoint DELETE /service/individual/record/ may delete records.
+        The detail endpoint must reject DELETE with 405 Method Not Allowed (F1/Round-7 fix).
+        """
+        ConsentService.grant(self.citizen, self.category.slug)
+        record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        self._auth(self.citizen)
+        r = self.client.delete(
+            f"/api/v1/consent/service/individual/record/consent-record/{record.pk}/"
+        )
+        self.assertEqual(r.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        # Record must still exist
+        self.assertTrue(ConsentRecord.objects.filter(pk=record.pk).exists())
 
 
 # ===========================================================================

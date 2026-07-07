@@ -427,7 +427,10 @@ class WebhookSerializer(serializers.ModelSerializer):
     disabled = serializers.BooleanField(source="is_disabled", required=False, default=False)
     # CivicOS extension: isActive = inverted disabled (kept for backwards compat)
     isActive = serializers.SerializerMethodField()
-    secretKey = serializers.CharField(source="secret_key", write_only=True)
+    # secretKey is a required field in the GovStack Webhook schema and must appear
+    # in all responses (GET/POST/PUT). It is the HMAC signing secret shared with
+    # the webhook subscriber — conceptually an API key, not a user password.
+    secretKey = serializers.CharField(source="secret_key")
     # GovStack spec field name is "events" (not subscribedEvents)
     events = serializers.JSONField(source="subscribed_events")
     signatureHeader = serializers.CharField(source="signature_header", required=False, allow_blank=True)
