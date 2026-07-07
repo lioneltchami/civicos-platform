@@ -177,7 +177,7 @@ class ExportDownloadView(LoginRequiredMixin, View):
 
         with transaction.atomic():
             try:
-                req = DataExportRequest.objects.select_for_update().select_related(
+                req = DataExportRequest.objects.select_for_update(of=("self",)).select_related(
                     "document__category"
                 ).get(download_token=token)
             except DataExportRequest.DoesNotExist:

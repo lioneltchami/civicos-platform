@@ -238,7 +238,7 @@ class DataExportRequestModelTests(TestCase):
         export = DataExportRequest.objects.create(citizen=self.citizen)
         result = str(export)
         self.assertIn("Export", result)
-        self.assertIn(str(self.citizen.pk), result)
+        self.assertIn(str(export.pk), result)
 
     def test_default_format_is_json(self):
         export = DataExportRequest.objects.create(citizen=self.citizen)
