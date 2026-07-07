@@ -602,7 +602,7 @@ def mark_purpose_fulfilled(
     with transaction.atomic():
         doc = (
             Document.objects.select_related("category")
-            .select_for_update()
+            .select_for_update(of=("self",))
             .get(pk=document.pk)
         )
 

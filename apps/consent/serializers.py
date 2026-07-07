@@ -157,6 +157,9 @@ class RevisionSerializer(serializers.ModelSerializer):
     authorizedByIndividual = serializers.SerializerMethodField()
     authorizedByOther = serializers.CharField(source="authorized_by_other", read_only=True)
     successor = serializers.SerializerMethodField()
+    # GovStack Revision schema optional properties (not in required[], but must be present in output)
+    signedWithoutObjectId = serializers.SerializerMethodField()
+    predecessorSignature = serializers.SerializerMethodField()
 
     class Meta:
         model = ConsentRevision
@@ -171,6 +174,8 @@ class RevisionSerializer(serializers.ModelSerializer):
             "authorizedByIndividual",
             "authorizedByOther",
             "successor",
+            "signedWithoutObjectId",
+            "predecessorSignature",
         ]
         read_only_fields = fields
 
@@ -182,6 +187,14 @@ class RevisionSerializer(serializers.ModelSerializer):
     def get_successor(self, obj):
         if obj.successor_id:
             return str(obj.successor_id)
+        return None
+
+    def get_signedWithoutObjectId(self, obj):
+        # Optional boolean per GovStack Revision schema — not yet stored on model
+        return None
+
+    def get_predecessorSignature(self, obj):
+        # Optional string per GovStack Revision schema — not yet stored on model
         return None
 
 

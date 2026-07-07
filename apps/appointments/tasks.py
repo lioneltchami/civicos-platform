@@ -211,3 +211,75 @@ def mark_past_slots_completed(self) -> dict:
             type(exc).__name__,
         )
         raise self.retry(exc=exc)
+
+
+# ---------------------------------------------------------------------------
+# Wave 3: cleanup_expired_pending_bookings
+# ---------------------------------------------------------------------------
+
+@shared_task(
+    bind=True,
+    name="appointments.cleanup_expired_pending_bookings",
+    max_retries=3,
+    default_retry_delay=300,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    soft_time_limit=270,
+    time_limit=300,
+)
+def cleanup_expired_pending_bookings(self) -> dict:
+    """
+    Cancel PENDING bookings that have exceeded the pending timeout window.
+
+    Timeout: CIVICOS['APPOINTMENTS']['PENDING_BOOKING_TIMEOUT_MINUTES'] (default 30).
+    Idempotent: safe to run multiple times.
+    Called by Celery Beat every 15 minutes.
+
+    Returns:
+        {"bookings_cancelled": N}
+    """
+    from django.conf import settings
+
+    from apps.appointments.models import Booking
+    from apps.appointments.services.booking import cancel_booking
+
+    try:
+        appt_cfg = settings.CIVICOS.get("APPOINTMENTS", {})
+        timeout_minutes = appt_cfg.get("PENDING_BOOKING_TIMEOUT_MINUTES", 30)
+        cutoff = timezone.now() - timedelta(minutes=timeout_minutes)
+
+        expired_pks = list(
+            Booking.objects.filter(
+                status="pending",
+                created_at__lt=cutoff,
+            ).values_list("pk", flat=True)[:200]  # Max 200 per run
+        )
+
+        cancelled = 0
+        for pk in expired_pks:
+            try:
+                booking = Booking.objects.get(pk=pk)
+                if booking.status != "pending":
+                    continue  # Race: already changed
+                cancel_booking(booking=booking, actor=None, reason="Pending timeout exceeded.")
+                cancelled += 1
+            except Booking.DoesNotExist:
+                pass
+            except Exception as exc:
+                logger.error(
+                    "cleanup_expired_pending_bookings: error booking_id=%s: %s",
+                    pk, type(exc).__name__,
+                )
+
+        logger.info(
+            "cleanup_expired_pending_bookings: %d/%d expired pending bookings cancelled",
+            cancelled, len(expired_pks),
+        )
+        return {"bookings_cancelled": cancelled}
+
+    except Exception as exc:
+        logger.exception(
+            "cleanup_expired_pending_bookings: unhandled error — retrying. error_type=%s",
+            type(exc).__name__,
+        )
+        raise self.retry(exc=exc)

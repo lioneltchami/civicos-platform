@@ -1412,8 +1412,8 @@ class MultiTimezoneTests(TestCase):
 
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 11, 9),
-            date_to=date(2026, 11, 9),
+            date_from=date(2026, 11, 16),
+            date_to=date(2026, 11, 16),
             staff=staff,
         )
         self.assertEqual(len(result), 1)

@@ -11,6 +11,7 @@ Scopes are configured in settings.py under REST_FRAMEWORK["DEFAULT_THROTTLE_RATE
     }
 """
 
+from django.conf import settings
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
 
@@ -33,7 +34,24 @@ class StaffRateThrottle(UserRateThrottle):
     scope = "staff"
 
 
-class TokenObtainThrottle(AnonRateThrottle):
+class _TestBypassMixin:
+    """
+    Disable IP-keyed throttling during the test suite.
+
+    When settings.TESTING is True, get_cache_key() returns None, which
+    causes DRF to skip the throttle check entirely.  This is necessary
+    because TokenObtainThrottle / TokenRefreshThrottle are applied at the
+    URL level (not via DEFAULT_THROTTLE_CLASSES) and therefore survive the
+    ``DEFAULT_THROTTLE_CLASSES: []`` override in test.py.
+    """
+
+    def get_cache_key(self, request, view):
+        if getattr(settings, "TESTING", False):
+            return None
+        return super().get_cache_key(request, view)
+
+
+class TokenObtainThrottle(_TestBypassMixin, AnonRateThrottle):
     """
     Aggressive throttle for the credential exchange endpoint (POST /auth/token/).
 
@@ -45,7 +63,7 @@ class TokenObtainThrottle(AnonRateThrottle):
     scope = "token_obtain"
 
 
-class TokenRefreshThrottle(AnonRateThrottle):
+class TokenRefreshThrottle(_TestBypassMixin, AnonRateThrottle):
     """
     Throttle for the token-refresh endpoint (POST /auth/token/refresh/).
 

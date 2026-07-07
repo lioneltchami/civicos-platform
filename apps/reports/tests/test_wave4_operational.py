@@ -614,11 +614,32 @@ class TaskFailureDetailViewTests(TestCase):
 # PDF export
 # ---------------------------------------------------------------------------
 
+_FAKE_PDF_RESPONSE_BYTES = b"%PDF-1.4 fake-for-tests"
+_EXPORT_PDF_PATH = "apps.reports.exports.pdf_export.export_monthly_summary_pdf"
+
+
 class MonthlySummaryPdfTests(TestCase):
+    """
+    Tests for MonthlySummaryPdfView.
+
+    export_monthly_summary_pdf() is patched in all tests that exercise the view
+    response so the test suite does not require WeasyPrint C libraries (libpango,
+    libcairo) to be installed in CI environments.  The wave-5 suite covers the
+    WeasyPrint-failure / no-ExportRecord-on-error path separately.
+    """
 
     def setUp(self):
         self.url_name = "reports:monthly-summary-pdf"
         self.user = _make_user(perms=["payments.export_financialreport"])
+        from django.http import HttpResponse
+        self._fake_pdf_response = HttpResponse(
+            _FAKE_PDF_RESPONSE_BYTES,
+            content_type="application/pdf",
+        )
+        self._fake_pdf_response["Content-Disposition"] = (
+            'attachment; filename="financial_summary_2024_03.pdf"'
+        )
+        self._fake_pdf_response["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
 
     def _url(self, year=2024, month=3):
         return reverse(self.url_name, kwargs={"year": year, "month": month})
@@ -635,13 +656,15 @@ class MonthlySummaryPdfTests(TestCase):
 
     def test_pdf_response_content_type(self):
         self.client.force_login(self.user)
-        response = self.client.get(self._url(2024, 3))
+        with patch(_EXPORT_PDF_PATH, return_value=self._fake_pdf_response):
+            response = self.client.get(self._url(2024, 3))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "application/pdf")
 
     def test_pdf_response_content_disposition(self):
         self.client.force_login(self.user)
-        response = self.client.get(self._url(2024, 3))
+        with patch(_EXPORT_PDF_PATH, return_value=self._fake_pdf_response):
+            response = self.client.get(self._url(2024, 3))
         cd = response.get("Content-Disposition", "")
         self.assertIn("attachment", cd)
         self.assertIn("financial_summary_2024_03.pdf", cd)
@@ -649,25 +672,30 @@ class MonthlySummaryPdfTests(TestCase):
     def test_export_record_created(self):
         before = ExportRecord.objects.count()
         self.client.force_login(self.user)
-        self.client.get(self._url(2024, 3))
+        with patch(_EXPORT_PDF_PATH, return_value=self._fake_pdf_response):
+            self.client.get(self._url(2024, 3))
         after = ExportRecord.objects.count()
         self.assertEqual(after, before + 1)
 
     def test_export_record_format_is_pdf(self):
         self.client.force_login(self.user)
-        self.client.get(self._url(2024, 3))
+        with patch(_EXPORT_PDF_PATH, return_value=self._fake_pdf_response):
+            self.client.get(self._url(2024, 3))
         rec = ExportRecord.objects.latest("created_at")
         self.assertEqual(rec.format, ExportRecord.FORMAT_PDF)
 
     def test_export_record_actor_pk_not_email(self):
         self.client.force_login(self.user)
-        self.client.get(self._url(2024, 3))
+        with patch(_EXPORT_PDF_PATH, return_value=self._fake_pdf_response):
+            self.client.get(self._url(2024, 3))
         rec = ExportRecord.objects.latest("created_at")
         self.assertEqual(rec.actor_pk, self.user.pk)
         # actor_pk is a BigIntegerField — must be numeric, never an email string
         self.assertIsInstance(rec.actor_pk, int)
 
     def test_invalid_month_returns_400(self):
+        # The view validates month before calling export_monthly_summary_pdf,
+        # so no patch is needed here.
         self.client.force_login(self.user)
         response = self.client.get(
             reverse(self.url_name, kwargs={"year": 2024, "month": 13})
@@ -676,27 +704,46 @@ class MonthlySummaryPdfTests(TestCase):
 
     def test_cache_control_no_store(self):
         self.client.force_login(self.user)
-        response = self.client.get(self._url(2024, 3))
+        with patch(_EXPORT_PDF_PATH, return_value=self._fake_pdf_response):
+            response = self.client.get(self._url(2024, 3))
         self.assertIn("no-store", response.get("Cache-Control", ""))
 
 
 class ExportMonthlySummaryPdfFunctionTests(TestCase):
-    """Test export_monthly_summary_pdf() directly (bypasses view auth)."""
+    """
+    Test export_monthly_summary_pdf() directly (bypasses view auth).
+
+    weasyprint.HTML is patched so the tests do not require the WeasyPrint C
+    libraries (libpango, libcairo) to be present in CI environments.
+    """
+
+    _FAKE_BYTES = b"%PDF-1.4 fake-direct"
+    _WEASYPRINT_HTML = "weasyprint.HTML"
+
+    def _make_html_mock(self):
+        mock_html_cls = MagicMock()
+        mock_html_instance = MagicMock()
+        mock_html_instance.write_pdf.return_value = self._FAKE_BYTES
+        mock_html_cls.return_value = mock_html_instance
+        return patch(self._WEASYPRINT_HTML, mock_html_cls)
 
     def test_returns_http_response(self):
         from apps.reports.exports.pdf_export import export_monthly_summary_pdf
         from django.http import HttpResponse
-        response = export_monthly_summary_pdf(2024, 3)
+        with self._make_html_mock():
+            response = export_monthly_summary_pdf(2024, 3)
         self.assertIsInstance(response, HttpResponse)
 
     def test_content_type_is_pdf(self):
         from apps.reports.exports.pdf_export import export_monthly_summary_pdf
-        response = export_monthly_summary_pdf(2024, 3)
+        with self._make_html_mock():
+            response = export_monthly_summary_pdf(2024, 3)
         self.assertEqual(response["Content-Type"], "application/pdf")
 
     def test_pdf_starts_with_magic_bytes(self):
         from apps.reports.exports.pdf_export import export_monthly_summary_pdf
-        response = export_monthly_summary_pdf(2024, 3)
+        with self._make_html_mock():
+            response = export_monthly_summary_pdf(2024, 3)
         # All valid PDFs start with %PDF-
         self.assertTrue(response.content.startswith(b"%PDF-"))
 

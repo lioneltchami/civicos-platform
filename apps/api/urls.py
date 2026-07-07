@@ -57,5 +57,7 @@ urlpatterns = [
     path("notifications/", include("apps.api.notifications.urls")),
     path("workflows/", include("apps.api.workflows.urls")),
     path("consent/", include("apps.consent.api_urls", namespace="consent")),
+    # GovStack Consent BB v1.3.0 — /config/, /service/, /audit/ namespaces
+    path("consent/", include("apps.consent.govstack_urls")),
     path("volunteers/", include("apps.api.volunteers.urls", namespace="volunteers")),
 ]

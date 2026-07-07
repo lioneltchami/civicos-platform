@@ -44,15 +44,10 @@ def record_event(
     """
     try:
         with transaction.atomic():
-            # Get the hash of the most recent entry for chain linkage.
-            # Order by -id (not -timestamp) — IDs are assigned atomically by the
-            # database so the ordering is deterministic even when two events land
-            # in the same microsecond. select_for_update() serialises concurrent
-            # writers: the second transaction blocks until the first commits, then
-            # re-reads the newly-inserted row as the latest entry (READ COMMITTED).
+            # Get the hash of the most recent entry for chain linkage
             last_entry = (
                 AuditLogEntry.objects.select_for_update()
-                .order_by("-id")
+                .order_by("-timestamp")
                 .values("entry_hash")
                 .first()
             )
@@ -109,13 +104,7 @@ def record_event_from_request(
     Pass ``actor_email=""`` explicitly to suppress email storage (e.g. to avoid
     writing PII into the audit log for login-success events).
     """
-    audit_ctx = getattr(request, "audit_context", None)
-    # Defensively coerce to dict: if request is a MagicMock in tests,
-    # audit_context is auto-created as another MagicMock (not a dict),
-    # causing audit_ctx.get("actor_id") to return a MagicMock object instead
-    # of None/string — which would be persisted as an invalid actor_id.
-    if not isinstance(audit_ctx, dict):
-        audit_ctx = {}
+    audit_ctx = getattr(request, "audit_context", {})
     user = getattr(request, "user", None)
 
     resolved_email = (
@@ -137,7 +126,5 @@ def record_event_from_request(
         after_state=after_state,
         event_detail=event_detail,
         request_id=audit_ctx.get("request_id", ""),
-        session_id=(
-            getattr(getattr(request, "session", None), "session_key", None) or ""
-        ) if hasattr(request, "session") else "",
+        session_id=request.session.session_key or "" if hasattr(request, "session") else "",
     )

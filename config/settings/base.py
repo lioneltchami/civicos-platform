@@ -136,6 +136,7 @@ MIDDLEWARE = [
     "wagtail.contrib.redirects.middleware.RedirectMiddleware",
     "apps.core.middleware.RequestIDMiddleware",            # Injects X-Request-ID
     "apps.core.middleware.AuditMiddleware",               # Attaches actor to request
+    "apps.core.middleware.GovStackHeaderMiddleware",      # X-GovStack-BB-Version header
     "allauth.account.middleware.AccountMiddleware",
 ]
 
@@ -376,6 +377,11 @@ CELERY_BEAT_SCHEDULE = {
     "appointments-mark-past-slots-completed": {
         "task": "appointments.mark_past_slots_completed",
         "schedule": crontab(hour=23, minute=30),  # 23:30 UTC daily
+        "options": {"queue": "appointments"},
+    },
+    "appointments-cleanup-expired-pending-bookings": {
+        "task": "appointments.cleanup_expired_pending_bookings",
+        "schedule": crontab(minute="*/15"),  # Every 15 minutes
         "options": {"queue": "appointments"},
     },
 }

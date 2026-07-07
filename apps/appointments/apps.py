@@ -63,6 +63,7 @@ class AppointmentsConfig(AppConfig):
         _receivers_spec = importlib.util.find_spec("apps.appointments.receivers")
         if _receivers_spec is not None:
             import apps.appointments.receivers  # noqa: F401
+            apps.appointments.receivers.connect_receivers()
 
         # Validate iCalendar organizer email in production (RFC 5545 §3.8.4.3).
         if not settings.DEBUG:

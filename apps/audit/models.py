@@ -15,10 +15,31 @@ Design principles:
 
 import hashlib
 import json
+from dataclasses import dataclass, field
 
 from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+
+
+@dataclass
+class ChainVerificationResult:
+    """
+    Result of a full audit chain integrity check.
+
+    Returned by ``AuditLogEntry.verify_chain()``.  A clean chain has
+    ``ok=True`` and an empty ``violations`` list.  Any entry whose
+    recomputed hash does not match the stored hash, or whose ``prev_hash``
+    does not equal the previous entry's ``entry_hash``, is recorded as a
+    violation — evidence of tampering or data corruption.
+    """
+    ok: bool = True
+    entries_checked: int = 0
+    violations: list[dict] = field(default_factory=list)
+
+    def add_violation(self, entry_id: int, reason: str) -> None:
+        self.ok = False
+        self.violations.append({"entry_id": entry_id, "reason": reason})
 
 
 class AuditEventType(models.TextChoices):
@@ -228,3 +249,109 @@ class AuditLogEntry(models.Model):
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, default=str).encode()
         ).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Chain verification
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def verify_chain(
+        cls,
+        start_id: int | None = None,
+        end_id: int | None = None,
+        batch_size: int = 500,
+    ) -> "ChainVerificationResult":
+        """
+        Walk the audit chain in insertion order and verify its integrity.
+
+        For each entry the method checks:
+        1. ``entry_hash`` matches the hash recomputed from the stored fields.
+        2. ``prev_hash`` equals the ``entry_hash`` of the immediately preceding
+           entry (or empty string for the very first entry).
+
+        Any discrepancy is recorded as a violation in the returned
+        ``ChainVerificationResult``.  The method streams entries in batches
+        so it can handle arbitrarily large logs without loading the whole
+        table into memory.
+
+        Args:
+            start_id: Only verify entries with ``id >= start_id``.
+            end_id:   Only verify entries with ``id <= end_id``.
+            batch_size: Number of entries fetched per DB query.
+
+        Returns:
+            ``ChainVerificationResult`` with ``ok=True`` if no violations found.
+
+        Example (management command, API view, or test)::
+
+            result = AuditLogEntry.verify_chain()
+            if not result.ok:
+                for v in result.violations:
+                    print(v)
+        """
+        result = ChainVerificationResult()
+        qs = cls.objects.order_by("id")
+        if start_id is not None:
+            qs = qs.filter(id__gte=start_id)
+        if end_id is not None:
+            qs = qs.filter(id__lte=end_id)
+
+        expected_prev_hash = ""
+        last_id = None
+
+        # Stream in batches to avoid loading the full table into memory.
+        offset = 0
+        while True:
+            batch = list(
+                qs.values(
+                    "id", "entry_hash", "prev_hash",
+                    "event_type", "outcome", "actor_id", "actor_ip",
+                    "resource_type", "resource_id", "event_detail",
+                )[offset: offset + batch_size]
+            )
+            if not batch:
+                break
+
+            for row in batch:
+                result.entries_checked += 1
+                entry_id = row["id"]
+
+                # --- Check 1: prev_hash linkage ---
+                if row["prev_hash"] != expected_prev_hash:
+                    result.add_violation(
+                        entry_id,
+                        f"prev_hash mismatch: expected {expected_prev_hash!r}, "
+                        f"stored {row['prev_hash']!r}",
+                    )
+
+                # --- Check 2: entry_hash integrity ---
+                payload = {
+                    "event_type": row["event_type"],
+                    "outcome": row["outcome"],
+                    "actor_id": row["actor_id"],
+                    "actor_ip": row["actor_ip"],
+                    "resource_type": row["resource_type"],
+                    "resource_id": row["resource_id"],
+                    "event_detail": row["event_detail"],
+                    "prev_hash": row["prev_hash"],
+                }
+                recomputed = hashlib.sha256(
+                    json.dumps(payload, sort_keys=True, default=str).encode()
+                ).hexdigest()
+                if row["entry_hash"] != recomputed:
+                    result.add_violation(
+                        entry_id,
+                        f"entry_hash mismatch: stored {row['entry_hash']!r}, "
+                        f"recomputed {recomputed!r}",
+                    )
+
+                # Advance the expected prev_hash to this entry's hash.
+                # Use the STORED hash (not recomputed) so a single corrupted
+                # entry does not cascade false positives across the rest of
+                # the chain.
+                expected_prev_hash = row["entry_hash"]
+                last_id = entry_id
+
+            offset += batch_size
+
+        return result

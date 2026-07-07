@@ -594,21 +594,12 @@ class RecurringGiftCancelViewTests(DonationViewTestBase):
 
     # 30. Unauthenticated → 302 redirect to login
     def test_unauthenticated_redirects_to_login(self):
-        # RecurringGiftCancelView.setup() calls get_object_or_404(RecurringGiftPlan,
-        # pk=plan_pk, donor=request.user) BEFORE LoginRequiredMixin.dispatch() fires,
-        # so AnonymousUser is passed as FK value, causing a TypeError before auth check.
-        # We verify that the URL is not accessible to anonymous users by catching the
-        # error that occurs when AnonymousUser is used in an ORM filter.
+        # setup() now guards against unauthenticated users before querying the DB,
+        # so LoginRequiredMixin.dispatch() fires correctly and returns a 302 redirect.
         plan = make_recurring_plan(self.user)
-        # The view raises TypeError because AnonymousUser cannot be used in FK filter
-        # This documents the bug: setup() should check auth before querying the DB.
-        # In production, Django middleware wraps this in a 500 response.
-        client = self.client_class(raise_request_exception=False)
-        resp = client.get(self._cancel_url(plan.pk))
-        # 302 (login redirect), 404 (plan not found), or 500 (TypeError from ORM)
-        self.assertIn(resp.status_code, [302, 404, 500])
-        if resp.status_code == 302:
-            self.assertIn("login", resp["Location"].lower())
+        resp = self.client.get(self._cancel_url(plan.pk))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("login", resp["Location"].lower())
 
     # 31. Authenticated donor cancels their own plan → gateway called, plan updated
     def test_authenticated_donor_cancels_own_plan(self):

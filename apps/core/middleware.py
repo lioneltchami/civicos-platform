@@ -42,6 +42,26 @@ class RequestIDMiddleware:
         return response
 
 
+class GovStackHeaderMiddleware:
+    """
+    Injects ``X-GovStack-BB-Version: 1.3.0`` into all responses from the
+    GovStack API namespaces (/api/v1/consent/config/, /service/, /audit/).
+
+    This satisfies GovStack G20 (INFO) — version header requirement.
+    """
+
+    _GOVSTACK_PREFIXES = ("/api/v1/consent/config/", "/api/v1/consent/service/", "/api/v1/consent/audit/")
+
+    def __init__(self, get_response: Callable) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        response = self.get_response(request)
+        if any(request.path_info.startswith(p) for p in self._GOVSTACK_PREFIXES):
+            response["X-GovStack-BB-Version"] = "1.3.0"
+        return response
+
+
 class WagtailMFAMiddleware:
     """
     Enforces OTP/MFA verification for all Wagtail CMS paths (/cms/).

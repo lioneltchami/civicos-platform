@@ -1017,7 +1017,9 @@ class HonorariumModelFieldTests(TestCase):
             created_by=creator,
         )
         defaults.update(overrides)
-        return Honorarium.objects.create(**defaults, skip_clean=True)
+        h = Honorarium(**defaults)
+        h.save(skip_clean=True)
+        return h
 
     def test_amount_min_validator_rejects_zero(self):
         """

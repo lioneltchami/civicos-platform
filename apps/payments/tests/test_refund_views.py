@@ -801,7 +801,7 @@ class RefundConfirmViewRangeLockTests(RefundViewTestBase):
 
         source = inspect.getsource(RefundConfirmView.post)
         self.assertIn(
-            "Payment.objects.select_for_update()",
+            "Payment.objects.select_for_update",
             source,
             "RefundConfirmView.post() must call Payment.objects.select_for_update() "
             "to lock the Payment row — the correct serialization point for the first "
@@ -836,7 +836,7 @@ class RefundDoubleRacePreventionTest(RefundViewTestBase):
 
         source = inspect.getsource(RefundConfirmView.post)
         self.assertIn(
-            "Payment.objects.select_for_update()",
+            "Payment.objects.select_for_update",
             source,
             "RefundConfirmView.post() must call Payment.objects.select_for_update() "
             "to lock the Payment row — the correct serialization point for the first "

@@ -77,6 +77,29 @@ class IsAuditorUser(BasePermission):
         return request.user.groups.filter(name="consent_auditors").exists()
 
 
+class IsConsumerUser(BasePermission):
+    """
+    GovStack [consumer] OAuth2 scope — data consumers querying consent records.
+
+    Data consumers verify whether individuals have consented before processing
+    their data. They must NOT be able to read each other's consent data.
+
+    Membership check: user must be in the 'data_consumers' group OR be staff.
+    Staff inherits access for operational testing.
+
+    This maps to the GovStack security: [{consumer: []}] scope on:
+      - serviceVerificationConsentRecordList
+      - serviceVerificationConsentRecordRead
+      - serviceVerificationDataAgreementList
+    """
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.user.is_staff:
+            return True
+        return request.user.groups.filter(name="data_consumers").exists()
+
+
 # ===========================================================================
 # Config API — Policy
 # GovStack paths: /config/policy/, /config/policy/{id}/, /config/policies/,
@@ -580,9 +603,10 @@ class ServiceVerificationDataAgreementsView(APIView):
     """
     GET /service/verification/data-agreements/
     LIST — fetch Data Agreements for data consumers to verify consent against.
+    GovStack security: [{consumer: []}]
     """
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConsumerUser]
 
     def get(self, request):
         """LIST — GovStack serviceVerificationDataAgreementList"""
@@ -599,9 +623,10 @@ class ServiceVerificationConsentRecordsView(APIView):
     GET /service/verification/consent-records/
     LIST — query consent records. Data consumers check whether consent exists.
     Supports ?individual_id= and ?data_agreement_id= filters.
+    GovStack security: [{consumer: []}]
     """
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConsumerUser]
 
     def get(self, request):
         """LIST — GovStack serviceVerificationConsentRecordList"""
@@ -629,9 +654,10 @@ class ServiceVerificationConsentRecordDetailView(APIView):
     """
     GET /service/verification/consent-record/{id}/
     READ — read a single consent record for verification.
+    GovStack security: [{consumer: []}]
     """
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConsumerUser]
 
     def get(self, request, consent_record_id):
         """READ — GovStack serviceVerificationConsentRecordRead"""
@@ -850,10 +876,16 @@ class ServiceIndividualConsentRecordDraftView(APIView):
         }
         return Response({
             "consentRecord": draft,
+            # Stub signature — all 8 required GovStack Signature schema fields present.
+            # The individual signs this client-side and submits via POST /signature/.
             "signature": {
                 "id": None,
                 "payload": "",
+                "signature": None,
                 "verificationMethod": "string",
+                "verificationPayload": None,
+                "verificationPayloadHash": None,
+                "verificationSignedBy": None,
                 "timestamp": None,
             },
         })

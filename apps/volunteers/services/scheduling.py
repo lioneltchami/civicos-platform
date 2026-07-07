@@ -325,7 +325,7 @@ def cancel_booking(
         # Re-fetch with lock + related objects needed for signal / promotion.
         booking = (
             ShiftBooking.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("shift", "volunteer__user")
             .get(pk=booking.pk)
         )
@@ -480,7 +480,7 @@ def mark_no_show(
     with transaction.atomic():
         booking = (
             ShiftBooking.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("shift")
             .get(pk=booking.pk)
         )
@@ -572,7 +572,7 @@ def complete_booking(
     with transaction.atomic():
         booking = (
             ShiftBooking.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("shift__opportunity", "volunteer")
             .get(pk=booking.pk)
         )

@@ -451,6 +451,20 @@ class ServiceConsentRecordDraftTests(GovStackAPIBase):
         )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_draft_signature_stub_has_all_required_fields(self):
+        """Draft response signature stub must include all 8 GovStack Signature schema required fields (F4/Round-6 fix)."""
+        self._auth(self.citizen)
+        r = self.client.post(
+            f"/api/v1/consent/service/individual/record/consent-record/draft/"
+            f"?individualId={self.citizen.pk}&dataAgreementId={self.category.pk}",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        sig = r.data["signature"]
+        for field in ["id", "payload", "signature", "verificationMethod",
+                      "verificationPayload", "verificationPayloadHash",
+                      "verificationSignedBy", "timestamp"]:
+            self.assertIn(field, sig, f"signature stub missing required field: {field}")
+
 
 # ===========================================================================
 # Service — Right to Be Forgotten
@@ -554,26 +568,50 @@ class ServiceIndividualTests(GovStackAPIBase):
 # ===========================================================================
 
 class ServiceVerificationTests(GovStackAPIBase):
+    """
+    Verification endpoints require the GovStack [consumer] OAuth2 scope.
+    In CivicOS this maps to membership in the 'data_consumers' group (or is_staff).
+    """
 
     def setUp(self):
         super().setUp()
+        from django.contrib.auth.models import Group
         self.category = _make_category(slug="verify-test")
+        # Create a data consumer user (in 'data_consumers' group)
+        self.consumer = _make_citizen(email="consumer@example.com")
+        group, _ = Group.objects.get_or_create(name="data_consumers")
+        self.consumer.groups.add(group)
 
     def test_verification_data_agreements_list(self):
-        self._auth(self.citizen)
+        """Consumer can list data agreements for verification."""
+        self._auth(self.consumer)
         r = self.client.get("/api/v1/consent/service/verification/data-agreements/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("dataAgreements", r.data)
 
-    def test_verification_consent_records_returns_granted(self):
-        ConsentService.grant(self.citizen, self.category.slug)
+    def test_verification_data_agreements_requires_consumer_scope(self):
+        """Plain citizen (not in data_consumers) must receive 403."""
         self._auth(self.citizen)
+        r = self.client.get("/api/v1/consent/service/verification/data-agreements/")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_verification_consent_records_returns_granted(self):
+        """Consumer can query granted consent records."""
+        ConsentService.grant(self.citizen, self.category.slug)
+        self._auth(self.consumer)
         r = self.client.get("/api/v1/consent/service/verification/consent-records/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("consentRecords", r.data)
         self.assertGreaterEqual(len(r.data["consentRecords"]), 1)
 
+    def test_verification_consent_records_requires_consumer_scope(self):
+        """Plain citizen must receive 403 on verification list endpoint."""
+        self._auth(self.citizen)
+        r = self.client.get("/api/v1/consent/service/verification/consent-records/")
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_verification_filter_by_individual(self):
+        """Staff/admin can filter verification results by individual."""
         ConsentService.grant(self.citizen, self.category.slug)
         other = _make_citizen()
         ConsentService.grant(other, self.category.slug)
@@ -587,14 +625,25 @@ class ServiceVerificationTests(GovStackAPIBase):
             self.assertEqual(str(cr["individual"]), str(self.citizen.pk))
 
     def test_verification_consent_record_detail(self):
+        """Consumer can read a single consent record for verification."""
+        ConsentService.grant(self.citizen, self.category.slug)
+        record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        self._auth(self.consumer)
+        r = self.client.get(
+            f"/api/v1/consent/service/verification/consent-record/{record.pk}/"
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("consentRecord", r.data)
+
+    def test_verification_consent_record_detail_requires_consumer_scope(self):
+        """Plain citizen must receive 403 on verification detail endpoint."""
         ConsentService.grant(self.citizen, self.category.slug)
         record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
         self._auth(self.citizen)
         r = self.client.get(
             f"/api/v1/consent/service/verification/consent-record/{record.pk}/"
         )
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertIn("consentRecord", r.data)
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
 
 # ===========================================================================
@@ -737,6 +786,30 @@ class ConsentRevisionTests(GovStackAPIBase):
         self.assertEqual(len(r.data["policies"]), 1)
         self.assertIn("total", r.data)
         self.assertGreaterEqual(r.data["total"], 2)
+
+    def test_revision_serializer_includes_signed_without_object_id(self):
+        """RevisionSerializer must expose signedWithoutObjectId (F7/Round-6 fix)."""
+        policy, _ = ConsentService.create_policy(
+            {"name": "P", "version": "1.0", "url": "https://example.com"},
+            actor=self.admin,
+        )
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/config/policy/{policy.pk}/revisions/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        rev_data = r.data["revisions"][0]
+        self.assertIn("signedWithoutObjectId", rev_data)
+
+    def test_revision_serializer_includes_predecessor_signature(self):
+        """RevisionSerializer must expose predecessorSignature (F7/Round-6 fix)."""
+        policy, _ = ConsentService.create_policy(
+            {"name": "P", "version": "1.0", "url": "https://example.com"},
+            actor=self.admin,
+        )
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/config/policy/{policy.pk}/revisions/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        rev_data = r.data["revisions"][0]
+        self.assertIn("predecessorSignature", rev_data)
 
 
 # ===========================================================================

@@ -367,7 +367,7 @@ def confirm_upload(
     # ── select_for_update inside atomic — required before any status check ─────
     with transaction.atomic():
         try:
-            doc = Document.objects.select_for_update().select_related("category").get(pk=doc_id)
+            doc = Document.objects.select_for_update(of=("self",)).select_related("category").get(pk=doc_id)
         except Document.DoesNotExist:
             # IDOR prevention: 404 even for "not found" case
             raise Http404

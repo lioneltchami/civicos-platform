@@ -12,6 +12,7 @@ Security invariants:
 """
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -34,6 +35,7 @@ class TokenObtainTests(TestCase):
     """Tests for POST /api/v1/auth/token/ — token issuance."""
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.user = User.objects.create_user(
             email="citizen@example.gov",
@@ -98,6 +100,7 @@ class TokenRefreshTests(TestCase):
     """Tests for POST /api/v1/auth/token/refresh/ — access-token rotation."""
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.user = User.objects.create_user(
             email="citizen@example.gov",
@@ -155,6 +158,7 @@ class TokenVerifyTests(TestCase):
     """Tests for POST /api/v1/auth/token/verify/ — token validation without rotation."""
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.user = User.objects.create_user(
             email="citizen@example.gov",
@@ -191,6 +195,7 @@ class BearerAuthOnProtectedEndpointTests(TestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.user = User.objects.create_user(
             email="citizen@example.gov",

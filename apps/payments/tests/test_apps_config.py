@@ -11,7 +11,7 @@ the signals import and the weasyprint import so we can exercise the error branch
 import sys
 from unittest.mock import patch, MagicMock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 
 def _make_config():
@@ -21,6 +21,7 @@ def _make_config():
     return PaymentsConfig("payments", payments_module)
 
 
+@override_settings(DEBUG=True)
 class WeasyPrintCheckOSErrorTest(SimpleTestCase):
     """When weasyprint raises OSError (missing Pango/Cairo), a WARNING is logged."""
 
@@ -134,6 +135,7 @@ class WeasyPrintCheckOSErrorTest(SimpleTestCase):
                 sys.modules["weasyprint"] = saved
 
 
+@override_settings(DEBUG=True)
 class WeasyPrintCheckImportErrorTest(SimpleTestCase):
     """When weasyprint is not installed (ImportError), a WARNING is logged."""
 

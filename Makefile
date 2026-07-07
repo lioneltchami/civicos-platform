@@ -99,8 +99,16 @@ check: ## Run all Django system checks
 	$(MANAGE) check --settings=config.settings.development
 
 .PHONY: test
-test: ## Run test suite
+test: ## Run test suite (local virtualenv)
 	pytest
+
+.PHONY: test-docker
+test-docker: ## Run test suite in Docker (uses config.settings.test via pyproject.toml)
+	$(DC) run --rm web pytest
+
+.PHONY: test-docker-app
+test-docker-app: ## Run tests for a specific app in Docker: make test-docker-app APP=appointments
+	$(DC) run --rm web pytest apps/$(APP)/
 
 .PHONY: test-cov
 test-cov: ## Run tests with coverage report

@@ -27,6 +27,9 @@ from django.utils.translation import gettext_lazy as _
 from .models import (
     AppointmentType,
     AvailabilityTemplate,
+    Booking,
+    BookingAuditLog,
+    ClientNoShowRecord,
     Location,
     Organization,
     Resource,
@@ -35,6 +38,7 @@ from .models import (
     Slot,
     StaffException,
     StaffProfile,
+    WaitlistEntry,
 )
 
 # ---------------------------------------------------------------------------
@@ -934,6 +938,261 @@ class SlotAdmin(admin.ModelAdmin):
     @admin.display(description=_("Staff ID"))
     def staff_id_display(self, obj: Slot) -> str:
         return str(obj.staff_id)
+
+
+# ===========================================================================
+# Wave 3: Booking, ClientNoShowRecord, WaitlistEntry
+# ===========================================================================
+
+
+class BookingAuditLogInline(admin.TabularInline):
+    """Read-only inline showing the audit trail for a booking."""
+    model = BookingAuditLog
+    extra = 0
+    can_delete = False
+    readonly_fields = [
+        "timestamp", "action", "actor_id", "actor_ip",
+        "previous_status", "new_status", "detail",
+    ]
+    ordering = ["-timestamp"]
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Booking)
+class BookingAdmin(admin.ModelAdmin):
+    """
+    Admin for Booking model.
+
+    PIPEDA gates:
+    - citizen PK shown (not email/name)
+    - form_responses hidden unless appointments.view_booking_form_responses
+    - internal_notes hidden unless appointments.view_internal_notes
+    """
+    list_display = [
+        "pk_short",
+        "citizen_pk",
+        "slot_start",
+        "status",
+        "no_show",
+        "appointment_mode",
+        "booking_channel",
+        "created_at",
+    ]
+    list_filter = ["status", "no_show", "appointment_mode", "booking_channel", "language"]
+    search_fields = ["pk"]  # Only PK — no PII search
+    ordering = ["-created_at"]
+    inlines = [BookingAuditLogInline]
+    readonly_fields = [
+        "pk",
+        "citizen_pk_display",
+        "slot",
+        "created_at",
+        "updated_at",
+        "rescheduled_from",
+        "reschedule_count",
+        "cancelled_at",
+        "cancelled_by",
+        "late_cancellation",
+        "consent_recorded_at",
+        "work_item_id",
+        "service_request_id",
+    ]
+    fieldsets = (
+        (None, {
+            "fields": (
+                "pk",
+                ("citizen_pk_display", "slot"),
+                ("status", "no_show"),
+                ("appointment_mode", "booking_channel", "language"),
+            ),
+        }),
+        (_("Rescheduling"), {
+            "classes": ("collapse",),
+            "fields": ("rescheduled_from", "reschedule_count"),
+        }),
+        (_("Cancellation"), {
+            "classes": ("collapse",),
+            "fields": (
+                "cancelled_at",
+                "cancelled_by",
+                "cancellation_reason",
+                "late_cancellation",
+            ),
+        }),
+        (_("Intake (Protected B — permission gated)"), {
+            "classes": ("collapse",),
+            "fields": (
+                "form_responses",
+                "interpreter_needed",
+                "interpreter_language",
+                "accessibility_needs",
+            ),
+        }),
+        (_("Staff Notes (permission gated)"), {
+            "classes": ("collapse",),
+            "fields": ("internal_notes",),
+        }),
+        (_("Consent & Compliance"), {
+            "classes": ("collapse",),
+            "fields": ("consent_recorded_at", "consent_version"),
+        }),
+        (_("System Links"), {
+            "classes": ("collapse",),
+            "fields": ("work_item_id", "service_request_id"),
+        }),
+        (_("Timestamps"), {
+            "classes": ("collapse",),
+            "fields": ("created_at", "updated_at"),
+        }),
+    )
+
+    def pk_short(self, obj):
+        return str(obj.pk)[:8] + "…"
+    pk_short.short_description = "PK (short)"
+
+    def citizen_pk(self, obj):
+        """Display citizen PK only — NEVER email or name (PIPEDA)."""
+        return str(obj.citizen_id)
+    citizen_pk.short_description = "Citizen PK"
+    citizen_pk.admin_order_field = "citizen_id"
+
+    def citizen_pk_display(self, obj):
+        return str(obj.citizen_id)
+    citizen_pk_display.short_description = "Citizen PK"
+
+    def slot_start(self, obj):
+        return obj.slot.start_datetime.isoformat() if obj.slot_id else "—"
+    slot_start.short_description = "Slot start (UTC)"
+
+    def get_readonly_fields(self, request, obj=None):
+        """Gate Protected B fields behind explicit permission."""
+        ro = list(self.readonly_fields)
+        if not request.user.has_perm("appointments.view_booking_form_responses"):
+            ro += ["form_responses", "accessibility_needs", "interpreter_language"]
+        if not request.user.has_perm("appointments.view_internal_notes"):
+            ro += ["internal_notes"]
+        return ro
+
+    def has_delete_permission(self, request, obj=None):
+        """Bookings are audit-relevant records — no deletion via admin."""
+        return False
+
+
+@admin.register(ClientNoShowRecord)
+class ClientNoShowRecordAdmin(admin.ModelAdmin):
+    """
+    Admin for ClientNoShowRecord. Access gated by manage_no_shows permission.
+    PIPEDA: citizen referenced by PK only in list view.
+    """
+    list_display = [
+        "citizen_pk",
+        "no_show_count",
+        "late_cancellation_count",
+        "total_appointments",
+        "is_flagged",
+        "is_suspended",
+        "updated_at",
+    ]
+    list_filter = ["is_flagged", "is_suspended"]
+    ordering = ["-updated_at"]
+    readonly_fields = [
+        "citizen",
+        "no_show_count",
+        "late_cancellation_count",
+        "total_appointments",
+        "last_no_show_at",
+        "flagged_at",
+        "flagged_by",
+        "created_at",
+        "updated_at",
+    ]
+    actions = ["clear_flag_action", "clear_suspension_action"]
+
+    def citizen_pk(self, obj):
+        return str(obj.citizen_id)
+    citizen_pk.short_description = "Citizen PK"
+
+    def has_module_perms(self, request):
+        return request.user.has_perm("appointments.manage_no_shows")
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.has_perm("appointments.manage_no_shows")
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.has_perm("appointments.manage_no_shows")
+
+    def has_add_permission(self, request):
+        return False  # Created only by the booking service
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # Retention-protected
+
+    @admin.action(description=_("Clear flag (unflag selected citizens)"))
+    def clear_flag_action(self, request, queryset):
+        if not request.user.has_perm("appointments.manage_no_shows"):
+            self.message_user(request, _("Permission denied."), level="error")
+            return
+        updated = queryset.filter(is_flagged=True).update(is_flagged=False, flagged_at=None)
+        self.message_user(request, _(f"{updated} record(s) unflagged."))
+
+    @admin.action(description=_("Clear suspension (re-enable self-booking)"))
+    def clear_suspension_action(self, request, queryset):
+        if not request.user.has_perm("appointments.manage_no_shows"):
+            self.message_user(request, _("Permission denied."), level="error")
+            return
+        updated = queryset.filter(is_suspended=True).update(
+            is_suspended=False, suspension_note=""
+        )
+        self.message_user(request, _(f"{updated} record(s) unsuspended."))
+
+
+@admin.register(WaitlistEntry)
+class WaitlistEntryAdmin(admin.ModelAdmin):
+    """Read-only admin view for waitlist entries. Mutations via service layer only."""
+    list_display = [
+        "pk",
+        "citizen_pk",
+        "slot",
+        "priority_class",
+        "position",
+        "status",
+        "notification_sent_at",
+        "joined_at",
+    ]
+    list_filter = ["status", "priority_class"]
+    ordering = ["slot", "position"]
+    readonly_fields = [
+        "slot",
+        "citizen_pk_display",
+        "priority_class",
+        "position",
+        "status",
+        "notification_sent_at",
+        "acceptance_deadline",
+        "notification_channel",
+        "joined_at",
+        "created_at",
+        "updated_at",
+    ]
+
+    def citizen_pk(self, obj):
+        return str(obj.citizen_id)
+    citizen_pk.short_description = "Citizen PK"
+
+    def citizen_pk_display(self, obj):
+        return str(obj.citizen_id)
+    citizen_pk_display.short_description = "Citizen PK"
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 # Add AvailabilityTemplate inline to StaffProfileAdmin

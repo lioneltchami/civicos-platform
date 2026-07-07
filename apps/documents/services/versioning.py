@@ -238,7 +238,7 @@ def create_new_version(
     # covers the root itself and every child version pointing to it.
     with transaction.atomic():
         chain_qs = (
-            Document.objects.select_for_update()
+            Document.objects.select_for_update(of=("self",))
             .filter(
                 models.Q(pk=chain_root.pk)
                 | models.Q(root_document_id=chain_root.pk)

@@ -85,7 +85,7 @@ def generate_and_send_receipt(self, receipt_pk: str) -> dict:
             receipt_locked = (
                 OfficialDonationReceipt.objects
                 .select_related("donation", "donation__donor", "document")
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .get(pk=receipt.pk)
             )
 

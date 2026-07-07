@@ -965,10 +965,13 @@ class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequire
         with transaction.atomic():
             # Lock the profile and verify coordinator scope in one atomic step.
             # select_for_update() BEFORE any business logic (CivicOS invariant).
+            # select_for_update with distinct is not supported by PostgreSQL.
+            # Use a subquery to first find matching PKs, then lock the profile row.
+            _matching_pks = VolunteerProfile.objects.filter(
+                applications__opportunity__program__coordinator=request.user
+            ).values_list("pk", flat=True).distinct()
             locked = get_object_or_404(
-                VolunteerProfile.objects.select_for_update().filter(
-                    applications__opportunity__program__coordinator=request.user
-                ).distinct(),
+                VolunteerProfile.objects.select_for_update().filter(pk__in=_matching_pks),
                 pk=profile_pk,
             )
 

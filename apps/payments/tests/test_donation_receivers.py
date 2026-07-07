@@ -9,7 +9,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from apps.payments.models import (
     CharitySettings,
@@ -328,14 +328,28 @@ class OnReceiptIssuedTests(TestCase):
         self.assertNotIn(donor_name, log_output)
 
     # 14. dispatch_uid prevents duplicate registration
+    @override_settings(DEBUG=True)
     def test_dispatch_uid_prevents_duplicate_registration(self):
         """Signal fires exactly once per emission even if ready() is called multiple times."""
         from apps.payments.apps import PaymentsConfig
         from apps.payments.tasks_receipts import generate_and_send_receipt
 
+        # Mock signal/receiver modules so ready() doesn't trigger side effects.
+        # Use DEBUG=True to suppress the FERNET_KEYS startup guard in non-TESTING envs.
+        _fake_sig = MagicMock()
+        _fake_recv = MagicMock()
+        _fake_sig.donation_completed = MagicMock()
+        _fake_sig.receipt_issued = MagicMock()
+        _fake_recv.on_donation_completed = MagicMock()
+        _fake_recv.on_receipt_issued = MagicMock()
+
         # Re-calling ready() should not double-register (dispatch_uid prevents it)
-        PaymentsConfig("payments", __import__("apps.payments")).ready()
-        PaymentsConfig("payments", __import__("apps.payments")).ready()
+        with patch.dict("sys.modules", {
+            "apps.payments.signals": _fake_sig,
+            "apps.payments.receivers": _fake_recv,
+        }):
+            PaymentsConfig("payments", __import__("apps.payments")).ready()
+            PaymentsConfig("payments", __import__("apps.payments")).ready()
 
         _counter = [0]
 

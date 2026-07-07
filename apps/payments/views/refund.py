@@ -278,7 +278,7 @@ class RefundConfirmView(LoginRequiredMixin, StaffRequiredMixin, TemplateView):
             # check and both call Stripe (double refund).  Locking the Payment row
             # prevents this: only one worker can hold the lock at a time.
             payment = (
-                Payment.objects.select_for_update()
+                Payment.objects.select_for_update(of=("self",))
                 .select_related("intent")
                 .get(pk=self.payment.pk)
             )

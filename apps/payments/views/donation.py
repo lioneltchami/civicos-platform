@@ -534,13 +534,21 @@ class RecurringGiftCancelView(LoginRequiredMixin, TemplateView):
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
+        # Guard: only perform the scoped DB lookup for authenticated users.
+        # setup() runs before LoginRequiredMixin.dispatch() checks authentication,
+        # so passing AnonymousUser (SimpleLazyObject) as an FK filter value raises
+        # TypeError before the login redirect can fire. Deferring the lookup until
+        # we know the user is authenticated preserves the correct 302 behaviour.
         plan_pk = kwargs.get("plan_pk")
         # UUID validation already done by path converter <uuid:plan_pk>
-        self.plan = get_object_or_404(
-            RecurringGiftPlan,
-            pk=plan_pk,
-            donor=request.user,
-        )
+        if getattr(request.user, "is_authenticated", False):
+            self.plan = get_object_or_404(
+                RecurringGiftPlan,
+                pk=plan_pk,
+                donor=request.user,
+            )
+        else:
+            self.plan = None
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

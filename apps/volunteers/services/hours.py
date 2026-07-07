@@ -224,7 +224,7 @@ def approve_hours(
         # status, and raise ValidationError rather than silently overwriting.
         hours_log = (
             HoursLog.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("volunteer")
             .get(pk=hours_log.pk)
         )

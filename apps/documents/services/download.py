@@ -227,7 +227,7 @@ def consume_access_token(
         try:
             token = (
                 DocumentAccessToken.objects
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .select_related("document", "issued_to")
                 .get(token=token_value)
             )

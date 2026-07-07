@@ -421,7 +421,7 @@ def approve_application(
         # raises ValidationError rather than silently overwriting.
         application = (
             VolunteerApplication.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("opportunity__program")
             .get(pk=application.pk)
         )
@@ -557,7 +557,7 @@ def reject_application(
         # than silently overwriting.
         application = (
             VolunteerApplication.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("opportunity__program")
             .get(pk=application.pk)
         )

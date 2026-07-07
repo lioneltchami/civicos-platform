@@ -34,6 +34,7 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericRelation
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -1714,3 +1715,624 @@ class Slot(TimestampedModel):
     def is_available(self) -> bool:
         """True if the slot can accept new bookings."""
         return self.status in ("available", "partial") and self.available_spaces > 0
+
+
+# ===========================================================================
+# Wave 3: Booking Engine
+# ===========================================================================
+
+
+class Booking(TimestampedModel):
+    """
+    Client reservation against a Slot. UUID primary key.
+
+    Rescheduling creates a NEW Booking; old one is CANCELLED with rescheduled=True.
+    Full audit history preserved via BookingAuditLog.
+
+    PIPEDA invariants:
+    - form_responses may contain Protected B data — permission-gated in admin.
+    - No PII in __str__ (citizen referenced by pk only).
+    - video_join_url_citizen NEVER in unauthenticated email.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    slot = models.ForeignKey(
+        "Slot",
+        on_delete=models.PROTECT,
+        related_name="bookings",
+        verbose_name=_("Slot"),
+    )
+    citizen = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="appointment_bookings",
+        limit_choices_to={"is_staff": False},
+        verbose_name=_("Citizen"),
+    )
+
+    # Status state machine (§6.1)
+    STATUS_PENDING = "pending"
+    STATUS_CONFIRMED = "confirmed"
+    STATUS_REJECTED = "rejected"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_COMPLETED = "completed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, _("Pending Staff Confirmation")),
+        (STATUS_CONFIRMED, _("Confirmed")),
+        (STATUS_REJECTED, _("Rejected")),
+        (STATUS_CANCELLED, _("Cancelled")),
+        (STATUS_COMPLETED, _("Completed")),
+    ]
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+
+    # No-show: separate Boolean (confirmed + no_show=True is valid)
+    no_show = models.BooleanField(
+        default=False,
+        help_text=_("Staff marks True if client did not attend. NOT a status value."),
+        verbose_name=_("No-show"),
+    )
+
+    # Rescheduling chain
+    rescheduled = models.BooleanField(
+        default=False,
+        verbose_name=_("Rescheduled"),
+        help_text=_("True if this booking was replaced by a newer rescheduled booking."),
+    )
+    rescheduled_from = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="rescheduled_to_set",
+        verbose_name=_("Rescheduled from"),
+        help_text=_("The original booking this was rescheduled from."),
+    )
+    reschedule_count = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Reschedule count"),
+    )
+
+    # Cancellation
+    cancelled_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Cancelled at"))
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cancelled_bookings",
+        verbose_name=_("Cancelled by"),
+    )
+    cancellation_reason = models.TextField(blank=True, verbose_name=_("Cancellation reason"))
+    late_cancellation = models.BooleanField(
+        default=False,
+        help_text=_(
+            "True if cancelled within the cancellation_notice_hours window. "
+            "Used for no-show policy escalation."
+        ),
+        verbose_name=_("Late cancellation"),
+    )
+
+    # Booking channel
+    CHANNEL_ONLINE = "online"
+    CHANNEL_PHONE = "phone"
+    CHANNEL_WALK_IN = "walk_in"
+    CHANNEL_STAFF_PORTAL = "staff_portal"
+    CHANNEL_API = "api"
+    CHANNEL_CHOICES = [
+        (CHANNEL_ONLINE, _("Online Self-Service")),
+        (CHANNEL_PHONE, _("Phone (Staff-Assisted)")),
+        (CHANNEL_WALK_IN, _("Walk-In")),
+        (CHANNEL_STAFF_PORTAL, _("Staff Portal")),
+        (CHANNEL_API, _("API")),
+    ]
+    booking_channel = models.CharField(
+        max_length=20,
+        choices=CHANNEL_CHOICES,
+        default=CHANNEL_ONLINE,
+        verbose_name=_("Booking channel"),
+    )
+    language = models.CharField(
+        max_length=5,
+        choices=[("en", _("English")), ("fr", _("French"))],
+        default="en",
+        verbose_name=_("Language"),
+    )
+    appointment_mode = models.CharField(
+        max_length=20,
+        choices=[
+            ("in_person", _("In-Person")),
+            ("virtual", _("Virtual (Video)")),
+            ("phone", _("Phone")),
+        ],
+        default="in_person",
+        verbose_name=_("Appointment mode"),
+    )
+
+    # Intake form answers
+    # PIPEDA: may contain Protected B data — permission-gated in admin + views
+    form_responses = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Form responses"),
+        help_text=_("Intake form answers. May contain Protected B data — access gated by permission."),
+    )
+
+    # Interpreter
+    interpreter_needed = models.BooleanField(default=False, verbose_name=_("Interpreter needed"))
+    interpreter_language = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Interpreter language"),
+        help_text=_("Quebec Law 25: sensitive personal information — express consent required."),
+    )
+
+    # Accessibility
+    accessibility_needs = models.TextField(
+        blank=True,
+        verbose_name=_("Accessibility needs"),
+        help_text=_("Quebec Law 25: sensitive personal information — express consent required."),
+    )
+
+    # Staff notes (NEVER shown to citizen)
+    internal_notes = models.TextField(
+        blank=True,
+        verbose_name=_("Internal notes"),
+        help_text=_("Staff/admin notes. MUST NOT be shown to citizens."),
+    )
+
+    # Confirmation / reminder tracking
+    confirmation_sent_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Confirmation sent at"))
+    reminder_72h_sent = models.BooleanField(default=False, verbose_name=_("72h reminder sent"))
+    reminder_24h_sent = models.BooleanField(default=False, verbose_name=_("24h reminder sent"))
+    reminder_2h_sent = models.BooleanField(default=False, verbose_name=_("2h reminder sent"))
+
+    # Celery task IDs for revocation
+    reminder_72h_task_id = models.CharField(max_length=100, blank=True, verbose_name=_("72h reminder task ID"))
+    reminder_24h_task_id = models.CharField(max_length=100, blank=True, verbose_name=_("24h reminder task ID"))
+    reminder_2h_task_id = models.CharField(max_length=100, blank=True, verbose_name=_("2h reminder task ID"))
+
+    # Plain UUID references (no FK — avoids circular import)
+    work_item_id = models.UUIDField(
+        null=True,
+        blank=True,
+        verbose_name=_("Work item ID"),
+        help_text=_("UUID of the related WorkItem (apps.workflows). Plain UUID, not FK."),
+    )
+    service_request_id = models.UUIDField(
+        null=True,
+        blank=True,
+        verbose_name=_("Service request ID"),
+    )
+
+    # Consent
+    consent_recorded_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Consent recorded at"))
+    consent_version = models.CharField(max_length=20, blank=True, verbose_name=_("Consent version"))
+
+    # Document attachments (GenericRelation — no schema change to documents app)
+    document_attachments = GenericRelation(
+        "documents.DocumentAttachment",
+        related_query_name="booking",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = _("Booking")
+        verbose_name_plural = _("Bookings")
+        indexes = [
+            models.Index(fields=["citizen", "status"], name="appt_booking_citizen_status"),
+            models.Index(fields=["slot", "status"], name="appt_booking_slot_status"),
+            models.Index(fields=["status", "no_show"], name="appt_booking_status_noshow"),
+            models.Index(fields=["citizen", "created_at"], name="appt_booking_citizen_created"),
+        ]
+        permissions = [
+            ("view_booking_form_responses", "Can view booking intake form responses (Protected B gate)"),
+            ("manage_no_shows", "Can manage citizen no-show records"),
+            ("view_internal_notes", "Can view staff-only internal booking notes"),
+        ]
+
+    def __str__(self) -> str:
+        # PIPEDA: citizen referenced by pk only — no name/email
+        return f"Booking {self.pk} (citizen_id={self.citizen_id}, {self.status})"
+
+    @property
+    def is_active(self) -> bool:
+        """True if the booking can still be managed (not in a terminal state)."""
+        return self.status in (self.STATUS_PENDING, self.STATUS_CONFIRMED)
+
+
+class Attendee(TimestampedModel):
+    """
+    Additional attendees beyond the primary citizen.
+    PIPEDA: Contains PII (name, email, phone) — restricted access.
+    """
+
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="attendees",
+        verbose_name=_("Booking"),
+    )
+    name = models.CharField(max_length=200, verbose_name=_("Name"))
+    email = models.EmailField(blank=True, verbose_name=_("Email"))
+    phone = models.CharField(max_length=20, blank=True, verbose_name=_("Phone"))
+    role = models.CharField(
+        max_length=20,
+        choices=[
+            ("family_member", _("Family Member")),
+            ("legal_guardian", _("Legal Guardian")),
+            ("support_person", _("Support Person")),
+            ("interpreter", _("Interpreter")),
+            ("advocate", _("Advocate / Representative")),
+            ("other", _("Other")),
+        ],
+        default="family_member",
+        verbose_name=_("Role"),
+    )
+    no_show = models.BooleanField(default=False, verbose_name=_("No-show"))
+    timezone = models.CharField(max_length=64, blank=True, verbose_name=_("Timezone"))
+    preferred_language = models.CharField(max_length=5, blank=True, verbose_name=_("Preferred language"))
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = _("Attendee")
+        verbose_name_plural = _("Attendees")
+
+    def __str__(self) -> str:
+        return f"Attendee {self.pk} (role={self.role}, booking={self.booking_id})"
+
+
+class BookingAuditLog(models.Model):
+    """
+    Immutable append-only audit trail for every booking lifecycle event.
+
+    Uses models.Model (not TimestampedModel) because:
+    - No updated_at (immutable records never update)
+    - Uses 'timestamp' field (not created_at) per audit convention
+
+    Security invariants:
+    - save() raises ValueError if PK already exists (immutability guard)
+    - delete() always raises ValueError
+    - 'detail' MUST NOT contain PII (slugs and UUIDs only)
+    - 'actor_id' is CharField (not FK) — PII safety
+    """
+
+    ACTION_CREATED = "created"
+    ACTION_CONFIRMED = "confirmed"
+    ACTION_REJECTED = "rejected"
+    ACTION_CANCELLED_CITIZEN = "cancelled_citizen"
+    ACTION_CANCELLED_STAFF = "cancelled_staff"
+    ACTION_CANCELLED_SYSTEM = "cancelled_system"
+    ACTION_RESCHEDULED = "rescheduled"
+    ACTION_COMPLETED = "completed"
+    ACTION_NO_SHOW_MARKED = "no_show_marked"
+    ACTION_REMINDER_SENT = "reminder_sent"
+    ACTION_WAITLIST_JOINED = "waitlist_joined"
+    ACTION_WAITLIST_PROMOTED = "waitlist_promoted"
+    ACTION_DOCUMENT_ATTACHED = "document_attached"
+    ACTION_PAYMENT_RECEIVED = "payment_received"
+    ACTION_CONSENT_RECORDED = "consent_recorded"
+    ACTION_DATA_PURGED = "data_purged"
+
+    ACTION_CHOICES = [
+        (ACTION_CREATED, _("Booking Created")),
+        (ACTION_CONFIRMED, _("Confirmed")),
+        (ACTION_REJECTED, _("Rejected")),
+        (ACTION_CANCELLED_CITIZEN, _("Cancelled by Citizen")),
+        (ACTION_CANCELLED_STAFF, _("Cancelled by Staff")),
+        (ACTION_CANCELLED_SYSTEM, _("Cancelled by System")),
+        (ACTION_RESCHEDULED, _("Rescheduled")),
+        (ACTION_COMPLETED, _("Completed")),
+        (ACTION_NO_SHOW_MARKED, _("No Show Marked")),
+        (ACTION_REMINDER_SENT, _("Reminder Sent")),
+        (ACTION_WAITLIST_JOINED, _("Joined Waitlist")),
+        (ACTION_WAITLIST_PROMOTED, _("Promoted from Waitlist")),
+        (ACTION_DOCUMENT_ATTACHED, _("Document Attached")),
+        (ACTION_PAYMENT_RECEIVED, _("Payment Received")),
+        (ACTION_CONSENT_RECORDED, _("Consent Recorded")),
+        (ACTION_DATA_PURGED, _("Data Purged")),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    booking = models.ForeignKey(
+        Booking,
+        on_delete=models.CASCADE,
+        related_name="audit_log",
+        verbose_name=_("Booking"),
+    )
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name=_("Timestamp"))
+    action = models.CharField(max_length=30, choices=ACTION_CHOICES, verbose_name=_("Action"))
+    # CharField (not FK) — decouples from User model; stores str(user.pk) or "system"
+    actor_id = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Actor ID"),
+        help_text=_("String pk of the acting user, or 'system'. NOT a FK (PII safety)."),
+    )
+    actor_ip = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        verbose_name=_("Actor IP"),
+    )
+    previous_status = models.CharField(max_length=20, blank=True, verbose_name=_("Previous status"))
+    new_status = models.CharField(max_length=20, blank=True, verbose_name=_("New status"))
+    detail = models.JSONField(
+        default=dict,
+        verbose_name=_("Detail"),
+        help_text=_("Additional context. MUST NOT contain PII — slugs and UUIDs only."),
+    )
+
+    class Meta:
+        ordering = ["-timestamp"]
+        verbose_name = _("Booking Audit Log Entry")
+        verbose_name_plural = _("Booking Audit Log Entries")
+        indexes = [
+            models.Index(fields=["booking", "timestamp"], name="appt_bookingaudit_booking_ts"),
+        ]
+
+    def __str__(self) -> str:
+        return f"BookingAuditLog {self.pk} ({self.action}, booking={self.booking_id})"
+
+    def save(self, *args, **kwargs) -> None:
+        """Immutability guard — audit records are append-only."""
+        if self.pk and BookingAuditLog.objects.filter(pk=self.pk).exists():
+            raise ValueError(
+                f"BookingAuditLog {self.pk} is immutable. Audit records cannot be modified."
+            )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs) -> None:
+        """Audit records can never be deleted — ATIA retention requirement."""
+        raise ValueError(
+            f"BookingAuditLog {self.pk} cannot be deleted. "
+            "Audit records are retained for 7 years per ATIA requirements."
+        )
+
+
+# ===========================================================================
+# Wave 4 Structural Models (schema created in Wave 3 migration for FK consistency)
+# ===========================================================================
+
+# Priority ordering map (for query annotation — alphabetical doesn't match priority)
+_WAITLIST_PRIORITY_ORDER = {
+    "emergency": 1,
+    "bumped": 2,
+    "high_need": 3,
+    "recurring": 4,
+    "standard": 5,
+}
+
+
+class WaitlistEntry(TimestampedModel):
+    """
+    Per-slot waitlist. Citizens join when a slot is full.
+
+    Note on ordering: Meta.ordering uses ['position'] for stability.
+    Service-layer queries MUST use annotated integer priority ordering
+    (see PRIORITY_ORDER) for correct priority sequencing in Wave 4.
+    """
+
+    PRIORITY_ORDER = _WAITLIST_PRIORITY_ORDER
+
+    slot = models.ForeignKey(
+        Slot,
+        on_delete=models.CASCADE,
+        related_name="waitlist",
+        verbose_name=_("Slot"),
+    )
+    citizen = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="waitlist_entries",
+        verbose_name=_("Citizen"),
+    )
+    priority_class = models.CharField(
+        max_length=20,
+        choices=[
+            ("emergency", _("Emergency / Crisis")),
+            ("bumped", _("Bumped by Provider")),
+            ("high_need", _("High Need / Vulnerable")),
+            ("recurring", _("Recurring Regular")),
+            ("standard", _("Standard")),
+        ],
+        default="standard",
+        verbose_name=_("Priority class"),
+    )
+    position = models.PositiveIntegerField(db_index=True, verbose_name=_("Position"))
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ("waiting", _("Waiting")),
+            ("notified", _("Notified — Awaiting Response")),
+            ("accepted", _("Accepted — Booking Created")),
+            ("expired", _("Notification Expired")),
+            ("withdrawn", _("Withdrawn by Client")),
+        ],
+        default="waiting",
+        verbose_name=_("Status"),
+    )
+    notification_sent_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Notification sent at"))
+    acceptance_deadline = models.DateTimeField(null=True, blank=True, verbose_name=_("Acceptance deadline"))
+    notification_channel = models.CharField(
+        max_length=10,
+        choices=[
+            ("email", _("Email")),
+            ("sms", _("SMS")),
+            ("phone", _("Phone Call")),
+        ],
+        default="email",
+        verbose_name=_("Notification channel"),
+    )
+    joined_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Joined at"))
+
+    class Meta:
+        ordering = ["position"]
+        verbose_name = _("Waitlist Entry")
+        verbose_name_plural = _("Waitlist Entries")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slot", "citizen"],
+                name="appt_waitlist_slot_citizen_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["slot", "status", "position"], name="appt_waitlist_slot_status_pos"),
+            models.Index(fields=["citizen", "status"], name="appt_waitlist_citizen_status"),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"WaitlistEntry {self.pk} "
+            f"(slot={self.slot_id}, citizen_id={self.citizen_id}, pos={self.position})"
+        )
+
+
+class QueueEntry(TimestampedModel):
+    """
+    Real-time queue for walk-in + booked clients on the day of service.
+    One entry per citizen per service day; linked to a Booking (optional for walk-ins).
+    """
+
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.CASCADE,
+        related_name="queue_entries",
+        verbose_name=_("Location"),
+    )
+    queue_date = models.DateField(db_index=True, verbose_name=_("Queue date"))
+    queue_number = models.CharField(max_length=10, db_index=True, verbose_name=_("Queue number"))
+    booking = models.OneToOneField(
+        Booking,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queue_entry",
+        verbose_name=_("Booking"),
+    )
+    citizen_display_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("Citizen display name"),
+        help_text=_("Display name for queue board. Not stored for anonymous bookings."),
+    )
+    queue_type = models.CharField(
+        max_length=20,
+        choices=[
+            ("emergency", _("Emergency")),
+            ("booked", _("Pre-Booked")),
+            ("walk_in", _("Walk-In")),
+        ],
+        default="booked",
+        verbose_name=_("Queue type"),
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ("waiting", _("Waiting")),
+            ("called", _("Called")),
+            ("in_service", _("In Service")),
+            ("completed", _("Completed")),
+            ("no_show", _("No Show")),
+            ("cancelled", _("Left / Cancelled")),
+        ],
+        default="waiting",
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+    assigned_staff = models.ForeignKey(
+        StaffProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="queue_assignments",
+        verbose_name=_("Assigned staff"),
+    )
+    called_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Called at"))
+    service_started_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Service started at"))
+    service_completed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Service completed at"))
+    wait_time_minutes = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Wait time (minutes)"))
+
+    class Meta:
+        ordering = ["queue_type", "created_at"]
+        verbose_name = _("Queue Entry")
+        verbose_name_plural = _("Queue Entries")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["location", "queue_date", "queue_number"],
+                name="appt_queue_location_date_number_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["location", "queue_date", "status"],
+                name="appt_queue_loc_date_status",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"QueueEntry #{self.queue_number} ({self.status}, {self.queue_date})"
+
+
+class ClientNoShowRecord(TimestampedModel):
+    """
+    Aggregate no-show statistics per citizen. One record per citizen.
+    Used for policy escalation (warning → suspension).
+
+    Access-gated behind appointments.manage_no_shows permission.
+    PIPEDA: is_suspended is a behavioural profile — minimal retention (2 years).
+    """
+
+    citizen = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="no_show_record",
+        limit_choices_to={"is_staff": False},
+        verbose_name=_("Citizen"),
+    )
+    no_show_count = models.PositiveIntegerField(default=0, verbose_name=_("No-show count"))
+    late_cancellation_count = models.PositiveIntegerField(default=0, verbose_name=_("Late cancellation count"))
+    total_appointments = models.PositiveIntegerField(default=0, verbose_name=_("Total appointments"))
+    last_no_show_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Last no-show at"))
+
+    # Escalation flags
+    is_flagged = models.BooleanField(default=False, verbose_name=_("Is flagged"))
+    flagged_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Flagged at"))
+    flagged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="flagged_no_show_records",
+        verbose_name=_("Flagged by"),
+    )
+    is_suspended = models.BooleanField(
+        default=False,
+        verbose_name=_("Is suspended"),
+        help_text=_("If True, citizen cannot self-book until staff reviews and clears."),
+    )
+    suspension_note = models.TextField(blank=True, verbose_name=_("Suspension note"))
+
+    class Meta:
+        ordering = ["-updated_at"]
+        verbose_name = _("Client No-Show Record")
+        verbose_name_plural = _("Client No-Show Records")
+        indexes = [
+            models.Index(fields=["is_flagged"], name="appt_noshowrec_flagged"),
+            models.Index(fields=["is_suspended"], name="appt_noshowrec_suspended"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ClientNoShowRecord (citizen_id={self.citizen_id}, no_shows={self.no_show_count})"
+
+    @property
+    def no_show_rate(self) -> float:
+        """Percentage of appointments that resulted in a no-show."""
+        if self.total_appointments == 0:
+            return 0.0
+        return round(self.no_show_count / self.total_appointments * 100, 1)
