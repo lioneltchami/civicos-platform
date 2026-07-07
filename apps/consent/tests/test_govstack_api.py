@@ -16,7 +16,10 @@ Covers:
 
 Security invariants verified:
   - All endpoints require authentication
-  - Non-admin cannot access /config/ or /audit/ endpoints
+  - Non-admin cannot access /config/ endpoints (org/admin scope)
+  - Audit endpoints accept any authenticated token (OAuth2: [] per spec)
+  - Verification endpoints require data_consumers group (consumer scope)
+  - DA-all endpoint scoped to request.user (individual scope)
   - Individuals can only modify their own consent records
 """
 import uuid
@@ -717,10 +720,18 @@ class AuditAPITests(GovStackAPIBase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("dataAgreement", r.data)
 
-    def test_audit_consent_records_requires_admin(self):
+    def test_audit_consent_records_allows_any_authenticated_user(self):
+        # GovStack spec: security: [{OAuth2: []}] — any valid token, no special scope.
+        # A regular citizen (no is_staff, no consent_auditors group) must get 200.
         self._auth(self.citizen)
         r = self.client.get("/api/v1/consent/audit/consent-records/")
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_audit_consent_records_requires_authentication(self):
+        # Unauthenticated requests must still be rejected.
+        self._unauth()
+        r = self.client.get("/api/v1/consent/audit/consent-records/")
+        self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_audit_consent_log(self):
         self._auth(self.admin)
@@ -1008,32 +1019,39 @@ class DataAgreementAllConsentRecordsTests(GovStackAPIBase):
         r = self.client.get(self._all_url())
         self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_all_requires_admin(self):
+    def test_all_accessible_by_any_authenticated_individual(self):
+        # GovStack spec: security: [{OAuth2: ['individual']}] — citizen tokens are valid.
+        # The endpoint returns only the authenticated user's own records.
         self._auth(self.citizen)
-        r = self.client.get(self._all_url())
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_all_returns_all_consent_records(self):
-        self._auth(self.admin)
         r = self.client.get(self._all_url())
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("consentRecords", r.data)
-        self.assertEqual(len(r.data["consentRecords"]), 2)
-
-    def test_all_filter_by_individual_id(self):
-        self._auth(self.admin)
-        r = self.client.get(self._all_url(), {"individualId": str(self.citizen.pk)})
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        # citizen has 1 record for this DA; citizen2's record is NOT returned
         self.assertEqual(len(r.data["consentRecords"]), 1)
         self.assertEqual(str(r.data["consentRecords"][0]["individual"]), str(self.citizen.pk))
 
+    def test_all_returns_only_own_records(self):
+        # citizen2 has their own record — must not appear in citizen's response
+        self._auth(self.citizen)
+        r = self.client.get(self._all_url())
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        for cr in r.data["consentRecords"]:
+            self.assertEqual(str(cr["individual"]), str(self.citizen.pk))
+
+    def test_all_citizen2_sees_only_own_record(self):
+        self._auth(self.citizen2)
+        r = self.client.get(self._all_url())
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data["consentRecords"]), 1)
+        self.assertEqual(str(r.data["consentRecords"][0]["individual"]), str(self.citizen2.pk))
+
     def test_all_nonexistent_da_returns_404(self):
-        self._auth(self.admin)
+        self._auth(self.citizen)
         r = self.client.get("/api/v1/consent/service/individual/record/data-agreement/999999/all/")
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_all_pagination(self):
-        self._auth(self.admin)
+        self._auth(self.citizen)
         r = self.client.get(self._all_url(), {"limit": 1, "offset": 0})
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data["consentRecords"]), 1)

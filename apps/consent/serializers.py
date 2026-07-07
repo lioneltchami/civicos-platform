@@ -409,7 +409,14 @@ class ConsentRecordGovStackSerializer(serializers.ModelSerializer):
         # related_name on ConsentSignature.consent_record is "signature_obj"
         try:
             return str(obj.signature_obj.pk)
+        except ConsentSignature.DoesNotExist:
+            return None
         except Exception:
+            # Unexpected error (DB issue, wrong related_name, etc.) — log but don't swallow
+            import logging
+            logging.getLogger(__name__).warning(
+                "get_signature: unexpected error for record %s", obj.pk, exc_info=True
+            )
             return None
 
     def get_dataAgreementRevision(self, obj):
