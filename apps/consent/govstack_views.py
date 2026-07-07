@@ -94,8 +94,10 @@ class ConfigPolicyListView(APIView):
     def get(self, request):
         """LIST — GovStack configPolicyList"""
         qs = ConsentPolicy.objects.filter(is_active=True).order_by("-created_at")
-        serializer = PolicySerializer(qs, many=True)
-        return Response({"policies": serializer.data})
+        offset = int(request.query_params.get("offset", 0))
+        limit = int(request.query_params.get("limit", 50))
+        page = qs[offset: offset + limit]
+        return Response({"policies": PolicySerializer(page, many=True).data, "total": qs.count()})
 
     def post(self, request):
         """CREATE — GovStack configPolicyCreate"""
@@ -470,13 +472,15 @@ class ServiceIndividualView(APIView):
             else:
                 raise PermissionDenied("You may only read your own record.")
             return Response({"individual": IndividualSerializer(user).data})
-        # List view — admin sees all active; citizen sees only own record
+        # List view — admin sees all active; citizen sees only their own record
+        # Always return the plural "individuals" array (spec contract for list endpoints).
         if request.user.is_staff:
             qs = User.objects.filter(is_active=True).order_by("date_joined")
-            offset = int(request.query_params.get("offset", 0))
-            limit = int(request.query_params.get("limit", 50))
-            return Response({"individuals": IndividualSerializer(qs[offset: offset + limit], many=True).data})
-        return Response({"individual": IndividualSerializer(request.user).data})
+        else:
+            qs = User.objects.filter(pk=request.user.pk)
+        offset = int(request.query_params.get("offset", 0))
+        limit = int(request.query_params.get("limit", 50))
+        return Response({"individuals": IndividualSerializer(qs[offset: offset + limit], many=True).data})
 
     def post(self, request, individual_id=None):
         """CREATE/register — GovStack serviceIndividualCreate"""
@@ -822,6 +826,9 @@ class ServiceIndividualConsentRecordDraftView(APIView):
         individual_id = request.query_params.get("individualId") or request.query_params.get("individual_id")
         agreement_id = request.query_params.get("dataAgreementId") or request.query_params.get("data_agreement_id")
 
+        # Both params are required per spec
+        if not individual_id:
+            raise ValidationError({"individualId": "Required."})
         if not agreement_id:
             raise ValidationError({"dataAgreementId": "Required."})
 

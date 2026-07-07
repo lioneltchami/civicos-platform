@@ -434,8 +434,18 @@ class ServiceConsentRecordDraftTests(GovStackAPIBase):
         self.assertEqual(r.data["consentRecord"]["state"], "unsigned")
         self.assertFalse(r.data["consentRecord"]["optIn"])
 
+    def test_draft_missing_individual_id_returns_400(self):
+        """individualId is now required (F14 fix)."""
+        self._auth(self.citizen)
+        r = self.client.post(
+            f"/api/v1/consent/service/individual/record/consent-record/draft/"
+            f"?dataAgreementId={self.category.pk}",
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_draft_missing_agreement_id_returns_400(self):
         self._auth(self.citizen)
+        # No params at all → fails on individualId check first
         r = self.client.post(
             "/api/v1/consent/service/individual/record/consent-record/draft/",
         )
@@ -494,6 +504,48 @@ class ServiceRightToBeForgottenTests(GovStackAPIBase):
     def test_rtbf_requires_auth(self):
         self._unauth()
         r = self.client.delete("/api/v1/consent/service/individual/record/")
+        self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ===========================================================================
+# Service — Individual list/detail
+# ===========================================================================
+
+class ServiceIndividualTests(GovStackAPIBase):
+    """Verify the /service/individual(s)/ endpoints return spec-compliant shapes."""
+
+    def test_list_individuals_as_admin_returns_array(self):
+        """Staff see all individuals as an array under 'individuals' key (F6 fix)."""
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/service/individuals/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("individuals", r.data)
+        self.assertIsInstance(r.data["individuals"], list)
+
+    def test_list_individuals_as_citizen_returns_array(self):
+        """Non-staff also get the plural 'individuals' array (not singular 'individual')."""
+        self._auth(self.citizen)
+        r = self.client.get("/api/v1/consent/service/individuals/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("individuals", r.data)
+        self.assertNotIn("individual", r.data)
+        self.assertIsInstance(r.data["individuals"], list)
+        # Non-staff see only themselves
+        self.assertEqual(len(r.data["individuals"]), 1)
+        self.assertEqual(str(r.data["individuals"][0]["id"]), str(self.citizen.pk))
+
+    def test_individual_response_includes_identity_provider_id(self):
+        """identityProviderId is now a spec-required field (F9 fix)."""
+        self._auth(self.citizen)
+        r = self.client.get("/api/v1/consent/service/individuals/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        ind = r.data["individuals"][0]
+        self.assertIn("identityProviderId", ind)
+        self.assertIsNotNone(ind["identityProviderId"])
+
+    def test_list_individuals_requires_auth(self):
+        self._unauth()
+        r = self.client.get("/api/v1/consent/service/individuals/")
         self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
@@ -633,6 +685,58 @@ class ConsentRevisionTests(GovStackAPIBase):
         _, rev2 = ConsentService.update_policy(policy, {"version": "2.0"}, actor=self.admin)
         rev1.refresh_from_db()
         self.assertEqual(rev1.successor_id, rev2.pk)
+
+    def test_revision_serializer_includes_authorized_by_individual(self):
+        """RevisionSerializer must expose authorizedByIndividual (F2a fix)."""
+        policy, rev = ConsentService.create_policy(
+            {"name": "P", "version": "1.0", "url": "https://example.com"},
+            actor=self.admin,
+        )
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/config/policy/{policy.pk}/revisions/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        rev_data = r.data["revisions"][0]
+        self.assertIn("authorizedByIndividual", rev_data)
+        self.assertEqual(str(rev_data["authorizedByIndividual"]), str(self.admin.pk))
+
+    def test_revision_serializer_includes_successor(self):
+        """RevisionSerializer must expose successor (F2a fix)."""
+        policy, rev1 = ConsentService.create_policy(
+            {"name": "P", "version": "1.0", "url": "https://example.com"},
+            actor=self.admin,
+        )
+        _, rev2 = ConsentService.update_policy(policy, {"version": "2.0"}, actor=self.admin)
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/config/policy/{policy.pk}/revisions/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        # First revision (oldest) should have successor pointing to rev2
+        revs = sorted(r.data["revisions"], key=lambda x: x["serializedHash"])
+        # Find rev1 in the list and check its successor
+        rev1_data = next(rv for rv in r.data["revisions"] if rv["id"] == str(rev1.pk))
+        self.assertEqual(str(rev1_data["successor"]), str(rev2.pk))
+
+    def test_snapshot_does_not_contain_predecessor_hash_key(self):
+        """serializedSnapshot must be a clean object snapshot — no _predecessor_hash (F2b fix)."""
+        policy, rev = ConsentService.create_policy(
+            {"name": "P", "version": "1.0", "url": "https://example.com"},
+            actor=self.admin,
+        )
+        self.assertNotIn("_predecessor_hash", rev.serialized_snapshot)
+
+    def test_policy_list_includes_pagination(self):
+        """ConfigPolicyListView must support offset/limit (F7 fix)."""
+        ConsentService.create_policy(
+            {"name": "P1", "version": "1.0", "url": "https://example.com/p1"}, actor=self.admin
+        )
+        ConsentService.create_policy(
+            {"name": "P2", "version": "1.0", "url": "https://example.com/p2"}, actor=self.admin
+        )
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/policies/?offset=0&limit=1")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data["policies"]), 1)
+        self.assertIn("total", r.data)
+        self.assertGreaterEqual(r.data["total"], 2)
 
 
 # ===========================================================================

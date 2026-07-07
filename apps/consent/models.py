@@ -396,7 +396,11 @@ class ConsentRevision(UUIDModel):
         )
         predecessor_hash = prev.serialized_hash if prev else ""
 
-        snapshot["_predecessor_hash"] = predecessor_hash
+        # Do NOT inject _predecessor_hash into the snapshot dict.
+        # The predecessor hash is stored in the dedicated predecessor_hash field.
+        # The snapshot must be a clean serialization of the object — injecting
+        # implementation-specific keys would pollute the spec-defined snapshot shape
+        # and compute a hash over data that is not part of the object itself.
         rev = cls(
             schema_name=schema_name,
             object_id=object_id,

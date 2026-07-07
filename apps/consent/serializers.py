@@ -154,7 +154,9 @@ class RevisionSerializer(serializers.ModelSerializer):
     serializedSnapshot = serializers.JSONField(source="serialized_snapshot", read_only=True)
     serializedHash = serializers.CharField(source="serialized_hash", read_only=True)
     predecessorHash = serializers.CharField(source="predecessor_hash", read_only=True)
+    authorizedByIndividual = serializers.SerializerMethodField()
     authorizedByOther = serializers.CharField(source="authorized_by_other", read_only=True)
+    successor = serializers.SerializerMethodField()
 
     class Meta:
         model = ConsentRevision
@@ -166,9 +168,21 @@ class RevisionSerializer(serializers.ModelSerializer):
             "serializedHash",
             "timestamp",
             "predecessorHash",
+            "authorizedByIndividual",
             "authorizedByOther",
+            "successor",
         ]
         read_only_fields = fields
+
+    def get_authorizedByIndividual(self, obj):
+        if obj.authorized_by_individual_id:
+            return str(obj.authorized_by_individual_id)
+        return None
+
+    def get_successor(self, obj):
+        if obj.successor_id:
+            return str(obj.successor_id)
+        return None
 
 
 class ControllerSerializer(serializers.Serializer):
@@ -300,17 +314,20 @@ class IndividualSerializer(serializers.Serializer):
     GovStack Individual object.
 
     Maps to CivicOS User. Exposes all GovStack-required fields:
-    id, name, iamRef, phone, email, consentRecordsCount.
+    id, externalId, externalIdType, identityProviderId.
+    CivicOS extensions: name, iamRef, phone, email, consentRecordsCount.
     """
     id = serializers.UUIDField(read_only=True)
+    # GovStack spec required fields
+    externalId = serializers.CharField(source="pk", read_only=True)
+    externalIdType = serializers.SerializerMethodField()
+    identityProviderId = serializers.SerializerMethodField()
+    # CivicOS extensions
     name = serializers.SerializerMethodField()
     iamRef = serializers.CharField(source="pk", read_only=True)
     phone = serializers.SerializerMethodField()
     email = serializers.EmailField(read_only=True)
     consentRecordsCount = serializers.SerializerMethodField()
-    # CivicOS extensions (non-spec)
-    externalId = serializers.CharField(source="pk", read_only=True)
-    externalIdType = serializers.SerializerMethodField()
 
     def get_name(self, obj):
         full = f"{obj.first_name} {obj.last_name}".strip()
@@ -325,6 +342,12 @@ class IndividualSerializer(serializers.Serializer):
 
     def get_externalIdType(self, obj):
         return "civicos_user"
+
+    def get_identityProviderId(self, obj):
+        # CivicOS uses its own identity provider; return the provider slug.
+        # In deployments with an external IdP (Keycloak, etc.) this would be
+        # the IdP's identifier for this user.
+        return getattr(obj, "identity_provider_id", None) or "civicos"
 
 
 class ConsentRecordGovStackSerializer(serializers.ModelSerializer):
