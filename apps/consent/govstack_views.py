@@ -874,14 +874,23 @@ class ServiceIndividualConsentRecordDraftView(APIView):
 
         revision = ConsentService._get_latest_revision(category)
 
-        # Return a draft (no PK, no DB save)
+        # Return a draft (no PK, no DB save).
+        # IMPORTANT: dataAgreement and individual MUST be FK ID strings, not nested
+        # objects. The spec ConsentRecord schema uses x-fk-model on both fields,
+        # meaning the actual wire value is an ID — consistent with every other
+        # ConsentRecord response in this codebase (ConsentRecordGovStackSerializer
+        # uses PrimaryKeyRelatedField / UUIDField for these fields). Returning nested
+        # objects would be a spec inconsistency and would fail cert harness schema
+        # validation.
         draft = {
             "id": None,  # no PK — this is a draft
-            "dataAgreement": DataAgreementSerializer(category).data,
+            "dataAgreement": str(category.pk),
+            "dataAgreementRevision": str(revision.pk) if revision else None,
             "dataAgreementRevisionHash": revision.serialized_hash if revision else "",
-            "individual": IndividualSerializer(individual).data,
+            "individual": str(individual.pk),
             "optIn": False,
             "state": "unsigned",
+            "signature": None,
         }
         return Response({
             "consentRecord": draft,

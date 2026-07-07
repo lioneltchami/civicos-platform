@@ -438,8 +438,12 @@ class WebhookSerializer(serializers.ModelSerializer):
     # in all responses (GET/POST/PUT). It is the HMAC signing secret shared with
     # the webhook subscriber — conceptually an API key, not a user password.
     secretKey = serializers.CharField(source="secret_key")
-    # GovStack spec field name is "events" (not subscribedEvents)
-    events = serializers.JSONField(source="subscribed_events")
+    # GovStack spec field name is "events" (not subscribedEvents).
+    # required=False: the spec Webhook schema has no "events" property — the cert
+    # harness sends only [payloadUrl, contentType, disabled, secretKey]. Without
+    # required=False, DRF would reject the request with a 400 because explicitly
+    # declared JSONField does NOT inherit the model's default=list.
+    events = serializers.JSONField(source="subscribed_events", required=False, default=list)
     signatureHeader = serializers.CharField(source="signature_header", required=False, allow_blank=True)
     skippedHeaders = serializers.JSONField(source="skipped_headers", required=False)
     timeStamp = serializers.DateTimeField(source="created_at", read_only=True)

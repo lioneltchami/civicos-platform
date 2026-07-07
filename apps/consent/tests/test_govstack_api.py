@@ -366,6 +366,32 @@ class ConfigWebhookTests(GovStackAPIBase):
         self.assertIn("secretKey", r.data["webhook"])
         self.assertEqual(r.data["webhook"]["secretKey"], "verifiable-secret")
 
+    def test_create_webhook_without_events_succeeds(self):
+        """
+        Round 9: spec Webhook schema has NO 'events' property.  The cert harness
+        sends only [payloadUrl, contentType, disabled, secretKey].  Without
+        required=False on the events field, DRF would reject the request with 400
+        because explicitly declared JSONField does not inherit model default=list.
+        """
+        self._auth(self.admin)
+        r = self.client.post("/api/v1/consent/config/webhook/", {
+            "webhook": {
+                "payloadUrl": "https://example.com/no-events",
+                "contentType": "application/json",
+                "disabled": False,
+                "secretKey": "spec-minimal-key",
+                # no "events" key — matches what the cert harness sends
+            }
+        }, format="json")
+        self.assertEqual(
+            r.status_code, status.HTTP_200_OK,
+            f"Spec-minimal webhook (no events) should succeed; got {r.data}"
+        )
+        self.assertIn("webhook", r.data)
+        # events field should default to an empty list
+        webhook = ConsentWebhook.objects.get(pk=r.data["webhook"]["id"])
+        self.assertEqual(webhook.subscribed_events, [])
+
 
 # ===========================================================================
 # Service — ConsentRecord CRUD
@@ -470,6 +496,33 @@ class ServiceConsentRecordDraftTests(GovStackAPIBase):
         self.assertIsNone(r.data["consentRecord"]["id"])
         self.assertEqual(r.data["consentRecord"]["state"], "unsigned")
         self.assertFalse(r.data["consentRecord"]["optIn"])
+
+    def test_draft_individual_and_data_agreement_are_ids_not_objects(self):
+        """
+        Round 9: spec ConsentRecord.individual and .dataAgreement use x-fk-model —
+        wire values must be ID strings, not nested objects.  All other ConsentRecord
+        responses (grant, list, detail) return IDs; the draft must be consistent.
+        """
+        self._auth(self.citizen)
+        r = self.client.post(
+            f"/api/v1/consent/service/individual/record/consent-record/draft/"
+            f"?individualId={self.citizen.pk}&dataAgreementId={self.category.pk}",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        cr = r.data["consentRecord"]
+        # individual must be a scalar string (UUID or integer), not a dict
+        self.assertNotIsInstance(
+            cr["individual"], dict,
+            "consentRecord.individual must be an ID string, not a nested object"
+        )
+        # dataAgreement must be a scalar string (PK), not a dict
+        self.assertNotIsInstance(
+            cr["dataAgreement"], dict,
+            "consentRecord.dataAgreement must be an ID string, not a nested object"
+        )
+        # Values must match the actual objects used
+        self.assertEqual(str(cr["individual"]), str(self.citizen.pk))
+        self.assertEqual(str(cr["dataAgreement"]), str(self.category.pk))
 
     def test_draft_missing_individual_id_returns_400(self):
         """individualId is now required (F14 fix)."""
