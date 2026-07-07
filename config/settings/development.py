@@ -29,7 +29,11 @@ SITE_URL = env("SITE_URL", default="http://localhost:8000")
 # Dev apps & middleware
 # ---------------------------------------------------------------------------
 
-_TESTING = "test" in sys.argv
+# Detect both `manage.py test` and `pytest` invocations.
+# sys.argv[0] is "pytest" (or a path ending in /pytest) when invoked via pytest.
+_TESTING = "test" in sys.argv or (
+    bool(sys.argv) and ("pytest" in sys.argv[0] or sys.argv[0].endswith("/py.test"))
+)
 
 INSTALLED_APPS += [
     "django_extensions",

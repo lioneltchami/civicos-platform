@@ -103,12 +103,12 @@ test: ## Run test suite (local virtualenv)
 	pytest
 
 .PHONY: test-docker
-test-docker: ## Run test suite in Docker (uses config.settings.test via pyproject.toml)
-	$(DC) run --rm web pytest
+test-docker: ## Run test suite in Docker
+	$(DC) run --rm -e DJANGO_SETTINGS_MODULE=config.settings.test web pytest
 
 .PHONY: test-docker-app
 test-docker-app: ## Run tests for a specific app in Docker: make test-docker-app APP=appointments
-	$(DC) run --rm web pytest apps/$(APP)/
+	$(DC) run --rm -e DJANGO_SETTINGS_MODULE=config.settings.test web pytest apps/$(APP)/
 
 .PHONY: test-cov
 test-cov: ## Run tests with coverage report
