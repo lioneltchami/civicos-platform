@@ -958,6 +958,11 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self.category = _make_category(slug="sig-test-cat")
         ConsentService.grant(self.citizen, self.category.slug)
         self.record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        # Round 9: grant() now auto-creates a ConsentSignature. Delete it so that
+        # the explicit POST /signature/ tests can exercise the create path cleanly.
+        # The duplicate-prevention test re-creates it by calling POST first.
+        from apps.consent.models import ConsentSignature
+        ConsentSignature.objects.filter(consent_record=self.record).delete()
 
     def _sig_url(self):
         return f"/api/v1/consent/service/individual/record/consent-record/{self.record.pk}/signature/"
@@ -1045,7 +1050,12 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("consentRecord", r.data)
         self.assertIn("revision", r.data)
-        self.assertIn("signature", r.data)  # key must exist (may be None)
+        self.assertIn("signature", r.data)
+        # Round 9: grant() auto-creates a ConsentSignature, so signature is now non-null
+        self.assertIsNotNone(
+            r.data["signature"],
+            "POST consent-record must return a non-null signature (Round 9 F9 fix)"
+        )
 
 
 # ===========================================================================
@@ -1108,3 +1118,189 @@ class DataAgreementAllConsentRecordsTests(GovStackAPIBase):
         r = self.client.get(self._all_url(), {"limit": 1, "offset": 0})
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data["consentRecords"]), 1)
+
+
+# ===========================================================================
+# Round 9+ fixes — new regression tests
+# ===========================================================================
+
+class Round9WebhookDisabledFieldTests(GovStackAPIBase):
+    """
+    F8: Webhook create must honour the spec 'disabled' field, not legacy 'isActive'.
+    The cert harness sends {"disabled": true} and expects the webhook to be disabled.
+    """
+
+    def test_create_webhook_with_disabled_true_creates_disabled_webhook(self):
+        """Spec-minimal payload with disabled=true must create an is_disabled=True webhook."""
+        self._auth(self.admin)
+        r = self.client.post("/api/v1/consent/config/webhook/", {
+            "webhook": {
+                "payloadUrl": "https://example.com/disabled-hook",
+                "contentType": "application/json",
+                "disabled": True,
+                "secretKey": "test-disabled-key",
+            }
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        webhook = ConsentWebhook.objects.get(pk=r.data["webhook"]["id"])
+        self.assertTrue(webhook.is_disabled, "webhook.is_disabled should be True when disabled=true is sent")
+        # Response should reflect the disabled state
+        self.assertTrue(r.data["webhook"]["disabled"])
+        self.assertFalse(r.data["webhook"]["isActive"])
+
+    def test_create_webhook_with_disabled_false_creates_active_webhook(self):
+        """disabled=false must create an active webhook."""
+        self._auth(self.admin)
+        r = self.client.post("/api/v1/consent/config/webhook/", {
+            "webhook": {
+                "payloadUrl": "https://example.com/active-hook",
+                "contentType": "application/json",
+                "disabled": False,
+                "secretKey": "test-active-key",
+            }
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        webhook = ConsentWebhook.objects.get(pk=r.data["webhook"]["id"])
+        self.assertFalse(webhook.is_disabled)
+
+    def test_update_webhook_with_disabled_field(self):
+        """PUT with disabled=true must disable the webhook."""
+        webhook = ConsentWebhook.objects.create(
+            payload_url="https://example.com/put-test",
+            secret_key="k1",
+            is_disabled=False,
+        )
+        self._auth(self.admin)
+        r = self.client.put(f"/api/v1/consent/config/webhook/{webhook.pk}/", {
+            "webhook": {
+                "payloadUrl": "https://example.com/put-test",
+                "secretKey": "k1",
+                "disabled": True,
+            }
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        webhook.refresh_from_db()
+        self.assertTrue(webhook.is_disabled)
+
+
+class Round9GrantAutoSignatureTests(GovStackAPIBase):
+    """
+    F9: POST /service/individual/record/consent-record/ must return a non-null
+    signature. ConsentService.grant() must auto-create a ConsentSignature.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.category = _make_category(slug="grant-sig-test")
+
+    def test_grant_via_service_api_returns_non_null_signature(self):
+        """POST consent-record must return signature != null (Round 9 / F9 fix)."""
+        self._auth(self.citizen)
+        r = self.client.post(
+            "/api/v1/consent/service/individual/record/consent-record/",
+            {"consentRecord": {"dataAgreementId": self.category.pk}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("signature", r.data)
+        self.assertIsNotNone(
+            r.data["signature"],
+            "POST consent-record must return a non-null signature object"
+        )
+
+    def test_grant_service_creates_consent_signature_record(self):
+        """ConsentService.grant() must persist a ConsentSignature row."""
+        from apps.consent.models import ConsentSignature
+        ConsentService.grant(self.citizen, self.category.slug)
+        record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        self.assertTrue(
+            ConsentSignature.objects.filter(consent_record=record).exists(),
+            "ConsentService.grant() must auto-create a ConsentSignature"
+        )
+
+    def test_grant_idempotent_updates_signature(self):
+        """Calling grant() twice on the same record must not raise an error."""
+        from apps.consent.models import ConsentSignature
+        ConsentService.grant(self.citizen, self.category.slug)
+        ConsentService.grant(self.citizen, self.category.slug)
+        record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        # Exactly one signature should exist (update_or_create is idempotent)
+        self.assertEqual(
+            ConsentSignature.objects.filter(consent_record=record).count(), 1
+        )
+
+    def test_grant_signature_has_string_verification_type(self):
+        """Auto-created signature must use verificationMethod='string'."""
+        from apps.consent.models import ConsentSignature
+        ConsentService.grant(self.citizen, self.category.slug)
+        record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        sig = ConsentSignature.objects.get(consent_record=record)
+        self.assertEqual(sig.verification_type, "string")
+
+
+class Round9RevisionIdParamTests(GovStackAPIBase):
+    """
+    F3: revisionId query param on policy detail and draft endpoints must be honoured.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.policy, self.rev1 = ConsentService.create_policy(
+            {"name": "RevId Test Policy", "version": "1.0", "url": "https://example.com/p"},
+            actor=self.admin,
+        )
+        _, self.rev2 = ConsentService.update_policy(
+            self.policy, {"version": "2.0"}, actor=self.admin
+        )
+
+    def test_policy_detail_without_revision_id_returns_latest(self):
+        """No ?revisionId → latest revision (successor=None)."""
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/config/policy/{self.policy.pk}/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["revision"]["id"], str(self.rev2.pk))
+
+    def test_policy_detail_with_revision_id_returns_specific_revision(self):
+        """?revisionId=<rev1_id> → returns rev1, not the latest."""
+        self._auth(self.admin)
+        r = self.client.get(
+            f"/api/v1/consent/config/policy/{self.policy.pk}/?revisionId={self.rev1.pk}"
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["revision"]["id"], str(self.rev1.pk))
+
+    def test_policy_detail_with_invalid_revision_id_returns_404(self):
+        """Non-existent revisionId → 404."""
+        self._auth(self.admin)
+        r = self.client.get(
+            f"/api/v1/consent/config/policy/{self.policy.pk}/?revisionId={uuid.uuid4()}"
+        )
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class Round9RTBFRequiredGuardTests(GovStackAPIBase):
+    """
+    F12: RTBF must not delete records for required categories even if they are
+    also marked forgettable (contradictory but possible DB state).
+    """
+
+    def test_rtbf_does_not_delete_required_forgettable_records(self):
+        """A category with both is_required=True and forgettable=True must NOT be deleted by RTBF."""
+        required_and_forgettable = _make_category(
+            slug="rtbf-req-forget",
+            is_required=True,
+            forgettable=True,
+        )
+        # Grant consent bypassing the is_required withdrawal check (grant always succeeds)
+        ConsentService.grant(self.citizen, required_and_forgettable.slug)
+        self._auth(self.citizen)
+        r = self.client.delete("/api/v1/consent/service/individual/record/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        # The required record must still exist
+        self.assertTrue(
+            ConsentRecord.objects.filter(
+                citizen=self.citizen, category=required_and_forgettable
+            ).exists(),
+            "RTBF must not delete records for required categories even if forgettable=True"
+        )
+        self.assertEqual(r.data["deleted_count"], 0)

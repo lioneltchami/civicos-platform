@@ -154,13 +154,25 @@ class ConfigPolicyDetailView(APIView):
     def get(self, request, policy_id):
         """READ — GovStack configPolicyRead"""
         policy = self._get_policy(policy_id)
-        revision = (
-            ConsentRevision.objects.filter(
-                schema_name="Policy",
-                object_id=str(policy.pk),
-                successor__isnull=True,
-            ).first()
-        )
+        # GovStack spec: optional ?revisionId= query param selects a specific revision.
+        revision_id = request.query_params.get("revisionId")
+        if revision_id:
+            try:
+                revision = ConsentRevision.objects.get(
+                    pk=revision_id,
+                    schema_name="Policy",
+                    object_id=str(policy.pk),
+                )
+            except ConsentRevision.DoesNotExist:
+                raise NotFound("Revision not found for this policy.")
+        else:
+            revision = (
+                ConsentRevision.objects.filter(
+                    schema_name="Policy",
+                    object_id=str(policy.pk),
+                    successor__isnull=True,
+                ).first()
+            )
         return Response({
             "policy": PolicySerializer(policy).data,
             "revision": RevisionSerializer(revision).data if revision else None,
@@ -400,12 +412,17 @@ class ConfigWebhookListView(APIView):
         payload = request.data.get("webhook", request.data)
         serializer = WebhookSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        # isActive is a read-only computed field; accept isActive from input to set is_disabled
-        is_active_input = payload.get("isActive", True)
+        # Use spec "disabled" field from serializer validated_data (source="is_disabled").
+        # Fall back to legacy "isActive" inversion only when "disabled" was not provided.
+        if "is_disabled" in serializer.validated_data:
+            is_disabled = serializer.validated_data["is_disabled"]
+        else:
+            # Legacy isActive support — not in spec, kept for backwards compatibility
+            is_disabled = not payload.get("isActive", True)
         webhook = ConsentWebhook.objects.create(
             payload_url=serializer.validated_data["payload_url"],
             content_type=serializer.validated_data.get("content_type", "application/json"),
-            is_disabled=not is_active_input,
+            is_disabled=is_disabled,
             secret_key=serializer.validated_data["secret_key"],
             subscribed_events=serializer.validated_data.get("subscribed_events", []),
             signature_header=serializer.validated_data.get("signature_header", "X-GovStack-Signature"),
@@ -431,13 +448,14 @@ class ConfigWebhookDetailView(APIView):
     def put(self, request, webhook_id):
         webhook = self._get_webhook(webhook_id)
         payload = request.data.get("webhook", request.data)
-        # Handle isActive → is_disabled inversion before serializer validation
-        if "isActive" in payload:
-            webhook.is_disabled = not payload["isActive"]
         serializer = WebhookSerializer(webhook, data=payload, partial=True)
         serializer.is_valid(raise_exception=True)
+        # Apply all validated fields (including is_disabled from spec "disabled" field).
         for field, value in serializer.validated_data.items():
             setattr(webhook, field, value)
+        # Legacy backwards-compat: honour "isActive" only when spec "disabled" was absent.
+        if "disabled" not in payload and "isActive" in payload:
+            webhook.is_disabled = not payload["isActive"]
         webhook.save()
         return Response({"webhook": WebhookSerializer(webhook).data})
 
@@ -579,13 +597,25 @@ class ServicePolicyDetailView(APIView):
             policy = ConsentPolicy.objects.get(pk=policy_id, is_active=True)
         except ConsentPolicy.DoesNotExist:
             raise NotFound("Policy not found.")
-        revision = (
-            ConsentRevision.objects.filter(
-                schema_name="Policy",
-                object_id=str(policy.pk),
-                successor__isnull=True,
-            ).first()
-        )
+        # GovStack spec: optional ?revisionId= query param selects a specific revision.
+        revision_id = request.query_params.get("revisionId")
+        if revision_id:
+            try:
+                revision = ConsentRevision.objects.get(
+                    pk=revision_id,
+                    schema_name="Policy",
+                    object_id=str(policy.pk),
+                )
+            except ConsentRevision.DoesNotExist:
+                raise NotFound("Revision not found for this policy.")
+        else:
+            revision = (
+                ConsentRevision.objects.filter(
+                    schema_name="Policy",
+                    object_id=str(policy.pk),
+                    successor__isnull=True,
+                ).first()
+            )
         return Response({
             "policy": PolicySerializer(policy).data,
             "revision": RevisionSerializer(revision).data if revision else None,
@@ -872,7 +902,19 @@ class ServiceIndividualConsentRecordDraftView(APIView):
         except (User.DoesNotExist, ValueError):
             raise ValidationError({"individualId": "Individual not found."})
 
-        revision = ConsentService._get_latest_revision(category)
+        # GovStack spec: optional ?revisionId= selects a specific DataAgreement revision.
+        revision_id = request.query_params.get("revisionId")
+        if revision_id:
+            try:
+                revision = ConsentRevision.objects.get(
+                    pk=revision_id,
+                    schema_name="DataAgreement",
+                    object_id=str(category.pk),
+                )
+            except ConsentRevision.DoesNotExist:
+                raise NotFound("Revision not found for this DataAgreement.")
+        else:
+            revision = ConsentService._get_latest_revision(category)
 
         # Return a draft (no PK, no DB save).
         # IMPORTANT: dataAgreement and individual MUST be FK ID strings, not nested
