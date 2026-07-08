@@ -251,8 +251,11 @@ class ConfigDataAgreementListView(APIView):
         offset = int(request.query_params.get("offset", 0))
         limit = int(request.query_params.get("limit", 50))
         page = qs[offset: offset + limit]
+        # GovStack spec: GET /config/data-agreements/ response key is "dataAgreement"
+        # (singular), even though the value is an array.  This is an intentional spec
+        # choice — see v23Q4 YAML components/schemas response property name.
         return Response({
-            "dataAgreements": DataAgreementSerializer(page, many=True).data,
+            "dataAgreement": DataAgreementSerializer(page, many=True).data,
             "total": qs.count(),
         })
 

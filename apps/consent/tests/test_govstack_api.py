@@ -228,8 +228,9 @@ class ConfigDataAgreementTests(GovStackAPIBase):
         self._auth(self.admin)
         r = self.client.get("/api/v1/consent/config/data-agreements/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertIn("dataAgreements", r.data)
-        self.assertGreaterEqual(len(r.data["dataAgreements"]), 2)
+        # Spec: GET /config/data-agreements/ envelope key is "dataAgreement" (singular)
+        self.assertIn("dataAgreement", r.data)
+        self.assertGreaterEqual(len(r.data["dataAgreement"]), 2)
 
     def test_create_data_agreement(self):
         self._auth(self.admin)
