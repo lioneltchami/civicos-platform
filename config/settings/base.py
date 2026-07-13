@@ -384,6 +384,12 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute="*/15"),  # Every 15 minutes
         "options": {"queue": "appointments"},
     },
+    # Consent BB — expire stale data exports daily at 03:00 UTC
+    "consent-cleanup-expired-exports": {
+        "task": "consent.cleanup_export_files",
+        "schedule": crontab(hour=3, minute=0),
+        "options": {"queue": "default"},
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -751,6 +757,8 @@ SIMPLE_JWT = {
 # The value is stored on ConsentRecord.consent_version so we have an audit trail
 # of exactly which version of the text each citizen agreed to.
 CONSENT_CURRENT_VERSION = "1.0"
+# Days a generated PIPEDA data export is available for download before expiry.
+DATA_EXPORT_TTL_DAYS: int = 7
 
 # ---------------------------------------------------------------------------
 # drf-spectacular — OpenAPI schema generation

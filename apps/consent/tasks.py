@@ -42,6 +42,18 @@ def process_data_export(self, export_request_id: str) -> dict:
         return {"error": "not_found"}
 
     try:
+        # Idempotency guard — do not reprocess terminal-state exports.
+        if req.status in (
+            DataExportRequest.STATUS_READY,
+            DataExportRequest.STATUS_DELIVERED,
+            DataExportRequest.STATUS_EXPIRED,
+        ):
+            logger.info(
+                "process_data_export: %s is already %s — skipping.",
+                export_request_id, req.status,
+            )
+            return {"skipped": True, "status": req.status}
+
         req.status = DataExportRequest.STATUS_PROCESSING
         req.save(update_fields=["status"])
 
@@ -104,9 +116,10 @@ def process_data_export(self, export_request_id: str) -> dict:
         _update_fields = ["status", "processed_at", "expires_at"]
         if _doc is not None:
             _update_fields.append("document")
+        _ttl = getattr(settings, "DATA_EXPORT_TTL_DAYS", 7)
         req.status = DataExportRequest.STATUS_READY
         req.processed_at = now
-        req.expires_at = now + timedelta(days=7)
+        req.expires_at = now + timedelta(days=_ttl)
         if _doc is not None:
             req.document = _doc
         try:
@@ -149,11 +162,7 @@ def process_data_export(self, export_request_id: str) -> dict:
         # Notify citizen by email
         _notify_export_ready(req)
 
-        logger.info(
-            "process_data_export: completed for citizen %s, request %s",
-            req.citizen.pk,
-            req.pk,
-        )
+        logger.info("process_data_export: completed")
         return {"status": "ready", "export_request_id": str(req.pk)}
 
     except SoftTimeLimitExceeded:
@@ -196,8 +205,8 @@ def process_data_export(self, export_request_id: str) -> dict:
         raise self.retry(exc=exc, countdown=300)
 
 
-@shared_task(name="consent.cleanup_export_files")
-def cleanup_export_files() -> dict:
+@shared_task(name="consent.cleanup_export_files", bind=True, max_retries=3)
+def cleanup_export_files(self) -> dict:
     """
     Mark expired DataExportRequests and delete their stored files.
     Runs daily via Celery Beat.
@@ -272,6 +281,9 @@ def cleanup_export_files() -> dict:
     except SoftTimeLimitExceeded:
         logger.warning("cleanup_export_files: soft time limit exceeded")
         return {"error": "timeout"}
+    except Exception as exc:
+        logger.exception("cleanup_export_files: failed: %s", exc)
+        raise self.retry(exc=exc, countdown=600)
 
 
 def _build_export_payload(user) -> dict:
@@ -318,6 +330,21 @@ def _build_export_payload(user) -> dict:
     except Exception:
         pass
 
+    consent_audit_entries = []
+    try:
+        from apps.consent.models import ConsentAuditEntry
+        consent_audit_entries = list(
+            ConsentAuditEntry.objects.filter(citizen=user).order_by("-timestamp").values(
+                "action", "category__slug", "actor_ip", "timestamp", "details"
+            )
+        )
+        # Convert datetime objects to strings for JSON serialization
+        for entry in consent_audit_entries:
+            if entry.get("timestamp"):
+                entry["timestamp"] = str(entry["timestamp"])
+    except Exception:
+        pass
+
     # NOTE: FormSubmission records are not included in the PIPEDA export because
     # Wagtail AbstractFormSubmission does not store a user FK — submissions are
     # associated with page sessions, not authenticated citizen accounts. The custom
@@ -337,6 +364,7 @@ def _build_export_payload(user) -> dict:
         "consents": consents,
         "service_requests": service_requests,
         "notifications": notifications,
+        "consent_audit_entries": consent_audit_entries,
         "form_submissions": form_submissions,
     }
 
@@ -355,8 +383,7 @@ def _notify_export_ready(export_request) -> None:
     if not portal_url:
         logger.warning(
             "_notify_export_ready: SITE_URL is not configured — "
-            "export-ready email for citizen %s will not include a portal link",
-            export_request.citizen_id,
+            "export-ready email will not include a portal link",
         )
 
     body = render_to_string(
@@ -376,7 +403,7 @@ def _notify_export_ready(export_request) -> None:
             fail_silently=True,
         )
     except Exception as e:
-        logger.warning("_notify_export_ready: email failed for citizen %s: %s", citizen.pk, e)
+        logger.warning("_notify_export_ready: email failed: %s", type(e).__name__)
 
     # Fire signal for any connected receivers (Fix 6).
     try:

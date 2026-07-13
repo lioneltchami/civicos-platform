@@ -128,18 +128,29 @@ class ConsentRecordModelTests(TestCase):
         self.assertIn(f"ConsentRecord #{record.pk}", str(record))
         self.assertIn("pending", str(record))
 
-    def test_unique_together_citizen_category(self):
-        ConsentRecord.objects.create(
+    def test_multiple_records_per_citizen_category_allowed(self):
+        """
+        F4 fix: unique_together removed — multiple ConsentRecord rows per
+        citizen/category are now allowed to preserve full consent history.
+        The is_current BooleanField identifies the authoritative current row.
+        """
+        r1 = ConsentRecord.objects.create(
             citizen=self.citizen,
             category=self.category,
             status=ConsentRecord.STATUS_PENDING,
         )
-        with self.assertRaises(IntegrityError):
-            ConsentRecord.objects.create(
-                citizen=self.citizen,
-                category=self.category,
-                status=ConsentRecord.STATUS_GRANTED,
-            )
+        r2 = ConsentRecord.objects.create(
+            citizen=self.citizen,
+            category=self.category,
+            status=ConsentRecord.STATUS_GRANTED,
+        )
+        self.assertNotEqual(r1.pk, r2.pk)
+        self.assertEqual(
+            ConsentRecord.objects.filter(
+                citizen=self.citizen, category=self.category
+            ).count(),
+            2,
+        )
 
     def test_two_citizens_same_category_allowed(self):
         citizen2 = _make_citizen()

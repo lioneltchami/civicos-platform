@@ -6,9 +6,9 @@ always get the same shape regardless of what went wrong:
 
     {
         "error": {
-            "code":   "snake_case_error_code",
-            "detail": "Human-readable message or dict of field errors",
-            "status": 403
+            "code":    "snake_case_error_code",
+            "message": "Human-readable message",
+            "details": {}
         }
     }
 
@@ -93,8 +93,8 @@ def civicos_exception_handler(exc, context):
     response.data = {
         "error": {
             "code": code,
-            "detail": detail,
-            "status": http_status,
+            "message": detail if not isinstance(detail, dict) else "Validation failed.",
+            "details": detail if isinstance(detail, dict) else {},
         }
     }
 

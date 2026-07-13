@@ -113,7 +113,13 @@ class PolicySerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
     def to_representation(self, instance):
-        """Output in GovStack camelCase for the /config/ and /service/ API surfaces."""
+        """
+        Output in GovStack camelCase for the /config/ and /service/ API surfaces.
+
+        F11 fix: only emit fields defined in the GovStack v23Q4 Policy schema.
+        createdAt/updatedAt removed — they are CivicOS extensions that caused
+        schema validation failures against the published OpenAPI spec.
+        """
         data = super().to_representation(instance)
         return {
             "id": data["id"],
@@ -127,8 +133,6 @@ class PolicySerializer(serializers.ModelSerializer):
             "geographicRestriction": data["geographic_restriction"],
             "storageLocation": data["storage_location"],
             "thirdPartyDataSharing": data["third_party_data_sharing"],
-            "createdAt": instance.created_at.isoformat() if instance.created_at else None,
-            "updatedAt": instance.updated_at.isoformat() if instance.updated_at else None,
         }
 
     def to_internal_value(self, data):
@@ -301,10 +305,6 @@ class DataAgreementSerializer(serializers.ModelSerializer):
             "dataControllerLogoImageUrl",
             "controller",
             "attributes",
-            # Bilingual fields (CivicOS extension)
-            "name_en",
-            "name_fr",
-            "purpose_fr",
         ]
         read_only_fields = ["id"]
 
@@ -387,6 +387,9 @@ class ConsentRecordGovStackSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ConsentRecord
+        # F14 fix: only emit fields defined in the GovStack v23Q4 ConsentRecord
+        # schema.  granted_at, withdrawn_at, source removed — they are CivicOS
+        # extensions that caused additionalProperties schema violations.
         fields = [
             "id",
             "dataAgreement",
@@ -396,13 +399,10 @@ class ConsentRecordGovStackSerializer(serializers.ModelSerializer):
             "optIn",
             "state",
             "signature",
-            "granted_at",
-            "withdrawn_at",
-            "source",
         ]
         read_only_fields = [
             "id", "dataAgreement", "dataAgreementRevision", "dataAgreementRevisionHash",
-            "individual", "optIn", "signature", "granted_at", "withdrawn_at",
+            "individual", "optIn", "signature",
         ]
 
     def get_signature(self, obj):
@@ -432,8 +432,6 @@ class WebhookSerializer(serializers.ModelSerializer):
     contentType = serializers.CharField(source="content_type")
     # GovStack spec required field: "disabled" (boolean, = is_disabled)
     disabled = serializers.BooleanField(source="is_disabled", required=False, default=False)
-    # CivicOS extension: isActive = inverted disabled (kept for backwards compat)
-    isActive = serializers.SerializerMethodField()
     # secretKey is a required field in the GovStack Webhook schema and must appear
     # in all responses (GET/POST/PUT). It is the HMAC signing secret shared with
     # the webhook subscriber — conceptually an API key, not a user password.
@@ -450,12 +448,13 @@ class WebhookSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ConsentWebhook
+        # F15 fix: isActive removed — it is a CivicOS extension (inverted alias
+        # for disabled) that caused additionalProperties schema violations.
         fields = [
             "id",
             "payloadUrl",
             "contentType",
             "disabled",
-            "isActive",
             "secretKey",
             "events",
             "signatureHeader",
@@ -463,9 +462,6 @@ class WebhookSerializer(serializers.ModelSerializer):
             "timeStamp",
         ]
         read_only_fields = ["id", "timeStamp"]
-
-    def get_isActive(self, obj):
-        return not obj.is_disabled
 
 
 class SignatureSerializer(serializers.ModelSerializer):
@@ -478,22 +474,17 @@ class SignatureSerializer(serializers.ModelSerializer):
     """
 
     # Required fields — GovStack spec field name is "verificationMethod"
+    # F17 fix: added "pgp" to choices (matches GovStack v23Q4 spec).
     verificationMethod = serializers.ChoiceField(
         source="verification_type",
-        choices=["string", "rs256", "ed25519", "ps256"],
+        choices=["string", "rs256", "ed25519", "ps256", "pgp"],
         default="string",
     )
     verificationPayload = serializers.CharField(source="verification_payload")
     verificationPayloadHash = serializers.CharField(source="verification_payload_hash")
     verificationSignedBy = serializers.CharField(source="verification_signed_by")
-    dataAgreementRevisionHash = serializers.CharField(
-        source="data_agreement_revision_hash", required=False, allow_blank=True
-    )
-    dataAgreementRevisionSignedWithoutId = serializers.BooleanField(
-        source="data_agreement_revision_signed_without_id", required=False
-    )
 
-    # Optional fields
+    # Optional spec fields
     verificationArtifact = serializers.CharField(
         source="verification_artifact", required=False, allow_blank=True
     )
@@ -522,6 +513,9 @@ class SignatureSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ConsentSignature
+        # F17 fix: dataAgreementRevisionHash and dataAgreementRevisionSignedWithoutId
+        # removed — they are CivicOS extensions not present in the GovStack v23Q4
+        # Signature schema and caused additionalProperties validation failures.
         fields = [
             "id",
             "payload",
@@ -531,8 +525,6 @@ class SignatureSerializer(serializers.ModelSerializer):
             "verificationPayloadHash",
             "verificationSignedBy",
             "timestamp",
-            "dataAgreementRevisionHash",
-            "dataAgreementRevisionSignedWithoutId",
             "verificationArtifact",
             "verificationSignedAs",
             "verificationJwks",

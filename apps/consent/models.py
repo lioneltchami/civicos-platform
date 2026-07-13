@@ -20,6 +20,7 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from apps.core.fields import EncryptedCharField
 from apps.core.models import TimestampedModel, UUIDModel
 
 
@@ -520,11 +521,32 @@ class ConsentRecord(UUIDModel, TimestampedModel):
         ),
     )
 
+    # F4 fix: tracks which row represents the current (most-recent) consent
+    # state for a citizen/category pair.  When a new record is created (re-
+    # consent or withdraw → re-consent), all older rows are set to False so that
+    # is_current=True acts as an efficient "active row" pointer.
+    is_current = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text=(
+            "True for the most-recent ConsentRecord for this citizen/category. "
+            "Older historical rows have is_current=False."
+        ),
+    )
+
     class Meta:
-        unique_together = [("citizen", "category")]
+        # unique_together removed (F4): we now allow multiple rows per
+        # citizen/category to preserve full consent history.  is_current=True
+        # always points at the latest row.
         ordering = ["-created_at"]
         verbose_name = "Consent Record"
         verbose_name_plural = "Consent Records"
+        indexes = [
+            models.Index(
+                fields=["citizen", "category", "is_current"],
+                name="cr_citizen_cat_curr_idx",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"ConsentRecord #{self.pk} ({self.status})"
@@ -662,11 +684,15 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
     )
     is_disabled = models.BooleanField(
         default=False,
+        db_index=True,
         help_text="If True, this webhook will not receive events.",
     )
-    secret_key = models.CharField(
-        max_length=255,
-        help_text="HMAC secret key used to sign payloads (SHA-256).",
+    secret_key = EncryptedCharField(
+        max_length=500,
+        help_text=(
+            "HMAC secret key used to sign payloads (SHA-256). "
+            "Stored Fernet-encrypted at rest; returned in API responses as required by GovStack spec."
+        ),
     )
     subscribed_events = models.JSONField(
         default=list,
@@ -763,7 +789,7 @@ class ConsentAuditEntry(models.Model):
         verbose_name_plural = "Consent Audit Entries"
         constraints = [
             models.CheckConstraint(
-                check=models.Q(action__in=[
+                condition=models.Q(action__in=[
                     "granted", "withdrawn",
                     "export_requested", "export_ready",
                     "export_delivered", "export_expired", "export_failed",
@@ -772,6 +798,12 @@ class ConsentAuditEntry(models.Model):
                 ]),
                 name="consent_audit_valid_action",
             )
+        ]
+        indexes = [
+            models.Index(
+                fields=["citizen", "timestamp"],
+                name="consent_audit_citizen_ts_idx",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -816,6 +848,7 @@ class ConsentSignature(UUIDModel):
         ("rs256", "RS256 (RSA + SHA-256)"),
         ("ed25519", "Ed25519"),
         ("ps256", "PS256 (RSA-PSS + SHA-256)"),
+        ("pgp", "PGP"),  # F17 fix: GovStack spec includes pgp
     ]
 
     SIGNED_AS_CHOICES = [

@@ -1,0 +1,244 @@
+docker compose run --rm -e DJANGO_SETTINGS_MODULE=config.settings.test web pytest apps/consent/
+time="2026-07-07T14:35:26-06:00" level=warning msg="Found orphan containers ([govstack-worker-1]) for this project. If you removed or renamed this service in your compose file, you can run this command with the --remove-orphans flag to clean it up."
+ Container govstack-db-1 Running 
+ Container govstack-redis-1 Running 
+ Container govstack-db-1 Waiting 
+ Container govstack-redis-1 Waiting 
+ Container govstack-redis-1 Healthy 
+ Container govstack-db-1 Healthy 
+ Container govstack-web-run-06453d1478bf Creating 
+ Container govstack-web-run-06453d1478bf Created 
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.3.3, pluggy-1.6.0
+django: version: 5.2.3, settings: config.settings.test (from env)
+rootdir: /app
+configfile: pyproject.toml
+plugins: Faker-33.0.0, django-4.9.0, cov-6.0.0
+collected 223 items
+
+apps/consent/tests/test_api.py ...........................               [ 12%]
+apps/consent/tests/test_govstack_api.py ................................ [ 26%]
+..................................................                       [ 48%]
+apps/consent/tests/test_models.py .................................      [ 63%]
+apps/consent/tests/test_services.py ...............................      [ 77%]
+apps/consent/tests/test_tasks.py ....................                    [ 86%]
+apps/consent/tests/test_views.py ..............................          [100%]
+
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/site-packages/wagtail/blocks/field_block.py:321: 2 warnings
+apps/consent/tests/test_api.py: 8 warnings
+  /usr/local/lib/python3.12/site-packages/wagtail/blocks/field_block.py:321: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    self.field = forms.URLField(
+
+apps/consent/models.py:765
+  /app/apps/consent/models.py:765: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:284
+  /app/apps/payments/models.py:284: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:288
+  /app/apps/payments/models.py:288: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:441
+  /app/apps/payments/models.py:441: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:445
+  /app/apps/payments/models.py:445: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:449
+  /app/apps/payments/models.py:449: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:453
+  /app/apps/payments/models.py:453: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:590
+  /app/apps/payments/models.py:590: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:788
+  /app/apps/payments/models.py:788: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1096
+  /app/apps/payments/models.py:1096: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1100
+  /app/apps/payments/models.py:1100: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1271
+  /app/apps/payments/models.py:1271: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1275
+  /app/apps/payments/models.py:1275: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1650
+  /app/apps/payments/models.py:1650: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1654
+  /app/apps/payments/models.py:1654: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1658
+  /app/apps/payments/models.py:1658: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1662
+  /app/apps/payments/models.py:1662: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1666
+  /app/apps/payments/models.py:1666: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1900
+  /app/apps/payments/models.py:1900: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1904
+  /app/apps/payments/models.py:1904: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1913
+  /app/apps/payments/models.py:1913: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:563
+  /app/apps/volunteers/models.py:563: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:876
+  /app/apps/volunteers/models.py:876: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1105
+  /app/apps/volunteers/models.py:1105: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1618
+  /app/apps/volunteers/models.py:1618: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1823
+  /app/apps/volunteers/models.py:1823: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+../usr/local/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+../usr/local/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /usr/local/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    return form_class(**defaults)
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/consent/migrations/0007_govstack_alignment.py:246: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0005_add_receipt_amount_constraints.py:27: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1057: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1679: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1686: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1696: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1703: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1724: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1774: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1781: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1788: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1795: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1802: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1827: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0001_initial.py:1834: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:25: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:32: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/volunteers/migrations/0001_initial.py:375: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/volunteers/migrations/0001_initial.py:509: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/volunteers/migrations/0001_initial.py:693: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/volunteers/migrations/0002_wave1_fixes.py:96: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /app/apps/volunteers/migrations/0002_wave1_fixes.py:122: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/consent/tests/test_api.py::ConsentCategoryListAPITests::test_excludes_inactive_categories
+  /usr/local/lib/python3.12/site-packages/wagtail/admin/forms/choosers.py:35: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    url = URLOrAbsolutePathField(required=True, label=_("URL"))
+
+apps/consent/tests/test_api.py: 27 warnings
+apps/consent/tests/test_govstack_api.py: 77 warnings
+apps/consent/tests/test_views.py: 30 warnings
+  /usr/local/lib/python3.12/site-packages/django/core/handlers/base.py:61: UserWarning: No directory at: /app/staticfiles/
+    mw_instance = middleware(adapted_handler)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+====================== 223 passed, 198 warnings in 25.23s ======================

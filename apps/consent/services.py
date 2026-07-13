@@ -39,26 +39,51 @@ class ConsentService:
 
     @staticmethod
     def get_or_create_record(citizen, category):
-        """Get existing ConsentRecord or create one in 'pending' status."""
+        """
+        Get the current ConsentRecord for a citizen/category, or create one
+        in unsigned/pending status.
+
+        F4 fix: since unique_together has been removed, we use is_current=True
+        as the lookup key so we always get/create a single "active" row.
+        """
         from apps.consent.models import ConsentRecord
 
         record, _ = ConsentRecord.objects.get_or_create(
             citizen=citizen,
             category=category,
-            defaults={"status": ConsentRecord.STATUS_PENDING},
+            is_current=True,
+            defaults={
+                "status": ConsentRecord.STATUS_PENDING,
+                "state": ConsentRecord.STATE_UNSIGNED,
+            },
         )
         return record
 
     @staticmethod
-    def grant(citizen, category_slug: str, request=None, consent_version: str = ""):
+    def grant(citizen, category_slug: str, request=None, consent_version: str = "", revision=None):
         """
-        Grant consent for a category. Idempotent if already granted.
-        Raises ValueError if category does not exist or is inactive.
+        Grant consent for a category.
 
-        consent_version: identifies which version of the consent text was shown
-        to the citizen.
+        Idempotent: if the citizen already has a signed record for the current
+        DataAgreement revision, the existing record is returned unchanged.
+
+        F4 fix: append-only — each grant creates a NEW ConsentRecord rather
+        than mutating an existing one.  Previous rows get is_current=False so
+        the history is preserved for auditing.
+
+        F2 fix: proper state machine — record starts as STATE_UNSIGNED, gets a
+        ConsentRevision, then advances to STATE_SIGNED (auto-signed) with a
+        second ConsentRevision.
+
+        F3 fix: every state transition produces a ConsentRevision with a
+        camelCase snapshot, linked via predecessor chain.
+
+        Raises ValueError if category does not exist or is inactive.
         """
-        from apps.consent.models import ConsentAuditEntry, ConsentCategory, ConsentRecord, ConsentSignature
+        from apps.consent.models import (
+            ConsentAuditEntry, ConsentCategory, ConsentRecord,
+            ConsentRevision, ConsentSignature,
+        )
         from apps.consent.signals import consent_granted
 
         category = ConsentCategory.objects.filter(slug=category_slug, is_active=True).first()
@@ -68,55 +93,98 @@ class ConsentService:
         ip = _mask_ip(_get_ip(request) or "")
 
         with transaction.atomic():
-            # Get the current DataAgreement revision for this category
-            revision = ConsentService._get_latest_revision(category)
+            # Honor a caller-supplied revision (e.g. the revisionId query param from
+            # the GovStack service endpoint).  Fall back to latest if none supplied.
+            # H-02 fix: previously the revision param was validated in the view but
+            # then silently discarded; the caller's intent is now respected.
+            if revision is None:
+                revision = ConsentService._get_latest_revision(category)
 
-            record, created = ConsentRecord.objects.get_or_create(
+            # ----------------------------------------------------------------
+            # Idempotency: return existing signed+granted record if the citizen
+            # has already consented to THIS exact revision.
+            # Both state=SIGNED and status=GRANTED must hold — a record that
+            # was bypassed to STATUS_WITHDRAWN without going through withdraw()
+            # (edge case / test harness) should be treated as not-granted.
+            # SELECT FOR UPDATE prevents races from concurrent requests.
+            # ----------------------------------------------------------------
+            existing_qs = ConsentRecord.objects.select_for_update().filter(
                 citizen=citizen,
                 category=category,
-                defaults={
-                    "status": ConsentRecord.STATUS_GRANTED,
-                    "granted_at": timezone.now(),
-                    "actor_ip": ip,
-                    "source": _get_source(request),
-                    "consent_version": consent_version,
-                    "data_agreement_revision": revision,
-                    "data_agreement_revision_hash": revision.serialized_hash if revision else "",
-                    "state": ConsentRecord.STATE_SIGNED,
-                },
+                state=ConsentRecord.STATE_SIGNED,
+                status=ConsentRecord.STATUS_GRANTED,
+                is_current=True,
             )
-            state_changed = created or record.status != ConsentRecord.STATUS_GRANTED
-            if not created and record.status != ConsentRecord.STATUS_GRANTED:
-                record.status = ConsentRecord.STATUS_GRANTED
-                record.granted_at = timezone.now()
-                record.actor_ip = ip
-                record.source = _get_source(request)
-                record.state = ConsentRecord.STATE_SIGNED
-                update_fields = ["status", "granted_at", "actor_ip", "source", "state"]
-                if consent_version:
-                    record.consent_version = consent_version
-                    update_fields.append("consent_version")
-                if revision and not record.data_agreement_revision_id:
-                    record.data_agreement_revision = revision
-                    record.data_agreement_revision_hash = revision.serialized_hash
-                    update_fields += ["data_agreement_revision", "data_agreement_revision_hash"]
-                record.save(update_fields=update_fields)
+            if revision is not None:
+                existing_qs = existing_qs.filter(data_agreement_revision=revision)
+            existing = existing_qs.first()
+            if existing:
+                return existing
 
-            if state_changed:
-                ConsentAuditEntry.objects.create(
-                    citizen=citizen,
-                    actor=citizen,
-                    action="granted",
-                    category=category,
-                    actor_ip=ip,
-                    details={"category_slug": category_slug, "source": _get_source(request)},
-                )
+            # ----------------------------------------------------------------
+            # Archive the previous current record (if any) so it becomes
+            # historical.  This preserves the full consent history.
+            # ----------------------------------------------------------------
+            ConsentRecord.objects.filter(
+                citizen=citizen,
+                category=category,
+                is_current=True,
+            ).update(is_current=False)
 
-            # Auto-create a system "string"-type signature so POST /service/individual/
-            # record/consent-record/ always returns a non-null signature object.
-            # GovStack spec: the response envelope includes a "signature" key;
-            # returning null is spec-compliant (signature is not required[]) but the
-            # cert harness expects a non-null value for granted records.
+            # ----------------------------------------------------------------
+            # STEP 1 (F2): Create the new record in STATE_UNSIGNED.
+            #              This is the "consent form presented" moment.
+            # ----------------------------------------------------------------
+            record = ConsentRecord.objects.create(
+                citizen=citizen,
+                category=category,
+                status=ConsentRecord.STATUS_PENDING,
+                state=ConsentRecord.STATE_UNSIGNED,
+                is_current=True,
+                actor_ip=ip,
+                source=_get_source(request),
+                consent_version=consent_version,
+                data_agreement_revision=revision,
+                data_agreement_revision_hash=revision.serialized_hash if revision else "",
+            )
+
+            # ----------------------------------------------------------------
+            # STEP 2 (F3): Create ConsentRevision for the unsigned state.
+            # ----------------------------------------------------------------
+            ConsentRevision.create_for(
+                schema_name="ConsentRecord",
+                obj=record,
+                snapshot=_consent_record_snapshot(record),
+                authorized_by=citizen,
+                authorized_by_other="",
+            )
+
+            # ----------------------------------------------------------------
+            # STEP 3 (F2): Advance the record to STATUS_GRANTED / STATE_SIGNED.
+            #              This is the "citizen clicked 'I agree'" moment.
+            # ----------------------------------------------------------------
+            record.status = ConsentRecord.STATUS_GRANTED
+            record.state = ConsentRecord.STATE_SIGNED
+            record.granted_at = timezone.now()
+            record.save(update_fields=["status", "state", "granted_at"])
+
+            # ----------------------------------------------------------------
+            # STEP 4 (F3): Audit entry for the grant event.
+            # ----------------------------------------------------------------
+            ConsentAuditEntry.objects.create(
+                citizen=citizen,
+                actor=citizen,
+                action="granted",
+                category=category,
+                actor_ip=ip,
+                details={"category_slug": category_slug, "source": _get_source(request)},
+            )
+
+            # ----------------------------------------------------------------
+            # STEP 5 (F3): Auto-create system "string"-type signature so the
+            #              GovStack cert harness always receives a non-null
+            #              signature object in the response envelope.
+            # ----------------------------------------------------------------
             _now = timezone.now()
             _payload_data = json.dumps({
                 "consentRecordId": str(record.pk),
@@ -127,22 +195,34 @@ class ConsentService:
                 "timestamp": _now.isoformat(),
             }, sort_keys=True, default=str)
             _payload_hash = hashlib.sha256(_payload_data.encode()).hexdigest()
-            ConsentSignature.objects.update_or_create(
+            ConsentSignature.objects.create(
                 consent_record=record,
-                defaults={
-                    "payload": _payload_data,
-                    "signature": _payload_hash,
-                    "verification_type": "string",
-                    "verification_payload": _payload_data,
-                    "verification_payload_hash": _payload_hash,
-                    "verification_signed_by": str(citizen.pk),
-                    "timestamp": _now,
-                    "data_agreement_revision_hash": revision.serialized_hash if revision else "",
-                },
+                payload=_payload_data,
+                signature=_payload_hash,
+                verification_type="string",
+                verification_payload=_payload_data,
+                verification_payload_hash=_payload_hash,
+                verification_signed_by=str(citizen.pk),
+                timestamp=_now,
+                data_agreement_revision_hash=revision.serialized_hash if revision else "",
             )
 
-            # Fire webhook INSIDE atomic block so on_commit defers until transaction commits.
-            # If called outside atomic(), on_commit fires immediately (Django docs).
+            # ----------------------------------------------------------------
+            # STEP 6 (F3): Create ConsentRevision for the signed state.
+            #              This captures the final state (with signature) in
+            #              the append-only revision chain.
+            # ----------------------------------------------------------------
+            ConsentRevision.create_for(
+                schema_name="ConsentRecord",
+                obj=record,
+                snapshot=_consent_record_snapshot(record),
+                authorized_by=citizen,
+                authorized_by_other="",
+            )
+
+            # ----------------------------------------------------------------
+            # Fire webhook after the transaction commits successfully.
+            # ----------------------------------------------------------------
             _record_pk = str(record.pk)
             _citizen_pk = str(citizen.pk)
             transaction.on_commit(lambda: ConsentService.dispatch_webhook("consent.granted", {
@@ -151,17 +231,35 @@ class ConsentService:
                 "individual_id": _citizen_pk,
             }))
 
-        consent_granted.send(sender=ConsentRecord, consent_record=record, request=request)
+        # C-03 fix: wrap signal dispatch in on_commit() so email receivers fire only
+        # after the outer ATOMIC_REQUESTS transaction commits. Without this, a request
+        # rollback after signal dispatch produces phantom emails.
+        _record_ref = record
+        _request_ref = request
+        transaction.on_commit(
+            lambda: consent_granted.send(
+                sender=ConsentRecord, consent_record=_record_ref, request=_request_ref
+            )
+        )
         return record
 
     @staticmethod
     def withdraw(citizen, category_slug: str, request=None):
         """
         Withdraw consent for a category.
+
+        F4 fix: locates the current record via is_current=True instead of the
+        removed unique_together constraint.
+
+        F3 fix: creates a ConsentRevision for the revoked state, providing an
+        auditable record of the withdrawal with predecessor chain intact.
+
         Raises ValueError if category is required (cannot be withdrawn).
-        Raises ValueError if no existing record found.
+        Raises ValueError if no current record found.
         """
-        from apps.consent.models import ConsentAuditEntry, ConsentCategory, ConsentRecord
+        from apps.consent.models import (
+            ConsentAuditEntry, ConsentCategory, ConsentRecord, ConsentRevision,
+        )
         from apps.consent.signals import consent_withdrawn
 
         category = ConsentCategory.objects.filter(slug=category_slug, is_active=True).first()
@@ -175,8 +273,12 @@ class ConsentService:
         ip = _mask_ip(_get_ip(request) or "")
 
         with transaction.atomic():
+            # F4: use is_current=True instead of the removed unique constraint.
+            # SELECT FOR UPDATE prevents concurrent grant/withdraw races.
             try:
-                record = ConsentRecord.objects.get(citizen=citizen, category=category)
+                record = ConsentRecord.objects.select_for_update().get(
+                    citizen=citizen, category=category, is_current=True
+                )
             except ConsentRecord.DoesNotExist:
                 raise ValueError(f"No consent record found for category {category_slug!r}")
 
@@ -193,6 +295,15 @@ class ConsentService:
             record.source = _get_source(request)
             record.save(update_fields=["status", "state", "withdrawn_at", "actor_ip", "source"])
 
+            # F3: create a ConsentRevision capturing the revoked state.
+            ConsentRevision.create_for(
+                schema_name="ConsentRecord",
+                obj=record,
+                snapshot=_consent_record_snapshot(record),
+                authorized_by=citizen,
+                authorized_by_other="",
+            )
+
             ConsentAuditEntry.objects.create(
                 citizen=citizen,
                 actor=citizen,
@@ -202,7 +313,6 @@ class ConsentService:
                 details={"category_slug": category_slug, "source": _get_source(request)},
             )
 
-            # Fire webhook INSIDE atomic block so on_commit defers until transaction commits.
             _record_pk = str(record.pk)
             _citizen_pk = str(citizen.pk)
             transaction.on_commit(lambda: ConsentService.dispatch_webhook("consent.withdrawn", {
@@ -211,27 +321,57 @@ class ConsentService:
                 "individual_id": _citizen_pk,
             }))
 
-        consent_withdrawn.send(sender=ConsentRecord, consent_record=record, request=request)
+        _record_ref = record
+        _request_ref = request
+        transaction.on_commit(
+            lambda: consent_withdrawn.send(
+                sender=ConsentRecord, consent_record=_record_ref, request=_request_ref
+            )
+        )
         return record
 
     @staticmethod
     def has_consent(citizen, category_slug: str) -> bool:
-        """Return True if citizen has an active 'granted' consent for this category."""
-        from apps.consent.models import ConsentRecord
+        """
+        Return True if citizen currently has active granted consent for this category.
+
+        H-05 fix: adds is_current=True and state=STATE_SIGNED filters so that
+        stale historical rows (a previous grant that was later withdrawn) cannot
+        produce a false positive after migration 0011 removed unique_together.
+        Required categories always return True — they cannot be withdrawn and are
+        bootstrapped as granted on registration.
+        """
+        from apps.consent.models import ConsentCategory, ConsentRecord
+
+        try:
+            category = ConsentCategory.objects.get(slug=category_slug, is_active=True)
+        except ConsentCategory.DoesNotExist:
+            return False
+
+        # Required categories are legally mandatory — always treated as consented.
+        if category.is_required:
+            return True
 
         return ConsentRecord.objects.filter(
             citizen=citizen,
-            category__slug=category_slug,
+            category=category,
             status=ConsentRecord.STATUS_GRANTED,
+            state=ConsentRecord.STATE_SIGNED,
+            is_current=True,
         ).exists()
 
     @staticmethod
     def get_citizen_consents(citizen):
-        """Return all ConsentRecord objects for a citizen, with category prefetched."""
+        """
+        Return the CURRENT ConsentRecord for each category for a citizen.
+
+        F4 fix: filters by is_current=True so the web portal always shows the
+        citizen's current consent status (not historical records).
+        """
         from apps.consent.models import ConsentRecord
 
         return (
-            ConsentRecord.objects.filter(citizen=citizen)
+            ConsentRecord.objects.filter(citizen=citizen, is_current=True)
             .select_related("category")
             .order_by("category__sort_order")
         )
@@ -312,6 +452,10 @@ class ConsentService:
         """
         Create a new ConsentPolicy and an initial ConsentRevision.
 
+        F8 fix: admin/org actors go in authorized_by_other (not
+        authorized_by_individual which is reserved for the citizen/subject of
+        the consent).
+
         Returns (policy, revision).
         """
         from apps.consent.models import ConsentPolicy, ConsentRevision
@@ -322,8 +466,8 @@ class ConsentService:
                 schema_name="Policy",
                 obj=policy,
                 snapshot=_policy_snapshot(policy),
-                authorized_by=actor,
-                authorized_by_other="" if actor else "system",
+                authorized_by=None,
+                authorized_by_other=str(actor.pk) if actor else "system",
             )
         return policy, revision
 
@@ -331,6 +475,8 @@ class ConsentService:
     def update_policy(policy, data: dict, actor=None) -> tuple:
         """
         Update an existing policy and create a new revision.
+
+        F8 fix: admin/org actors go in authorized_by_other.
 
         Returns (updated_policy, new_revision).
         """
@@ -344,8 +490,8 @@ class ConsentService:
                 schema_name="Policy",
                 obj=policy,
                 snapshot=_policy_snapshot(policy),
-                authorized_by=actor,
-                authorized_by_other="" if actor else "system",
+                authorized_by=None,
+                authorized_by_other=str(actor.pk) if actor else "system",
             )
         return policy, revision
 
@@ -358,6 +504,8 @@ class ConsentService:
         """
         Create a new ConsentCategory (DataAgreement) and an initial ConsentRevision.
 
+        F8 fix: admin/org actors go in authorized_by_other.
+
         Returns (category, revision).
         """
         from apps.consent.models import ConsentCategory, ConsentRevision
@@ -368,8 +516,8 @@ class ConsentService:
                 schema_name="DataAgreement",
                 obj=category,
                 snapshot=_data_agreement_snapshot(category),
-                authorized_by=actor,
-                authorized_by_other="" if actor else "system",
+                authorized_by=None,
+                authorized_by_other=str(actor.pk) if actor else "system",
             )
         return category, revision
 
@@ -380,6 +528,8 @@ class ConsentService:
 
         Updating a DataAgreement does NOT affect existing active ConsentRecords —
         they remain linked to their original revision.
+
+        F8 fix: admin/org actors go in authorized_by_other.
 
         Returns (updated_category, new_revision).
         """
@@ -393,8 +543,8 @@ class ConsentService:
                 schema_name="DataAgreement",
                 obj=category,
                 snapshot=_data_agreement_snapshot(category),
-                authorized_by=actor,
-                authorized_by_other="" if actor else "system",
+                authorized_by=None,
+                authorized_by_other=str(actor.pk) if actor else "system",
             )
         return category, revision
 
@@ -575,7 +725,12 @@ def _get_source(request) -> str:
 
 
 def _policy_snapshot(policy) -> dict:
-    """Serialize a ConsentPolicy to a dict for revision snapshots."""
+    """
+    Serialize a ConsentPolicy to a dict for ConsentRevision snapshots.
+
+    F7 fix: all multi-word keys use camelCase to match the GovStack OpenAPI
+    spec's JSON field names (industrySector, dataRetentionPeriodDays, etc.).
+    """
     return {
         "id": str(policy.pk),
         "name": policy.name,
@@ -583,45 +738,76 @@ def _policy_snapshot(policy) -> dict:
         "version": policy.version,
         "url": policy.url,
         "jurisdiction": policy.jurisdiction,
-        "industry_sector": policy.industry_sector,
-        "data_retention_period_days": policy.data_retention_period_days,
-        "geographic_restriction": policy.geographic_restriction,
-        "storage_location": policy.storage_location,
-        "third_party_data_sharing": policy.third_party_data_sharing,
+        "industrySector": policy.industry_sector,
+        "dataRetentionPeriodDays": policy.data_retention_period_days,
+        "geographicRestriction": policy.geographic_restriction,
+        "storageLocation": policy.storage_location,
+        "thirdPartyDataSharing": policy.third_party_data_sharing,
     }
 
 
 def _data_agreement_snapshot(category) -> dict:
-    """Serialize a ConsentCategory (DataAgreement) to a dict for revision snapshots."""
+    """
+    Serialize a ConsentCategory (DataAgreement) to a dict for ConsentRevision
+    snapshots.
+
+    F7 fix: all multi-word keys use camelCase to match the GovStack OpenAPI
+    spec's JSON field names (lawfulBasis, controllerName, policyId, etc.).
+    """
     return {
         "id": str(category.pk),
         "slug": category.slug,
         "version": category.version,
         "language": category.language,
         "lifecycle": category.lifecycle,
-        "name_en": category.name_en,
-        "name_fr": category.name_fr,
-        "purpose_en": category.purpose_en,
-        "purpose_fr": category.purpose_fr,
-        "purpose_description": category.purpose_description,
-        "lawful_basis": category.lawful_basis,
-        "data_use": category.data_use,
-        "data_use_purpose": category.data_use_purpose,
-        "data_use_purpose_description": category.data_use_purpose_description,
-        "data_use_purpose_restriction": category.data_use_purpose_restriction,
-        "data_use_activity": category.data_use_activity,
-        "data_usage_policy": category.data_usage_policy,
+        "nameEn": category.name_en,
+        "nameFr": category.name_fr,
+        "purposeEn": category.purpose_en,
+        "purposeFr": category.purpose_fr,
+        "purposeDescription": category.purpose_description,
+        "lawfulBasis": category.lawful_basis,
+        "dataUse": category.data_use,
+        "dataUsePurpose": category.data_use_purpose,
+        "dataUsePurposeDescription": category.data_use_purpose_description,
+        "dataUsePurposeRestriction": category.data_use_purpose_restriction,
+        "dataUseActivity": category.data_use_activity,
+        "dataUsagePolicy": category.data_usage_policy,
         "dpia": category.dpia,
-        "dpia_date": str(category.dpia_date) if category.dpia_date else None,
-        "dpia_evidence_url": category.dpia_evidence_url,
-        "dpia_summary_url": category.dpia_summary_url,
-        "dpia_url": category.dpia_url,
-        "is_required": category.is_required,
-        "is_active": category.is_active,
+        "dpiaDate": str(category.dpia_date) if category.dpia_date else None,
+        "dpiaEvidenceUrl": category.dpia_evidence_url,
+        "dpiaSummaryUrl": category.dpia_summary_url,
+        "dpiaUrl": category.dpia_url,
+        "isRequired": category.is_required,
+        "isActive": category.is_active,
         "forgettable": category.forgettable,
-        "controller_name": category.controller_name,
-        "controller_url": category.controller_url,
-        "data_controller_logo_image_url": category.data_controller_logo_image_url,
-        "policy_id": str(category.policy_id) if category.policy_id else None,
+        "controllerName": category.controller_name,
+        "controllerUrl": category.controller_url,
+        "dataControllerLogoImageUrl": category.data_controller_logo_image_url,
+        "policyId": str(category.policy_id) if category.policy_id else None,
         "attributes": category.attributes or [],
+    }
+
+
+def _consent_record_snapshot(record) -> dict:
+    """
+    Serialize a ConsentRecord to a dict for ConsentRevision snapshots.
+
+    F3 fix: provides the camelCase snapshot captured at each state transition
+    (unsigned → signed → revoked) so the full consent lifecycle is auditable
+    through the ConsentRevision chain.
+    """
+    return {
+        "id": str(record.pk),
+        "individual": str(record.citizen_id),
+        "dataAgreement": str(record.category_id),
+        "dataAgreementRevision": (
+            str(record.data_agreement_revision_id)
+            if record.data_agreement_revision_id else None
+        ),
+        "dataAgreementRevisionHash": record.data_agreement_revision_hash or "",
+        "optIn": record.opt_in,
+        "state": record.state,
+        "status": record.status,
+        "isCurrent": record.is_current,
+        "consentVersion": record.consent_version or "",
     }

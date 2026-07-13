@@ -774,12 +774,12 @@ class AuditAPITests(GovStackAPIBase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("dataAgreement", r.data)
 
-    def test_audit_consent_records_allows_any_authenticated_user(self):
-        # GovStack spec: security: [{OAuth2: []}] — any valid token, no special scope.
-        # A regular citizen (no is_staff, no consent_auditors group) must get 200.
+    def test_audit_consent_records_requires_auditor_role(self):
+        # C-01 fix: citizen tokens must be rejected on audit endpoints (PIPEDA).
+        # Only staff or consent_auditors group members may enumerate all consent records.
         self._auth(self.citizen)
         r = self.client.get("/api/v1/consent/audit/consent-records/")
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_audit_consent_records_requires_authentication(self):
         # Unauthenticated requests must still be rejected.
@@ -834,8 +834,15 @@ class ConsentRevisionTests(GovStackAPIBase):
         rev1.refresh_from_db()
         self.assertEqual(rev1.successor_id, rev2.pk)
 
-    def test_revision_serializer_includes_authorized_by_individual(self):
-        """RevisionSerializer must expose authorizedByIndividual (F2a fix)."""
+    def test_revision_serializer_admin_actor_in_authorized_by_other(self):
+        """
+        F8 fix: admin/org actors go in authorizedByOther, not authorizedByIndividual.
+
+        authorizedByIndividual is reserved for the citizen/data-subject who
+        authorized the consent action.  For Policy and DataAgreement revisions
+        (created by admins), the actor must appear in authorizedByOther so the
+        GovStack spec field semantics are correct.
+        """
         policy, rev = ConsentService.create_policy(
             {"name": "P", "version": "1.0", "url": "https://example.com"},
             actor=self.admin,
@@ -844,8 +851,12 @@ class ConsentRevisionTests(GovStackAPIBase):
         r = self.client.get(f"/api/v1/consent/config/policy/{policy.pk}/revisions/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         rev_data = r.data["revisions"][0]
+        # authorizedByIndividual must be null for admin-initiated revisions
         self.assertIn("authorizedByIndividual", rev_data)
-        self.assertEqual(str(rev_data["authorizedByIndividual"]), str(self.admin.pk))
+        self.assertIsNone(rev_data["authorizedByIndividual"])
+        # authorizedByOther must hold the admin's PK
+        self.assertIn("authorizedByOther", rev_data)
+        self.assertEqual(str(rev_data["authorizedByOther"]), str(self.admin.pk))
 
     def test_revision_serializer_includes_successor(self):
         """RevisionSerializer must expose successor (F2a fix)."""
@@ -1147,7 +1158,8 @@ class Round9WebhookDisabledFieldTests(GovStackAPIBase):
         self.assertTrue(webhook.is_disabled, "webhook.is_disabled should be True when disabled=true is sent")
         # Response should reflect the disabled state
         self.assertTrue(r.data["webhook"]["disabled"])
-        self.assertFalse(r.data["webhook"]["isActive"])
+        # F15 fix: isActive removed from serializer (was CivicOS extension, not in GovStack spec)
+        self.assertNotIn("isActive", r.data["webhook"])
 
     def test_create_webhook_with_disabled_false_creates_active_webhook(self):
         """disabled=false must create an active webhook."""
@@ -1305,3 +1317,58 @@ class Round9RTBFRequiredGuardTests(GovStackAPIBase):
             "RTBF must not delete records for required categories even if forgettable=True"
         )
         self.assertEqual(r.data["deleted_count"], 0)
+
+
+class AuditEndpointAuthorizationTests(APITestCase):
+    """
+    C-01 fix verification: /audit/ endpoints must reject citizen tokens.
+    Only staff users and consent_auditors group members may read audit data.
+    """
+
+    def setUp(self):
+        self.citizen = User.objects.create_user(
+            email=f"au-citizen-{uuid.uuid4().hex[:6]}@example.gov",
+            password="SecureTest123!",
+        )
+        self.auditor = User.objects.create_user(
+            email=f"au-auditor-{uuid.uuid4().hex[:6]}@example.gov",
+            password="SecureTest123!",
+            is_staff=False,
+        )
+        from django.contrib.auth.models import Group
+        grp, _ = Group.objects.get_or_create(name="consent_auditors")
+        self.auditor.groups.add(grp)
+        self.staff = User.objects.create_user(
+            email=f"au-staff-{uuid.uuid4().hex[:6]}@example.gov",
+            password="SecureTest123!",
+            is_staff=True,
+        )
+
+    def test_citizen_cannot_list_audit_consent_records(self):
+        self.client.force_authenticate(user=self.citizen)
+        r = self.client.get("/api/v1/consent/audit/consent-records/")
+        self.assertEqual(r.status_code, 403)
+
+    def test_citizen_cannot_read_audit_data_agreements(self):
+        self.client.force_authenticate(user=self.citizen)
+        r = self.client.get("/api/v1/consent/audit/data-agreements/")
+        self.assertEqual(r.status_code, 403)
+
+    def test_auditor_group_can_list_consent_records(self):
+        self.client.force_authenticate(user=self.auditor)
+        r = self.client.get("/api/v1/consent/audit/consent-records/")
+        self.assertEqual(r.status_code, 200)
+
+    def test_auditor_group_can_list_data_agreements(self):
+        self.client.force_authenticate(user=self.auditor)
+        r = self.client.get("/api/v1/consent/audit/data-agreements/")
+        self.assertEqual(r.status_code, 200)
+
+    def test_staff_can_access_all_audit_endpoints(self):
+        self.client.force_authenticate(user=self.staff)
+        r = self.client.get("/api/v1/consent/audit/consent-records/")
+        self.assertEqual(r.status_code, 200)
+
+    def test_unauthenticated_gets_401(self):
+        r = self.client.get("/api/v1/consent/audit/consent-records/")
+        self.assertEqual(r.status_code, 401)

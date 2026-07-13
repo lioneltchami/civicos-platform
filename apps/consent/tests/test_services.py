@@ -270,6 +270,76 @@ class ConsentServiceRequestExportTests(TestCase):
         self.assertNotEqual(export.pk, new_export.pk)
 
 
+class HasConsentFixTests(TestCase):
+    """H-05 fix: has_consent() now checks is_current=True and state=signed."""
+
+    def setUp(self):
+        self.citizen = User.objects.create_user(
+            email=f"hc-{uuid.uuid4().hex[:8]}@example.gov",
+            password="SecureTest123!",
+        )
+        self.category = ConsentCategory.objects.create(
+            slug=f"hc-{uuid.uuid4().hex[:6]}",
+            name_en="Test Cat", name_fr="Cat Test",
+            purpose_en="p", purpose_fr="p",
+            is_required=False, is_active=True,
+        )
+
+    def test_returns_true_when_granted(self):
+        ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
+        self.assertTrue(ConsentService.has_consent(self.citizen, self.category.slug))
+
+    def test_returns_false_after_withdrawal(self):
+        """After withdrawal, stale historical granted row must not produce True."""
+        ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
+        ConsentService.withdraw(citizen=self.citizen, category_slug=self.category.slug)
+        self.assertFalse(ConsentService.has_consent(self.citizen, self.category.slug))
+
+    def test_returns_false_for_unknown_category(self):
+        self.assertFalse(ConsentService.has_consent(self.citizen, "does-not-exist"))
+
+    def test_returns_true_for_required_category_without_record(self):
+        req_cat = ConsentCategory.objects.create(
+            slug=f"req-{uuid.uuid4().hex[:6]}",
+            name_en="Req", name_fr="Req",
+            purpose_en="p", purpose_fr="p",
+            is_required=True, is_active=True,
+        )
+        self.assertTrue(ConsentService.has_consent(self.citizen, req_cat.slug))
+
+
+class ConsentServiceGrantRevisionTests(TestCase):
+    """H-02 fix: grant() now respects caller-supplied revision parameter."""
+
+    def setUp(self):
+        self.citizen = _make_citizen()
+        self.category = _make_category(slug=f"rev-{uuid.uuid4().hex[:6]}")
+
+    def test_grant_with_specific_revision_uses_that_revision(self):
+        """H-02 fix: when a revision is supplied to grant(), it is used not discarded."""
+        from apps.consent.models import ConsentRevision
+        # Create the first revision via a grant
+        record1 = ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
+        revision1 = record1.data_agreement_revision
+        if revision1 is None:
+            self.skipTest("No DataAgreement revision configured for this category")
+        # Withdraw and re-grant supplying the specific revision object
+        ConsentService.withdraw(citizen=self.citizen, category_slug=self.category.slug)
+        record2 = ConsentService.grant(
+            citizen=self.citizen,
+            category_slug=self.category.slug,
+            revision=revision1,
+        )
+        self.assertEqual(record2.data_agreement_revision, revision1)
+
+    def test_grant_withdraw_regrant_withdraw_returns_false(self):
+        ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
+        ConsentService.withdraw(citizen=self.citizen, category_slug=self.category.slug)
+        ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
+        ConsentService.withdraw(citizen=self.citizen, category_slug=self.category.slug)
+        self.assertFalse(ConsentService.has_consent(self.citizen, self.category.slug))
+
+
 class ConsentServiceGetCitizenExportsTests(TestCase):
     """Tests for ConsentService.get_citizen_exports()."""
 

@@ -40,17 +40,9 @@ def send_withdrawal_confirmation_email(sender, consent_record, request=None, **k
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[citizen.email],
         )
-        logger.info(
-            "send_withdrawal_confirmation_email: sent to citizen %s for category %s",
-            citizen.pk,
-            category.slug,
-        )
+        logger.info("send_withdrawal_confirmation_email: sent confirmation email")
     except Exception as e:
-        logger.error(
-            "send_withdrawal_confirmation_email: failed for citizen %s: %s",
-            citizen.pk,
-            e,
-        )
+        logger.error("send_withdrawal_confirmation_email: failed: %s", type(e).__name__)
 
 
 @receiver(export_requested)
@@ -73,54 +65,58 @@ def send_export_request_received_email(sender, export_request, request=None, **k
             recipient_list=[citizen.email],
             fail_silently=True,
         )
-        logger.info(
-            "send_export_request_received_email: sent to citizen %s for export %s",
-            citizen.pk,
-            export_request.pk,
-        )
+        logger.info("send_export_request_received_email: acknowledgement email sent")
     except Exception as e:
-        logger.warning(
-            "send_export_request_received_email: failed for citizen %s: %s",
-            citizen.pk,
-            e,
-        )
+        logger.warning("send_export_request_received_email: failed: %s", type(e).__name__)
 
 
 @receiver(post_save, sender=User)
 def bootstrap_required_consents(sender, instance, created, **kwargs):
     """
-    Automatically create ConsentRecord entries for required consent categories
-    when a new citizen account is created. Required categories (is_required=True)
-    cannot be withdrawn but still need explicit records in the database so that
-    ConsentService.has_consent() returns True for newly registered citizens.
+    Automatically grant required consent categories for new citizen accounts.
 
-    This runs inside the post_save signal — the user row is already committed.
+    Required categories (is_required=True) cannot be withdrawn but still need
+    full ConsentRecord, ConsentRevision, ConsentAuditEntry, and ConsentSignature
+    rows so the GovStack tamper-proof audit chain is complete for every record.
+
+    C-04 fix: calls ConsentService.grant() through the full service layer instead
+    of creating records directly with get_or_create(), ensuring the state machine
+    (unsigned → signed), ConsentRevision chain, ConsentAuditEntry, and
+    ConsentSignature are all created correctly.
+
+    M-05 fix: ConsentService.grant() uses is_current=True in all its lookups,
+    eliminating the MultipleObjectsReturned risk from the old bare get_or_create().
+
+    grant() is idempotent — calling it twice for the same citizen/category
+    returns the existing granted record without creating duplicates.
     """
     if not created:
         return
-    # Avoid circular imports — import inside the function
-    from apps.consent.models import ConsentCategory, ConsentRecord
-    from django.utils import timezone
+
+    from apps.consent.models import ConsentCategory
+    from apps.consent.services import ConsentService
 
     required_categories = ConsentCategory.objects.filter(
         is_required=True, is_active=True
     )
-    created_count = 0
+    granted_count = 0
     for category in required_categories:
-        _, created = ConsentRecord.objects.get_or_create(
-            citizen=instance,
-            category=category,
-            defaults={
-                "status": ConsentRecord.STATUS_GRANTED,
-                "granted_at": timezone.now(),
-                "source": "admin",  # system-granted on registration
-                "consent_version": getattr(settings, "CONSENT_CURRENT_VERSION", "1.0"),
-            },
+        try:
+            ConsentService.grant(
+                citizen=instance,
+                category_slug=category.slug,
+                request=None,
+            )
+            granted_count += 1
+        except Exception as exc:
+            logger.error(
+                "bootstrap_required_consents: grant failed for category %s: %s",
+                category.slug,
+                type(exc).__name__,
+            )
+
+    if granted_count:
+        logger.info(
+            "bootstrap_required_consents: granted %d required categories for new citizen",
+            granted_count,
         )
-        if created:
-            created_count += 1
-    logger.info(
-        "bootstrap_required_consents: created %d required consent records for citizen %s",
-        created_count,
-        instance.pk,
-    )
