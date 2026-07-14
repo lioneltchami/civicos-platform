@@ -10,7 +10,6 @@ Changes:
      citizen/category before this migration).
   3. Add "pgp" to ConsentSignature.verification_type choices.
 """
-import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 

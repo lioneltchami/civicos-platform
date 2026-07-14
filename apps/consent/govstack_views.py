@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 
 from django.contrib.auth import get_user_model
-from django.http import Http404
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -801,6 +800,26 @@ class ServiceIndividualConsentRecordListView(APIView):
         )
         revision = record.data_agreement_revision
         sig = getattr(record, "signature_obj", None)
+
+        # C-02 fix: if caller supplied a `signature` field in the envelope,
+        # validate it and persist it (overwriting the auto-generated one).
+        caller_sig_data = request.data.get("signature")
+        if caller_sig_data:
+            sig_serializer = SignatureSerializer(data=caller_sig_data)
+            if sig_serializer.is_valid():
+                existing_sig = getattr(record, "signature_obj", None)
+                if existing_sig:
+                    # Update the auto-generated signature with caller's values
+                    for attr, val in sig_serializer.validated_data.items():
+                        setattr(existing_sig, attr, val)
+                    existing_sig.save()
+                    sig = existing_sig
+                else:
+                    sig = sig_serializer.save(consent_record=record)
+            else:
+                # Caller supplied a malformed signature — reject
+                raise ValidationError({"signature": sig_serializer.errors})
+
         return Response({
             "consentRecord": ConsentRecordGovStackSerializer(record).data,
             "revision": RevisionSerializer(revision).data if revision else None,
@@ -1189,22 +1208,19 @@ class ServiceConsentRecordSignatureView(APIView):
         """CREATE — GovStack serviceIndividualConsentRecordSignatureCreate"""
         record = self._get_record(request, consent_record_id)
 
-        # Reject if a signature already exists — use PUT to replace
-        if ConsentSignature.objects.filter(consent_record=record).exists():
-            raise ValidationError(
-                "A signature already exists for this ConsentRecord. Use PUT to update."
-            )
-
         payload = request.data.get("signature", request.data)
         serializer = SignatureSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
 
-        sig = serializer.save(consent_record=record)
+        vtype = serializer.validated_data.get("verification_type", "string")
+        vpayload = serializer.validated_data.get("verification_payload", payload)
 
-        # Advance the record state to signed if it was unsigned/pending
-        if record.state != ConsentRecord.STATE_SIGNED:
-            record.state = ConsentRecord.STATE_SIGNED
-            record.save(update_fields=["state"])
+        sig = ConsentService.attach_signature(
+            record=record,
+            verification_type=vtype,
+            verification_payload=vpayload if isinstance(vpayload, dict) else {"raw": str(vpayload)},
+            request=request,
+        )
 
         return Response({"signature": SignatureSerializer(sig).data})
 

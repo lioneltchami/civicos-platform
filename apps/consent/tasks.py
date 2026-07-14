@@ -54,6 +54,19 @@ def process_data_export(self, export_request_id: str) -> dict:
             )
             return {"skipped": True, "status": req.status}
 
+        # M-06: idempotency — if a document was already written in a previous
+        # attempt (failed after storage write but before status update), reuse it
+        # rather than creating a duplicate file.
+        if req.document_id:
+            _ttl = getattr(settings, "DATA_EXPORT_TTL_DAYS", 7)
+            now = timezone.now()
+            req.status = DataExportRequest.STATUS_READY
+            req.processed_at = now
+            req.expires_at = now + timedelta(days=_ttl)
+            req.save(update_fields=["status", "processed_at", "expires_at"])
+            _notify_export_ready(req)
+            return {"status": "ready", "export_request_id": str(req.pk)}
+
         req.status = DataExportRequest.STATUS_PROCESSING
         req.save(update_fields=["status"])
 

@@ -449,15 +449,12 @@ class ConsentRecord(UUIDModel, TimestampedModel):
     STATE_PENDING = "pending"
     STATE_SIGNED = "signed"
     STATE_REVOKED = "revoked"
-    # Legacy alias kept for any existing data rows; not exposed via API
-    STATE_PENDING_SIGNATURES = "pending_signatures"
 
     STATE_CHOICES = [
         (STATE_UNSIGNED, "Unsigned"),
         (STATE_PENDING, "Pending"),
         (STATE_SIGNED, "Signed"),
         (STATE_REVOKED, "Revoked"),
-        (STATE_PENDING_SIGNATURES, "Pending Signatures (legacy)"),
     ]
 
     SOURCE_CHOICES = [
@@ -547,6 +544,13 @@ class ConsentRecord(UUIDModel, TimestampedModel):
                 name="cr_citizen_cat_curr_idx",
             ),
         ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(state__in=["unsigned", "pending", "signed", "revoked"]),
+                name="consent_record_state_valid",
+                violation_error_message="state must be one of: unsigned, pending, signed, revoked",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"ConsentRecord #{self.pk} ({self.status})"
@@ -616,7 +620,14 @@ class DataExportRequest(UUIDModel):
         blank=True,
         help_text="7 days after processed_at.",
     )
-    download_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    download_token = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        null=True,
+        blank=True,
+        unique=True,
+        help_text="Single-use download token. Nulled after first successful delivery.",
+    )
     document = models.OneToOneField(
         "documents.Document",
         null=True,

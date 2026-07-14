@@ -7,7 +7,7 @@ in-process with a real task instance (no mock self required).
 """
 import uuid
 from datetime import timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core import mail

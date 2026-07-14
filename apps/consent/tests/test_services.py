@@ -317,7 +317,6 @@ class ConsentServiceGrantRevisionTests(TestCase):
 
     def test_grant_with_specific_revision_uses_that_revision(self):
         """H-02 fix: when a revision is supplied to grant(), it is used not discarded."""
-        from apps.consent.models import ConsentRevision
         # Create the first revision via a grant
         record1 = ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
         revision1 = record1.data_agreement_revision

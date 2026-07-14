@@ -331,6 +331,115 @@ class ConsentService:
         return record
 
     @staticmethod
+    def attach_signature(
+        record,
+        verification_type: str,
+        verification_payload,
+        request=None,
+    ):
+        """
+        Attach a caller-supplied signature to a ConsentRecord and advance its
+        state to STATE_SIGNED if not already signed.
+
+        Creates a ConsentRevision and ConsentAuditEntry for every call — every
+        state transition must be auditable (GovStack Consent BB requirement).
+
+        C-03 fix: previously the /signature/ endpoint set record.state directly
+        without writing a revision or audit entry.
+        """
+        import hashlib
+        import json as _json
+
+        from apps.consent.models import (
+            ConsentAuditEntry,
+            ConsentRecord,
+            ConsentRevision,
+            ConsentSignature,
+        )
+        from apps.consent.signals import consent_granted
+
+        actor_ip = _mask_ip(_get_ip(request) or "")
+        source = _get_source(request)
+
+        with transaction.atomic():
+            # Prevent duplicate signatures
+            if ConsentSignature.objects.filter(consent_record=record).exists():
+                from rest_framework.exceptions import ValidationError as DRFValidationError
+                raise DRFValidationError(
+                    "A signature already exists for this ConsentRecord. Use PUT to update."
+                )
+
+            # Normalise verification_payload to a JSON string for storage (TextField)
+            if isinstance(verification_payload, dict):
+                vp_str = _json.dumps(verification_payload, sort_keys=True, default=str)
+            else:
+                vp_str = str(verification_payload)
+
+            payload_hash = hashlib.sha256(vp_str.encode()).hexdigest()
+
+            from django.utils import timezone as _tz
+            _now = _tz.now()
+
+            sig = ConsentSignature.objects.create(
+                consent_record=record,
+                payload=vp_str,
+                signature=payload_hash,
+                verification_type=verification_type,
+                verification_payload=vp_str,
+                verification_payload_hash=payload_hash,
+                verification_signed_by=str(record.citizen_id),
+                timestamp=_now,
+                data_agreement_revision_hash=record.data_agreement_revision_hash or "",
+            )
+
+            state_changed = record.state != ConsentRecord.STATE_SIGNED
+            if state_changed:
+                old_state = record.state
+                record.status = ConsentRecord.STATUS_GRANTED
+                record.state = ConsentRecord.STATE_SIGNED
+                record.actor_ip = actor_ip
+                record.source = source
+                record.save(update_fields=["status", "state", "actor_ip", "source"])
+
+                # Write revision for the state transition
+                snapshot = _consent_record_snapshot(record)
+                snapshot["previousState"] = old_state
+                snapshot["transitionedBy"] = "signature"
+
+                revision = ConsentRevision.create_for(
+                    schema_name="ConsentRecord",
+                    obj=record,
+                    snapshot=snapshot,
+                    authorized_by=record.citizen,
+                    authorized_by_other="",
+                )
+
+                ConsentAuditEntry.objects.create(
+                    citizen=record.citizen,
+                    actor=record.citizen,
+                    action="granted",
+                    category=record.category,
+                    actor_ip=actor_ip,
+                    details={
+                        "trigger": "signature_attached",
+                        "verification_type": verification_type,
+                        "revision_id": str(revision.pk),
+                    },
+                )
+
+                _record_ref = record
+                _request_ref = request
+                transaction.on_commit(
+                    lambda: consent_granted.send(
+                        sender=ConsentRecord,
+                        consent_record=_record_ref,
+                        request=_request_ref,
+                    )
+                )
+
+        return sig
+
+    @staticmethod
     def has_consent(citizen, category_slug: str) -> bool:
         """
         Return True if citizen currently has active granted consent for this category.

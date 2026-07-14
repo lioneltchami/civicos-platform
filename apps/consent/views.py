@@ -211,7 +211,8 @@ class ExportDownloadView(LoginRequiredMixin, View):
 
             # Mark delivered inside the transaction
             req.status = DataExportRequest.STATUS_DELIVERED
-            req.save(update_fields=["status"])
+            req.download_token = None  # M-05: null for single-use enforcement
+            req.save(update_fields=["status", "download_token"])
 
             masked_ip = request.META.get("REMOTE_ADDR") or ""
             ConsentAuditEntry.objects.create(
