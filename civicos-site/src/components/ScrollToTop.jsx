@@ -2,11 +2,11 @@ import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
 const TITLES = {
-  '/':                 'CivicOS — Open Government Building Blocks',
-  '/building-blocks':  'Building Blocks — CivicOS',
-  '/about':            'About — CivicOS',
-  '/contact':          'Contact Us — CivicOS',
-  '/docs':             'API Reference — Consent BB | CivicOS',
+  '/': 'CivicOS — GovStack CMS Submission Website',
+  '/building-blocks': 'Building blocks roadmap — CivicOS',
+  '/about': 'About CivicOS',
+  '/contact': 'Submission contact — CivicOS',
+  '/docs': 'Content Management System submission docs — CivicOS',
 }
 
 export default function ScrollToTop() {
@@ -14,7 +14,7 @@ export default function ScrollToTop() {
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
-    document.title = TITLES[pathname] ?? 'CivicOS — Open Government Building Blocks'
+    document.title = TITLES[pathname] ?? 'CivicOS — GovStack CMS Submission Website'
   }, [pathname])
 
   return null

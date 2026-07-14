@@ -2,20 +2,40 @@ import { Link } from 'react-router-dom'
 
 const BLOCKS = [
   {
+    id: 'cms',
+    name: 'Content Management System',
+    version: 'First public submission target',
+    tagline: 'Government websites, services, and content operations',
+    description: 'This is the current lead building block for CivicOS. The repo already contains page hierarchies, reusable StreamField blocks, custom image and document models, reusable site objects, and a forms layer that fits government publishing better than a generic brochure stack.',
+    status: 'submission',
+    statusLabel: 'Submission in preparation',
+    stack: ['Django 5.2', 'Wagtail', 'PostgreSQL', 'Wagtail forms'],
+    features: [
+      '6 page models for home, service, generic, and news content',
+      '6 reusable content blocks for structured publishing',
+      'Custom image alt text and accessible authoring patterns',
+      'Integrated forms with consent and retention controls',
+    ],
+    icon: (
+      <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
+      </svg>
+    ),
+  },
+  {
     id: 'consent',
-    name: 'Consent BB',
-    version: 'v23Q4',
-    tagline: 'Citizen consent management',
-    description: 'Full lifecycle consent management aligned with GovStack Consent BB v23Q4. Covers policy management, citizen data agreements, cryptographic signatures, right to be forgotten, real-time webhook notifications, and a tamper-proof SHA-256 hash-chained audit trail.',
-    status: 'certified',
-    statusLabel: 'GovStack Certified',
-    endpoints: 42,
-    tests: 234,
-    stack: ['Django 5.2', 'Wagtail', 'PostgreSQL', 'OpenAPI 3.0'],
-    namespaces: [
-      { name: '/config/', ops: 14, desc: 'Policy & data agreement management' },
-      { name: '/service/', ops: 21, desc: 'Citizen consent records & RTBF' },
-      { name: '/audit/', ops: 7, desc: 'Tamper-proof audit trail' },
+    name: 'Consent',
+    version: 'Implemented in platform',
+    tagline: 'Adjacent module on a separate compliance track',
+    description: 'Consent functionality exists in the same codebase, but this site no longer treats it as the first public certification claim. It remains important platform work, with a separate hardening and compliance review path.',
+    status: 'implemented',
+    statusLabel: 'Implemented in codebase',
+    stack: ['Django 5.2', 'DRF', 'PostgreSQL', 'Webhook dispatch'],
+    features: [
+      'Config, service, and audit namespaces are present',
+      'Revision, signature, and audit concepts exist in the domain model',
+      'Consent record lifecycle is implemented in the service layer',
+      'Public marketing claims are narrower until compliance is re-verified',
     ],
     icon: (
       <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
@@ -24,24 +44,8 @@ const BLOCKS = [
     ),
   },
   {
-    id: 'cms',
-    name: 'CMS BB',
-    version: 'Coming soon',
-    tagline: 'Content management & citizen portal',
-    description: 'A full-featured government content management system and citizen-facing portal. Designed for municipalities and public agencies that need accessible, multi-language content publishing with role-based editorial workflows.',
-    status: 'development',
-    statusLabel: 'In Development',
-    stack: ['Django 5.2', 'Wagtail', 'PostgreSQL', 'Elasticsearch'],
-    features: ['Multi-language content', 'Role-based editorial workflow', 'Accessible UI (WCAG 2.1 AA)', 'GovStack CMS BB alignment'],
-    icon: (
-      <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
-      </svg>
-    ),
-  },
-  {
     id: 'identity',
-    name: 'Identity BB',
+    name: 'Identity',
     version: 'Planned',
     tagline: 'Digital identity & authentication',
     description: 'Citizen identity verification, credential management, and federated SSO integration aligned with the GovStack Identity BB specification. Enables secure, privacy-preserving digital identity for any government service.',
@@ -57,7 +61,7 @@ const BLOCKS = [
   },
   {
     id: 'payments',
-    name: 'Payments BB',
+    name: 'Payments',
     version: 'Planned',
     tagline: 'Government payments & disbursements',
     description: 'Secure payment collection, benefits disbursement, and financial reconciliation aligned with GovStack Payments BB specification. Supports multiple payment rails and full audit compliance.',
@@ -73,7 +77,7 @@ const BLOCKS = [
   },
   {
     id: 'messaging',
-    name: 'Messaging BB',
+    name: 'Messaging',
     version: 'Planned',
     tagline: 'Secure government-to-citizen messaging',
     description: 'Multi-channel secure messaging from government to citizens — notifications, alerts, and inbox management with delivery receipts, read receipts, and full audit trail.',
@@ -89,7 +93,7 @@ const BLOCKS = [
   },
   {
     id: 'scheduler',
-    name: 'Scheduler BB',
+    name: 'Scheduler',
     version: 'Planned',
     tagline: 'Appointment & workflow scheduling',
     description: 'Citizen-facing appointment booking, government workflow scheduling, and capacity management — aligned with GovStack Scheduler BB specification.',
@@ -106,121 +110,90 @@ const BLOCKS = [
 ]
 
 const statusStyle = {
-  certified:   { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', dot: 'bg-emerald-400', ring: 'ring-emerald-500/20' },
-  development: { bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    text: 'text-blue-400',   dot: 'bg-blue-400',   ring: 'ring-blue-500/20' },
-  planned:     { bg: 'bg-white/5',        border: 'border-white/15',       text: 'text-white/35',   dot: 'bg-white/25',   ring: 'ring-white/10' },
+  submission: { bg: 'bg-sky-500/10', border: 'border-sky-400/25', text: 'text-sky-200', dot: 'bg-sky-300' },
+  implemented: { bg: 'bg-emerald-500/10', border: 'border-emerald-400/20', text: 'text-emerald-300', dot: 'bg-emerald-300' },
+  planned: { bg: 'bg-white/5', border: 'border-white/15', text: 'text-white/35', dot: 'bg-white/25' },
 }
 
 function BlockCard({ block }) {
   const s = statusStyle[block.status]
-  const isCertified = block.status === 'certified'
-  const isDev = block.status === 'development'
+  const isSubmission = block.status === 'submission'
+  const isImplemented = block.status === 'implemented'
 
   return (
-    <div className={`relative rounded-2xl border transition-all duration-300 overflow-hidden
-      ${isCertified
-        ? 'border-blue-500/40 bg-gradient-to-br from-blue-950/50 via-[#0a1628] to-[#0a1628]'
+    <div className={`relative rounded-2xl border transition-all duration-300 overflow-hidden ${
+      isSubmission
+        ? 'border-sky-400/25 bg-gradient-to-br from-sky-950/45 via-[#0a1628] to-[#0a1628]'
         : 'border-white/10 bg-[#0a1628]/70'
-      }`}>
-      {isCertified && (
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-500/60 to-transparent" />
+    }`}>
+      {isSubmission && (
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-sky-400/60 to-transparent" />
       )}
 
       <div className="p-8">
         <div className="flex items-start justify-between mb-6">
-          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center
-            ${isCertified ? 'bg-blue-500/15 text-blue-400' : isDev ? 'bg-white/8 text-white/60' : 'bg-white/5 text-white/30'}`}>
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
+            isSubmission ? 'bg-sky-500/15 text-sky-300' : isImplemented ? 'bg-emerald-500/10 text-emerald-300' : 'bg-white/5 text-white/30'
+          }`}>
             {block.icon}
           </div>
           <div className="text-right">
             <span className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-2.5 py-1 border ${s.bg} ${s.border} ${s.text}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${isCertified ? 'animate-pulse' : ''}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${s.dot} ${isSubmission ? 'animate-pulse' : ''}`} />
               {block.statusLabel}
             </span>
             <p className="text-xs text-white/25 mt-1.5">{block.version}</p>
           </div>
         </div>
 
-        <h3 className={`text-xl font-black mb-1 ${isCertified ? 'text-white' : isDev ? 'text-white/80' : 'text-white/45'}`}>
+        <h3 className={`text-xl font-black mb-1 ${isSubmission ? 'text-white' : isImplemented ? 'text-white/90' : 'text-white/45'}`}>
           {block.name}
         </h3>
-        <p className={`text-sm font-medium mb-3 ${isCertified ? 'text-blue-300' : 'text-white/35'}`}>
+        <p className={`text-sm font-medium mb-3 ${isSubmission ? 'text-sky-200' : isImplemented ? 'text-emerald-200' : 'text-white/35'}`}>
           {block.tagline}
         </p>
-        <p className={`text-sm leading-relaxed mb-6 ${isCertified ? 'text-white/60' : 'text-white/35'}`}>
+        <p className={`text-sm leading-relaxed mb-6 ${isSubmission || isImplemented ? 'text-white/60' : 'text-white/35'}`}>
           {block.description}
         </p>
 
-        {/* Certified: namespace breakdown */}
-        {block.namespaces && (
-          <div className="space-y-2 mb-6">
-            {block.namespaces.map(ns => (
-              <div key={ns.name} className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/8">
-                <code className="text-xs font-mono text-blue-300 w-24 flex-shrink-0">{ns.name}</code>
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-white/40 text-xs">{ns.desc}</span>
-                </div>
-                <span className="text-xs font-bold text-white/50 flex-shrink-0">{ns.ops} ops</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="grid grid-cols-2 gap-2 mb-6">
+          {block.features.map((f) => (
+            <div key={f} className={`flex items-center gap-2 text-xs ${isSubmission || isImplemented ? 'text-white/45' : 'text-white/35'}`}>
+              <svg className={`w-3 h-3 flex-shrink-0 ${isSubmission ? 'text-sky-300/50' : isImplemented ? 'text-emerald-300/40' : 'text-white/20'}`} fill="currentColor" viewBox="0 0 8 8">
+                <circle cx="4" cy="4" r="3" />
+              </svg>
+              {f}
+            </div>
+          ))}
+        </div>
 
-        {/* Dev / planned: feature list */}
-        {block.features && (
-          <div className="grid grid-cols-2 gap-2 mb-6">
-            {block.features.map(f => (
-              <div key={f} className="flex items-center gap-2 text-xs text-white/35">
-                <svg className="w-3 h-3 text-white/20 flex-shrink-0" fill="currentColor" viewBox="0 0 8 8">
-                  <circle cx="4" cy="4" r="3" />
-                </svg>
-                {f}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Stack tags */}
         <div className="flex flex-wrap gap-2 mb-6">
-          {block.stack.map(t => (
-            <span key={t} className={`text-xs px-2.5 py-1 rounded-lg font-medium
-              ${isCertified ? 'bg-white/8 text-white/55' : 'bg-white/4 text-white/25'}`}>
+          {block.stack.map((t) => (
+            <span key={t} className={`text-xs px-2.5 py-1 rounded-lg font-medium ${
+              isSubmission || isImplemented ? 'bg-white/8 text-white/55' : 'bg-white/4 text-white/25'
+            }`}>
               {t}
             </span>
           ))}
         </div>
 
-        {/* Stats row for certified */}
-        {isCertified && (
-          <div className="grid grid-cols-2 gap-4 pt-5 border-t border-white/10 mb-6">
-            <div>
-              <p className="text-3xl font-black text-white">{block.endpoints}</p>
-              <p className="text-xs text-white/40 mt-0.5">API endpoints</p>
-            </div>
-            <div>
-              <p className="text-3xl font-black text-white">{block.tests}</p>
-              <p className="text-xs text-white/40 mt-0.5">Tests passing</p>
-            </div>
-          </div>
-        )}
-
-        {isCertified && (
+        {isSubmission && (
           <div className="flex gap-3">
             <Link to="/docs"
-              className="flex-1 text-center py-3 text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-all hover:shadow-lg hover:shadow-blue-500/25">
-              API Documentation →
+              className="flex-1 text-center py-3 text-sm font-bold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-all hover:shadow-lg hover:shadow-sky-500/25">
+              Submission docs
             </Link>
             <Link to="/contact"
               className="flex-1 text-center py-3 text-sm font-semibold text-white/70 hover:text-white bg-white/8 hover:bg-white/12 rounded-xl transition-all">
-              Get in touch
+              Point of contact
             </Link>
           </div>
         )}
 
-        {isDev && (
+        {isImplemented && (
           <Link to="/contact"
-            className="block text-center py-3 text-sm font-semibold text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/15 rounded-xl border border-blue-500/20 transition-all">
-            Notify me when it's ready
+            className="block text-center py-3 text-sm font-semibold text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/15 rounded-xl border border-emerald-500/20 transition-all">
+            Ask about the consent track
           </Link>
         )}
       </div>
@@ -229,30 +202,29 @@ function BlockCard({ block }) {
 }
 
 export default function Blocks() {
-  const certified = BLOCKS.filter(b => b.status === 'certified')
-  const inDev = BLOCKS.filter(b => b.status === 'development')
-  const planned = BLOCKS.filter(b => b.status === 'planned')
+  const inSubmission = BLOCKS.filter((b) => b.status === 'submission')
+  const implemented = BLOCKS.filter((b) => b.status === 'implemented')
+  const planned = BLOCKS.filter((b) => b.status === 'planned')
 
   return (
     <div className="bg-[#060d1f] pt-16">
-      {/* Header */}
       <section className="relative py-24 px-6 lg:px-8 overflow-hidden border-b border-white/8">
         <div className="absolute inset-0 gradient-mesh" />
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-blue-600/8 rounded-full blur-3xl" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-sky-600/8 rounded-full blur-3xl" />
         <div className="relative max-w-4xl mx-auto text-center">
-          <p className="text-blue-400 font-semibold text-sm uppercase tracking-widest mb-4">The Platform</p>
+          <p className="text-sky-300 font-semibold text-sm uppercase tracking-widest mb-4">The platform</p>
           <h1 className="text-5xl md:text-6xl font-black text-white mb-6 tracking-tight">
             Building Blocks
           </h1>
           <p className="text-white/55 text-lg max-w-2xl mx-auto leading-relaxed">
-            Independently deployable, GovStack-certified modules for digital government. Each block implements an official GovStack specification and interoperates with any other compliant system.
+            This page distinguishes between what CivicOS is publicly submitting first, what already exists in the codebase, and what remains on the roadmap. That keeps the site honest and makes the first certification story much easier to defend.
           </p>
           <div className="flex flex-wrap justify-center gap-8 mt-12">
             {[
-              { label: 'Certified', value: '1', color: 'text-emerald-400' },
-              { label: 'In Development', value: '1', color: 'text-blue-400' },
-              { label: 'On Roadmap', value: '4', color: 'text-white/50' },
-            ].map(s => (
+              { label: 'In submission', value: String(inSubmission.length), color: 'text-sky-300' },
+              { label: 'Implemented', value: String(implemented.length), color: 'text-emerald-300' },
+              { label: 'On roadmap', value: String(planned.length), color: 'text-white/50' },
+            ].map((s) => (
               <div key={s.label} className="text-center">
                 <p className={`text-4xl font-black ${s.color}`}>{s.value}</p>
                 <p className="text-xs text-white/30 mt-1 uppercase tracking-widest">{s.label}</p>
@@ -262,50 +234,65 @@ export default function Blocks() {
         </div>
       </section>
 
-      <div className="max-w-7xl mx-auto px-6 lg:px-8">
-        {/* Certified */}
-        <section className="py-16">
-          <div className="flex items-center gap-3 mb-8">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <h2 className="text-sm font-bold text-emerald-400 uppercase tracking-widest">Certified & Deployed</h2>
+      <section className="py-20 px-6 lg:px-8 border-b border-white/8">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-10">
+            <p className="text-sky-300 font-semibold text-sm uppercase tracking-widest mb-3">First submission</p>
+            <h2 className="text-3xl font-black text-white mb-3">Publicly documented and positioned for review</h2>
+            <p className="text-white/50 max-w-2xl leading-relaxed">
+              The Content Management System is the cleanest first story for the current repo because the website, documentation, and implementation evidence all point to the same place.
+            </p>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
-            {certified.map(b => <BlockCard key={b.id} block={b} />)}
+          <div className="grid grid-cols-1 gap-6">
+            {inSubmission.map((block) => <BlockCard key={block.id} block={block} />)}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* In Development */}
-        <section className="py-8 border-t border-white/8">
-          <div className="flex items-center gap-3 mb-8">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-400" />
-            <h2 className="text-sm font-bold text-blue-400 uppercase tracking-widest">In Development</h2>
+      <section className="py-20 px-6 lg:px-8 border-b border-white/8">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-10">
+            <p className="text-emerald-300 font-semibold text-sm uppercase tracking-widest mb-3">Implemented modules</p>
+            <h2 className="text-3xl font-black text-white mb-3">Present in the platform, not the first claim</h2>
+            <p className="text-white/50 max-w-2xl leading-relaxed">
+              These modules matter, but the public website now stops short of calling them certified or submission-ready unless the implementation evidence and compliance review say so.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-6">
+            {implemented.map((block) => <BlockCard key={block.id} block={block} />)}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 px-6 lg:px-8 border-b border-white/8">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-10">
+            <p className="text-white/35 font-semibold text-sm uppercase tracking-widest mb-3">Roadmap</p>
+            <h2 className="text-3xl font-black text-white/80 mb-3">Later building blocks</h2>
+            <p className="text-white/35 max-w-2xl leading-relaxed">
+              Planned modules in the broader CivicOS architecture. They stay visible here without being overstated on the submission-facing homepage.
+            </p>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {inDev.map(b => <BlockCard key={b.id} block={b} />)}
+            {planned.map((block) => <BlockCard key={block.id} block={block} />)}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* Planned */}
-        <section className="py-8 border-t border-white/8 pb-24">
-          <div className="flex items-center gap-3 mb-8">
-            <span className="w-2.5 h-2.5 rounded-full bg-white/25" />
-            <h2 className="text-sm font-bold text-white/35 uppercase tracking-widest">Roadmap</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-            {planned.map(b => <BlockCard key={b.id} block={b} />)}
-          </div>
-        </section>
-      </div>
-
-      {/* CTA */}
-      <section className="border-t border-white/8 py-24 px-6 lg:px-8">
+      <section className="py-20 px-6 lg:px-8">
         <div className="max-w-3xl mx-auto text-center">
-          <h2 className="text-3xl font-black text-white mb-4">Missing a building block?</h2>
-          <p className="text-white/50 mb-8 text-lg">If there's a GovStack BB you need, reach out. We prioritize based on real-world demand from governments and municipalities.</p>
-          <Link to="/contact"
-            className="inline-flex items-center gap-2 px-7 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all hover:shadow-xl hover:shadow-blue-500/30">
-            Request a Building Block
-          </Link>
+          <h2 className="text-3xl font-black text-white mb-4">Need the first submission package to read cleanly?</h2>
+          <p className="text-white/50 mb-8">Use the CMS documentation page as the public documentation URL and keep the homepage focused on that first building block.</p>
+          <div className="flex flex-wrap gap-4 justify-center">
+            <Link to="/docs"
+              className="px-7 py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl transition-all hover:shadow-xl hover:shadow-sky-500/30">
+              Open submission docs
+            </Link>
+            <Link to="/contact"
+              className="px-7 py-3.5 bg-white/8 hover:bg-white/14 text-white font-semibold rounded-xl border border-white/12 transition-all">
+              Point of contact
+            </Link>
+          </div>
         </div>
       </section>
     </div>

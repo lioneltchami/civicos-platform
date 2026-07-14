@@ -3,20 +3,26 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    @apply bg-white text-gray-900 antialiased;
+    font-family: 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    @apply bg-[#060d1f] text-slate-100 antialiased;
   }
 }
 
 @layer utilities {
   .gradient-mesh {
     background-image:
-      radial-gradient(ellipse 80% 50% at 20% 40%, rgba(37,99,235,0.18) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 40% at 80% 20%, rgba(99,102,241,0.12) 0%, transparent 60%),
-      radial-gradient(ellipse 50% 60% at 50% 90%, rgba(6,182,212,0.08) 0%, transparent 60%);
+      radial-gradient(ellipse 80% 50% at 20% 35%, rgba(14,165,233,0.18) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 15%, rgba(45,212,191,0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 60% at 50% 90%, rgba(148,163,184,0.08) 0%, transparent 60%);
   }
+
   .text-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #34d399 100%);
+    background-image: linear-gradient(135deg, #dbeafe 0%, #7dd3fc 45%, #99f6e4 100%);
   }
 }

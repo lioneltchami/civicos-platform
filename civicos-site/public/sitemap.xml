@@ -6,12 +6,12 @@
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://civicosbb.pages.dev/building-blocks</loc>
+    <loc>https://civicosbb.pages.dev/docs</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://civicosbb.pages.dev/docs</loc>
+    <loc>https://civicosbb.pages.dev/building-blocks</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
