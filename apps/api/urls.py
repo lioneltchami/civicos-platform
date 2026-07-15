@@ -46,9 +46,32 @@ urlpatterns = [
         name="schema",
     ),
     path(
+        "consent/schema/",
+        SpectacularAPIView.as_view(
+            custom_settings={
+                "TITLE": "CivicOS Consent API",
+                "DESCRIPTION": (
+                    "GovStack-facing OpenAPI surface for the CivicOS Consent "
+                    "Building Block submission."
+                ),
+                "SCHEMA_PATH_PREFIX": r"^/api/v1/consent/",
+                "SCHEMA_PATH_PREFIX_TRIM": False,
+                "PREPROCESSING_HOOKS": [
+                    "apps.api.schema.preprocess_include_consent_endpoints",
+                ],
+            }
+        ),
+        name="consent-schema",
+    ),
+    path(
         "docs/",
         SpectacularSwaggerView.as_view(url_name="api-v1:schema"),
         name="docs",
+    ),
+    path(
+        "consent/docs/",
+        SpectacularSwaggerView.as_view(url_name="api-v1:consent-schema"),
+        name="consent-docs",
     ),
     # ------------------------------------------------------------------
     # Building blocks

@@ -11,10 +11,10 @@ const GOVSTACK_TESTING_URL =
 const PUBLIC_SITE_URL = "https://civicosbb.pages.dev";
 const PUBLIC_DOCS_URL = "https://civicosbb.pages.dev/docs/consent";
 const API_RUNTIME_URL = "https://api.civicosbb.ca";
-const API_SCHEMA_URL = "https://api.civicosbb.ca/api/v1/schema/";
-const API_DOCS_URL = "https://api.civicosbb.ca/api/v1/docs/";
+const API_SCHEMA_URL = "https://api.civicosbb.ca/api/v1/consent/schema/";
+const API_DOCS_URL = "https://api.civicosbb.ca/api/v1/consent/docs/";
 const DJANGO_RUNTIME_NOTE =
-  "The live CivicOS backend is public at https://api.civicosbb.ca, with generated schema at /api/v1/schema/ and generated API docs at /api/v1/docs/.";
+  "The live CivicOS backend is public at https://api.civicosbb.ca, with GovStack-facing consent schema at /api/v1/consent/schema/ and generated API docs at /api/v1/consent/docs/.";
 
 const QUICK_FACTS = [
   { label: "Building block", value: "Consent" },
@@ -61,7 +61,7 @@ const TARGET_AND_EVIDENCE = [
     title: "CivicOS implementation evidence",
     items: [
       "CivicOS mounts GovStack consent routes under /api/v1/consent/ inside the Django application runtime.",
-      "The live Django runtime is publicly reachable at https://api.civicosbb.ca and exposes generated schema routes at /api/v1/schema/ and /api/v1/docs/.",
+      "The live Django runtime is publicly reachable at https://api.civicosbb.ca and exposes GovStack-facing generated schema routes at /api/v1/consent/schema/ and /api/v1/consent/docs/.",
       "This Pages site is the public documentation surface; the backend runtime is a separate live service that reviewers can inspect directly.",
     ],
   },
@@ -78,7 +78,7 @@ const IMPLEMENTATION_EVIDENCE = [
   },
   {
     title: "Runtime schema",
-    body: "The application runtime includes public generated schema and API docs at api.civicosbb.ca, which gives reviewers direct implementation evidence instead of a docs-only claim.",
+    body: "The application runtime includes GovStack-facing public generated schema and API docs at api.civicosbb.ca, which gives reviewers direct implementation evidence instead of a docs-only claim.",
   },
 ];
 
@@ -104,12 +104,12 @@ const REVIEWER_RUNTIME_LINKS = [
   {
     title: "Live CivicOS API schema",
     href: API_SCHEMA_URL,
-    body: "Public generated OpenAPI output from the running Django deployment.",
+    body: "Public generated OpenAPI output filtered to the GovStack consent submission surface.",
   },
   {
     title: "Live CivicOS API docs",
     href: API_DOCS_URL,
-    body: "Browsable API documentation served by the public backend runtime.",
+    body: "Browsable GovStack-facing consent API documentation served by the public backend runtime.",
   },
   {
     title: "Live CivicOS API host",
@@ -144,7 +144,7 @@ const IMPLEMENTATION_AREAS = [
     title: "Platform integration",
     items: [
       "Consent is not isolated from the rest of CivicOS; it sits inside the same Django platform used for forms, workflows, and citizen-facing services.",
-      "That makes the documentation relevant to both GovStack review and real public-sector deployment planning.",
+      "The public reviewer links stay consent-scoped even though the broader platform contains additional building blocks.",
     ],
   },
 ];
@@ -314,7 +314,8 @@ export default function ConsentDocs() {
               This static page is a reviewer-facing documentation surface. It
               gives context around the Consent building block, points to the
               upstream GovStack target contract, and summarizes how the CivicOS
-              Django application organizes its current implementation.
+              Django application organizes its current implementation and public
+              consent-only evidence routes.
             </p>
           </div>
 
