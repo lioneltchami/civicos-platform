@@ -27,8 +27,8 @@ urlpatterns = [
     # -----------------------------------------------------------------------
     # CONFIG — Policy
     # -----------------------------------------------------------------------
-    path("config/policies/",          v.ConfigPolicyListView.as_view(),      name="gs-policy-list"),
-    path("config/policy/",            v.ConfigPolicyListView.as_view(),      name="gs-policy-create"),
+    path("config/policies/",          v.ConfigPolicyCollectionView.as_view(), name="gs-policy-list"),
+    path("config/policy/",            v.ConfigPolicyCreateView.as_view(),     name="gs-policy-create"),
     path("config/policy/<uuid:policy_id>/",
                                       v.ConfigPolicyDetailView.as_view(),    name="gs-policy-detail"),
     path("config/policy/<uuid:policy_id>/revisions/",
@@ -37,24 +37,24 @@ urlpatterns = [
     # -----------------------------------------------------------------------
     # CONFIG — DataAgreement (ConsentCategory uses integer PK)
     # -----------------------------------------------------------------------
-    path("config/data-agreements/",   v.ConfigDataAgreementListView.as_view(),   name="gs-da-list"),
-    path("config/data-agreement/",    v.ConfigDataAgreementListView.as_view(),   name="gs-da-create"),
+    path("config/data-agreements/",   v.ConfigDataAgreementCollectionView.as_view(), name="gs-da-list"),
+    path("config/data-agreement/",    v.ConfigDataAgreementCreateView.as_view(),     name="gs-da-create"),
     path("config/data-agreement/<int:data_agreement_id>/",
                                       v.ConfigDataAgreementDetailView.as_view(), name="gs-da-detail"),
 
     # -----------------------------------------------------------------------
     # CONFIG — Individual (User UUID)
     # -----------------------------------------------------------------------
-    path("config/individuals/",       v.ConfigIndividualListView.as_view(),   name="gs-config-individual-list"),
-    path("config/individual/",        v.ConfigIndividualListView.as_view(),   name="gs-config-individual-create"),
+    path("config/individuals/",       v.ConfigIndividualCollectionView.as_view(), name="gs-config-individual-list"),
+    path("config/individual/",        v.ConfigIndividualCreateView.as_view(),     name="gs-config-individual-create"),
     path("config/individual/<uuid:individual_id>/",
                                       v.ConfigIndividualDetailView.as_view(), name="gs-config-individual-detail"),
 
     # -----------------------------------------------------------------------
     # CONFIG — Webhook (uuid)
     # -----------------------------------------------------------------------
-    path("config/webhooks/",          v.ConfigWebhookListView.as_view(),    name="gs-webhook-list"),
-    path("config/webhook/",           v.ConfigWebhookListView.as_view(),    name="gs-webhook-create"),
+    path("config/webhooks/",          v.ConfigWebhookCollectionView.as_view(), name="gs-webhook-list"),
+    path("config/webhook/",           v.ConfigWebhookCreateView.as_view(),     name="gs-webhook-create"),
     # NOTE: /payload/ must come before the bare {id}/ path to avoid routing ambiguity
     path("config/webhook/<uuid:webhook_id>/payload/",
                                       v.ConfigWebhookPayloadView.as_view(), name="gs-webhook-payload"),
@@ -64,10 +64,10 @@ urlpatterns = [
     # -----------------------------------------------------------------------
     # SERVICE — Individual self-service (User UUID)
     # -----------------------------------------------------------------------
-    path("service/individuals/",      v.ServiceIndividualView.as_view(),    name="gs-service-individual-list"),
-    path("service/individual/",       v.ServiceIndividualView.as_view(),    name="gs-service-individual-create"),
+    path("service/individuals/",      v.ServiceIndividualCollectionView.as_view(), name="gs-service-individual-list"),
+    path("service/individual/",       v.ServiceIndividualCreateView.as_view(),     name="gs-service-individual-create"),
     path("service/individual/<uuid:individual_id>/",
-                                      v.ServiceIndividualView.as_view(),    name="gs-service-individual-detail"),
+                                      v.ServiceIndividualDetailView.as_view(), name="gs-service-individual-detail"),
 
     # SERVICE — DataAgreement (read-only for individuals; int PK)
     path("service/data-agreement/<int:data_agreement_id>/",

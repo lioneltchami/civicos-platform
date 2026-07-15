@@ -27,6 +27,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from drf_spectacular.utils import extend_schema
 
 from apps.api.authentication import CivicOSTokenAuthentication
 
@@ -168,6 +169,18 @@ class ConfigPolicyListView(APIView):
         })
 
 
+class ConfigPolicyCreateView(ConfigPolicyListView):
+    """POST /config/policy/ — create a new policy + initial revision."""
+
+    http_method_names = ["post"]
+
+
+class ConfigPolicyCollectionView(ConfigPolicyListView):
+    """GET /config/policies/ — list all policies."""
+
+    http_method_names = ["get"]
+
+
 class ConfigPolicyDetailView(APIView):
     """
     GET    /config/policy/{policyId}/  — read a policy + latest revision
@@ -225,6 +238,7 @@ class ConfigPolicyDetailView(APIView):
             "revision": RevisionSerializer(revision).data,
         })
 
+    @extend_schema(responses={200: None})
     def delete(self, request, policy_id):
         """DELETE (soft) — GovStack configPolicyDelete"""
         policy = self._get_policy(policy_id)
@@ -309,6 +323,18 @@ class ConfigDataAgreementListView(APIView):
         })
 
 
+class ConfigDataAgreementCreateView(ConfigDataAgreementListView):
+    """POST /config/data-agreement/ — create a new data agreement."""
+
+    http_method_names = ["post"]
+
+
+class ConfigDataAgreementCollectionView(ConfigDataAgreementListView):
+    """GET /config/data-agreements/ — list all data agreements."""
+
+    http_method_names = ["get"]
+
+
 class ConfigDataAgreementDetailView(APIView):
     """
     GET    /config/data-agreement/{id}/  — read a data agreement
@@ -351,6 +377,7 @@ class ConfigDataAgreementDetailView(APIView):
             "revision": RevisionSerializer(revision).data,
         })
 
+    @extend_schema(responses={200: None})
     def delete(self, request, data_agreement_id):
         """DELETE (deactivate) — GovStack configDataAgreementDelete"""
         category = self._get_category(data_agreement_id)
@@ -391,6 +418,18 @@ class ConfigIndividualListView(APIView):
         return Response({"individual": IndividualSerializer(user).data})
 
 
+class ConfigIndividualCreateView(ConfigIndividualListView):
+    """POST /config/individual/ — create a Django-backed individual."""
+
+    http_method_names = ["post"]
+
+
+class ConfigIndividualCollectionView(ConfigIndividualListView):
+    """GET /config/individuals/ — list all active individuals."""
+
+    http_method_names = ["get"]
+
+
 class ConfigIndividualDetailView(APIView):
     """GET/PUT/DELETE /config/individual/{id}/"""
     authentication_classes = _AUTH
@@ -417,6 +456,7 @@ class ConfigIndividualDetailView(APIView):
         user.save()
         return Response({"individual": IndividualSerializer(user).data})
 
+    @extend_schema(responses={200: None})
     def delete(self, request, individual_id):
         """DELETE — GovStack configIndividualDelete (deactivates the account)"""
         user = self._get_user(individual_id)
@@ -466,6 +506,18 @@ class ConfigWebhookListView(APIView):
         return Response({"webhook": WebhookSerializer(webhook).data})
 
 
+class ConfigWebhookCreateView(ConfigWebhookListView):
+    """POST /config/webhook/ — create a webhook."""
+
+    http_method_names = ["post"]
+
+
+class ConfigWebhookCollectionView(ConfigWebhookListView):
+    """GET /config/webhooks/ — list webhooks."""
+
+    http_method_names = ["get"]
+
+
 class ConfigWebhookDetailView(APIView):
     """GET /config/webhook/{id}/ + PUT + DELETE"""
     authentication_classes = _AUTH
@@ -494,6 +546,7 @@ class ConfigWebhookDetailView(APIView):
         webhook.save()
         return Response({"webhook": WebhookSerializer(webhook).data})
 
+    @extend_schema(responses={200: None})
     def delete(self, request, webhook_id):
         self._get_webhook(webhook_id).delete()
         return Response(status=status.HTTP_200_OK)
@@ -591,6 +644,24 @@ class ServiceIndividualView(APIView):
                 setattr(user, field, payload[field])
         user.save()
         return Response({"individual": IndividualSerializer(user).data})
+
+
+class ServiceIndividualCreateView(ServiceIndividualView):
+    """POST /service/individual/ — register self."""
+
+    http_method_names = ["post"]
+
+
+class ServiceIndividualCollectionView(ServiceIndividualView):
+    """GET /service/individuals/ — list individuals in service scope."""
+
+    http_method_names = ["get"]
+
+
+class ServiceIndividualDetailView(ServiceIndividualView):
+    """GET/PUT /service/individual/{id}/ — read or update an individual."""
+
+    http_method_names = ["get", "put"]
 
 
 # ===========================================================================
@@ -1075,6 +1146,7 @@ class ServiceIndividualRightToBeForgottenView(APIView):
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses={200: None})
     def delete(self, request):
         """DELETE — GovStack serviceIndividualConsentRecordDeleteAll"""
         result = ConsentService.right_to_be_forgotten(
