@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 const TOPICS = [
-  'Content Management System submission',
+  'Consent building block assessment',
   'Municipal website rollout',
   'Documentation question',
   'Consent module follow-up',
@@ -30,10 +30,10 @@ export default function Contact() {
         <div className="relative max-w-2xl mx-auto text-center">
           <p className="text-sky-300 font-semibold text-sm uppercase tracking-widest mb-4">Point of contact</p>
           <h1 className="text-5xl md:text-6xl font-black text-white mb-6">
-            Submission contact
+            Contact CivicOS
           </h1>
           <p className="text-white/55 text-lg leading-relaxed">
-            Use this page as the public point of contact for the first CivicOS building block submission. It is written for GovStack reviewers, municipal teams, and implementation partners who need a real human contact instead of a placeholder inbox.
+            Use this page as the public point of contact for CivicOS. It is written for GovStack reviewers, municipal teams, community operators, and implementation partners who need a real human contact instead of a placeholder inbox.
           </p>
         </div>
       </section>
@@ -71,10 +71,11 @@ export default function Contact() {
               <p className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-4">What we can help with</p>
               <ul className="space-y-2">
                 {[
-                  'First CMS building block submission language',
+                  'Consent building block submission language',
+                  'GovStack assessment questions',
                   'Municipal website and service-content rollout',
                   'Documentation questions from reviewers',
-                  'Consent module follow-up after the CMS submission',
+                  'Consent module follow-up after the current assessment',
                   'Implementation partnership discussions',
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-2 text-sm text-white/45">

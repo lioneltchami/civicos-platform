@@ -2,44 +2,44 @@ import { Link } from 'react-router-dom'
 
 const BLOCKS = [
   {
-    id: 'cms',
-    name: 'Content Management System',
-    version: 'First public submission target',
-    tagline: 'Government websites, services, and content operations',
-    description: 'This is the current lead building block for CivicOS. The repo already contains page hierarchies, reusable StreamField blocks, custom image and document models, reusable site objects, and a forms layer that fits government publishing better than a generic brochure stack.',
-    status: 'submission',
-    statusLabel: 'Submission in preparation',
-    stack: ['Django 5.2', 'Wagtail', 'PostgreSQL', 'Wagtail forms'],
-    features: [
-      '6 page models for home, service, generic, and news content',
-      '6 reusable content blocks for structured publishing',
-      'Custom image alt text and accessible authoring patterns',
-      'Integrated forms with consent and retention controls',
-    ],
-    icon: (
-      <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
-      </svg>
-    ),
-  },
-  {
     id: 'consent',
     name: 'Consent',
-    version: 'Implemented in platform',
-    tagline: 'Adjacent module on a separate compliance track',
-    description: 'Consent functionality exists in the same codebase, but this site no longer treats it as the first public certification claim. It remains important platform work, with a separate hardening and compliance review path.',
-    status: 'implemented',
-    statusLabel: 'Implemented in codebase',
-    stack: ['Django 5.2', 'DRF', 'PostgreSQL', 'Webhook dispatch'],
+    version: 'Current assessment target',
+    tagline: 'Policies, agreements, records, signatures, and audit flows',
+    description: 'This is the current lead building block for CivicOS on the public site. The repo already contains GovStack-style consent routes, revision concepts, signatures, webhooks, verification flows, and consent-aware service integrations.',
+    status: 'submission',
+    statusLabel: 'Assessment in preparation',
+    stack: ['Django 5.2', 'DRF', 'PostgreSQL', 'JWT / webhooks'],
     features: [
-      'Config, service, and audit namespaces are present',
-      'Revision, signature, and audit concepts exist in the domain model',
-      'Consent record lifecycle is implemented in the service layer',
-      'Public marketing claims are narrower until compliance is re-verified',
+      'Config, service, and audit namespaces',
+      'Consent record drafts, signatures, and verification flows',
+      'Revision and audit concepts modeled explicitly',
+      'Right-to-be-forgotten flow in the service surface',
     ],
     icon: (
       <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.955 11.955 0 003 12.034C3 16.976 6.58 21.152 11.25 22v-.03a8.75 8.75 0 10.5-17.5v.008l-.75-.508z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'cms',
+    name: 'Content Management System',
+    version: 'Implemented in platform',
+    tagline: 'Government websites, services, and content operations',
+    description: 'The Wagtail-based CMS remains part of CivicOS, but it is not the current documentation target on this public site. It stays visible here as broader product context rather than the first assessment claim.',
+    status: 'implemented',
+    statusLabel: 'Implemented in codebase',
+    stack: ['Django 5.2', 'Wagtail', 'PostgreSQL', 'Wagtail forms'],
+    features: [
+      'Page hierarchies, reusable blocks, and site objects are present',
+      'Document and image models support publishing workflows',
+      'Forms and citizen-facing content layers exist in the same platform',
+      'The public story is narrower than the full platform surface',
+    ],
+    icon: (
+      <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
       </svg>
     ),
   },
@@ -179,9 +179,9 @@ function BlockCard({ block }) {
 
         {isSubmission && (
           <div className="flex gap-3">
-            <Link to="/docs"
+            <Link to="/docs/consent"
               className="flex-1 text-center py-3 text-sm font-bold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-all hover:shadow-lg hover:shadow-sky-500/25">
-              Submission docs
+              Consent docs
             </Link>
             <Link to="/contact"
               className="flex-1 text-center py-3 text-sm font-semibold text-white/70 hover:text-white bg-white/8 hover:bg-white/12 rounded-xl transition-all">
@@ -193,7 +193,7 @@ function BlockCard({ block }) {
         {isImplemented && (
           <Link to="/contact"
             className="block text-center py-3 text-sm font-semibold text-emerald-300 hover:text-emerald-200 bg-emerald-500/10 hover:bg-emerald-500/15 rounded-xl border border-emerald-500/20 transition-all">
-            Ask about the consent track
+            Ask about the platform roadmap
           </Link>
         )}
       </div>
@@ -217,7 +217,7 @@ export default function Blocks() {
             Building Blocks
           </h1>
           <p className="text-white/55 text-lg max-w-2xl mx-auto leading-relaxed">
-            This page distinguishes between what CivicOS is publicly submitting first, what already exists in the codebase, and what remains on the roadmap. That keeps the site honest and makes the first certification story much easier to defend.
+            This page distinguishes between what CivicOS is documenting for current GovStack assessment, what already exists in the codebase, and what remains on the roadmap. That keeps the site honest and makes the first assessment story much easier to defend.
           </p>
           <div className="flex flex-wrap justify-center gap-8 mt-12">
             {[
@@ -240,7 +240,7 @@ export default function Blocks() {
             <p className="text-sky-300 font-semibold text-sm uppercase tracking-widest mb-3">First submission</p>
             <h2 className="text-3xl font-black text-white mb-3">Publicly documented and positioned for review</h2>
             <p className="text-white/50 max-w-2xl leading-relaxed">
-              The Content Management System is the cleanest first story for the current repo because the website, documentation, and implementation evidence all point to the same place.
+              Consent is the current assessment target because the website, documentation page, and implementation evidence now point to the same building block.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-6">
@@ -255,7 +255,7 @@ export default function Blocks() {
             <p className="text-emerald-300 font-semibold text-sm uppercase tracking-widest mb-3">Implemented modules</p>
             <h2 className="text-3xl font-black text-white mb-3">Present in the platform, not the first claim</h2>
             <p className="text-white/50 max-w-2xl leading-relaxed">
-              These modules matter, but the public website now stops short of calling them certified or submission-ready unless the implementation evidence and compliance review say so.
+              These modules matter, but the public website now stops short of treating them as the active submission target unless the documentation and assessment path are aligned around them.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-6">
@@ -282,11 +282,15 @@ export default function Blocks() {
       <section className="py-20 px-6 lg:px-8">
         <div className="max-w-3xl mx-auto text-center">
           <h2 className="text-3xl font-black text-white mb-4">Need the first submission package to read cleanly?</h2>
-          <p className="text-white/50 mb-8">Use the CMS documentation page as the public documentation URL and keep the homepage focused on that first building block.</p>
+          <p className="text-white/50 mb-8">Use the Consent documentation page as the public documentation URL and keep the homepage focused on that current assessment target.</p>
           <div className="flex flex-wrap gap-4 justify-center">
-            <Link to="/docs"
+            <Link to="/docs/consent"
               className="px-7 py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl transition-all hover:shadow-xl hover:shadow-sky-500/30">
-              Open submission docs
+              Open consent docs
+            </Link>
+            <Link to="/docs"
+              className="px-7 py-3.5 bg-white/8 hover:bg-white/14 text-white font-semibold rounded-xl border border-white/12 transition-all">
+              Docs hub
             </Link>
             <Link to="/contact"
               className="px-7 py-3.5 bg-white/8 hover:bg-white/14 text-white font-semibold rounded-xl border border-white/12 transition-all">

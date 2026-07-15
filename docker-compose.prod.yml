@@ -8,8 +8,6 @@
 #   celery worker + celery beat share db + redis
 #   migrate service runs once at deploy to apply migrations + seed tasks
 
-version: "3.9"
-
 services:
 
   # ----------------------------------------------------------------
@@ -20,7 +18,7 @@ services:
       context: ./nginx
     restart: always
     ports:
-      - "80:80"
+      - "${CIVICOS_HOST_HTTP_BIND:-0.0.0.0}:${CIVICOS_HOST_HTTP_PORT:-80}:80"
     volumes:
       - static_data:/app/staticfiles:ro
       - media_data:/app/media:ro
@@ -109,6 +107,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      disable: true
     networks:
       - civicos_net
     logging:
@@ -137,6 +137,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      disable: true
     networks:
       - civicos_net
     logging:

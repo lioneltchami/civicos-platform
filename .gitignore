@@ -55,6 +55,8 @@ Thumbs.db
 
 # Docker
 .docker/
+ops/cloudflared/config.yml
+ops/cloudflared/credentials.json
 
 # Celery
 celerybeat-schedule

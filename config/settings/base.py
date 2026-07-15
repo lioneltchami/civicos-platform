@@ -10,6 +10,7 @@ pattern. Use django-environ to read from a .env file in development.
 
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 import environ
 
@@ -325,7 +326,25 @@ ADMINS = [
 
 from celery.schedules import crontab  # noqa: E402 — imported here for Beat schedule clarity
 
-CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/1")
+def _derive_celery_broker_url() -> str:
+    explicit_broker_url = env("CELERY_BROKER_URL", default=None)
+    if explicit_broker_url:
+        return explicit_broker_url
+
+    redis_url = env("REDIS_URL", default=None)
+    if redis_url:
+        parsed = urlparse(redis_url)
+        if parsed.scheme in {"redis", "rediss"}:
+            db_path = parsed.path or "/0"
+            parsed_path = db_path.strip("/") or "0"
+            if parsed_path.isdigit():
+                return urlunparse(parsed._replace(path="/1"))
+        return redis_url
+
+    return "redis://localhost:6379/1"
+
+
+CELERY_BROKER_URL = _derive_celery_broker_url()
 CELERY_RESULT_BACKEND = "django-db"
 CELERY_CACHE_BACKEND = "django-cache"
 CELERY_TASK_SERIALIZER = "json"
@@ -425,6 +444,11 @@ VOLUNTEER_MINIMUM_WAGES: dict[str, float] = {
 VOLUNTEER_CRA_ALERT_THRESHOLD: float = 450.00
 VOLUNTEER_CRA_T4A_THRESHOLD: float = 500.00
 VOLUNTEER_CRA_HARD_BLOCK: float = 1_000.00
+
+# Fernet keys for general encrypted model fields (payments and other PII).
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Supports key rotation: list multiple keys; first is current, rest are decryption-only.
+FERNET_KEYS: list[str] = [k for k in env.list("FERNET_KEYS", default=[]) if k]
 
 # Fernet keys for volunteer SIN encryption. MUST be set in production.py.
 # Never use the Django SECRET_KEY for this purpose — key rotation would corrupt all SINs.
@@ -764,6 +788,8 @@ DATA_EXPORT_TTL_DAYS: int = 7
 # drf-spectacular — OpenAPI schema generation
 # ---------------------------------------------------------------------------
 
+SPECTACULAR_PUBLIC = env.bool("SPECTACULAR_PUBLIC", default=False)
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "CivicOS API",
     "DESCRIPTION": (
@@ -772,7 +798,11 @@ SPECTACULAR_SETTINGS = {
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
+    "SERVE_PERMISSIONS": [
+        "rest_framework.permissions.AllowAny"
+        if SPECTACULAR_PUBLIC
+        else "rest_framework.permissions.IsAdminUser"
+    ],
     "COMPONENT_SPLIT_REQUEST": True,
     "SORT_OPERATIONS": False,
 }

@@ -1,0 +1,7 @@
+tunnel: 6fd998f7-f7cd-47e0-ad47-3deba751fe47
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: api.civicosbb.ca
+    service: http://127.0.0.1:28080
+  - service: http_status:404

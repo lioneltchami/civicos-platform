@@ -134,6 +134,15 @@ docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+If the host already has another reverse proxy on public port `80` or `443`,
+set `CIVICOS_HOST_HTTP_BIND` and `CIVICOS_HOST_HTTP_PORT` in `.env.prod` before
+startup. Example for a shared VPS:
+
+```bash
+CIVICOS_HOST_HTTP_BIND=127.0.0.1
+CIVICOS_HOST_HTTP_PORT=28080
+```
+
 The `migrate` service runs automatically before `web` starts:
 
 ```bash
@@ -191,6 +200,22 @@ Staff who access the admin must each register a TOTP device before their first a
 docker compose -f docker-compose.prod.yml run --rm web \
     python manage.py seed_tax_rates
 ```
+
+### 9. Optional: run Cloudflare Tunnel on the server
+
+For `api.civicosbb.ca`, the preferred permanent deployment is to keep the same
+Cloudflare Tunnel and move the connector from the Mac to the VPS. Use the
+Compose tunnel sidecar:
+
+```bash
+docker compose --env-file .env.prod \
+  -p civicosapi \
+  -f docker-compose.prod.yml \
+  up -d --build
+```
+
+The exact CivicOS-specific cutover sequence is documented in
+`docs/CIVICOSBB_API_VPS_MIGRATION.md`.
 
 ---
 

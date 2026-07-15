@@ -15,12 +15,17 @@ export default function Nav() {
   useEffect(() => setOpen(false), [loc])
 
   const links = [
-    { to: '/docs', label: 'Submission Docs' },
+    { to: '/docs', label: 'Docs' },
     { to: '/building-blocks', label: 'Roadmap' },
     { to: '/about', label: 'About' },
   ]
 
-  const isActive = (to) => loc.pathname === to
+  const isActive = (to) => {
+    if (to === '/docs') {
+      return loc.pathname === '/docs' || loc.pathname.startsWith('/docs/')
+    }
+    return loc.pathname === to
+  }
 
   return (
     <nav
@@ -32,16 +37,16 @@ export default function Nav() {
     >
       <div className="max-w-7xl mx-auto px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <Link to="/" className="flex items-center gap-2.5" aria-label="CivicOS home">
+          <Link to="/" className="flex items-center gap-3" aria-label="CivicOS home">
             <img
               src="/civicos-logo-wordmark.svg"
               alt="CivicOS"
-              className="hidden h-8 w-auto md:block"
+              className="hidden h-11 w-auto md:block lg:h-12"
             />
             <img
               src="/civicos-mark-square.svg"
               alt="CivicOS"
-              className="h-9 w-9 rounded-lg md:hidden"
+              className="h-10 w-10 rounded-lg md:hidden"
             />
           </Link>
 

@@ -2,48 +2,48 @@ import { Link } from 'react-router-dom'
 
 const SUBMISSION_FACTS = [
   {
-    value: '6',
-    label: 'page types',
-    note: 'Home, generic, service, and news models in the Wagtail CMS layer.',
+    value: '3',
+    label: 'API namespaces',
+    note: 'Config, service, and audit routes are exposed for the Consent building block.',
   },
   {
-    value: '6',
-    label: 'content blocks',
-    note: 'Heading, rich text, image, CTA, accordion, and alert blocks.',
-  },
-  {
-    value: '2',
-    label: 'reusable site objects',
-    note: 'Site alerts and navigation menus managed as reusable content.',
+    value: '4',
+    label: 'core resource families',
+    note: 'Policies, data agreements, consent records, and webhooks form the core public surface.',
   },
   {
     value: '1',
-    label: 'extended forms layer',
-    note: 'Consent-aware forms with retention controls and PII redaction hooks.',
+    label: 'audit chain',
+    note: 'Revisions, signatures, and audit entries support an auditable consent lifecycle.',
+  },
+  {
+    value: '1',
+    label: 'RTBF workflow',
+    note: 'Right-to-be-forgotten handling is documented as part of the consent service surface.',
   },
 ]
 
 const FOCUS_AREAS = [
   {
     label: 'First public submission',
-    title: 'Content Management System',
-    desc: 'The current website and documentation package are tuned for the GovStack CMS building block because the repo already proves the publishing models, content blocks, media handling, and citizen-facing forms.',
-    cta: 'Review submission docs',
-    to: '/docs',
+    title: 'Consent',
+    desc: 'The current website and documentation package are now aligned to the GovStack Consent building block because the codebase already exposes consent configuration, service, verification, and audit flows.',
+    cta: 'Open consent docs',
+    to: '/docs/consent',
     tone: 'sky',
   },
   {
-    label: 'Adjacent implemented module',
-    title: 'Consent',
-    desc: 'Consent workflows exist in the same Django platform, but this website no longer treats that module as the first certification claim. It now sits on a separate review and hardening track.',
-    cta: 'See module roadmap',
+    label: 'Platform layer',
+    title: 'Content Management System',
+    desc: 'The Wagtail-based CMS remains an important part of CivicOS, but it is no longer the active submission target on this public site.',
+    cta: 'See building block roadmap',
     to: '/building-blocks',
     tone: 'slate',
   },
   {
     label: 'Platform foundation',
     title: 'Municipal-ready delivery layer',
-    desc: 'Reusable navigation, alerts, service pages, news pages, document models, and form submissions give the CMS a credible public-sector operating surface instead of a thin demo shell.',
+    desc: 'Reusable navigation, alerts, service pages, news pages, document models, and consent-aware forms give CivicOS a credible public-sector operating surface instead of a thin demo shell.',
     cta: 'Read platform context',
     to: '/about',
     tone: 'slate',
@@ -52,16 +52,16 @@ const FOCUS_AREAS = [
 
 const DELIVERY_NOTES = [
   {
-    title: 'Structured publishing',
-    desc: 'The CMS layer defines distinct page models for home, service, generic, and news content so editors are not forced into a single generic page template.',
+    title: 'Consent API surface',
+    desc: 'The implementation exposes GovStack-style config, service, and audit namespaces for policies, data agreements, individuals, consent records, and verification flows.',
   },
   {
-    title: 'Accessible authoring',
-    desc: 'Custom images carry alt text, heading blocks prevent h1 misuse, and alert and accordion blocks are designed for accessible rendering patterns.',
+    title: 'Auditable lifecycle',
+    desc: 'Consent revisions, signatures, webhook concepts, and audit entries are modeled explicitly so consent state changes can be traced instead of inferred.',
   },
   {
-    title: 'Citizen service forms',
-    desc: 'Form pages add consent text, retention windows, PII flags, and redaction support, which is much closer to government operations than a plain brochure site.',
+    title: 'Citizen-facing integration',
+    desc: 'Consent is not isolated from the rest of CivicOS; it sits alongside forms and service workflows, which is closer to how public institutions actually deploy consent-managed services.',
   },
 ]
 
@@ -113,24 +113,28 @@ export default function Home() {
           <div className="max-w-4xl py-12">
             <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-200">
               <span className="h-2 w-2 rounded-full bg-sky-300" />
-              First GovStack submission in preparation
+              Consent BB assessment target
             </div>
 
             <h1 className="mt-8 max-w-4xl text-5xl font-semibold leading-[1.02] tracking-[-0.04em] text-white md:text-6xl lg:text-7xl">
-              A government website platform with a real CMS core
+              An auditable consent platform for public-sector services
             </h1>
 
             <p className="mt-8 max-w-3xl text-lg leading-8 text-white/64 md:text-xl">
-              CivicOS is a Django 5.2 and Wagtail platform. This public site is now aligned with the codebase we can prove today: a GovStack Content Management System submission built on structured page models, reusable content blocks, accessible media, and citizen-facing forms.
+              CivicOS is a Django 5.2 platform built for governments, municipalities, and communities. This public site now highlights the Consent building block through consent configuration, service, verification, signature, audit, and right-to-be-forgotten workflows aligned to the GovStack Consent model.
             </p>
 
             <div className="mt-10 flex flex-wrap gap-4">
-              <Link to="/docs"
+              <Link to="/docs/consent"
                 className="inline-flex items-center gap-2 rounded-2xl bg-sky-600 px-7 py-3.5 text-sm font-semibold text-white transition-all hover:bg-sky-500 hover:shadow-xl hover:shadow-sky-500/25 active:scale-95">
-                Submission docs
+                Open Consent Docs (/docs/consent)
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>
+              </Link>
+              <Link to="/docs"
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/12 bg-white/6 px-7 py-3.5 text-sm font-semibold text-white transition-all hover:bg-white/10">
+                Open docs hub
               </Link>
               <Link to="/building-blocks"
                 className="inline-flex items-center gap-2 rounded-2xl border border-white/12 bg-white/6 px-7 py-3.5 text-sm font-semibold text-white transition-all hover:bg-white/10">
@@ -139,12 +143,16 @@ export default function Home() {
             </div>
 
             <div className="mt-14 flex flex-wrap items-center gap-x-6 gap-y-3">
-              {['Django 5.2', 'Wagtail CMS', 'Bilingual structure', 'Accessible authoring', 'Consent-aware forms'].map((item) => (
+              {['Django 5.2', 'DRF API', 'JWT auth', 'Revisions & signatures', 'Consent webhooks'].map((item) => (
                 <span key={item} className="text-sm font-medium text-white/45">
                   {item}
                 </span>
               ))}
             </div>
+
+            <p className="mt-5 text-sm text-white/40">
+              Public documentation URL: <span className="text-white/70">/docs/consent</span>
+            </p>
           </div>
 
           <aside className="relative self-end rounded-[32px] border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/20 backdrop-blur-sm">
@@ -173,7 +181,7 @@ export default function Home() {
               A tighter public story for the first building block
             </h2>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-white/55">
-              The website now leads with what the codebase can substantiate line by line. That keeps the public narrative consistent with the submission package and makes reviewer verification easier.
+              The website now leads with the building block you actually want to assess. That keeps the public narrative consistent with the documentation URL and makes Consent-specific reviewer verification much easier.
             </p>
           </div>
 
@@ -193,7 +201,7 @@ export default function Home() {
               Submission-ready because the implementation is already broad enough
             </h2>
             <p className="mt-6 text-lg leading-8 text-white/55">
-              CivicOS is more than a landing page wrapped around a spec. The repo already contains editorial structure, reusable blocks, media models, and an extended forms layer, which gives the Content Management System claim operational depth.
+              CivicOS is more than a landing page wrapped around a spec. The repo already contains consent routes, serializers, revisions, signatures, audit concepts, and platform integrations, which gives the Consent claim real operational depth.
             </p>
             <Link to="/about"
               className="mt-8 inline-flex items-center gap-2 text-sm font-semibold text-sky-300 transition-colors hover:text-sky-200">

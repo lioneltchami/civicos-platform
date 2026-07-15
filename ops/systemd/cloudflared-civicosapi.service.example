@@ -1,0 +1,18 @@
+[Unit]
+Description=Cloudflare Tunnel for CivicOS API
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/cloudflared
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel --config /etc/cloudflared/civicosapi.yml run
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudflared-civicosapi
+
+[Install]
+WantedBy=multi-user.target

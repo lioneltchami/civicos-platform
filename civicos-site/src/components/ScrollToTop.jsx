@@ -1,21 +1,22 @@
-import { useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 
 const TITLES = {
-  '/': 'CivicOS — GovStack CMS Submission Website',
-  '/building-blocks': 'Building blocks roadmap — CivicOS',
-  '/about': 'About CivicOS',
-  '/contact': 'Submission contact — CivicOS',
-  '/docs': 'Content Management System submission docs — CivicOS',
-}
+  "/": "CivicOS",
+  "/building-blocks": "Building blocks roadmap — CivicOS",
+  "/about": "About CivicOS",
+  "/contact": "Contact — CivicOS",
+  "/docs": "Docs — CivicOS",
+  "/docs/consent": "Consent Docs — CivicOS",
+};
 
 export default function ScrollToTop() {
-  const { pathname } = useLocation()
+  const { pathname } = useLocation();
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' })
-    document.title = TITLES[pathname] ?? 'CivicOS — GovStack CMS Submission Website'
-  }, [pathname])
+    window.scrollTo({ top: 0, behavior: "auto" });
+    document.title = TITLES[pathname] ?? "CivicOS";
+  }, [pathname]);
 
-  return null
+  return null;
 }

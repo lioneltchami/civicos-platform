@@ -116,8 +116,13 @@ RUN pip install --no-cache-dir -r requirements/production.txt
 # Copy application code
 COPY --chown=appuser:appgroup . .
 
-# Collect static files (requires SECRET_KEY at build time; use a dummy)
+# Collect static files with a build-only bootstrap environment.
+# Keep Django in debug mode here so startup guards for runtime-only services
+# (for example production Fernet/S3 requirements) do not break the image build.
 RUN DJANGO_SECRET_KEY=build-time-key \
+    DJANGO_DEBUG=True \
+    FERNET_KEYS=bxYAibKUFsiGuQex4mPBNvcc-4kLxafPgtVxpLp8rQA= \
+    VOLUNTEER_SIN_FERNET_KEYS=FlpigUc6aS6MU9K_XLd5kZiqCTwfnaFBEBuY5Xh_agY= \
     DJANGO_SETTINGS_MODULE=config.settings.base \
     DATABASE_URL=postgres://x:x@localhost/x \
     python manage.py collectstatic --noinput

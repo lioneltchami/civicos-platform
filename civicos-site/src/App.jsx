@@ -8,6 +8,7 @@ import Blocks from './pages/Blocks'
 import About from './pages/About'
 import Contact from './pages/Contact'
 import Docs from './pages/Docs'
+import ConsentDocs from './pages/ConsentDocs'
 import NotFound from './pages/NotFound'
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/docs" element={<Docs />} />
+            <Route path="/docs/consent" element={<ConsentDocs />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>

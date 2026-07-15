@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 
 const ROADMAP = [
-  { status: 'active', label: 'Content Management System submission package', desc: 'Public website, documentation page, and submission language aligned around the Wagtail CMS implementation already present in the repo.' },
-  { status: 'active', label: 'testing.govstack.global entry', desc: 'Use the homepage as the software website and the /docs page as the public documentation URL for the first building block submission.' },
-  { status: 'active', label: 'Consent compliance hardening', desc: 'Consent remains in the codebase, but public claims are now narrower until a fresh compliance pass is complete.' },
+  { status: 'active', label: 'Consent submission package', desc: 'Public website, documentation page, and submission language aligned around the Consent building block implementation already present in the repo.' },
+  { status: 'active', label: 'testing.govstack.global entry', desc: 'Use the homepage as the software website and the /docs/consent page as the public documentation URL for the first building block submission.' },
+  { status: 'active', label: 'Consent implementation hardening', desc: 'Consent remains the current assessment target while the rest of the platform stays visible as broader context.' },
+  { status: 'active', label: 'CMS public platform support', desc: 'The Wagtail content layer remains part of CivicOS even though it is not the active submission target on this site.' },
   { status: 'planned', label: 'Identity building block', desc: 'Citizen identity, verifiable credentials, and federated SSO.' },
   { status: 'planned', label: 'Payments building block', desc: 'Government payment collection and benefits disbursement.' },
   { status: 'planned', label: 'Messaging and scheduler', desc: 'Secure notifications, citizen messaging, and appointment workflows.' },
@@ -15,8 +16,8 @@ const dotStyle = {
 }
 
 const VALUES = [
-  { icon: '🧱', title: 'Structured content', desc: 'CivicOS uses explicit page types and content blocks so government teams publish with guardrails instead of relying on a single free-form page model.' },
-  { icon: '♿', title: 'Accessible authoring', desc: 'Alt text, heading hierarchy, alerts, and form metadata are part of the authoring surface, not a cleanup step after publishing.' },
+  { icon: '🛡️', title: 'Consent lifecycle', desc: 'Consent records, revisions, signatures, verification flows, and audit history are treated as explicit lifecycle concepts instead of ad hoc flags.' },
+  { icon: '🔐', title: 'Data handling discipline', desc: 'Consent sits close to forms, retention settings, export flows, and right-to-be-forgotten behavior rather than being isolated from real service workflows.' },
   { icon: '🌍', title: 'Government context', desc: 'The platform is built for multilingual, public-sector content and service delivery rather than for generic startup marketing sites.' },
   { icon: '🧩', title: 'Modular architecture', desc: 'The website, CMS, forms, and consent work all live in the same Django platform, which makes staged GovStack submissions practical.' },
   { icon: '🔍', title: 'Evidence over slogans', desc: 'This public site now tries to say only what the repo can support with code, models, and documented behavior.' },
@@ -35,7 +36,7 @@ export default function About() {
             The platform is broader.<br />The first submission is narrower.
           </h1>
           <p className="text-white/55 text-xl max-w-2xl leading-relaxed">
-            CivicOS is a modular digital government platform built on Django and Wagtail. This website now makes a deliberate choice: lead with the Content Management System building block because that is the clearest, most defensible first public submission.
+            CivicOS is a modular digital government platform built on Django and Wagtail for governments, municipalities, and communities. This website now leads with the Consent building block because that is the capability currently being documented and submitted first.
           </p>
         </div>
       </section>
@@ -46,13 +47,13 @@ export default function About() {
             <p className="text-sky-300 font-semibold text-sm uppercase tracking-widest mb-4">Why this positioning</p>
             <h2 className="text-3xl font-black text-white mb-6">Start where the evidence is strongest</h2>
             <p className="text-white/55 leading-relaxed mb-4">
-              The CivicOS repo contains more than one product surface, but not every surface should be marketed the same way at the same time. A first GovStack submission works best when the website, documentation, and implementation evidence all tell the same story.
+              The CivicOS repo contains more than one product surface, but not every surface should be marketed the same way at the same time. A GovStack assessment works best when the website, documentation, and implementation evidence all tell the same story.
             </p>
             <p className="text-white/55 leading-relaxed mb-4">
-              Right now, that strongest story is the Content Management System. The codebase already includes Wagtail page models, reusable content blocks, document and image models, navigation structures, alerts, and a forms layer with consent and retention behavior.
+              In this submission path, that story is Consent. The codebase already includes GovStack-style consent routes, revision and signature concepts, webhook support, audit surfaces, and consent-aware service integrations.
             </p>
             <p className="text-white/55 leading-relaxed">
-              The broader platform vision still matters. It just belongs behind a roadmap and implementation context, not behind premature certification language. That is the difference between a site that looks confident and a site that can survive line-by-line review.
+              The broader platform vision still matters. It belongs in the roadmap and implementation context, not buried under certification-heavy language. That is the difference between a site that reads like a real platform and one that reads like a temporary submission wrapper.
             </p>
           </div>
           <div>
@@ -61,26 +62,26 @@ export default function About() {
               <div className="p-5 rounded-2xl border border-sky-400/25 bg-sky-950/25">
                 <h3 className="text-white font-bold text-sm mb-2 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-sky-300" />
-                  Content layer
+                  Consent API layer
                 </h3>
                 <p className="text-white/50 text-sm leading-relaxed">
-                  Home, service, news, and generic page models plus StreamField building blocks make the CMS claim concrete rather than aspirational.
+                  Config, service, and audit namespaces make the Consent claim concrete instead of reducing it to generic privacy language.
                 </p>
               </div>
               <div className="p-5 rounded-2xl border border-emerald-500/20 bg-emerald-950/20">
                 <h3 className="text-white font-bold text-sm mb-2 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                  Citizen service layer
+                  Platform integration
                 </h3>
                 <p className="text-white/50 text-sm leading-relaxed">
-                  Form pages, retention settings, consent text, PII flags, and redaction behavior connect the CMS to actual service delivery needs.
+                  Forms, retention settings, consent text, PII flags, and export-related behavior connect the Consent layer to actual service delivery needs.
                 </p>
               </div>
             </div>
 
             <div className="mt-6 p-5 rounded-2xl border border-white/10 bg-white/4">
               <p className="text-xs text-white/30 uppercase tracking-widest font-semibold mb-3">External framing</p>
-              {['GovStack Content Management System specification', 'Open standards and interoperability goals', 'WCAG-aware content publishing expectations', 'Government information and services delivery context'].map((item) => (
+              {['GovStack Consent building block specification', 'Open standards and interoperability goals', 'Auditability and signature expectations', 'Government data-sharing and approval context'].map((item) => (
                 <div key={item} className="flex items-center gap-2 py-1.5">
                   <svg className="w-3.5 h-3.5 text-sky-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
@@ -144,17 +145,17 @@ export default function About() {
         <div className="max-w-4xl mx-auto">
           <div className="rounded-2xl border border-sky-400/20 bg-sky-950/20 p-10">
             <p className="text-sky-300 font-semibold text-sm uppercase tracking-widest mb-4">GovStack context</p>
-            <h2 className="text-3xl font-black text-white mb-4">Why the CMS building block fits the current platform</h2>
+            <h2 className="text-3xl font-black text-white mb-4">Why the Consent building block fits the current platform</h2>
             <p className="text-white/55 leading-relaxed mb-4">
-              GovStack's Content Management System building block is about standardizing government websites so citizens can access information and services through an interoperable, maintainable content layer. That is already much closer to CivicOS than a generic “we do everything” pitch.
+              GovStack's Consent building block is about enabling individuals to approve the use of personal data through an auditable and interoperable consent lifecycle. CivicOS fits that need as a platform for public institutions, municipalities, and communities rather than as a generic privacy banner.
             </p>
             <p className="text-white/55 leading-relaxed mb-6">
-              The CMS framing also lets this site show actual code-backed implementation details: page hierarchies, reusable content blocks, accessible media handling, forms, alerts, and navigation structures. Those are the ingredients reviewers can verify without guessing.
+              The Consent framing lets this site show actual code-backed implementation details: config, service, and audit routes, consent records, signatures, revisions, verification flows, and right-to-be-forgotten handling. Those are the ingredients reviewers can verify without guessing.
             </p>
             <div className="flex flex-wrap gap-4">
-              <a href="https://specs.govstack.global/content-management-system/2-description" target="_blank" rel="noopener noreferrer"
+              <a href="https://govstack.gitbook.io/bb-consent/con-23q4/2-description" target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 text-sm font-semibold text-sky-300 hover:text-sky-200 transition-colors">
-                Read the CMS specification
+                Read the Consent specification
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                 </svg>
@@ -170,15 +171,19 @@ export default function About() {
       <section className="py-20 px-6 lg:px-8">
         <div className="max-w-3xl mx-auto text-center">
           <h2 className="text-3xl font-black text-white mb-4">Need a cleaner first submission?</h2>
-          <p className="text-white/50 mb-8">Use the CMS-first public story now, then add other building blocks back into the marketing site only when each one is ready to stand up to review.</p>
+          <p className="text-white/50 mb-8">Lead with the Consent documentation now, then expand the public story as other building blocks are ready to stand up to review.</p>
           <div className="flex flex-wrap gap-4 justify-center">
             <Link to="/contact"
               className="px-7 py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl transition-all hover:shadow-xl hover:shadow-sky-500/30">
               Point of contact
             </Link>
+            <Link to="/docs/consent"
+              className="px-7 py-3.5 bg-white/8 hover:bg-white/14 text-white font-semibold rounded-xl border border-white/12 transition-all">
+              Consent docs
+            </Link>
             <Link to="/docs"
               className="px-7 py-3.5 bg-white/8 hover:bg-white/14 text-white font-semibold rounded-xl border border-white/12 transition-all">
-              Submission docs
+              Docs hub
             </Link>
           </div>
         </div>

@@ -7,7 +7,7 @@
   <rect x="180" y="180" width="72" height="72" rx="20" fill="url(#paint3_linear)"/>
   <text x="354" y="202" fill="#7DD3FC" font-family="Outfit, Arial, sans-serif" font-size="32" font-weight="600" letter-spacing="0.20em">CIVIC PLATFORM</text>
   <text x="354" y="330" fill="white" font-family="Outfit, Arial, sans-serif" font-size="128" font-weight="700" letter-spacing="-0.06em">CivicOS</text>
-  <text x="354" y="392" fill="rgba(255,255,255,0.60)" font-family="Outfit, Arial, sans-serif" font-size="30" font-weight="500">GovStack Content Management System Submission</text>
+  <text x="354" y="392" fill="rgba(255,255,255,0.60)" font-family="Outfit, Arial, sans-serif" font-size="30" font-weight="500">Public-sector content platform · GovStack CMS assessment</text>
   <path d="M354 456H1084" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
   <text x="354" y="514" fill="rgba(255,255,255,0.52)" font-family="Outfit, Arial, sans-serif" font-size="24" font-weight="500">Django 5.2 · Wagtail · Structured content · Accessible authoring</text>
   <defs>

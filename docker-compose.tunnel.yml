@@ -1,0 +1,16 @@
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.1
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    depends_on:
+      nginx:
+        condition: service_started
+    volumes:
+      - ./ops/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ./ops/cloudflared/credentials.json:/etc/cloudflared/credentials.json:ro
+    networks:
+      - civicos_net
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
