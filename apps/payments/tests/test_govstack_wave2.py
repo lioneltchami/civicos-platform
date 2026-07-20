@@ -928,3 +928,84 @@ class DatabaseStateIntegrationTest(TestCase):
         resp = self.client.post(REGISTER_URL, _VALID_BODY, format="json")
         body_str = json.dumps(resp.json())
         self.assertNotIn(VALID_PAYEE_ID, body_str)
+
+
+# ============================================================================
+# I.  GovStackBeneficiary model-level validation
+# ============================================================================
+
+class GovStackBeneficiaryModelValidationTest(TestCase):
+    """
+    Verifies that the _G2P_UUID_VALIDATOR applied to payee_functional_id
+    is enforced at the model level via full_clean().
+
+    Context: The serializer layer already rejects non-hex IDs via _validate_g2p_id.
+    This test guards against direct ORM writes (admin, management commands, tests)
+    that bypass the serializer and could create records with IDs that don't conform
+    to the G2P spec.
+
+    Regression for review finding: "Model validator inconsistency on payee_functional_id".
+    """
+
+    def _make_beneficiary(self, payee_id: str) -> GovStackBeneficiary:
+        """Create an in-memory GovStackBeneficiary without saving to DB."""
+        return GovStackBeneficiary(
+            payee_functional_id=payee_id,
+            source_bb_id=VALID_SOURCE_BB_ID,
+            payment_modality="",
+            is_active=True,
+        )
+
+    # I1 — valid hex+hyphen ID passes full_clean()
+    def test_i1_valid_hex_id_passes_full_clean(self):
+        """A lowercase hex+hyphen PayeeFunctionalID must pass full_clean()."""
+        from django.core.exceptions import ValidationError
+        ben = self._make_beneficiary(VALID_PAYEE_ID)
+        try:
+            ben.full_clean()
+        except ValidationError as exc:
+            self.fail(
+                f"full_clean() raised ValidationError for valid ID {VALID_PAYEE_ID!r}: {exc}"
+            )
+
+    # I2 — uppercase ID is rejected by full_clean()
+    def test_i2_uppercase_id_fails_full_clean(self):
+        """An uppercase PayeeFunctionalID must be rejected by full_clean()."""
+        from django.core.exceptions import ValidationError
+        ben = self._make_beneficiary("UPPERCASE-ABCD")
+        with self.assertRaises(ValidationError) as cm:
+            ben.full_clean()
+        # The error must target the payee_functional_id field specifically
+        self.assertIn("payee_functional_id", cm.exception.message_dict)
+
+    # I3 — "invalid" (harness negative test string) is also rejected at model level
+    def test_i3_harness_invalid_string_fails_full_clean(self):
+        """The literal string 'invalid' must be rejected at the model level too."""
+        from django.core.exceptions import ValidationError
+        ben = self._make_beneficiary(INVALID_ID)  # "invalid" contains i, n, v, l
+        with self.assertRaises(ValidationError) as cm:
+            ben.full_clean()
+        self.assertIn("payee_functional_id", cm.exception.message_dict)
+
+    # I4 — single lowercase hex char is the shortest valid value
+    def test_i4_single_hex_char_accepted(self):
+        """A single lowercase hex char ('a') is the minimum valid value."""
+        from django.core.exceptions import ValidationError
+        ben = self._make_beneficiary("a")
+        try:
+            ben.full_clean()
+        except ValidationError as exc:
+            self.fail(f"full_clean() rejected single-char hex ID: {exc}")
+
+    # I5 — error message is user-readable and doesn't leak raw regex
+    def test_i5_error_message_is_human_readable(self):
+        """ValidationError message must be a helpful string, not a raw regex pattern."""
+        from django.core.exceptions import ValidationError
+        ben = self._make_beneficiary("UPPERCASE")
+        with self.assertRaises(ValidationError) as cm:
+            ben.full_clean()
+        errors = cm.exception.message_dict.get("payee_functional_id", [])
+        self.assertTrue(errors, "Expected at least one error message")
+        error_text = str(errors[0])
+        # Must reference something meaningful — not just the raw regex pattern
+        self.assertIn("lowercase", error_text.lower())

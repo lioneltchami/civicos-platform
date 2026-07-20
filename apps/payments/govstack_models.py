@@ -49,6 +49,25 @@ _BB_ID_VALIDATOR = RegexValidator(
     message="BB ID must be 1–20 alphanumeric or hyphen characters.",
 )
 
+# G2P-specific validator: lowercase hex + hyphens only, matching the serializer's
+# _G2P_UUID_RE pattern.  Applied to GovStackBeneficiary.payee_functional_id so that
+# Django admin and any code that calls full_clean() enforces the same constraint as
+# the serializer layer.
+#
+# The broad _BB_ID_VALIDATOR is intentionally kept for other BB-ID fields (source_bb_id
+# on Wave 3+ models, Voucher Gov_Stack_BB fields) whose serializers accept uppercase IDs.
+#
+# Known permissive boundary: pure-hyphen strings like "---" also match (hyphens are valid
+# UUID separator chars).  If a future spec version tightens this, change to:
+#   r"^[0-9a-f][0-9a-f\-]{0,19}$"
+_G2P_UUID_VALIDATOR = RegexValidator(
+    regex=r"^[0-9a-f\-]{1,20}$",
+    message=(
+        "Payee Functional ID must be 1–20 lowercase hex characters and hyphens "
+        "(e.g. '2ba5ed20-0f42-4eff-8'). Uppercase letters are not permitted."
+    ),
+)
+
 _REQUEST_ID_VALIDATOR = RegexValidator(
     regex=r"^[a-zA-Z0-9\-]{1,16}$",
     message="RequestID must be 1–16 alphanumeric or hyphen characters.",
@@ -94,11 +113,12 @@ class GovStackBeneficiary(TimestampedModel):
     payee_functional_id = models.CharField(
         max_length=20,
         unique=True,  # unique already creates an index; db_index=True is redundant
-        validators=[_BB_ID_VALIDATOR],
+        validators=[_G2P_UUID_VALIDATOR],
         verbose_name=_("Payee Functional ID"),
         help_text=_(
             "Government-assigned functional identity for this beneficiary. "
-            "Max 20 chars per GovStack spec. NEVER write to logs."
+            "Must be 1–20 lowercase hex chars and hyphens per GovStack G2P spec. "
+            "NEVER write to logs."
         ),
     )
     payment_modality = models.CharField(
