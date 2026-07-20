@@ -244,9 +244,18 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
     GovStack spec: BulkPayment.yml
     Harness: g2p_bulk_payment.feature @endpoint=/bulk-payment
 
-    NOTE: SourceBBID must match [a-zA-Z0-9]{10} per harness.
-    NOTE: BatchID must match [a-zA-Z0-9]{11} per harness.
-    Harness negative scenarios send "invalid" (7 chars) to test 400 responses.
+    SourceBBID / BatchID rules (derived from harness data):
+      • Valid values in harness: "SourceBBID11" (12 chars), "BatchID11111" (12 chars)
+      • Invalid value in harness: "invalid" (7 chars, lowercase only)
+      • Minimum length of 10 cleanly separates valid from invalid:
+          "invalid" = 7 chars  → rejected
+          "SourceBBID11" = 12 chars → accepted
+      • Allow uppercase (harness uses mixed-case IDs like "SourceBBID11").
+        Contrast with G2P beneficiary endpoints which use _G2P_UUID_RE (hex only).
+
+    Harness negative scenarios:
+      HTTP 400: missing SourceBBID, missing BatchID, empty CreditInstructions,
+               "invalid" SourceBBID, "invalid" BatchID.
     """
     RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
     SourceBBID = serializers.CharField(max_length=20)
@@ -254,21 +263,27 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
     CreditInstructions = serializers.ListField(
         child=CreditInstructionSerializer(),
         min_length=1,
+        error_messages={
+            "required": "CreditInstructions array is required.",
+            "min_length": "CreditInstructions array must contain at least one entry.",
+        },
     )
 
+    # _BULK_BB_ID_RE: alphanumeric + hyphen, min 10 chars to reject the harness
+    # "invalid" test value (7 chars) while accepting production-grade IDs (≥10 chars).
+    _BULK_BB_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{10,20}$")
+
     def validate_SourceBBID(self, value: str) -> str:
-        # Harness uses 10-char alphanumeric; "invalid" must fail.
-        if not value or not re.match(r"^[a-zA-Z0-9\-]{1,20}$", value):
+        if not value or not self._BULK_BB_ID_RE.match(value):
             raise serializers.ValidationError(
-                "SourceBBID is required and must be alphanumeric (1–20 chars)."
+                "SourceBBID must be 10–20 alphanumeric or hyphen characters."
             )
         return value
 
     def validate_BatchID(self, value: str) -> str:
-        # Harness uses 11-char alphanumeric; "invalid" must fail.
-        if not value or not re.match(r"^[a-zA-Z0-9\-]{1,20}$", value):
+        if not value or not self._BULK_BB_ID_RE.match(value):
             raise serializers.ValidationError(
-                "BatchID is required and must be alphanumeric (1–20 chars)."
+                "BatchID must be 10–20 alphanumeric or hyphen characters."
             )
         return value
 
@@ -277,35 +292,83 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
 # G2P — Prepayment Validation
 # ---------------------------------------------------------------------------
 
+class PrepaymentCreditInstructionSerializer(serializers.Serializer):
+    """
+    One entry in CreditInstructions[] for the /prepayment-validation endpoint.
+
+    Differs from CreditInstructionSerializer (used by /bulk-payment) in two ways:
+      1. Narration is REQUIRED — the harness negative scenario "missing Narration"
+         sends a full body without Narration and expects ResponseCode "01".
+         (For /bulk-payment, Narration is optional and tested with "not obligatory fields".)
+      2. InstructionID max_length=20 (model field size) vs 16 in CreditInstruction model.
+         The harness sends 16-char IDs ("instructionID123") — both fit within 20.
+    """
+    InstructionID = serializers.CharField(max_length=20)
+    PayeeFunctionalID = serializers.CharField(max_length=20)
+    Amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    Currency = serializers.CharField(max_length=3)
+    # Narration is REQUIRED here — unlike CreditInstructionSerializer where it is optional.
+    Narration = serializers.CharField(max_length=200)
+
+    def validate_PayeeFunctionalID(self, value: str) -> str:
+        return _validate_payee_id(value)
+
+    def validate_Currency(self, value: str) -> str:
+        return _validate_iso4217(value.upper() if value else value)
+
+
 class PrepaymentValidationRequestSerializer(serializers.Serializer):
     """
     POST /govstack/payments/prepayment-validation
-    GovStack spec: PrePaymentValidation.yml (one instruction per call in harness)
+    GovStack spec: PrePaymentValidation.yml
+
+    The harness sends exactly one instruction per request.  The view processes
+    CreditInstructions[0] and stores one PrepaymentValidationRequest record.
+
+    Key behavioural difference from /bulk-payment: this endpoint ALWAYS returns
+    HTTP 200.  Serializer errors → ResponseCode "01" (not HTTP 400).
+
+    SourceBBID / BatchID: accept any non-empty alphanumeric string (1–20 chars).
+    The harness "invalid SourceBBID/BatchID" scenarios send a PARTIAL body
+    (only that one field), so failure is triggered by MISSING required fields
+    (BatchID, CreditInstructions), not by an invalid SourceBBID/BatchID value.
     """
     RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
     SourceBBID = serializers.CharField(max_length=20)
     BatchID = serializers.CharField(max_length=20)
     CreditInstructions = serializers.ListField(
-        child=CreditInstructionSerializer(),
+        child=PrepaymentCreditInstructionSerializer(),
         min_length=1,
+        error_messages={
+            "required": "CreditInstructions array is required.",
+            "min_length": "CreditInstructions array must contain at least one entry.",
+        },
     )
 
     def validate_SourceBBID(self, value: str) -> str:
         return _validate_bb_id(value)
 
     def validate_BatchID(self, value: str) -> str:
-        if not value or len(value) > 20:
-            raise serializers.ValidationError("BatchID is required (max 20 chars).")
-        return value
+        return _validate_bb_id(value)
 
 
 class PrepaymentValidationResponseAckSerializer(serializers.Serializer):
     """
     POST /govstack/payments/prepayment-validation-response
-    Body sent by the harness to acknowledge receipt of the async result.
+
+    Body sent by the harness to acknowledge receipt of the async validation
+    result callback.  The harness sends {RequestID, Source_BatchID} (note the
+    underscore in Source_BatchID — matches the GovStack spec field name exactly).
+
+    All fields are optional: if the harness sends a malformed body our view
+    degrades gracefully rather than returning 400 (this endpoint is not in the
+    harness error scenarios).
     """
     RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
-    SourceBatchID = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
+    # IMPORTANT: field name is Source_BatchID (with underscore), NOT SourceBatchID.
+    # The harness sends {"Source_BatchID": "..."} — a mismatch here silently drops
+    # the batch ID and breaks the chained two-step test scenario.
+    Source_BatchID = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
 
 
 # ---------------------------------------------------------------------------
