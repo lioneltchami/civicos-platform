@@ -54,6 +54,11 @@ _REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,16}$")
 # for consistency with the other compiled regexes above.
 _BULK_BB_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{10,20}$")
 
+# ISO 4217 currency code: exactly 3 uppercase letters.
+# Pre-compiled at module level — called once per instruction in bulk payments,
+# so avoiding repeated re.compile() overhead (inline re.match() recompiles every call).
+_ISO4217_RE = re.compile(r"^[A-Z]{3}$")
+
 # G2P-specific validator: lowercase hex + hyphen only (UUID-like identifiers).
 # The harness uses values like "11668d2a-a8f" (SourceBBID, 12 chars) and
 # "2ba5ed20-0f42-4eff-8" (PayeeFunctionalID, 20 chars).  The harness negative
@@ -118,7 +123,7 @@ def _validate_request_id(value: str) -> str:
 
 def _validate_iso4217(value: str) -> str:
     """Validate ISO 4217 currency code: exactly 3 uppercase letters."""
-    if not value or not re.match(r"^[A-Z]{3}$", value):
+    if not value or not _ISO4217_RE.match(value):
         raise serializers.ValidationError(
             "Must be a 3-letter ISO 4217 currency code (e.g. USD, AED, CAD)."
         )
@@ -273,9 +278,15 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
     CreditInstructions = serializers.ListField(
         child=CreditInstructionSerializer(),
         min_length=1,
+        # max_length guards against unbounded atomic transactions: all instructions
+        # are created in a single transaction.atomic() block in receive_batch().
+        # 500 matches the cap on RegisterBeneficiaryRequest.Beneficiaries and is
+        # well within any realistic G2P disbursement batch size.
+        max_length=500,
         error_messages={
             "required": "CreditInstructions array is required.",
             "min_length": "CreditInstructions array must contain at least one entry.",
+            "max_length": "CreditInstructions array must not exceed 500 entries per request.",
         },
     )
 
@@ -366,15 +377,30 @@ class PrepaymentValidationResponseAckSerializer(serializers.Serializer):
     result callback.  The harness sends {RequestID, Source_BatchID} (note the
     underscore in Source_BatchID — matches the GovStack spec field name exactly).
 
-    All fields are optional: if the harness sends a malformed body our view
-    degrades gracefully rather than returning 400 (this endpoint is not in the
-    harness error scenarios).
+    All fields are optional and is_valid() ALWAYS returns True:
+      - No max_length constraints (callers may send arbitrarily long values —
+        the view truncates or ignores them rather than losing context entirely).
+      - allow_null=True so {"RequestID": null} defaults to "" rather than failing
+        validation or being coerced to the string "None".
+      - required=False, allow_blank=True so missing / empty values default to "".
+    This endpoint is not in the harness error scenarios; we degrade gracefully
+    for any body rather than returning 400.
     """
-    RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
+    RequestID = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default="",
+    )
     # IMPORTANT: field name is Source_BatchID (with underscore), NOT SourceBatchID.
     # The harness sends {"Source_BatchID": "..."} — a mismatch here silently drops
     # the batch ID and breaks the chained two-step test scenario.
-    Source_BatchID = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
+    Source_BatchID = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default="",
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -59,6 +59,7 @@ Coverage matrix:
      D16: get_validation_result() COMPLETED + beneficiary_found=False → FailedAccounts (security: no PayeeFunctionalID)
      D17: get_validation_result() COMPLETED + financial_address_valid=False → FailedAccounts
      D18: get_validation_result() COMPLETED + both=True → not counted as failure
+     D19: get_validation_result() STATUS_FAILED (process error) → appears in FailedAccounts
 
   E. Serializer tests
      E1:  BulkPaymentRequestSerializer accepts valid harness SourceBBID (12 chars)
@@ -74,15 +75,19 @@ Coverage matrix:
   F. Critical bug regression tests (post-review fixes)
      F1: UUID-format correlation_id (36 chars) accepted and persisted without truncation
      F2: duplicate BatchID → HTTP 400 G2P envelope, not 500 IntegrityError
-     F2b: DuplicateBatchError raised by service (not IntegrityError)
+     F2b: DuplicateBatchError raised by service (not IntegrityError); batch_id not in message
      F3: multiple CreditInstructions in prepayment-validation → HTTP 200, ResponseCode "01"
      F4: 100-char correlation ID accepted end-to-end
+     F5: duplicate RequestID on /prepayment-validation → HTTP 200, ResponseCode "01" (not 500)
+     F5b: DuplicateValidationRequestError raised by service on duplicate request_id
 
 Security invariants tested:
   - payee_functional_id NEVER in any response field (C6, D8, D13, D16)
   - Audit entry details never contain payee_functional_id key (D8, D13)
   - FailedAccounts uses InstructionID only, never PayeeFunctionalID (D16, D17)
   - Duplicate BatchID error message never leaks the BatchID value (F2)
+  - DuplicateBatchError.batch_id attribute set; NOT in exception string (F2b)
+  - DuplicateValidationRequestError.request_id attribute set; NOT in exception string (F5b)
 
 Harness identifiers:
   Bulk smoke:   RequestID="RequestID111" SourceBBID="SourceBBID11" BatchID="BatchID11111"
@@ -99,7 +104,7 @@ from django.test import TestCase
 
 from rest_framework.test import APIClient
 
-from apps.payments.govstack_exceptions import DuplicateBatchError
+from apps.payments.govstack_exceptions import DuplicateBatchError, DuplicateValidationRequestError
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
@@ -871,6 +876,47 @@ class PrepaymentValidationServiceTest(TestCase):
         self.assertEqual(result["number_failed_cases"], 0)
         self.assertEqual(result["failed_accounts"], [])
 
+    # D19 — get_validation_result() includes STATUS_FAILED records in FailedAccounts
+    def test_d19_failed_status_process_error_appears_in_failed_accounts(self):
+        """
+        A record where the Celery task itself failed (status=FAILED, beneficiary_found=None)
+        must appear in FailedAccounts — the Source BB cannot assume success on process errors.
+
+        Before the H3 fix: these records were silently excluded because beneficiary_found=None
+        doesn't match `is False`. The STATUS_FAILED branch was dead code from a testing perspective.
+        """
+        pvr = self._validate(
+            request_id="req-fail-001",
+            batch_id="batch-fail-001",
+            instruction_id="instrFail001",
+            payee_functional_id=PV_PAYEE_ID_2,
+        )
+        # Simulate a Celery task that crashed — status=FAILED, booleans remain None
+        pvr.status = PrepaymentValidationRequest.STATUS_FAILED
+        pvr.beneficiary_found = None
+        pvr.financial_address_valid = None
+        pvr.save()
+
+        result = GovStackBulkPaymentService.get_validation_result(
+            request_id="req-fail-001",
+            source_batch_id="batch-fail-001",
+        )
+
+        self.assertEqual(result["number_failed_cases"], 1)
+        self.assertEqual(len(result["failed_accounts"]), 1)
+        failed = result["failed_accounts"][0]
+
+        # Must use InstructionID — NEVER PayeeFunctionalID
+        self.assertEqual(failed["InstructionID"], "instrFail001")
+        self.assertIn("FailureReason", failed)
+        self.assertIn("processing error", failed["FailureReason"].lower())
+
+        # PII must not appear anywhere in the result
+        self.assertNotIn("PayeeFunctionalID", failed)
+        raw = json.dumps(result)
+        self.assertNotIn(PV_PAYEE_ID_2, raw,
+                         msg="PayeeFunctionalID value must never appear in validation result")
+
 
 # ============================================================================
 # F.  Critical bug regression tests (post-review fixes)
@@ -966,7 +1012,11 @@ class BulkPaymentCriticalFixTests(TestCase):
                 batch_id="BatchIDsvcdup1",   # same batch_id
                 instructions=instructions,
             )
-        self.assertIn("BatchIDsvcdup1", str(ctx.exception))
+        # batch_id is stored as attribute (not in message) to avoid it appearing
+        # in error reporters alongside PII context. Verify the attribute is set.
+        self.assertEqual(ctx.exception.batch_id, "BatchIDsvcdup1")
+        # Verify the exception message does NOT contain the raw batch_id value.
+        self.assertNotIn("BatchIDsvcdup1", str(ctx.exception))
 
     # F3 — multiple CreditInstructions in prepayment-validation → HTTP 200, ResponseCode "01"
     def test_f3_multiple_credit_instructions_rejected(self):
@@ -1026,6 +1076,69 @@ class BulkPaymentCriticalFixTests(TestCase):
         batch = BulkPaymentBatch.objects.get(batch_id="BatchIDcorrF4")
         self.assertEqual(batch.correlation_id, long_corr)
         self.assertEqual(len(batch.correlation_id), 100)
+
+    # F5 — duplicate RequestID on /prepayment-validation → HTTP 200, ResponseCode "01" (not 500)
+    def test_f5_duplicate_request_id_prepayment_returns_200_error(self):
+        """
+        Before the C1 fix: PrepaymentValidationRequest.request_id has unique=True.
+        A second request with the same RequestID raised IntegrityError → unhandled 500.
+        /prepayment-validation MUST always return HTTP 200.
+
+        After the fix: DuplicateValidationRequestError caught in view → HTTP 200, ResponseCode "01".
+        """
+        body = _prepay_body(
+            request_id="req-dup-F5aa",   # 12 chars, unique to this test
+            source_bb=PV_SOURCE_BB_1,
+            batch_id=PV_BATCH_ID_1,
+        )
+
+        # First request — succeeds
+        resp1 = self.client.post(PREPAY_VALIDATION_URL, data=body, format="json")
+        self.assertEqual(resp1.status_code, 200)
+        self.assertEqual(resp1.json()["ResponseCode"], "00")
+
+        # Second request with identical RequestID — must be G2P error at HTTP 200, NOT 500
+        resp2 = self.client.post(PREPAY_VALIDATION_URL, data=body, format="json")
+        self.assertEqual(resp2.status_code, 200,
+                         msg="/prepayment-validation must ALWAYS return HTTP 200 even for errors")
+        data2 = resp2.json()
+        self.assertEqual(data2["ResponseCode"], "01")
+        self.assertIn("ResponseDescription", data2)
+        self.assertTrue(len(data2["ResponseDescription"]) >= 1)
+
+        # G2P spec requires RequestID to be echoed back in the envelope — this is
+        # correct and expected behaviour. The RequestID appearing in the `RequestID`
+        # field is fine; it must NOT appear in the `ResponseDescription` narrative.
+        self.assertNotIn("req-dup-F5aa", data2.get("ResponseDescription", ""),
+                         msg="Duplicate RequestID must not appear in the ResponseDescription narrative")
+
+    # F5b — DuplicateValidationRequestError raised by service on duplicate request_id
+    def test_f5b_service_raises_duplicate_validation_request_error(self):
+        """
+        Service layer raises DuplicateValidationRequestError (not raw IntegrityError)
+        on duplicate request_id. The request_id is stored as attribute, not in the message.
+        """
+        kwargs = dict(
+            request_id="req-svc-F5b1",   # 12 chars
+            source_bb_id=PV_SOURCE_BB_1,
+            batch_id=PV_BATCH_ID_1,
+            instruction_id=PV_INSTR_ID_1,
+            payee_functional_id=PV_PAYEE_ID_1,
+            amount=Decimal("100.00"),
+            currency="USD",
+            narration="Narration",
+        )
+        # First call — succeeds
+        GovStackBulkPaymentService.validate_prepayment(**kwargs)
+
+        # Second call — must raise DuplicateValidationRequestError, not IntegrityError
+        with self.assertRaises(DuplicateValidationRequestError) as ctx:
+            GovStackBulkPaymentService.validate_prepayment(**kwargs)
+
+        # request_id stored as attribute for programmatic use
+        self.assertEqual(ctx.exception.request_id, "req-svc-F5b1")
+        # Must NOT appear in the exception string (error reporters would log this)
+        self.assertNotIn("req-svc-F5b1", str(ctx.exception))
 
 
 # ============================================================================

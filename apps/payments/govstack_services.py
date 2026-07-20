@@ -28,7 +28,7 @@ from decimal import Decimal
 
 from django.db import IntegrityError, transaction
 
-from apps.payments.govstack_exceptions import DuplicateBatchError
+from apps.payments.govstack_exceptions import DuplicateBatchError, DuplicateValidationRequestError
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
@@ -377,37 +377,51 @@ class GovStackBulkPaymentService:
         Returns:
             The persisted PrepaymentValidationRequest instance (status=PENDING).
         """
-        with transaction.atomic():
-            pvr = PrepaymentValidationRequest.objects.create(
-                request_id=request_id,
-                source_bb_id=source_bb_id,
-                batch_id=batch_id,
-                instruction_id=instruction_id,
-                payee_functional_id=payee_functional_id,
-                amount=amount,
-                currency=currency,
-                narration=narration,
-                status=PrepaymentValidationRequest.STATUS_PENDING,
-                # beneficiary_found / financial_address_valid: set by the Celery task.
-                # null = "not yet checked".
-                beneficiary_found=None,
-                financial_address_valid=None,
-                callback_url=callback_url,
-            )
+        try:
+            with transaction.atomic():
+                pvr = PrepaymentValidationRequest.objects.create(
+                    request_id=request_id,
+                    source_bb_id=source_bb_id,
+                    batch_id=batch_id,
+                    instruction_id=instruction_id,
+                    payee_functional_id=payee_functional_id,
+                    amount=amount,
+                    currency=currency,
+                    narration=narration,
+                    status=PrepaymentValidationRequest.STATUS_PENDING,
+                    # beneficiary_found / financial_address_valid: set by the Celery task.
+                    # null = "not yet checked".
+                    beneficiary_found=None,
+                    financial_address_valid=None,
+                    callback_url=callback_url,
+                )
 
-            GovStackPaymentAuditEntry.objects.create(
-                action=GovStackPaymentAuditEntry.ACTION_VALIDATION_REQUESTED,
-                actor_bb_id=source_bb_id,
-                object_type="validation",
-                object_pk=str(pvr.pk),
-                request_id=request_id,
-                details={
-                    "batch_id": batch_id,
-                    "source_bb_id": source_bb_id,
-                    "instruction_id": instruction_id,
-                    # NEVER include payee_functional_id in details
-                },
+                GovStackPaymentAuditEntry.objects.create(
+                    action=GovStackPaymentAuditEntry.ACTION_VALIDATION_REQUESTED,
+                    actor_bb_id=source_bb_id,
+                    object_type="validation",
+                    object_pk=str(pvr.pk),
+                    request_id=request_id,
+                    details={
+                        "batch_id": batch_id,
+                        "source_bb_id": source_bb_id,
+                        "instruction_id": instruction_id,
+                        # NEVER include payee_functional_id in details
+                    },
+                )
+
+        except IntegrityError as exc:
+            # PrepaymentValidationRequest.request_id has unique=True. A duplicate
+            # submission (retry, replay) raises IntegrityError at the DB level.
+            # Re-raise as DuplicateValidationRequestError so the view can return a
+            # G2P envelope ResponseCode "01" at HTTP 200 (not an unhandled 500).
+            # /prepayment-validation MUST always return HTTP 200 per the spec.
+            logger.warning(
+                "govstack.prepayment_validation duplicate request_id rejected source_bb=%s",
+                source_bb_id,
+                # NEVER log request_id — it could co-appear with PII in log aggregation.
             )
+            raise DuplicateValidationRequestError(request_id) from exc
 
         logger.debug(
             "govstack.prepayment_validation accepted pk=%s source_bb=%s",
@@ -446,16 +460,33 @@ class GovStackBulkPaymentService:
                 "failed_accounts": list[dict],  # {InstructionID, FailureReason}
             }
         """
-        qs = PrepaymentValidationRequest.objects.filter(request_id=request_id)
-        if not qs.exists() and source_batch_id:
-            qs = PrepaymentValidationRequest.objects.filter(batch_id=source_batch_id)
+        # Materialise to a list immediately so we only issue one DB query per lookup
+        # arm (avoids the .exists() + iteration double-query pattern).
+        records = list(PrepaymentValidationRequest.objects.filter(request_id=request_id))
+        if not records and source_batch_id:
+            records = list(PrepaymentValidationRequest.objects.filter(batch_id=source_batch_id))
 
         failed_accounts: list[dict] = []
-        for pvr in qs:
+        for pvr in records:
             # PENDING records: Celery hasn't validated yet → skip (not a failure).
+            # The harness calls /prepayment-validation-response immediately, so all
+            # records are still PENDING → NumberFailedCases=0, FailedAccounts=[].
             if pvr.status == PrepaymentValidationRequest.STATUS_PENDING:
                 continue
-            # COMPLETED records where validation failed:
+
+            # FAILED records: Celery task encountered a processing error (e.g. ID
+            # Mapper unreachable).  beneficiary_found may still be None.  These are
+            # surfaced as failed cases so the Source BB can investigate.
+            if pvr.status == PrepaymentValidationRequest.STATUS_FAILED:
+                failed_accounts.append({
+                    "InstructionID": pvr.instruction_id,
+                    "FailureReason": "Validation processing error. Please retry or contact support.",
+                })
+                continue
+
+            # COMPLETED records where the validation check itself failed:
+            #   beneficiary_found=False  → not in ID Mapper
+            #   financial_address_valid=False → address not configured
             if pvr.beneficiary_found is False or pvr.financial_address_valid is False:
                 failed_accounts.append({
                     # Use InstructionID (not payee_functional_id) to avoid PII in response.

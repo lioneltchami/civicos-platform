@@ -60,6 +60,7 @@ from rest_framework.views import APIView
 from .govstack_auth import AllowAnyBB, HasVoucherJWT, IsTrustedSourceBB
 from .govstack_exceptions import (
     DuplicateBatchError,
+    DuplicateValidationRequestError,
     govstack_exception_handler,
     govstack_g2p_exception_handler,
 )
@@ -155,7 +156,9 @@ class GovStackG2PView(GovStackAPIView):
         try:
             data = request.data
             if isinstance(data, dict):
-                return str(data.get("RequestID", ""))
+                # Use `or ""` to coerce null (None) to "" — str(None) would return
+                # the 4-char string "None" which is incorrect for echo-back.
+                return str(data.get("RequestID") or "")
         except Exception:
             pass
         return ""
@@ -454,17 +457,30 @@ class PrepaymentValidationView(GovStackG2PView):
 
         instruction = d["CreditInstructions"][0]
 
-        GovStackBulkPaymentService.validate_prepayment(
-            request_id=d.get("RequestID", ""),
-            source_bb_id=d["SourceBBID"],
-            batch_id=d["BatchID"],
-            instruction_id=instruction["InstructionID"],
-            payee_functional_id=instruction["PayeeFunctionalID"],
-            amount=instruction["Amount"],
-            currency=instruction["Currency"],
-            narration=instruction.get("Narration", ""),
-            callback_url=request.headers.get("X-Callback-URL", ""),
-        )
+        try:
+            GovStackBulkPaymentService.validate_prepayment(
+                request_id=d.get("RequestID", ""),
+                source_bb_id=d["SourceBBID"],
+                batch_id=d["BatchID"],
+                instruction_id=instruction["InstructionID"],
+                payee_functional_id=instruction["PayeeFunctionalID"],
+                amount=instruction["Amount"],
+                currency=instruction["Currency"],
+                narration=instruction["Narration"],
+                callback_url=request.headers.get("X-Callback-URL", ""),
+            )
+        except DuplicateValidationRequestError:
+            # RequestID already exists — return G2P error envelope at HTTP 200.
+            # /prepayment-validation MUST always return HTTP 200 per the spec.
+            # The duplicate request_id is not surfaced in the error message.
+            return Response(
+                {
+                    "ResponseCode": "01",
+                    "RequestID": self._request_id(request),
+                    "ResponseDescription": "Prepayment validation request ID has already been received.",
+                },
+                status=200,
+            )
 
         return Response(
             {

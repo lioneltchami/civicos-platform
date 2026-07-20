@@ -131,11 +131,43 @@ class DuplicateBatchError(Exception):
     from a Source BB retry or a genuine duplicate — we surface this as a
     controlled error rather than letting IntegrityError propagate as an
     unhandled 500.
+
+    The batch_id is stored as an attribute but intentionally omitted from the
+    exception message string — if this exception is captured by an error reporter
+    (e.g. Sentry), the batch_id should not appear in the message alongside any
+    other request context that could include PII.
     """
 
     def __init__(self, batch_id: str) -> None:
         self.batch_id = batch_id
-        super().__init__(f"Batch ID '{batch_id}' has already been received.")
+        super().__init__("Batch ID has already been received.")
+
+
+class DuplicateValidationRequestError(Exception):
+    """
+    Raised by GovStackBulkPaymentService.validate_prepayment() when a Source BB
+    submits a RequestID that already exists in PrepaymentValidationRequest.
+
+    This is NOT an APIException — it is a domain exception caught at the view
+    layer and converted into a G2P envelope error response (HTTP 200,
+    ResponseCode "01").
+
+    RequestID uniqueness is enforced by the DB unique constraint on
+    PrepaymentValidationRequest.request_id.  Retries or replays with the same
+    RequestID are surfaced as a controlled G2P error rather than an unhandled 500.
+
+    The /prepayment-validation endpoint MUST always return HTTP 200 (even for
+    errors), so this exception must be caught in the view and converted to a
+    ResponseCode "01" response at HTTP 200 — unlike DuplicateBatchError which
+    returns HTTP 400.
+
+    The request_id is stored as an attribute but intentionally omitted from the
+    exception message string for the same reason as DuplicateBatchError.
+    """
+
+    def __init__(self, request_id: str) -> None:
+        self.request_id = request_id
+        super().__init__("Prepayment validation request ID has already been received.")
 
 
 # ---------------------------------------------------------------------------
