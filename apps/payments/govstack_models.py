@@ -721,12 +721,31 @@ class GovStackVoucher(TimestampedModel):
 # GovStackPaymentAuditEntry  (append-only)
 # ---------------------------------------------------------------------------
 
+class _AuditEntryQuerySet(models.QuerySet):
+    """
+    Custom QuerySet for GovStackPaymentAuditEntry.
+
+    Overrides `.delete()` to block bulk deletion via the ORM.  Django's
+    standard QuerySet.delete() calls SQL DELETE directly without invoking the
+    model's delete() method, so bulk deletes must be blocked here.
+
+    This is a separate class (not inlined as a Manager) so it can be used with
+    `.as_manager()` and still be patchable in tests.
+    """
+
+    def delete(self):
+        raise PermissionError(
+            "GovStackPaymentAuditEntry records are permanent and cannot be deleted."
+        )
+
+
 class GovStackPaymentAuditEntry(TimestampedModel):
     """
     Append-only audit log for all GovStack Payments BB events.
 
     IMPORTANT: save() after initial creation and delete() are BLOCKED at the
-    model level to enforce append-only semantics.
+    model level to enforce append-only semantics.  Bulk deletion via the
+    queryset is also blocked by _AuditEntryQuerySet.delete().
 
     All action constants are declared here so callers don't use bare strings.
 
@@ -735,6 +754,9 @@ class GovStackPaymentAuditEntry(TimestampedModel):
       or voucher_secret.
     - object_pk should be str(model.pk) or a non-PII identifier.
     """
+
+    # Custom manager: blocks bulk deletion via queryset.delete().
+    objects = _AuditEntryQuerySet.as_manager()
 
     # ── Action constants ────────────────────────────────────────────────────
     ACTION_BENEFICIARY_REGISTERED = "beneficiary_registered"

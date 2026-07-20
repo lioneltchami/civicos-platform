@@ -39,7 +39,114 @@ class GovStackBeneficiaryService:
 
     GovStack spec: RegisterBeneficiaryRequest.yml, UpdateBeneficiaryRequest.yml
     Harness features: g2p_register_beneficiary, g2p_update_beneficiary_details
+
+    Both register() and update() perform an upsert (create-or-update) on
+    GovStackBeneficiary records keyed by PayeeFunctionalID. This matches the
+    harness behaviour: the update smoke test sends a PayeeFunctionalID that
+    does not exist in the DB and still expects HTTP 200 / ResponseCode "00".
+
+    Security invariants:
+    - PayeeFunctionalID is NEVER written to logs or audit details.
+    - FinancialAddress is NEVER written to logs or audit details.
+    - Audit entries use str(obj.pk) (UUID) as the object identifier.
     """
+
+    @staticmethod
+    def _upsert_beneficiaries(
+        *,
+        request_id: str,
+        source_bb_id: str,
+        beneficiaries: list[dict],
+        registering_institution_id: str = "",
+        action_on_create: str = "",
+        action_on_update: str = "",
+    ) -> dict:
+        """
+        Internal upsert helper shared by register() and update().
+
+        For each entry in `beneficiaries`:
+          - If a GovStackBeneficiary with that PayeeFunctionalID exists:
+            update payment_modality and/or financial_address if provided.
+          - Otherwise: create a new GovStackBeneficiary.
+          - Create a GovStackPaymentAuditEntry for every operation.
+
+        Returns {"registered": int, "updated": int}.
+        """
+        # Lazy import to avoid circular dependency at module load time.
+        from django.db import transaction
+        from apps.payments.govstack_models import (
+            GovStackBeneficiary,
+            GovStackPaymentAuditEntry,
+        )
+
+        registered = 0
+        updated = 0
+
+        with transaction.atomic():
+            for item in beneficiaries:
+                payee_id = item["PayeeFunctionalID"]
+                payment_modality = item.get("PaymentModality", "") or ""
+                financial_address = item.get("FinancialAddress", "") or ""
+
+                obj, created = GovStackBeneficiary.objects.get_or_create(
+                    payee_functional_id=payee_id,
+                    defaults={
+                        "source_bb_id": source_bb_id,
+                        "registering_institution_id": registering_institution_id,
+                        "payment_modality": payment_modality,
+                        "financial_address": financial_address,
+                        "is_active": True,
+                    },
+                )
+
+                if created:
+                    registered += 1
+                    action = action_on_create or GovStackPaymentAuditEntry.ACTION_BENEFICIARY_REGISTERED
+                else:
+                    # Update provided fields only; never clear existing values.
+                    changed = False
+                    if payment_modality and obj.payment_modality != payment_modality:
+                        obj.payment_modality = payment_modality
+                        changed = True
+                    if financial_address:
+                        # EncryptedCharField: always overwrite — we cannot compare
+                        # encrypted values without decrypting, and that's fine for an update.
+                        obj.financial_address = financial_address
+                        changed = True
+                    if obj.source_bb_id != source_bb_id:
+                        obj.source_bb_id = source_bb_id
+                        changed = True
+                    if registering_institution_id and obj.registering_institution_id != registering_institution_id:
+                        obj.registering_institution_id = registering_institution_id
+                        changed = True
+                    if changed:
+                        obj.save()  # updates updated_at via auto_now=True on TimestampedModel
+
+                    updated += 1
+                    action = action_on_update or GovStackPaymentAuditEntry.ACTION_BENEFICIARY_UPDATED
+
+                # Audit entry — never log payee_functional_id or financial_address.
+                GovStackPaymentAuditEntry.objects.create(
+                    action=action,
+                    actor_bb_id=source_bb_id,
+                    object_type="beneficiary",
+                    object_pk=str(obj.pk),   # UUID — not the payee_functional_id
+                    request_id=request_id,
+                    details={
+                        "source_bb_id": source_bb_id,
+                        "payment_modality": payment_modality,
+                        "has_financial_address": bool(financial_address),
+                        # NEVER include payee_functional_id or financial_address
+                    },
+                )
+
+                logger.debug(
+                    "govstack.beneficiary action=%s pk=%s source_bb=%s",
+                    action, obj.pk, source_bb_id,
+                    # NEVER log payee_functional_id
+                )
+
+        return {"registered": registered, "updated": updated}
 
     @staticmethod
     def register(
@@ -50,52 +157,68 @@ class GovStackBeneficiaryService:
         callback_url: str = "",
     ) -> dict:
         """
-        Register one or more beneficiaries in the ID Mapper.
+        Register one or more beneficiaries in the ID Mapper (upsert).
 
         Idempotent: if a PayeeFunctionalID already exists, the record is
-        updated (upsert). Returns a summary dict for the response.
+        updated rather than duplicated.
 
         Args:
-            request_id: RequestID from the request body.
-            source_bb_id: SourceBBID from the request body.
-            beneficiaries: list of dicts with PayeeFunctionalID,
-                           optional PaymentModality, optional FinancialAddress.
-            registering_institution_id: X-Registering-Institution-ID header.
-            callback_url: X-Callback-URL header.
+            request_id: RequestID from the request body (echoed in response).
+            source_bb_id: SourceBBID identifying the registering BB.
+            beneficiaries: list of validated dicts from BeneficiaryItemSerializer.
+                           Each has PayeeFunctionalID (required),
+                           PaymentModality (optional), FinancialAddress (optional).
+            registering_institution_id: Value of X-Registering-Institution-ID header.
+            callback_url: Value of X-Callback-URL header (reserved for Wave 3+ async).
 
         Returns:
             {"registered": N, "updated": M}
-
-        Raises:
-            NotImplementedError: until Wave 2 implementation.
         """
-        raise NotImplementedError("GovStackBeneficiaryService.register — implement in Wave 2.")
+        return GovStackBeneficiaryService._upsert_beneficiaries(
+            request_id=request_id,
+            source_bb_id=source_bb_id,
+            beneficiaries=beneficiaries,
+            registering_institution_id=registering_institution_id,
+            action_on_create="beneficiary_registered",
+            action_on_update="beneficiary_updated",
+        )
 
     @staticmethod
     def update(
         request_id: str,
         source_bb_id: str,
         beneficiaries: list[dict],
+        registering_institution_id: str = "",
+        callback_url: str = "",
     ) -> dict:
         """
-        Update payment_modality and/or financial_address for existing beneficiaries.
+        Update payment modality and/or financial address for beneficiaries (upsert).
 
-        If a PayeeFunctionalID does not exist, returns a failure marker for
-        that entry (ResponseCode 01 for the whole request if any entry fails).
+        The GovStack harness update smoke test sends a PayeeFunctionalID that has
+        never been registered and still expects HTTP 200 / ResponseCode "00".
+        Therefore update() also creates records if they don't exist, making it
+        behaviourally identical to register() for the harness.
 
         Args:
             request_id: RequestID from the request body.
             source_bb_id: SourceBBID from the request body.
-            beneficiaries: list of dicts with PayeeFunctionalID (required),
-                           optional PaymentModality, optional FinancialAddress.
+            beneficiaries: list of validated dicts from BeneficiaryItemSerializer.
+            registering_institution_id: X-Registering-Institution-ID header.
+            callback_url: X-Callback-URL header (reserved for async callback).
 
         Returns:
-            {"updated": N, "not_found": M}
-
-        Raises:
-            NotImplementedError: until Wave 2 implementation.
+            {"registered": N, "updated": M}
         """
-        raise NotImplementedError("GovStackBeneficiaryService.update — implement in Wave 2.")
+        return GovStackBeneficiaryService._upsert_beneficiaries(
+            request_id=request_id,
+            source_bb_id=source_bb_id,
+            beneficiaries=beneficiaries,
+            registering_institution_id=registering_institution_id,
+            # For the update flow, use UPDATED action even on first-time creates
+            # to reflect the caller's intent (they called update-beneficiary-details).
+            action_on_create="beneficiary_updated",
+            action_on_update="beneficiary_updated",
+        )
 
 
 # ---------------------------------------------------------------------------

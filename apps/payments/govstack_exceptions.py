@@ -176,3 +176,68 @@ def govstack_exception_handler(exc: Exception, context: dict) -> Response | None
         response.data = {"message": message}
 
     return response
+
+
+# ---------------------------------------------------------------------------
+# G2P exception handler
+# ---------------------------------------------------------------------------
+
+def govstack_g2p_exception_handler(exc: Exception, context: dict) -> Response | None:
+    """
+    Custom DRF exception handler for G2P (Government-to-Person) endpoints.
+
+    G2P error responses must follow the G2P envelope shape required by the
+    GovStack harness g2pResponseSchema:
+        {
+          "ResponseCode":      "01",        # exactly "00" or "01"
+          "RequestID":         "<echoed>",  # from request body, exactly 12 chars in harness
+          "ResponseDescription": "<text>"   # 1–200 chars
+        }
+
+    This is fundamentally different from the Voucher/P2G handler which returns
+    {"message": "..."}.  G2P views (RegisterBeneficiaryView, UpdateBeneficiaryView)
+    handle validation errors manually via _g2p_ok/_g2p_bad, but this handler
+    catches unexpected exceptions (throttle, auth, unexpected server errors) and
+    wraps them in the same G2P envelope so the harness schema check is never
+    violated.
+
+    Registered on GovStackG2PView via get_exception_handler().
+    """
+    response = _drf_exception_handler(exc, context)
+
+    if response is not None:
+        # Extract RequestID from the request body for echo-back.
+        request = context.get("request")
+        request_id = ""
+        if request is not None:
+            try:
+                data = request.data
+                if isinstance(data, dict):
+                    request_id = str(data.get("RequestID", ""))
+            except Exception:
+                pass  # malformed body — RequestID not available
+
+        # Build a human-readable description from the DRF error data.
+        raw = response.data
+        if isinstance(raw, dict) and "detail" in raw:
+            description = str(raw["detail"])
+        elif isinstance(raw, dict):
+            parts = []
+            for field, errors in raw.items():
+                if isinstance(errors, list):
+                    parts.append(f"{field}: {'; '.join(str(e) for e in errors)}")
+                else:
+                    parts.append(f"{field}: {errors}")
+            description = " | ".join(parts) if parts else "An error occurred."
+        elif isinstance(raw, str):
+            description = raw
+        else:
+            description = "An error occurred."
+
+        response.data = {
+            "ResponseCode": "01",
+            "RequestID": request_id,
+            "ResponseDescription": description[:200],
+        }
+
+    return response

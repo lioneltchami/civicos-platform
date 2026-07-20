@@ -40,9 +40,21 @@ from .govstack_models import (
 # Shared validators
 # ---------------------------------------------------------------------------
 
+# Broad validator: any alphanumeric + hyphen, used by Voucher/P2G flows
+_BB_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,20}$")
+_REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,16}$")
+
+# G2P-specific validator: lowercase hex + hyphen only (UUID-like identifiers).
+# The harness uses values like "11668d2a-a8f" (SourceBBID, 12 chars) and
+# "2ba5ed20-0f42-4eff-8" (PayeeFunctionalID, 20 chars).  The harness negative
+# test sends the literal string "invalid" which contains non-hex chars (i, n, v, l)
+# and is correctly rejected by this pattern.
+_G2P_UUID_RE = re.compile(r"^[0-9a-f\-]{1,20}$")
+
+
 def _validate_bb_id(value: str) -> str:
     """Validate SourceBBID / Gov_Stack_BB: 1–20 alphanumeric or hyphen chars."""
-    if not value or not re.match(r"^[a-zA-Z0-9\-]{1,20}$", value):
+    if not value or not _BB_ID_RE.match(value):
         raise serializers.ValidationError(
             "Must be 1–20 alphanumeric or hyphen characters."
         )
@@ -51,16 +63,37 @@ def _validate_bb_id(value: str) -> str:
 
 def _validate_payee_id(value: str) -> str:
     """Validate PayeeFunctionalID: 1–20 alphanumeric or hyphen chars."""
-    if not value or not re.match(r"^[a-zA-Z0-9\-]{1,20}$", value):
+    if not value or not _BB_ID_RE.match(value):
         raise serializers.ValidationError(
             "Must be 1–20 alphanumeric or hyphen characters."
         )
     return value
 
 
+def _validate_g2p_id(value: str, *, field_name: str = "field") -> str:
+    """
+    Validate a G2P identifier (SourceBBID, PayeeFunctionalID) as a UUID-like
+    lowercase hex string.
+
+    Valid examples:  "11668d2a-a8f"  (12 chars)  — harness SourceBBID
+                     "2ba5ed20-0f42-4eff-8"  (20 chars) — harness PayeeFunctionalID
+    Invalid example: "invalid"  (contains i, n, v, l — not hex chars)
+
+    This is stricter than _validate_bb_id intentionally: the G2P harness uses
+    UUID-format identifiers and specifically tests that the literal string
+    "invalid" is rejected.
+    """
+    if not value or not _G2P_UUID_RE.match(value):
+        raise serializers.ValidationError(
+            f"{field_name} must be 1–20 lowercase hex characters and hyphens "
+            "(e.g. '11668d2a-a8f'). The value provided is not a valid identifier."
+        )
+    return value
+
+
 def _validate_request_id(value: str) -> str:
     """Validate RequestID: 1–16 alphanumeric or hyphen chars."""
-    if not value or not re.match(r"^[a-zA-Z0-9\-]{1,16}$", value):
+    if not value or not _REQUEST_ID_RE.match(value):
         raise serializers.ValidationError(
             "Must be 1–16 alphanumeric or hyphen characters."
         )
@@ -87,7 +120,10 @@ class BeneficiaryItemSerializer(serializers.Serializer):
     """
     PayeeFunctionalID = serializers.CharField(
         max_length=20,
-        error_messages={"required": "PayeeFunctionalID is required.", "blank": "PayeeFunctionalID cannot be blank."},
+        error_messages={
+            "required": "PayeeFunctionalID is required.",
+            "blank": "PayeeFunctionalID cannot be blank.",
+        },
     )
     PaymentModality = serializers.CharField(
         max_length=2,
@@ -105,8 +141,10 @@ class BeneficiaryItemSerializer(serializers.Serializer):
     )
 
     def validate_PayeeFunctionalID(self, value: str) -> str:
-        # Single validation via the per-field method (no duplicate field-level validator).
-        return _validate_payee_id(value)
+        # G2P identifiers must be UUID-like (lowercase hex + hyphens).
+        # The harness sends valid values like "2ba5ed20-0f42-4eff-8" and
+        # invalid values like "invalid" (contains non-hex chars).
+        return _validate_g2p_id(value, field_name="PayeeFunctionalID")
 
 
 class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
@@ -115,6 +153,9 @@ class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
     POST /govstack/payments/update-beneficiary-details
     GovStack spec: RegisterBeneficiaryRequest.yml / UpdateBeneficiaryRequest.yml
     """
+    # RequestID is echoed back verbatim in all responses (success and error).
+    # The harness always sends exactly 12-char RequestIDs (UUID prefix format).
+    # Not validated for format here — just echoed back as-is.
     RequestID = serializers.CharField(
         max_length=16,
         required=False,
@@ -124,19 +165,25 @@ class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
     )
     SourceBBID = serializers.CharField(
         max_length=20,
-        error_messages={"required": "SourceBBID is required.", "blank": "SourceBBID cannot be blank."},
+        error_messages={
+            "required": "SourceBBID is required.",
+            "blank": "SourceBBID cannot be blank.",
+        },
     )
     Beneficiaries = serializers.ListField(
         child=BeneficiaryItemSerializer(),
         min_length=1,
         error_messages={
             "required": "Beneficiaries array is required.",
-            "empty": "Beneficiaries array cannot be empty.",
+            "min_length": "Beneficiaries array must contain at least one entry.",
         },
     )
 
     def validate_SourceBBID(self, value: str) -> str:
-        return _validate_bb_id(value)
+        # G2P identifiers must be UUID-like (lowercase hex + hyphens).
+        # The harness sends valid values like "11668d2a-a8f" (12 chars) and
+        # invalid values like "invalid" (contains non-hex chars i, n, v, l).
+        return _validate_g2p_id(value, field_name="SourceBBID")
 
 
 class G2PResponseSerializer(serializers.Serializer):

@@ -121,6 +121,9 @@ REST_FRAMEWORK = {
         "staff": "10000/minute",
         "anon": "10000/minute",
         "token_obtain": "10000/minute",
+        # GovStack BB throttle scope (GovStackAPIView.throttle_scope).
+        # Must be present so ScopedRateThrottle does not raise ImproperlyConfigured.
+        "govstack_bb": "10000/minute",
     },
 }
 
