@@ -58,7 +58,11 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .govstack_auth import AllowAnyBB, HasVoucherJWT, IsTrustedSourceBB
-from .govstack_exceptions import govstack_exception_handler, govstack_g2p_exception_handler
+from .govstack_exceptions import (
+    DuplicateBatchError,
+    govstack_exception_handler,
+    govstack_g2p_exception_handler,
+)
 from .govstack_serializers import (
     BulkPaymentRequestSerializer,
     PrepaymentValidationRequestSerializer,
@@ -359,14 +363,20 @@ class BulkPaymentView(GovStackG2PView):
             return self._g2p_bad(request, self._flatten_errors(ser.errors))
 
         d = ser.validated_data
-        GovStackBulkPaymentService.receive_batch(
-            request_id=d.get("RequestID", ""),
-            source_bb_id=d["SourceBBID"],
-            batch_id=d["BatchID"],
-            instructions=d["CreditInstructions"],
-            callback_url=request.headers.get("X-Callback-URL", ""),
-            correlation_id=request.headers.get("X-CorrelationID", ""),
-        )
+        try:
+            GovStackBulkPaymentService.receive_batch(
+                request_id=d.get("RequestID", ""),
+                source_bb_id=d["SourceBBID"],
+                batch_id=d["BatchID"],
+                instructions=d["CreditInstructions"],
+                callback_url=request.headers.get("X-Callback-URL", ""),
+                correlation_id=request.headers.get("X-CorrelationID", ""),
+            )
+        except DuplicateBatchError:
+            # BatchID already exists — return a G2P envelope error rather than a 500.
+            # BatchID is not surfaced in the error message to avoid it co-appearing
+            # with PII in logging; the Source BB already knows which BatchID it sent.
+            return self._g2p_bad(request, "Batch ID has already been received.")
 
         return self._g2p_ok(request, "Bulk payment batch received successfully.")
 
@@ -423,9 +433,25 @@ class PrepaymentValidationView(GovStackG2PView):
             )
 
         d = ser.validated_data
-        # The harness always sends exactly one instruction per request.
-        # In production, multiple instructions would require a different model design
-        # (PrepaymentValidationRequest.request_id has unique=True).
+
+        # Enforce single-instruction constraint at the API boundary.
+        # PrepaymentValidationRequest.request_id has unique=True: each request maps
+        # to exactly one instruction. The GovStack spec and harness both send one
+        # instruction per request. If a caller sends more, reject rather than silently
+        # dropping instructions[1:].
+        if len(d["CreditInstructions"]) > 1:
+            return Response(
+                {
+                    "ResponseCode": "01",
+                    "RequestID": self._request_id(request),
+                    "ResponseDescription": (
+                        "CreditInstructions must contain exactly one entry per request. "
+                        f"Received {len(d['CreditInstructions'])}."
+                    ),
+                },
+                status=200,
+            )
+
         instruction = d["CreditInstructions"][0]
 
         GovStackBulkPaymentService.validate_prepayment(
@@ -474,9 +500,10 @@ class PrepaymentValidationResponseView(GovStackG2PView):
 
     def post(self, request: Request) -> Response:
         ser = PrepaymentValidationResponseAckSerializer(data=request.data)
-        # All fields are optional — ser.is_valid() always returns True here.
+        # All fields are optional with defaults — is_valid() always returns True.
+        # Call once, then use validated_data directly (no fallback needed).
         ser.is_valid()
-        d = ser.validated_data if ser.is_valid() else {}
+        d = ser.validated_data
 
         request_id = self._request_id(request)
         source_batch_id = d.get("Source_BatchID", "")

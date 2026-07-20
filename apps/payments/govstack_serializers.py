@@ -44,6 +44,16 @@ from .govstack_models import (
 _BB_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,20}$")
 _REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,16}$")
 
+# Bulk-payment-specific BB ID validator: min length 10.
+# • Valid harness values: "SourceBBID11" (12 chars), "BatchID11111" (12 chars)
+# • Invalid harness value: "invalid" (7 chars, lowercase only)
+# • min_length=10 cleanly separates valid from invalid without over-constraining.
+# • Allows uppercase (harness uses mixed-case like "SourceBBID11"); contrast with
+#   _G2P_UUID_RE which is hex-only (lowercase) for beneficiary/prepayment flows.
+# Defined at module level (not as a class attribute on BulkPaymentRequestSerializer)
+# for consistency with the other compiled regexes above.
+_BULK_BB_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{10,20}$")
+
 # G2P-specific validator: lowercase hex + hyphen only (UUID-like identifiers).
 # The harness uses values like "11668d2a-a8f" (SourceBBID, 12 chars) and
 # "2ba5ed20-0f42-4eff-8" (PayeeFunctionalID, 20 chars).  The harness negative
@@ -269,19 +279,15 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
         },
     )
 
-    # _BULK_BB_ID_RE: alphanumeric + hyphen, min 10 chars to reject the harness
-    # "invalid" test value (7 chars) while accepting production-grade IDs (≥10 chars).
-    _BULK_BB_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{10,20}$")
-
     def validate_SourceBBID(self, value: str) -> str:
-        if not value or not self._BULK_BB_ID_RE.match(value):
+        if not value or not _BULK_BB_ID_RE.match(value):
             raise serializers.ValidationError(
                 "SourceBBID must be 10–20 alphanumeric or hyphen characters."
             )
         return value
 
     def validate_BatchID(self, value: str) -> str:
-        if not value or not self._BULK_BB_ID_RE.match(value):
+        if not value or not _BULK_BB_ID_RE.match(value):
             raise serializers.ValidationError(
                 "BatchID must be 10–20 alphanumeric or hyphen characters."
             )

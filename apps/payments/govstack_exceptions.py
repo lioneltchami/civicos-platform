@@ -116,6 +116,28 @@ class VoucherAlreadyCancelled(APIException):
     default_detail = "This voucher has already been cancelled."
 
 
+class DuplicateBatchError(Exception):
+    """
+    Raised by GovStackBulkPaymentService.receive_batch() when a Source BB
+    submits a BatchID that already exists in BulkPaymentBatch.
+
+    This is NOT an APIException — it is a domain exception caught at the view
+    layer and converted into a G2P envelope error response (HTTP 400,
+    ResponseCode "01").  Using a plain Exception (not APIException) keeps the
+    service layer decoupled from HTTP concerns.
+
+    BatchID uniqueness is enforced by the DB unique constraint on
+    BulkPaymentBatch.batch_id.  If the same BatchID arrives twice — whether
+    from a Source BB retry or a genuine duplicate — we surface this as a
+    controlled error rather than letting IntegrityError propagate as an
+    unhandled 500.
+    """
+
+    def __init__(self, batch_id: str) -> None:
+        self.batch_id = batch_id
+        super().__init__(f"Batch ID '{batch_id}' has already been received.")
+
+
 # ---------------------------------------------------------------------------
 # Exception handler
 # ---------------------------------------------------------------------------

@@ -26,8 +26,9 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
+from apps.payments.govstack_exceptions import DuplicateBatchError
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
@@ -275,54 +276,63 @@ class GovStackBulkPaymentService:
         Returns:
             The persisted BulkPaymentBatch instance.
         """
-        total_amount = sum(
-            Decimal(str(item["Amount"])) for item in instructions
-        )
+        total_amount = sum(item["Amount"] for item in instructions)
 
-        with transaction.atomic():
-            batch = BulkPaymentBatch.objects.create(
-                request_id=request_id,
-                source_bb_id=source_bb_id,
-                batch_id=batch_id,
-                status=BulkPaymentBatch.STATUS_RECEIVED,
-                callback_url=callback_url,
-                correlation_id=correlation_id,
-                total_amount=total_amount,
-            )
-
-            for item in instructions:
-                CreditInstruction.objects.create(
-                    batch=batch,
-                    instruction_id=item["InstructionID"],
-                    payee_functional_id=item["PayeeFunctionalID"],
-                    amount=item["Amount"],
-                    currency=item["Currency"],
-                    narration=item.get("Narration", ""),
-                    status=CreditInstruction.STATUS_PENDING,
+        try:
+            with transaction.atomic():
+                batch = BulkPaymentBatch.objects.create(
+                    request_id=request_id,
+                    source_bb_id=source_bb_id,
+                    batch_id=batch_id,
+                    status=BulkPaymentBatch.STATUS_RECEIVED,
+                    callback_url=callback_url,
+                    correlation_id=correlation_id,
+                    total_amount=total_amount,
                 )
 
-            GovStackPaymentAuditEntry.objects.create(
-                action=GovStackPaymentAuditEntry.ACTION_BATCH_RECEIVED,
-                actor_bb_id=source_bb_id,
-                object_type="batch",
-                object_pk=str(batch.pk),
-                request_id=request_id,
-                details={
-                    "batch_id": batch_id,            # batch_id is not PII
-                    "source_bb_id": source_bb_id,
-                    "instruction_count": len(instructions),
-                    "total_amount": str(total_amount),
-                    # NEVER include payee_functional_id in details
-                },
+                for item in instructions:
+                    CreditInstruction.objects.create(
+                        batch=batch,
+                        instruction_id=item["InstructionID"],
+                        payee_functional_id=item["PayeeFunctionalID"],
+                        amount=item["Amount"],
+                        currency=item["Currency"],
+                        narration=item.get("Narration", ""),
+                        status=CreditInstruction.STATUS_PENDING,
+                    )
+
+                GovStackPaymentAuditEntry.objects.create(
+                    action=GovStackPaymentAuditEntry.ACTION_BATCH_RECEIVED,
+                    actor_bb_id=source_bb_id,
+                    object_type="batch",
+                    object_pk=str(batch.pk),
+                    request_id=request_id,
+                    details={
+                        "batch_id": batch_id,            # batch_id is not PII
+                        "source_bb_id": source_bb_id,
+                        "instruction_count": len(instructions),
+                        "total_amount": str(total_amount),
+                        # NEVER include payee_functional_id in details
+                    },
+                )
+
+        except IntegrityError as exc:
+            # BulkPaymentBatch.batch_id has unique=True. A duplicate submission
+            # raises IntegrityError at the DB level. We re-raise as DuplicateBatchError
+            # so the view can return a G2P envelope error instead of an unhandled 500.
+            logger.warning(
+                "govstack.bulk_payment duplicate batch_id rejected source_bb=%s",
+                source_bb_id,
+                # NEVER log the batch_id value — it is opaque but could appear
+                # alongside PII in aggregated log queries.
             )
+            raise DuplicateBatchError(batch_id) from exc
 
         logger.debug(
             "govstack.bulk_payment batch_received pk=%s source_bb=%s instructions=%d",
             batch.pk,
             source_bb_id,
             len(instructions),
-            # NEVER log batch_id (it is not secret but logging it adds no value and
-            # could co-appear with PII in aggregated logs). Use pk instead.
         )
         return batch
 

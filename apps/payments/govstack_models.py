@@ -247,10 +247,13 @@ class BulkPaymentBatch(TimestampedModel):
         help_text=_("X-Callback-URL header. CivicOS POSTs async results here."),
     )
     correlation_id = models.CharField(
-        max_length=12,
+        max_length=100,
         blank=True,
         verbose_name=_("Correlation ID"),
-        help_text=_("X-CorrelationID header."),
+        # max_length=100: standard UUIDs are 36 chars; some systems use longer IDs.
+        # The old max_length=12 caused DataError whenever a Source BB sent a UUID-format
+        # correlation ID (e.g. "550e8400-e29b-41d4-a716-446655440000" = 36 chars).
+        help_text=_("X-CorrelationID header. Max 100 chars (accommodates UUIDs and longer IDs)."),
     )
     total_amount = models.DecimalField(
         max_digits=14,

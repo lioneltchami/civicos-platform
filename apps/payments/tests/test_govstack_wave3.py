@@ -56,6 +56,9 @@ Coverage matrix:
      D13: validate_prepayment() audit details never contain payee_functional_id
      D14: get_validation_result() returns 0 failed cases for PENDING records
      D15: get_validation_result() falls back to batch_id when request_id not found
+     D16: get_validation_result() COMPLETED + beneficiary_found=False → FailedAccounts (security: no PayeeFunctionalID)
+     D17: get_validation_result() COMPLETED + financial_address_valid=False → FailedAccounts
+     D18: get_validation_result() COMPLETED + both=True → not counted as failure
 
   E. Serializer tests
      E1:  BulkPaymentRequestSerializer accepts valid harness SourceBBID (12 chars)
@@ -68,9 +71,18 @@ Coverage matrix:
      E8:  PrepaymentValidationResponseAckSerializer: field is Source_BatchID (with underscore)
      E9:  PrepaymentValidationResponseAckSerializer: SourceBatchID (no underscore) is ignored
 
+  F. Critical bug regression tests (post-review fixes)
+     F1: UUID-format correlation_id (36 chars) accepted and persisted without truncation
+     F2: duplicate BatchID → HTTP 400 G2P envelope, not 500 IntegrityError
+     F2b: DuplicateBatchError raised by service (not IntegrityError)
+     F3: multiple CreditInstructions in prepayment-validation → HTTP 200, ResponseCode "01"
+     F4: 100-char correlation ID accepted end-to-end
+
 Security invariants tested:
-  - payee_functional_id NEVER in any response field (checked in C6, D8, D13)
+  - payee_functional_id NEVER in any response field (C6, D8, D13, D16)
   - Audit entry details never contain payee_functional_id key (D8, D13)
+  - FailedAccounts uses InstructionID only, never PayeeFunctionalID (D16, D17)
+  - Duplicate BatchID error message never leaks the BatchID value (F2)
 
 Harness identifiers:
   Bulk smoke:   RequestID="RequestID111" SourceBBID="SourceBBID11" BatchID="BatchID11111"
@@ -87,6 +99,7 @@ from django.test import TestCase
 
 from rest_framework.test import APIClient
 
+from apps.payments.govstack_exceptions import DuplicateBatchError
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
@@ -319,13 +332,13 @@ class PrepaymentValidationHarnessTest(TestCase):
         resp = self.client.post(PREPAY_VALIDATION_URL, data=body, format="json")
         return resp.status_code, resp.json()
 
-    # B1 — Smoke: basic POST → HTTP 200
+    # B1 — Smoke: basic POST → HTTP 200, JSON content type
     def test_b1_smoke_returns_200(self):
-        status, data = self._post(_prepay_body())
-        self.assertEqual(status, 200)
-        self.assertEqual(data["Content-Type"] if "Content-Type" in data else "application/json", "application/json")
-        # Smoke only checks HTTP status
-        self.assertIn("ResponseCode", data)
+        resp = self.client.post(PREPAY_VALIDATION_URL, data=_prepay_body(), format="json")
+        self.assertEqual(resp.status_code, 200)
+        # Verify Content-Type on the HTTP response object (not inside the JSON body).
+        self.assertIn("application/json", resp["Content-Type"])
+        self.assertIn("ResponseCode", resp.json())
 
     # B2 — Full valid → HTTP 200, ResponseCode "00"
     def test_b2_full_valid_response_code_00(self):
@@ -759,7 +772,7 @@ class PrepaymentValidationServiceTest(TestCase):
     # D15 — get_validation_result() falls back to batch_id when request_id not found
     def test_d15_batch_id_fallback(self):
         # Store a record with a known batch_id
-        pvr = self._validate(
+        self._validate(
             request_id="req-fallback1",
             batch_id="batch-fallback1",
         )
@@ -772,6 +785,247 @@ class PrepaymentValidationServiceTest(TestCase):
         self.assertIsNotNone(result)
         # PENDING record → 0 failures
         self.assertEqual(result["number_failed_cases"], 0)
+
+    # D16 — get_validation_result() counts COMPLETED records with beneficiary_found=False
+    def test_d16_completed_failed_record_appears_in_failed_accounts(self):
+        """
+        Security: FailedAccounts must use InstructionID, NEVER PayeeFunctionalID.
+        This test validates the actual failure path of get_validation_result(),
+        which was entirely untested before this fix (all prior tests used PENDING records).
+        """
+        pvr = self._validate(
+            request_id="req-comp-001",
+            batch_id="batch-comp-001",
+            instruction_id=PV_INSTR_ID_2,
+            payee_functional_id=PV_PAYEE_ID_2,
+        )
+        # Simulate Celery task completing with a failed beneficiary lookup.
+        pvr.status = PrepaymentValidationRequest.STATUS_COMPLETED
+        pvr.beneficiary_found = False
+        pvr.financial_address_valid = None
+        pvr.save()
+
+        result = GovStackBulkPaymentService.get_validation_result(
+            request_id="req-comp-001",
+            source_batch_id="batch-comp-001",
+        )
+
+        self.assertEqual(result["number_failed_cases"], 1)
+        self.assertEqual(len(result["failed_accounts"]), 1)
+        failed = result["failed_accounts"][0]
+
+        # Must use InstructionID — NEVER PayeeFunctionalID
+        self.assertEqual(failed["InstructionID"], PV_INSTR_ID_2)
+        self.assertIn("FailureReason", failed)
+        self.assertNotIn("PayeeFunctionalID", failed,
+                         msg="PayeeFunctionalID must NEVER appear in FailedAccounts")
+        # PV_PAYEE_ID_2 must not appear anywhere in the result
+        raw = json.dumps(result)
+        self.assertNotIn(PV_PAYEE_ID_2, raw,
+                         msg="PayeeFunctionalID value must never appear in validation result")
+
+    # D17 — get_validation_result() counts COMPLETED records with financial_address_valid=False
+    def test_d17_invalid_financial_address_appears_in_failed_accounts(self):
+        """
+        Second failure mode: beneficiary exists (beneficiary_found=True) but has no
+        valid financial address.
+        """
+        pvr = self._validate(
+            request_id="req-comp-002",
+            batch_id="batch-comp-002",
+            instruction_id="instrFinAddr001",
+        )
+        pvr.status = PrepaymentValidationRequest.STATUS_COMPLETED
+        pvr.beneficiary_found = True
+        pvr.financial_address_valid = False
+        pvr.save()
+
+        result = GovStackBulkPaymentService.get_validation_result(
+            request_id="req-comp-002",
+            source_batch_id="batch-comp-002",
+        )
+
+        self.assertEqual(result["number_failed_cases"], 1)
+        failed = result["failed_accounts"][0]
+        self.assertEqual(failed["InstructionID"], "instrFinAddr001")
+        self.assertIn("financial address", failed["FailureReason"].lower())
+
+    # D18 — get_validation_result() does NOT count COMPLETED + both=True as failure
+    def test_d18_completed_valid_record_not_counted_as_failure(self):
+        """A record that passed validation must not appear in FailedAccounts."""
+        pvr = self._validate(
+            request_id="req-comp-003",
+            batch_id="batch-comp-003",
+            instruction_id="instrOK001",
+        )
+        pvr.status = PrepaymentValidationRequest.STATUS_COMPLETED
+        pvr.beneficiary_found = True
+        pvr.financial_address_valid = True
+        pvr.save()
+
+        result = GovStackBulkPaymentService.get_validation_result(
+            request_id="req-comp-003",
+            source_batch_id="batch-comp-003",
+        )
+
+        self.assertEqual(result["number_failed_cases"], 0)
+        self.assertEqual(result["failed_accounts"], [])
+
+
+# ============================================================================
+# F.  Critical bug regression tests (post-review fixes)
+# ============================================================================
+
+class BulkPaymentCriticalFixTests(TestCase):
+    """
+    Regression tests for the two critical bugs fixed after the Wave 3 code review:
+      F1: correlation_id max_length=100 (was 12 — caused DataError on UUID-format IDs)
+      F2: duplicate BatchID handled gracefully (was IntegrityError 500, now G2P 400)
+      F3: multiple CreditInstructions in prepayment-validation rejected cleanly
+      F4: long X-CorrelationID header accepted (view → service → DB with no truncation)
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+    # F1 — correlation_id accepts UUID-format values (36 chars)
+    def test_f1_uuid_correlation_id_accepted(self):
+        """
+        BulkPaymentBatch.correlation_id was max_length=12.  A standard UUID (36 chars)
+        would cause DataError at the DB level.  After the fix (max_length=100), this
+        must persist without error.
+        """
+        uuid_corr_id = "550e8400-e29b-41d4-a716-446655440000"  # 36 chars
+        self.assertEqual(len(uuid_corr_id), 36)
+
+        resp = self.client.post(
+            BULK_PAYMENT_URL,
+            data=_bulk_body(
+                request_id=BP_REQUEST_ID_1,
+                source_bb=BP_SOURCE_BB_1,
+                batch_id="BatchIDcorrF1",   # unique for this test
+            ),
+            HTTP_X_CORRELATIONID=uuid_corr_id,
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ResponseCode"], "00")
+
+        # Verify the full value was persisted without truncation
+        batch = BulkPaymentBatch.objects.get(batch_id="BatchIDcorrF1")
+        self.assertEqual(batch.correlation_id, uuid_corr_id)
+
+    # F2 — duplicate BatchID returns G2P 400 envelope, not 500
+    def test_f2_duplicate_batch_id_returns_g2p_400(self):
+        """
+        Before the fix: second request with same BatchID raised IntegrityError → 500.
+        After the fix: DuplicateBatchError caught in view → HTTP 400, ResponseCode "01".
+        """
+        body = _bulk_body(
+            request_id=BP_REQUEST_ID_1,
+            source_bb=BP_SOURCE_BB_1,
+            batch_id="BatchIDdupF2",
+        )
+
+        # First request — succeeds
+        resp1 = self.client.post(BULK_PAYMENT_URL, data=body, format="json")
+        self.assertEqual(resp1.status_code, 200)
+        self.assertEqual(resp1.json()["ResponseCode"], "00")
+
+        # Second request with identical BatchID — must be a G2P error, not 500
+        resp2 = self.client.post(BULK_PAYMENT_URL, data=body, format="json")
+        self.assertEqual(resp2.status_code, 400)
+        data2 = resp2.json()
+        # Must still be a valid G2P envelope
+        self.assertEqual(data2["ResponseCode"], "01")
+        self.assertIn("ResponseDescription", data2)
+        self.assertTrue(len(data2["ResponseDescription"]) >= 1)
+        # BatchID must NOT appear in the error response (PII-adjacent)
+        raw = resp2.content.decode()
+        self.assertNotIn("BatchIDdupF2", raw)
+
+    # F2b — DuplicateBatchError raised by service directly
+    def test_f2b_service_raises_duplicate_batch_error(self):
+        """Service raises DuplicateBatchError (not IntegrityError) on duplicate batch_id."""
+        instructions = [{
+            "InstructionID": BP_INSTR_ID_1,
+            "PayeeFunctionalID": BP_PAYEE_ID_1,
+            "Amount": Decimal("100.00"),
+            "Currency": "USD",
+        }]
+        GovStackBulkPaymentService.receive_batch(
+            request_id=BP_REQUEST_ID_1,
+            source_bb_id=BP_SOURCE_BB_1,
+            batch_id="BatchIDsvcdup1",
+            instructions=instructions,
+        )
+        with self.assertRaises(DuplicateBatchError) as ctx:
+            GovStackBulkPaymentService.receive_batch(
+                request_id=BP_REQUEST_ID_2,
+                source_bb_id=BP_SOURCE_BB_2,
+                batch_id="BatchIDsvcdup1",   # same batch_id
+                instructions=instructions,
+            )
+        self.assertIn("BatchIDsvcdup1", str(ctx.exception))
+
+    # F3 — multiple CreditInstructions in prepayment-validation → HTTP 200, ResponseCode "01"
+    def test_f3_multiple_credit_instructions_rejected(self):
+        """
+        PrepaymentValidationView now rejects > 1 CreditInstruction with a clean error
+        rather than silently processing only the first.
+        """
+        body = {
+            "RequestID": PV_REQUEST_ID_1,
+            "SourceBBID": PV_SOURCE_BB_1,
+            "BatchID": PV_BATCH_ID_1,
+            "CreditInstructions": [
+                {
+                    "InstructionID": PV_INSTR_ID_1,
+                    "PayeeFunctionalID": PV_PAYEE_ID_1,
+                    "Amount": 100,
+                    "Currency": "USD",
+                    "Narration": "first",
+                },
+                {
+                    "InstructionID": PV_INSTR_ID_2,
+                    "PayeeFunctionalID": PV_PAYEE_ID_2,
+                    "Amount": 200,
+                    "Currency": "USD",
+                    "Narration": "second",
+                },
+            ],
+        }
+        resp = self.client.post(PREPAY_VALIDATION_URL, data=body, format="json")
+        # Prepayment-validation ALWAYS returns HTTP 200
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["ResponseCode"], "01")
+        self.assertIn("exactly one", data["ResponseDescription"])
+        # Confirm no PrepaymentValidationRequest was created (both instructions rejected)
+        self.assertFalse(
+            PrepaymentValidationRequest.objects.filter(
+                request_id=PV_REQUEST_ID_1
+            ).exists()
+        )
+
+    # F4 — long correlation ID (100 chars) is accepted end-to-end
+    def test_f4_100_char_correlation_id_accepted(self):
+        """Max boundary test: a 100-char correlation ID must persist without truncation."""
+        long_corr = "x" * 100
+        resp = self.client.post(
+            BULK_PAYMENT_URL,
+            data=_bulk_body(
+                request_id=BP_REQUEST_ID_2,
+                source_bb=BP_SOURCE_BB_2,
+                batch_id="BatchIDcorrF4",
+            ),
+            HTTP_X_CORRELATIONID=long_corr,
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        batch = BulkPaymentBatch.objects.get(batch_id="BatchIDcorrF4")
+        self.assertEqual(batch.correlation_id, long_corr)
+        self.assertEqual(len(batch.correlation_id), 100)
 
 
 # ============================================================================
