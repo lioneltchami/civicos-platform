@@ -18,6 +18,14 @@ Security:
 """
 from django.contrib import admin
 
+from .govstack_models import (
+    BulkPaymentBatch,
+    CreditInstruction,
+    GovStackBeneficiary,
+    GovStackPaymentAuditEntry,
+    GovStackVoucher,
+    PrepaymentValidationRequest,
+)
 from .models import (
     CharitySettings,
     Donation,
@@ -714,3 +722,349 @@ class OfficialDonationReceiptAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False  # CRA records are permanent
+
+
+# ===========================================================================
+# GovStack Payments BB Admin
+# ===========================================================================
+# These models support the GovStack bb-payments certification layer.
+# All are read-only in admin (no add, no change, no delete on most).
+# payee_functional_id and financial_address are NOT in list_display or
+# search_fields — they are PII / sensitive and must not appear in logs.
+# ===========================================================================
+
+
+@admin.register(GovStackBeneficiary)
+class GovStackBeneficiaryAdmin(admin.ModelAdmin):
+    list_display = [
+        "pk",
+        "source_bb_id",
+        "payment_modality",
+        "financial_address_status",
+        "is_active",
+        "created_at",
+        "updated_at",
+    ]
+    list_filter = ["is_active", "payment_modality"]
+    # payee_functional_id intentionally excluded from search_fields —
+    # it is a government-assigned functional ID and should not appear in URL params.
+    search_fields = ["source_bb_id", "registering_institution_id"]
+    readonly_fields = [
+        "id",
+        "source_bb_id",
+        "payment_modality",
+        "financial_address_status",
+        "registering_institution_id",
+        "is_active",
+        "created_at",
+        "updated_at",
+    ]
+    # payee_functional_id and financial_address are excluded from fieldsets below.
+    fieldsets = [
+        (
+            "Identity",
+            {
+                "fields": [
+                    "id",
+                    "source_bb_id",
+                    "registering_institution_id",
+                    "is_active",
+                ],
+            },
+        ),
+        (
+            "Payment Details",
+            {
+                "fields": ["payment_modality", "financial_address_status"],
+                "description": (
+                    "PayeeFunctionalID and FinancialAddress are excluded from this view. "
+                    "FinancialAddress is Fernet-encrypted at rest. "
+                    "These fields must not appear in admin UIs per the GovStack security policy."
+                ),
+            },
+        ),
+        (
+            "Timestamps",
+            {"fields": ["created_at", "updated_at"], "classes": ["collapse"]},
+        ),
+    ]
+    ordering = ["-created_at"]
+
+    @admin.display(description="Financial Address")
+    def financial_address_status(self, obj) -> str:
+        return "✓ Set" if obj.financial_address else "✗ Not set"
+
+    def has_add_permission(self, request) -> bool:
+        return False  # Registered via GovStack API only
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False  # Updated via GovStack API only
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False  # Beneficiary records are maintained via the API
+
+
+@admin.register(BulkPaymentBatch)
+class BulkPaymentBatchAdmin(admin.ModelAdmin):
+    list_display = [
+        "batch_id",
+        "source_bb_id",
+        "status",
+        "total_amount",
+        "completed_amount",
+        "failed_amount",
+        "created_at",
+    ]
+    list_filter = ["status"]
+    search_fields = ["batch_id", "request_id", "source_bb_id"]
+    readonly_fields = [
+        "id",
+        "request_id",
+        "source_bb_id",
+        "batch_id",
+        "status",
+        "correlation_id",
+        "total_amount",
+        "completed_amount",
+        "failed_amount",
+        "result_generated_at",
+        "note",
+        "created_at",
+        "updated_at",
+    ]
+    ordering = ["-created_at"]
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False  # Status updated by Celery tasks only
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False  # Financial records are permanent
+
+
+class CreditInstructionInline(admin.TabularInline):
+    model = CreditInstruction
+    fields = ["instruction_id", "amount", "currency", "status", "failure_reason"]
+    readonly_fields = ["instruction_id", "amount", "currency", "status", "failure_reason"]
+    extra = 0
+    can_delete = False
+    show_change_link = False
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(CreditInstruction)
+class CreditInstructionAdmin(admin.ModelAdmin):
+    list_display = [
+        "instruction_id",
+        "batch_batch_id",
+        "amount",
+        "currency",
+        "status",
+        "created_at",
+    ]
+    list_filter = ["status", "currency"]
+    search_fields = ["instruction_id", "batch__batch_id"]
+    list_select_related = ["batch"]
+    readonly_fields = [
+        "id",
+        "batch",
+        "instruction_id",
+        "amount",
+        "currency",
+        "narration",
+        "status",
+        "failure_reason",
+        "created_at",
+        "updated_at",
+    ]
+    # payee_functional_id intentionally excluded.
+    ordering = ["-created_at"]
+
+    @admin.display(description="Batch ID", ordering="batch__batch_id")
+    def batch_batch_id(self, obj) -> str:
+        return obj.batch.batch_id
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(PrepaymentValidationRequest)
+class PrepaymentValidationRequestAdmin(admin.ModelAdmin):
+    list_display = [
+        "request_id",
+        "batch_id",
+        "status",
+        "beneficiary_found",
+        "financial_address_valid",
+        "created_at",
+    ]
+    list_filter = ["status", "beneficiary_found", "financial_address_valid"]
+    search_fields = ["request_id", "batch_id", "source_bb_id"]
+    readonly_fields = [
+        "id",
+        "request_id",
+        "source_bb_id",
+        "batch_id",
+        "instruction_id",
+        "amount",
+        "currency",
+        "narration",
+        "status",
+        "beneficiary_found",
+        "financial_address_valid",
+        "created_at",
+        "updated_at",
+    ]
+    # payee_functional_id intentionally excluded.
+    ordering = ["-created_at"]
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(GovStackVoucher)
+class GovStackVoucherAdmin(admin.ModelAdmin):
+    list_display = [
+        "serial_number",
+        "status",
+        "amount",
+        "currency",
+        "group_code",
+        "issuing_bb",
+        "redeemed_at",
+        "created_at",
+    ]
+    list_filter = ["status", "currency", "group_code", "issuing_bb"]
+    # payee_functional_id intentionally excluded from search_fields.
+    search_fields = ["serial_number", "group_code", "issuing_bb", "redemption_transaction_id"]
+    readonly_fields = [
+        "id",
+        "serial_number",
+        "voucher_secret_status",
+        "amount",
+        "currency",
+        "group_code",
+        "status",
+        "issuing_bb",
+        "registering_institution_id",
+        "batch_id",
+        "expiry_date",
+        "redeemed_by_agent_id",
+        "redeemed_merchant_name",
+        "redeemed_merchant_bank_details",
+        "redeemed_merchant_voucher_group",
+        "redeemed_at",
+        "redemption_transaction_id",
+        "created_at",
+        "updated_at",
+    ]
+    # payee_functional_id and voucher_secret excluded from fieldsets.
+    fieldsets = [
+        (
+            "Voucher Identity",
+            {
+                "fields": [
+                    "id",
+                    "serial_number",
+                    "voucher_secret_status",
+                    "status",
+                    "issuing_bb",
+                    "registering_institution_id",
+                ],
+            },
+        ),
+        (
+            "Value",
+            {
+                "fields": ["amount", "currency", "group_code", "expiry_date"],
+            },
+        ),
+        (
+            "Redemption",
+            {
+                "fields": [
+                    "redeemed_by_agent_id",
+                    "redeemed_merchant_name",
+                    "redeemed_merchant_bank_details",
+                    "redeemed_merchant_voucher_group",
+                    "redeemed_at",
+                    "redemption_transaction_id",
+                ],
+                "classes": ["collapse"],
+            },
+        ),
+        (
+            "Tracking",
+            {
+                "fields": ["batch_id", "created_at", "updated_at"],
+                "classes": ["collapse"],
+                "description": (
+                    "payee_functional_id is excluded from this view per GovStack security policy."
+                ),
+            },
+        ),
+    ]
+    ordering = ["-created_at"]
+
+    @admin.display(description="Voucher Secret")
+    def voucher_secret_status(self, obj) -> str:
+        return "✓ Set (encrypted)" if obj.voucher_secret else "✗ Not set"
+
+    def has_add_permission(self, request) -> bool:
+        return False  # Created via GovStack API only
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False  # Status transitions via GovStack API only
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False  # Voucher records are permanent
+
+
+@admin.register(GovStackPaymentAuditEntry)
+class GovStackPaymentAuditEntryAdmin(admin.ModelAdmin):
+    list_display = [
+        "action",
+        "actor_bb_id",
+        "object_type",
+        "object_pk",
+        "request_id",
+        "timestamp",
+    ]
+    list_filter = ["action", "object_type"]
+    search_fields = ["action", "actor_bb_id", "object_pk", "request_id"]
+    readonly_fields = [
+        "id",
+        "action",
+        "actor_bb_id",
+        "object_type",
+        "object_pk",
+        "request_id",
+        "details",
+        "timestamp",
+    ]
+    ordering = ["-timestamp"]
+
+    def has_add_permission(self, request) -> bool:
+        return False  # System-created only
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False  # Immutable: append-only log
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False  # Permanent: cannot be deleted

@@ -733,6 +733,10 @@ REST_FRAMEWORK = {
         # Dedicated scope for the credential exchange endpoint — see TokenObtainThrottle.
         # 5/minute is generous for legitimate users and infeasible for brute-force.
         "token_obtain": "5/minute",
+        # GovStack BB-to-BB API calls. 100/min per IP is well above harness needs and
+        # provides a circuit-breaker against runaway integrations. ScopedRateThrottle
+        # is explicitly added to GovStackAPIView.throttle_classes in govstack_views.py.
+        "govstack_bb": "100/minute",
     },
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",

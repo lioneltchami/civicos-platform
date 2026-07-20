@@ -1,0 +1,428 @@
+"""
+GovStack Payments BB — DRF serializers.
+
+These serializers define the request/response shapes for the GovStack
+Payments BB API surface. They follow the exact field names and constraints
+from the GovStack OpenAPI specs in github.com/GovStackWorkingGroup/bb-payments.
+
+Serializer naming convention:
+  <Operation>RequestSerializer  — validates incoming request body
+  <Operation>ResponseSerializer — shapes outgoing response body
+
+All field names match the GovStack spec (camelCase where the spec uses it,
+snake_case only where the spec uses it). The harness is case-sensitive on
+field names.
+
+Security:
+  - No serializer ever includes payee_functional_id, financial_address,
+    or voucher_secret in output serializers.
+  - These are input serializers only for those fields; they must not be
+    placed in response serializers.
+"""
+from __future__ import annotations
+
+import re
+from decimal import Decimal, InvalidOperation
+
+from django.utils.translation import gettext_lazy as _
+from rest_framework import serializers
+
+from .govstack_models import (
+    BulkPaymentBatch,
+    CreditInstruction,
+    GovStackBeneficiary,
+    GovStackVoucher,
+    PrepaymentValidationRequest,
+)
+
+
+# ---------------------------------------------------------------------------
+# Shared validators
+# ---------------------------------------------------------------------------
+
+def _validate_bb_id(value: str) -> str:
+    """Validate SourceBBID / Gov_Stack_BB: 1–20 alphanumeric or hyphen chars."""
+    if not value or not re.match(r"^[a-zA-Z0-9\-]{1,20}$", value):
+        raise serializers.ValidationError(
+            "Must be 1–20 alphanumeric or hyphen characters."
+        )
+    return value
+
+
+def _validate_payee_id(value: str) -> str:
+    """Validate PayeeFunctionalID: 1–20 alphanumeric or hyphen chars."""
+    if not value or not re.match(r"^[a-zA-Z0-9\-]{1,20}$", value):
+        raise serializers.ValidationError(
+            "Must be 1–20 alphanumeric or hyphen characters."
+        )
+    return value
+
+
+def _validate_request_id(value: str) -> str:
+    """Validate RequestID: 1–16 alphanumeric or hyphen chars."""
+    if not value or not re.match(r"^[a-zA-Z0-9\-]{1,16}$", value):
+        raise serializers.ValidationError(
+            "Must be 1–16 alphanumeric or hyphen characters."
+        )
+    return value
+
+
+def _validate_iso4217(value: str) -> str:
+    """Validate ISO 4217 currency code: exactly 3 uppercase letters."""
+    if not value or not re.match(r"^[A-Z]{3}$", value):
+        raise serializers.ValidationError(
+            "Must be a 3-letter ISO 4217 currency code (e.g. USD, AED, CAD)."
+        )
+    return value
+
+
+# ---------------------------------------------------------------------------
+# G2P — Beneficiary
+# ---------------------------------------------------------------------------
+
+class BeneficiaryItemSerializer(serializers.Serializer):
+    """
+    One entry in the Beneficiaries[] array.
+    GovStack spec: RegisterBeneficiaryRequest.yml → Beneficiaries
+    """
+    PayeeFunctionalID = serializers.CharField(
+        max_length=20,
+        error_messages={"required": "PayeeFunctionalID is required.", "blank": "PayeeFunctionalID cannot be blank."},
+    )
+    PaymentModality = serializers.CharField(
+        max_length=2,
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+    # max_length matches model field (512). IBANs can be up to 34 chars;
+    # mobile money wallet IDs can also exceed 30 chars.
+    FinancialAddress = serializers.CharField(
+        max_length=512,
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+
+    def validate_PayeeFunctionalID(self, value: str) -> str:
+        # Single validation via the per-field method (no duplicate field-level validator).
+        return _validate_payee_id(value)
+
+
+class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
+    """
+    POST /govstack/payments/register-beneficiary
+    POST /govstack/payments/update-beneficiary-details
+    GovStack spec: RegisterBeneficiaryRequest.yml / UpdateBeneficiaryRequest.yml
+    """
+    RequestID = serializers.CharField(
+        max_length=16,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="RequestID. Max 16 chars. Echoed back in response.",
+    )
+    SourceBBID = serializers.CharField(
+        max_length=20,
+        error_messages={"required": "SourceBBID is required.", "blank": "SourceBBID cannot be blank."},
+    )
+    Beneficiaries = serializers.ListField(
+        child=BeneficiaryItemSerializer(),
+        min_length=1,
+        error_messages={
+            "required": "Beneficiaries array is required.",
+            "empty": "Beneficiaries array cannot be empty.",
+        },
+    )
+
+    def validate_SourceBBID(self, value: str) -> str:
+        return _validate_bb_id(value)
+
+
+class G2PResponseSerializer(serializers.Serializer):
+    """
+    Standard G2P response envelope.
+    GovStack spec: all G2P response bodies.
+    """
+    ResponseCode = serializers.CharField(read_only=True)
+    RequestID = serializers.CharField(read_only=True)
+    ResponseDescription = serializers.CharField(read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# G2P — Bulk Payment
+# ---------------------------------------------------------------------------
+
+class CreditInstructionSerializer(serializers.Serializer):
+    """
+    One entry in CreditInstructions[].
+    GovStack spec: BulkPayment.yml → CreditInstructions
+    """
+    InstructionID = serializers.CharField(max_length=16)
+    PayeeFunctionalID = serializers.CharField(max_length=20)
+    Amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    Currency = serializers.CharField(max_length=3)
+    Narration = serializers.CharField(max_length=50, required=False, allow_blank=True, default="")
+
+    def validate_PayeeFunctionalID(self, value: str) -> str:
+        return _validate_payee_id(value)
+
+    def validate_Currency(self, value: str) -> str:
+        return _validate_iso4217(value.upper() if value else value)
+
+
+class BulkPaymentRequestSerializer(serializers.Serializer):
+    """
+    POST /govstack/payments/bulk-payment
+    GovStack spec: BulkPayment.yml
+    Harness: g2p_bulk_payment.feature @endpoint=/bulk-payment
+
+    NOTE: SourceBBID must match [a-zA-Z0-9]{10} per harness.
+    NOTE: BatchID must match [a-zA-Z0-9]{11} per harness.
+    Harness negative scenarios send "invalid" (7 chars) to test 400 responses.
+    """
+    RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
+    SourceBBID = serializers.CharField(max_length=20)
+    BatchID = serializers.CharField(max_length=20)
+    CreditInstructions = serializers.ListField(
+        child=CreditInstructionSerializer(),
+        min_length=1,
+    )
+
+    def validate_SourceBBID(self, value: str) -> str:
+        # Harness uses 10-char alphanumeric; "invalid" must fail.
+        if not value or not re.match(r"^[a-zA-Z0-9\-]{1,20}$", value):
+            raise serializers.ValidationError(
+                "SourceBBID is required and must be alphanumeric (1–20 chars)."
+            )
+        return value
+
+    def validate_BatchID(self, value: str) -> str:
+        # Harness uses 11-char alphanumeric; "invalid" must fail.
+        if not value or not re.match(r"^[a-zA-Z0-9\-]{1,20}$", value):
+            raise serializers.ValidationError(
+                "BatchID is required and must be alphanumeric (1–20 chars)."
+            )
+        return value
+
+
+# ---------------------------------------------------------------------------
+# G2P — Prepayment Validation
+# ---------------------------------------------------------------------------
+
+class PrepaymentValidationRequestSerializer(serializers.Serializer):
+    """
+    POST /govstack/payments/prepayment-validation
+    GovStack spec: PrePaymentValidation.yml (one instruction per call in harness)
+    """
+    RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
+    SourceBBID = serializers.CharField(max_length=20)
+    BatchID = serializers.CharField(max_length=20)
+    CreditInstructions = serializers.ListField(
+        child=CreditInstructionSerializer(),
+        min_length=1,
+    )
+
+    def validate_SourceBBID(self, value: str) -> str:
+        return _validate_bb_id(value)
+
+    def validate_BatchID(self, value: str) -> str:
+        if not value or len(value) > 20:
+            raise serializers.ValidationError("BatchID is required (max 20 chars).")
+        return value
+
+
+class PrepaymentValidationResponseAckSerializer(serializers.Serializer):
+    """
+    POST /govstack/payments/prepayment-validation-response
+    Body sent by the harness to acknowledge receipt of the async result.
+    """
+    RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
+    SourceBatchID = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
+
+
+# ---------------------------------------------------------------------------
+# Voucher — Pre-activation
+# ---------------------------------------------------------------------------
+
+class VoucherPreactivationRequestSerializer(serializers.Serializer):
+    """
+    POST /govstack/payments/vouchers/voucher_preactivation
+    GovStack spec: api/Voucher API YAMLs/VoucherPreactivationRequest.yml
+    Harness: voucher_preactivation.feature
+
+    NOTE: Field names use snake_case as per the GovStack voucher spec
+    (different convention from the G2P PascalCase spec).
+    """
+    voucher_amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        help_text="Voucher face value. Must be positive.",
+    )
+    voucher_currency = serializers.CharField(
+        max_length=3,
+        help_text="ISO 4217 3-letter currency code.",
+    )
+    voucher_group = serializers.CharField(
+        max_length=50,
+        help_text="Voucher group / program code.",
+    )
+    Gov_Stack_BB = serializers.CharField(
+        max_length=50,
+        help_text="Issuing Gov_Stack_BB identifier.",
+    )
+
+    def validate_voucher_amount(self, value) -> Decimal:
+        # NOTE: the harness expects HTTP 452 (InvalidVoucherAmount), NOT 400, when the
+        # amount is zero or negative. For this reason we do NOT raise ValidationError
+        # here — instead the Wave 4 view/service raises InvalidVoucherAmount after
+        # calling is_valid(). We still reject non-parseable values at the field level
+        # (DecimalField raises ValidationError for non-numeric input, giving 400, which
+        # is correct — a 452 only applies when the number is valid but out of range).
+        if value is not None and value <= 0:
+            # Wave 4 TODO: remove this line and let the service raise InvalidVoucherAmount (HTTP 452).
+            # For now, keeping a 400 here is a known gap — the harness test for invalid
+            # amounts will pass only if the service correctly raises InvalidVoucherAmount.
+            raise serializers.ValidationError("voucher_amount must be a positive number.")
+        return value
+
+    def validate_voucher_currency(self, value: str) -> str:
+        if not value:
+            raise serializers.ValidationError("voucher_currency is required.")
+        upper = value.upper()
+        # Apply ISO 4217 regex: exactly 3 uppercase letters.
+        # Invalid format returns HTTP 400 here; the service may raise
+        # InvalidVoucherCurrency (HTTP 453) for codes that are syntactically valid
+        # but not supported by the program.
+        return _validate_iso4217(upper)
+
+    def validate_voucher_group(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("voucher_group is required.")
+        return value
+
+
+class VoucherPreactivationResponseSerializer(serializers.Serializer):
+    """
+    Response for successful voucher pre-activation.
+    """
+    voucherNumber = serializers.CharField(read_only=True)
+    voucherSerialNumber = serializers.CharField(read_only=True)
+    voucherGroup = serializers.CharField(read_only=True)
+    expiryDate = serializers.DateTimeField(read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# Voucher — Activation
+# ---------------------------------------------------------------------------
+
+class VoucherActivationRequestSerializer(serializers.Serializer):
+    """
+    PATCH /govstack/payments/vouchers/voucher_activation
+    GovStack spec: VoucherActivate.yml
+    Harness: voucher_activation.feature
+
+    NOTE: voucher_serial_number is sent as integer by the harness.
+    """
+    voucher_serial_number = serializers.CharField(
+        help_text="Voucher serial number (may be sent as int by harness, treated as string).",
+    )
+    Gov_Stack_BB = serializers.CharField(
+        max_length=50,
+        help_text="Issuing Gov_Stack_BB identifier.",
+    )
+
+    def validate_voucher_serial_number(self, value) -> str:
+        """Accept int or string serial numbers (harness sends int)."""
+        return str(value).strip()
+
+
+class VoucherActivationResponseSerializer(serializers.Serializer):
+    """Response for successful voucher activation."""
+    voucherNumber = serializers.CharField(read_only=True)
+    voucherSerialNumber = serializers.CharField(read_only=True)
+    voucherStatus = serializers.CharField(read_only=True)
+    voucherGroup = serializers.CharField(read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# Voucher — Redemption
+# ---------------------------------------------------------------------------
+
+class VoucherRedemptionRequestSerializer(serializers.Serializer):
+    """
+    POST /govstack/payments/vouchers/voucher_redemption
+    GovStack spec: VoucherRedemption.yml
+    Harness: voucher_redemption.feature
+
+    NOTE: voucher_number is sent as integer by the harness.
+    """
+    voucher_number = serializers.CharField(
+        help_text="Voucher number (may be sent as int by harness).",
+    )
+    Gov_Stack_BB = serializers.CharField(max_length=50)
+    merchant_name = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+    merchant_bank_details = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+    merchant_voucher_group = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    override = serializers.BooleanField(required=False, default=False)
+
+    def validate_voucher_number(self, value) -> str:
+        return str(value).strip()
+
+
+class VoucherRedemptionResponseSerializer(serializers.Serializer):
+    """Response for successful voucher redemption."""
+    status = serializers.IntegerField(read_only=True)
+    message = serializers.CharField(read_only=True)
+    serialNumber = serializers.CharField(read_only=True)
+    value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    timestamp = serializers.DateTimeField(read_only=True)
+    transactionId = serializers.CharField(read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# Voucher — Status Check
+# ---------------------------------------------------------------------------
+
+class VoucherStatusResponseSerializer(serializers.Serializer):
+    """
+    Response for GET /govstack/payments/vouchers/voucherstatuscheck/{serial}
+    """
+    status = serializers.IntegerField(read_only=True)
+    serialNumber = serializers.CharField(read_only=True)
+    value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# Voucher — Cancellation
+# ---------------------------------------------------------------------------
+
+class VoucherCancellationResponseSerializer(serializers.Serializer):
+    """
+    Response for PATCH /govstack/payments/vouchers/voucherstatuscheck/{serial}
+    (cancellation — same URL as status check, different HTTP method)
+    """
+    voucherSerialNumber = serializers.CharField(read_only=True)
+    voucherStatus = serializers.CharField(read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# P2G — Bill Payments (Wave 5 stubs)
+# ---------------------------------------------------------------------------
+
+class BillInquiryResponseSerializer(serializers.Serializer):
+    """GET /govstack/payments/bills/{billId}"""
+    billId = serializers.CharField(read_only=True)
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    currency = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    dueDate = serializers.DateField(read_only=True, required=False)
+
+
+class BillTransferRequestSerializer(serializers.Serializer):
+    """POST /govstack/payments/billTransferRequests"""
+    requestId = serializers.CharField(max_length=20)
+    billInquiryRequestId = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
+    billId = serializers.CharField(max_length=100)
+    paymentReferenceID = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")

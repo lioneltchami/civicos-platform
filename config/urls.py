@@ -66,6 +66,9 @@ urlpatterns = [
     path("docs/", include("apps.documents.urls", namespace="documents")),
     # Payments building block — gateway webhooks and payment flows (no language prefix)
     path("payments/", include("apps.payments.urls", namespace="payments")),
+    # GovStack Payments BB — certification API layer (separate from CivicOS-internal payments)
+    # Mounted outside i18n_patterns: BB-to-BB APIs are language-prefix-free.
+    path("govstack/payments/", include("apps.payments.govstack_urls", namespace="govstack_payments")),
     # Donations public-facing flows
     path("donate/", include("apps.payments.donation_urls", namespace="donate")),
     # Donor payments portal — authenticated view of giving history, receipts, recurring plans
