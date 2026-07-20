@@ -179,9 +179,14 @@ class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
     Beneficiaries = serializers.ListField(
         child=BeneficiaryItemSerializer(),
         min_length=1,
+        # max_length guards against unbounded atomic transactions; a single
+        # request with 10 000 beneficiaries would hold a DB lock for seconds.
+        # 500 is generous for a government G2P batch and well within harness limits.
+        max_length=500,
         error_messages={
             "required": "Beneficiaries array is required.",
             "min_length": "Beneficiaries array must contain at least one entry.",
+            "max_length": "Beneficiaries array must not exceed 500 entries per request.",
         },
     )
 

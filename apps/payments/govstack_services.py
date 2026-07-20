@@ -101,7 +101,7 @@ class GovStackBeneficiaryService:
 
                 if created:
                     registered += 1
-                    action = action_on_create or GovStackPaymentAuditEntry.ACTION_BENEFICIARY_REGISTERED
+                    action = action_on_create
                 else:
                     # Update provided fields only; never clear existing values.
                     changed = False
@@ -123,7 +123,7 @@ class GovStackBeneficiaryService:
                         obj.save()  # updates updated_at via auto_now=True on TimestampedModel
 
                     updated += 1
-                    action = action_on_update or GovStackPaymentAuditEntry.ACTION_BENEFICIARY_UPDATED
+                    action = action_on_update
 
                 # Audit entry — never log payee_functional_id or financial_address.
                 GovStackPaymentAuditEntry.objects.create(

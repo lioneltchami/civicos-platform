@@ -142,9 +142,13 @@ class GovStackBeneficiary(TimestampedModel):
     source_bb_id = models.CharField(
         max_length=20,
         db_index=True,
-        validators=[_BB_ID_VALIDATOR],
+        # G2P SourceBBID values flow through _validate_g2p_id in the serializer
+        # (lowercase hex + hyphens only), so the model validator matches that constraint.
+        # Wave 3+ models (BulkPaymentBatch, etc.) keep _BB_ID_VALIDATOR on their
+        # source_bb_id fields because those serializers accept uppercase SourceBBIDs.
+        validators=[_G2P_UUID_VALIDATOR],
         verbose_name=_("Source BB ID"),
-        help_text=_("SourceBBID of the registering Building Block."),
+        help_text=_("SourceBBID of the registering Building Block. Must be lowercase hex + hyphens."),
     )
     registering_institution_id = models.CharField(
         max_length=20,

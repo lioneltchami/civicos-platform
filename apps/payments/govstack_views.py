@@ -80,7 +80,7 @@ class GovStackAPIView(APIView):
     - Throttle scope "govstack_bb" (100 req/min per IP via ScopedRateThrottle)
     - Logging of incoming requests at DEBUG level (no PII)
 
-    Wave 1 note: all concrete views inherit this and return 501 stubs.
+    Wave 2+ concrete views delegate to service methods and return proper shapes.
     """
     # ScopedRateThrottle is set explicitly here so the govstack_bb scope is active
     # without touching DEFAULT_THROTTLE_CLASSES (which controls citizen/anon flows).
