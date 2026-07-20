@@ -738,6 +738,19 @@ class _AuditEntryQuerySet(models.QuerySet):
             "GovStackPaymentAuditEntry records are permanent and cannot be deleted."
         )
 
+    def update(self, **kwargs):
+        """
+        Block bulk update to enforce append-only semantics.
+
+        Django's QuerySet.update() issues a raw SQL UPDATE bypassing the model's
+        save() override. Without this guard, any caller could do:
+            GovStackPaymentAuditEntry.objects.filter(...).update(actor_bb_id="tampered")
+        …and silently corrupt the audit trail.
+        """
+        raise PermissionError(
+            "GovStackPaymentAuditEntry records are append-only and cannot be modified."
+        )
+
 
 class GovStackPaymentAuditEntry(TimestampedModel):
     """

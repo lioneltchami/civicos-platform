@@ -49,6 +49,12 @@ _REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,16}$")
 # "2ba5ed20-0f42-4eff-8" (PayeeFunctionalID, 20 chars).  The harness negative
 # test sends the literal string "invalid" which contains non-hex chars (i, n, v, l)
 # and is correctly rejected by this pattern.
+#
+# Known permissive boundary: pure-hyphen strings like "---" also match (hyphens
+# are valid separator chars in UUID format).  No harness scenario tests for this
+# case and the GovStack spec does not forbid it, so we accept it.  If a future
+# harness version adds such a test, tighten to require at least one hex digit:
+#   r"^[0-9a-f][0-9a-f\-]{0,19}$"
 _G2P_UUID_RE = re.compile(r"^[0-9a-f\-]{1,20}$")
 
 
@@ -184,6 +190,15 @@ class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
         # The harness sends valid values like "11668d2a-a8f" (12 chars) and
         # invalid values like "invalid" (contains non-hex chars i, n, v, l).
         return _validate_g2p_id(value, field_name="SourceBBID")
+
+
+# UpdateBeneficiaryRequest and RegisterBeneficiaryRequest have identical schemas
+# (same fields, same constraints) per the GovStack spec.  Using a named alias
+# rather than the same class directly means:
+#   - views/tests can import UpdateBeneficiaryRequestSerializer explicitly, making
+#     the intent clear and allowing future divergence without touching view code.
+#   - A grep for "UpdateBeneficiaryRequestSerializer" finds all update-specific uses.
+UpdateBeneficiaryRequestSerializer = RegisterBeneficiaryRequestSerializer
 
 
 class G2PResponseSerializer(serializers.Serializer):

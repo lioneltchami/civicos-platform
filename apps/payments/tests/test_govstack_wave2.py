@@ -70,6 +70,7 @@ from apps.payments.govstack_models import (
 from apps.payments.govstack_serializers import (
     BeneficiaryItemSerializer,
     RegisterBeneficiaryRequestSerializer,
+    UpdateBeneficiaryRequestSerializer,
 )
 from apps.payments.govstack_services import GovStackBeneficiaryService
 from apps.payments.govstack_views import GovStackG2PView
@@ -549,6 +550,20 @@ class AuditEntryAppendOnlyTest(TestCase):
         with self.assertRaises(PermissionError):
             GovStackPaymentAuditEntry.objects.all().delete()
 
+    def test_d5_queryset_update_raises_permission_error(self):
+        """
+        Bulk update via queryset must be blocked.
+
+        Django's QuerySet.update() issues a raw SQL UPDATE that bypasses the
+        model's save() override.  Without _AuditEntryQuerySet.update() → PermissionError,
+        any caller could silently corrupt the audit trail:
+            GovStackPaymentAuditEntry.objects.filter(...).update(actor_bb_id="tampered")
+        This test confirms the gap is closed.
+        """
+        self._make_entry()
+        with self.assertRaises(PermissionError):
+            GovStackPaymentAuditEntry.objects.all().update(actor_bb_id="tampered")
+
 
 # ============================================================================
 # E.  GovStackG2PView helpers
@@ -599,8 +614,16 @@ class FlattenErrorsTest(TestCase):
 
     def test_e6_empty_dict_returns_fallback(self):
         result = self.view._flatten_errors({})
-        # Should return empty string or a fallback — must be a string
+        # Must be a non-empty string — harness g2pResponseSchema requires
+        # ResponseDescription minLength: 1. An empty string would fail the schema.
         self.assertIsInstance(result, str)
+        self.assertGreaterEqual(len(result), 1, "_flatten_errors({}) must not return ''")
+
+    def test_e6b_empty_list_value_returns_fallback(self):
+        """Dict with only empty list values must also return a non-empty fallback."""
+        result = self.view._flatten_errors({"field": []})
+        self.assertIsInstance(result, str)
+        self.assertGreaterEqual(len(result), 1, "_flatten_errors({'field': []}) must not return ''")
 
     def test_e7_plain_string_passthrough(self):
         result = self.view._flatten_errors("Something went wrong.")
@@ -799,8 +822,25 @@ class BeneficiarySerializerTest(TestCase):
         # "---" matches ^[0-9a-f\-]{1,20}$ so it is accepted
         self.assertTrue(ser.is_valid(), ser.errors)
 
-    # G13 — uppercase hex chars are NOT accepted (G2P requires lowercase)
-    def test_g13_uppercase_hex_rejected(self):
+    # G13 — UpdateBeneficiaryRequestSerializer is an alias (same schema as register)
+    def test_g13_update_serializer_alias_is_functional(self):
+        """UpdateBeneficiaryRequestSerializer must validate identically to register."""
+        ser = UpdateBeneficiaryRequestSerializer(data={
+            "RequestID": REQUEST_ID,
+            "SourceBBID": VALID_SOURCE_BB_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        })
+        self.assertTrue(ser.is_valid(), ser.errors)
+        # Invalid SourceBBID must also be rejected
+        ser_bad = UpdateBeneficiaryRequestSerializer(data={
+            "SourceBBID": INVALID_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        })
+        self.assertFalse(ser_bad.is_valid())
+        self.assertIn("SourceBBID", ser_bad.errors)
+
+    # G14 (was G13) — uppercase hex chars are NOT accepted (G2P requires lowercase)
+    def test_g14_uppercase_hex_rejected(self):
         ser = RegisterBeneficiaryRequestSerializer(data={
             "SourceBBID": "AABBCCDD-1234",  # uppercase — should fail G2P hex check
             "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],

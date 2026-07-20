@@ -59,7 +59,10 @@ from rest_framework.views import APIView
 
 from .govstack_auth import AllowAnyBB, HasVoucherJWT, IsTrustedSourceBB
 from .govstack_exceptions import govstack_exception_handler, govstack_g2p_exception_handler
-from .govstack_serializers import RegisterBeneficiaryRequestSerializer
+from .govstack_serializers import (
+    RegisterBeneficiaryRequestSerializer,
+    UpdateBeneficiaryRequestSerializer,
+)
 from .govstack_services import GovStackBeneficiaryService
 
 logger = logging.getLogger(__name__)
@@ -218,7 +221,13 @@ class GovStackG2PView(GovStackAPIView):
             parts.append(str(errors))
 
         result = " | ".join(p for p in parts if p)
-        return result[:197] + "..." if len(result) > 200 else result
+        if len(result) > 200:
+            return result[:197] + "..."
+        # Never return "" — the harness g2pResponseSchema requires ResponseDescription
+        # to have minLength: 1.  An empty errors dict (shouldn't happen in practice
+        # since DRF always populates at least one key when is_valid() returns False)
+        # or a dict with only empty list values would otherwise produce "" here.
+        return result or "Validation error."
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +297,7 @@ class UpdateBeneficiaryView(GovStackG2PView):
     """
 
     def post(self, request: Request) -> Response:
-        ser = RegisterBeneficiaryRequestSerializer(data=request.data)
+        ser = UpdateBeneficiaryRequestSerializer(data=request.data)
         if not ser.is_valid():
             return self._g2p_bad(request, self._flatten_errors(ser.errors))
 

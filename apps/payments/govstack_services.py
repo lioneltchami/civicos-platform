@@ -26,6 +26,13 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
+from django.db import transaction
+
+from apps.payments.govstack_models import (
+    GovStackBeneficiary,
+    GovStackPaymentAuditEntry,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,13 +79,6 @@ class GovStackBeneficiaryService:
 
         Returns {"registered": int, "updated": int}.
         """
-        # Lazy import to avoid circular dependency at module load time.
-        from django.db import transaction
-        from apps.payments.govstack_models import (
-            GovStackBeneficiary,
-            GovStackPaymentAuditEntry,
-        )
-
         registered = 0
         updated = 0
 
@@ -179,8 +179,8 @@ class GovStackBeneficiaryService:
             source_bb_id=source_bb_id,
             beneficiaries=beneficiaries,
             registering_institution_id=registering_institution_id,
-            action_on_create="beneficiary_registered",
-            action_on_update="beneficiary_updated",
+            action_on_create=GovStackPaymentAuditEntry.ACTION_BENEFICIARY_REGISTERED,
+            action_on_update=GovStackPaymentAuditEntry.ACTION_BENEFICIARY_UPDATED,
         )
 
     @staticmethod
@@ -214,10 +214,10 @@ class GovStackBeneficiaryService:
             source_bb_id=source_bb_id,
             beneficiaries=beneficiaries,
             registering_institution_id=registering_institution_id,
-            # For the update flow, use UPDATED action even on first-time creates
-            # to reflect the caller's intent (they called update-beneficiary-details).
-            action_on_create="beneficiary_updated",
-            action_on_update="beneficiary_updated",
+            # For the update flow, use ACTION_BENEFICIARY_UPDATED even on first-time
+            # creates to reflect the caller's intent (they called update-beneficiary-details).
+            action_on_create=GovStackPaymentAuditEntry.ACTION_BENEFICIARY_UPDATED,
+            action_on_update=GovStackPaymentAuditEntry.ACTION_BENEFICIARY_UPDATED,
         )
 
 
