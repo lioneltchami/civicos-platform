@@ -402,3 +402,117 @@ class CleanupExportFilesTaskTests(TestCase):
         with patch(_STORAGE):
             result = cleanup_export_files.apply()
         self.assertEqual(result.result.get("recovered_stuck"), 0)
+
+    # ── mark_purpose_fulfilled exception path (L-1) ─────────────────────────
+
+    def _make_transitory_doc(self):
+        """
+        Create a transitory Document linked to the test citizen.
+        Uses get_or_create on the category so multiple tests share it safely.
+        """
+        from apps.documents.models import Document, DocumentCategory
+
+        cat, _ = DocumentCategory.objects.get_or_create(
+            slug="pipeda-data-export",
+            defaults={
+                "name_en": "PIPEDA Data Export",
+                "name_fr": "Export de données PIPEDA",
+                "is_transitory": True,
+                "min_retention_days": 0,
+                "max_retention_days": 30,
+            },
+        )
+        return Document.objects.create(
+            uploaded_by=self.citizen,
+            category=cat,
+            original_filename="export.json",
+            mime_type="application/json",
+            size_bytes=100,
+            _storage_key="documents/active/test/export.bin",
+            scan_status=Document.ScanStatus.ACTIVE,
+        )
+
+    def test_mark_purpose_fulfilled_exception_does_not_block_expiry(self):
+        """
+        When mark_purpose_fulfilled() raises (e.g. a concurrent legal hold was
+        applied between the status check and the disposal call), cleanup_export_files
+        must:
+          (a) swallow the exception,
+          (b) still mark the export STATUS_EXPIRED, and
+          (c) still write the export_expired ConsentAuditEntry.
+
+        Regression guard: the try/except around mark_purpose_fulfilled() at
+        tasks.py lines 254–265 is the sole error boundary for the disposal sub-step.
+        If it were accidentally removed, a ValueError from a concurrent legal hold
+        would abort the per-export iteration, leaving the export stuck in STATUS_READY
+        and skipping the audit entry.
+        """
+        export = self._make_ready_expired()
+        export.document = self._make_transitory_doc()
+        export.save(update_fields=["document"])
+
+        with patch(
+            "apps.documents.services.retention.mark_purpose_fulfilled",
+            side_effect=ValueError("Document is on legal hold — concurrent race"),
+        ), patch(_STORAGE):
+            cleanup_export_files.apply()
+
+        export.refresh_from_db()
+        self.assertEqual(
+            export.status,
+            DataExportRequest.STATUS_EXPIRED,
+            "Export must be marked STATUS_EXPIRED even when mark_purpose_fulfilled raises.",
+        )
+        entry = ConsentAuditEntry.objects.filter(
+            citizen=self.citizen,
+            action="export_expired",
+            export_request=export,
+        ).first()
+        self.assertIsNotNone(
+            entry,
+            "export_expired audit entry must still be written when mark_purpose_fulfilled raises.",
+        )
+
+    def test_mark_purpose_fulfilled_exception_does_not_abort_loop(self):
+        """
+        When mark_purpose_fulfilled() raises for every export in the batch,
+        ALL exports must still be marked STATUS_EXPIRED and the expired count
+        in the task result must reflect the full batch size.
+
+        This guards against any future change that widens the scope of the
+        except clause (e.g. moving the try/except outside the for-loop), which
+        would cause a single disposal failure to abort the entire cleanup batch —
+        leaving all remaining exports stuck in STATUS_READY indefinitely.
+        """
+        export1 = self._make_ready_expired()
+        export1.document = self._make_transitory_doc()
+        export1.save(update_fields=["document"])
+
+        export2 = self._make_ready_expired()
+        export2.document = self._make_transitory_doc()
+        export2.save(update_fields=["document"])
+
+        # Both mark_purpose_fulfilled calls raise — the loop must survive both.
+        with patch(
+            "apps.documents.services.retention.mark_purpose_fulfilled",
+            side_effect=ValueError("document on legal hold"),
+        ), patch(_STORAGE):
+            result = cleanup_export_files.apply()
+
+        export1.refresh_from_db()
+        export2.refresh_from_db()
+        self.assertEqual(
+            export1.status,
+            DataExportRequest.STATUS_EXPIRED,
+            "export1 must be EXPIRED even though its mark_purpose_fulfilled raised.",
+        )
+        self.assertEqual(
+            export2.status,
+            DataExportRequest.STATUS_EXPIRED,
+            "export2 must be EXPIRED — the error from export1 must not abort the loop.",
+        )
+        self.assertEqual(
+            result.result.get("expired"),
+            2,
+            "expired count must be 2 regardless of mark_purpose_fulfilled failures.",
+        )
