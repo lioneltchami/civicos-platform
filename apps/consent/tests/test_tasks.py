@@ -299,3 +299,106 @@ class CleanupExportFilesTaskTests(TestCase):
         with patch(_STORAGE):
             result = cleanup_export_files.apply()
         self.assertEqual(result.result.get("expired"), 2)
+
+    # ── Stuck-processing recovery (lines 281–310 in tasks.py) ──────────────
+
+    def _make_stuck_processing(self, hours_ago=3):
+        """
+        Create a DataExportRequest stuck in STATUS_PROCESSING.
+
+        ``requested_at`` is auto_now_add, so we force it via .update() after
+        creation.  The stuck-recovery filter is:
+            status=PROCESSING, requested_at < (now - 2h), processed_at IS NULL
+        """
+        req = DataExportRequest.objects.create(
+            citizen=self.citizen,
+            status=DataExportRequest.STATUS_PROCESSING,
+        )
+        # Force requested_at into the past so it qualifies as stuck.
+        DataExportRequest.objects.filter(pk=req.pk).update(
+            requested_at=timezone.now() - timedelta(hours=hours_ago),
+        )
+        req.refresh_from_db()
+        return req
+
+    def test_stuck_processing_recovered_to_failed(self):
+        """
+        A STATUS_PROCESSING request older than 2 hours with processed_at=None
+        must be flipped to STATUS_FAILED by the stuck-recovery sub-task.
+
+        Regression guard: a SIGKILL'd Celery worker leaves the row in
+        STATUS_PROCESSING permanently, blocking new exports for that citizen
+        via the unique_active_export_per_citizen constraint.
+        """
+        stuck = self._make_stuck_processing(hours_ago=3)
+        self.assertEqual(stuck.status, DataExportRequest.STATUS_PROCESSING)
+        self.assertIsNone(stuck.processed_at)
+
+        with patch(_STORAGE):
+            result = cleanup_export_files.apply()
+
+        stuck.refresh_from_db()
+        self.assertEqual(
+            stuck.status,
+            DataExportRequest.STATUS_FAILED,
+            "Stuck PROCESSING request older than 2 h must be recovered to STATUS_FAILED.",
+        )
+        self.assertEqual(result.result.get("recovered_stuck"), 1)
+
+    def test_stuck_processing_audit_entry_created(self):
+        """
+        The stuck-recovery path must write a ConsentAuditEntry with
+        action='export_failed' and reason='recovered_stuck_processing'.
+        """
+        stuck = self._make_stuck_processing(hours_ago=3)
+
+        with patch(_STORAGE):
+            cleanup_export_files.apply()
+
+        entry = ConsentAuditEntry.objects.filter(
+            citizen=self.citizen,
+            action="export_failed",
+            export_request=stuck,
+        ).first()
+        self.assertIsNotNone(
+            entry,
+            "Stuck-recovery must write a ConsentAuditEntry(action='export_failed').",
+        )
+        self.assertEqual(
+            entry.details.get("reason"),
+            "recovered_stuck_processing",
+            "Audit entry details must include reason='recovered_stuck_processing'.",
+        )
+
+    def test_recent_processing_not_recovered(self):
+        """
+        A STATUS_PROCESSING request that is only 30 minutes old must NOT be
+        recovered — only requests older than 2 hours qualify as stuck.
+        """
+        req = DataExportRequest.objects.create(
+            citizen=self.citizen,
+            status=DataExportRequest.STATUS_PROCESSING,
+        )
+        # 30 minutes ago — well within the 2-hour grace window.
+        DataExportRequest.objects.filter(pk=req.pk).update(
+            requested_at=timezone.now() - timedelta(minutes=30),
+        )
+
+        with patch(_STORAGE):
+            result = cleanup_export_files.apply()
+
+        req.refresh_from_db()
+        self.assertEqual(
+            req.status,
+            DataExportRequest.STATUS_PROCESSING,
+            "A PROCESSING request only 30 min old must not be flipped to FAILED.",
+        )
+        self.assertEqual(result.result.get("recovered_stuck"), 0)
+
+    def test_result_returns_zero_recovered_when_none_stuck(self):
+        """
+        When no stuck requests exist, recovered_stuck must be 0 in the result.
+        """
+        with patch(_STORAGE):
+            result = cleanup_export_files.apply()
+        self.assertEqual(result.result.get("recovered_stuck"), 0)

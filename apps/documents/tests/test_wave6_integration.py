@@ -1270,15 +1270,43 @@ class TestServiceFeePaymentGenericRelation(TestCase):
 
     Spec §16.4: ServiceFeePayment — optional confirmation document:
         document_attachments = GenericRelation("documents.DocumentAttachment")
+
+    Fixture notes:
+      - PaymentIntent.gateway must be a valid choice — GATEWAY_MANUAL ("manual")
+        is used here because it requires no live gateway config (Stripe keys etc.).
+        Passing gateway=None overrides the model default and hits a NOT NULL
+        constraint; that was the root cause of the previous permanent skip.
+      - service_request_id is a plain UUIDField (no FK to portal.ServiceRequest),
+        so any UUID is valid — no cross-app fixture needed.
     """
 
     def _make_payment_intent(self):
         from apps.payments.models import PaymentIntent
 
+        # GATEWAY_MANUAL ("manual") requires no payment-gateway configuration.
+        # Do NOT pass gateway=None — that overrides the field default and violates
+        # the NOT NULL DB constraint (CharField without null=True).
+        # payer is a required FK (NOT NULL) — use a dedicated test user.
+        payer = _make_user()
         return PaymentIntent.objects.create(
             amount=Decimal("25.00"),
             currency="CAD",
-            gateway=None,  # manual
+            gateway=PaymentIntent.GATEWAY_MANUAL,
+            payer=payer,
+        )
+
+    def _make_service_fee_payment(self, payment_intent, user):
+        from apps.payments.models import ServiceFeePayment
+
+        return ServiceFeePayment.objects.create(
+            payment_intent=payment_intent,
+            service_request_id=uuid.uuid4(),  # plain UUIDField — no FK constraint
+            fee_code="FEE-001",
+            base_amount=Decimal("25.00"),
+            tax_amount=Decimal("0.00"),
+            tax_rate_applied=Decimal("0.00000"),
+            description_en="Test fee",
+            description_fr="Frais test",
         )
 
     def test_service_fee_payment_has_document_attachments_relation(self):
@@ -1292,34 +1320,20 @@ class TestServiceFeePaymentGenericRelation(TestCase):
         )
 
     def test_document_can_be_attached_to_service_fee_payment(self):
-        """A DocumentAttachment can be linked to a ServiceFeePayment."""
+        """A DocumentAttachment can be linked to a ServiceFeePayment via the
+        document_attachments GenericRelation (spec §16.4).
+
+        This test previously skipped permanently because the fixture used
+        gateway=None (NOT NULL violation). Fixed to use GATEWAY_MANUAL.
+        """
         from django.contrib.contenttypes.models import ContentType
 
         from apps.documents.models import DocumentAttachment
         from apps.payments.models import ServiceFeePayment
 
         user = _make_user()
-        try:
-            pi = self._make_payment_intent()
-        except Exception:
-            self.skipTest("PaymentIntent creation failed — likely missing gateway config")
-            return
-
-        try:
-            sfp = ServiceFeePayment.objects.create(
-                payment_intent=pi,
-                service_request_id=uuid.uuid4(),
-                fee_code="FEE-001",
-                base_amount=Decimal("25.00"),
-                tax_amount=Decimal("0.00"),
-                tax_rate_applied=Decimal("0.00000"),
-                description_en="Test fee",
-                description_fr="Frais test",
-            )
-        except Exception:
-            self.skipTest("ServiceFeePayment creation failed — check required fields")
-            return
-
+        pi = self._make_payment_intent()
+        sfp = self._make_service_fee_payment(pi, user)
         doc = _make_document(user=user)
         ct = ContentType.objects.get_for_model(ServiceFeePayment)
         attachment = DocumentAttachment.objects.create(
@@ -1331,6 +1345,43 @@ class TestServiceFeePaymentGenericRelation(TestCase):
         )
         self.assertEqual(sfp.document_attachments.count(), 1)
         self.assertEqual(sfp.document_attachments.first().pk, attachment.pk)
+
+    def test_service_fee_payment_attachment_cascade_on_delete(self):
+        """Deleting a ServiceFeePayment (via its PaymentIntent cascade) must
+        cascade-delete associated DocumentAttachments.
+
+        DocumentAttachment.content_type uses on_delete=CASCADE, so deleting the
+        ContentType row would cascade. But the GenericRelation itself does NOT
+        cascade on object deletion unless the GFK's content_type FK uses CASCADE.
+        Django's GenericRelation handles this by intercepting the pre_delete
+        signal and bulk-deleting related DocumentAttachment rows.
+        """
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.documents.models import DocumentAttachment
+        from apps.payments.models import ServiceFeePayment
+
+        user = _make_user()
+        pi = self._make_payment_intent()
+        sfp = self._make_service_fee_payment(pi, user)
+        doc = _make_document(user=user)
+        ct = ContentType.objects.get_for_model(ServiceFeePayment)
+        att = DocumentAttachment.objects.create(
+            document=doc,
+            content_type=ct,
+            object_id=str(sfp.pk),
+            attachment_role="confirmation",
+            attached_by=user,
+        )
+        att_pk = att.pk
+
+        # ServiceFeePayment has PROTECT on PaymentIntent, so delete the SFP first.
+        sfp.delete()
+        self.assertFalse(
+            DocumentAttachment.objects.filter(pk=att_pk).exists(),
+            "Deleting a ServiceFeePayment must cascade-delete its DocumentAttachments "
+            "(GenericRelation pre_delete signal handler).",
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
