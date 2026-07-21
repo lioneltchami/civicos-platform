@@ -1099,7 +1099,13 @@ class GovStackP2GService:
                     actor_bb_id="",  # Staff action — no BB authentication.
                     object_type="bill",
                     object_pk=str(bill.pk),
-                    details={"bill_id": bill.bill_id},
+                    details={
+                        "bill_pk": str(bill.pk),
+                        # bill.bill_id (external government-assigned string) is
+                        # intentionally omitted from audit details to stay consistent
+                        # with create_transfer_request(), which uses "bill_pk" only.
+                        # The external bill_id is recoverable via bill.pk if needed.
+                    },
                 )
                 logger.info(
                     "govstack.p2g.bill_marked_paid bill_pk=%s",

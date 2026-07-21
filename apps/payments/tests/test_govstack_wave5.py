@@ -73,6 +73,9 @@ Coverage matrix:
      E15: mark_bill_paid() is idempotent for already-PAID bill
      E16: mark_bill_paid() raises BillNotFound for unknown bill_id
      E17: mark_bill_paid() creates ACTION_BILL_PAID audit entry for UNPAID→PAID
+          + pins details shape: bill_pk present, bill_id absent (M-NEW-1)
+     E17b: ACTION_BILL_PAID and ACTION_BILL_PAYMENT_REQUESTED both use "bill_pk"
+           in details — no schema drift between the two write paths (M-NEW-1)
      E18: mark_bill_paid() does NOT create audit entry when already PAID
      E19: get_transfer_request() returns GovStackBillPayment with related bill
      E20: get_transfer_request() raises BillPaymentNotFound for unknown request_id
@@ -759,14 +762,92 @@ class TestGovStackP2GService(TestCase):
 
     # E17
     def test_mark_bill_paid_creates_audit_entry_on_transition(self):
-        pre_count = GovStackPaymentAuditEntry.objects.filter(
-            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
-        ).count()
+        """
+        mark_bill_paid() must create exactly one ACTION_BILL_PAID audit entry
+        on the UNPAID→PAID transition, and that entry must:
+          - have object_pk = str(bill.pk)  (the UUID, not the external bill_id)
+          - have details["bill_pk"] = str(bill.pk)
+          - NOT have details["bill_id"] (the external string — M-NEW-1 fix)
+
+        Pinning the details shape ensures that future changes to the audit dict
+        do not accidentally expose the external bill_id or diverge from the
+        convention established in create_transfer_request() (which uses "bill_pk").
+        """
         GovStackP2GService.mark_bill_paid(bill_id=BILL_ID)
-        post_count = GovStackPaymentAuditEntry.objects.filter(
+
+        entry = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
-        ).count()
-        self.assertEqual(post_count, pre_count + 1)
+        ).latest("created_at")
+
+        # object_pk must be the UUID primary key string.
+        self.assertEqual(entry.object_pk, str(self.bill.pk))
+
+        # details must contain "bill_pk" with the UUID value.
+        self.assertIn(
+            "bill_pk",
+            entry.details,
+            "ACTION_BILL_PAID audit entry must include 'bill_pk' in details (M-NEW-1).",
+        )
+        self.assertEqual(
+            entry.details["bill_pk"],
+            str(self.bill.pk),
+            "details['bill_pk'] must equal the bill's UUID primary key.",
+        )
+
+        # details must NOT contain "bill_id" (external government string).
+        # Using the external string was the pre-fix behaviour; this assertion
+        # pins that M-NEW-1 is never accidentally reverted.
+        self.assertNotIn(
+            "bill_id",
+            entry.details,
+            "ACTION_BILL_PAID audit details must NOT contain 'bill_id' "
+            "(external string — use 'bill_pk' for consistency with "
+            "create_transfer_request()).",
+        )
+
+    # E17b — M-NEW-1: audit details consistency between the two write paths
+    def test_mark_bill_paid_audit_details_consistent_with_create_transfer_request(self):
+        """
+        The 'details' dict schema in ACTION_BILL_PAID must use the same key
+        convention as ACTION_BILL_PAYMENT_REQUESTED:  both must use "bill_pk"
+        (UUID string), not "bill_id" (external government-assigned string).
+
+        This test fetches both audit entries and compares their details keys,
+        so a future drift in either method is immediately caught.
+        """
+        # Create a payment (generates ACTION_BILL_PAYMENT_REQUESTED entry)
+        bill_for_payment = _make_bill(bill_id="BILL-E17b")
+        GovStackP2GService.create_transfer_request(
+            request_id="REQ-E17b",
+            bill_id="BILL-E17b",
+        )
+
+        # Create a second bill and mark it paid (generates ACTION_BILL_PAID entry)
+        bill_for_marking = _make_bill(bill_id="BILL-E17b-MARK")
+        GovStackP2GService.mark_bill_paid(bill_id="BILL-E17b-MARK")
+
+        payment_entry = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED
+        ).latest("created_at")
+        paid_entry = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).latest("created_at")
+
+        # Both entries must use "bill_pk" as their primary bill reference key.
+        self.assertIn(
+            "bill_pk",
+            payment_entry.details,
+            "ACTION_BILL_PAYMENT_REQUESTED details must have 'bill_pk'.",
+        )
+        self.assertIn(
+            "bill_pk",
+            paid_entry.details,
+            "ACTION_BILL_PAID details must have 'bill_pk' (M-NEW-1).",
+        )
+
+        # Neither entry should use the inconsistent "bill_id" key.
+        self.assertNotIn("bill_id", payment_entry.details)
+        self.assertNotIn("bill_id", paid_entry.details)
 
     # E18
     def test_mark_bill_paid_no_audit_entry_when_already_paid(self):
