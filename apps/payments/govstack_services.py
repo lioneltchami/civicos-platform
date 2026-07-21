@@ -1019,6 +1019,16 @@ class GovStackP2GService:
                 raise DuplicateBillPaymentError(request_id=request_id)
 
             # ── Transition bill to PAID (idempotent if already PAID) ────────
+            # DESIGN DECISION (M4): We do not restrict payment to STATUS_UNPAID
+            # or STATUS_OVERDUE.  The GovStack P2G spec does not mandate this check
+            # at the notification layer — it is the mobile money operator's
+            # responsibility to validate bill eligibility before collecting funds.
+            # Accepting a payment notification against a STATUS_CANCELLED bill
+            # means the government agency receives the money and must resolve the
+            # discrepancy offline.  Adding a hard reject here would cause the Source
+            # BB to receive HTTP 400 with no clear recovery path after funds have
+            # already moved.  If this decision changes, add a guard here and raise
+            # a new BillNotPayable exception (HTTP 4xx) before the create() call.
             if locked_bill.status != GovStackBill.STATUS_PAID:
                 locked_bill.status = GovStackBill.STATUS_PAID
                 locked_bill.save(update_fields=["status"])
@@ -1072,6 +1082,14 @@ class GovStackP2GService:
             if bill is None:
                 raise BillNotFound()
 
+            # DESIGN DECISION (M3): We do not reject STATUS_CANCELLED or
+            # STATUS_OVERDUE bills here.  mark_bill_paid() is a staff fallback
+            # for exceptional circumstances (e.g. mobile money network outage,
+            # bill erroneously cancelled before payment cleared).  Blocking on
+            # bill status would prevent staff from reconciling legitimate edge
+            # cases.  The only idempotent no-op is STATUS_PAID (already done).
+            # If this policy changes, add a status guard before this block and
+            # raise a new exception (e.g. BillNotPayable) with an HTTP 4xx code.
             if bill.status != GovStackBill.STATUS_PAID:
                 bill.status = GovStackBill.STATUS_PAID
                 bill.save(update_fields=["status"])

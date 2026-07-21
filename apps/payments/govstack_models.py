@@ -963,6 +963,13 @@ class GovStackBill(TimestampedModel):
     STATUS_UNPAID = "unpaid"
     STATUS_PAID = "paid"
     STATUS_OVERDUE = "overdue"
+    # NOTE: STATUS_CANCELLED = "cancelled" is the same string value as
+    # GovStackVoucher.STATUS_CANCELLED.  This is intentional — both use the
+    # GovStack-spec status string "cancelled" — but callers MUST always qualify
+    # the constant with the model class name (e.g. GovStackBill.STATUS_CANCELLED,
+    # not a bare import).  Never do `from govstack_models import *` or use an
+    # unqualified STATUS_CANCELLED reference that could shadow one model with the
+    # other.
     STATUS_CANCELLED = "cancelled"
 
     STATUS_CHOICES = [

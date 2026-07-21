@@ -1098,7 +1098,14 @@ class GovStackBillAdmin(admin.ModelAdmin):
     ]
     list_filter = ["status", "currency"]
     search_fields = ["bill_id", "description", "correlation_id"]
-    readonly_fields = ["id", "created_at", "updated_at"]
+    # bill_id is always read-only — it is a stable external identifier referenced
+    # by downstream systems, audit trails, and the P2G API URL path parameter.
+    # Changing it after creation would silently break any cached reference held by
+    # Source BBs and would orphan any GovStackBillPayment audit entries that link
+    # back to this bill via its external identifier.
+    # amount and currency are editable so staff can correct data-entry errors on
+    # unpaid bills, but bill_id must never change once the bill is published.
+    readonly_fields = ["id", "bill_id", "created_at", "updated_at"]
     ordering = ["-created_at"]
 
     fieldsets = (

@@ -674,10 +674,24 @@ class BillTransferRequestSerializer(serializers.Serializer):
     )
 
     def validate_requestId(self, value: str) -> str:
-        return value.strip()
+        stripped = value.strip()
+        if not stripped:
+            # An all-whitespace requestId would strip to "" — an empty idempotency
+            # key.  The first call would succeed with a blank key; the second
+            # would hit the unique constraint and return 400 (DuplicateBillPaymentError),
+            # making idempotency semantics meaningless.  Reject early.
+            raise serializers.ValidationError(
+                "requestId must not be blank or whitespace-only."
+            )
+        return stripped
 
     def validate_billId(self, value: str) -> str:
-        return value.strip()
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError(
+                "billId must not be blank or whitespace-only."
+            )
+        return stripped
 
 
 # ---------------------------------------------------------------------------

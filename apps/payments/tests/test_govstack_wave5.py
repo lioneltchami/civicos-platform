@@ -1138,3 +1138,114 @@ class TestHighSeverityRegressions(TestCase):
         self.assertTrue(
             model_admin.has_delete_permission(_FakeRequest(), obj=self.bill)
         )
+
+
+# ===========================================================================
+# J. Medium-severity regression tests (post-review fixes)
+# ===========================================================================
+
+class TestMediumSeverityRegressions(TestCase):
+    """
+    Targeted regression tests for M1 and M5 fixes.
+
+    M1 — Blank requestId/billId rejected by BillTransferRequestSerializer:
+      After strip(), an all-whitespace value becomes "".  Empty strings must
+      not be accepted as idempotency keys.  The serializer now raises a
+      ValidationError for blank values.
+
+    M5 — bill_id is readonly in GovStackBillAdmin:
+      bill_id is a stable external identifier; changing it after creation
+      would break downstream systems.  The admin must list it in readonly_fields.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+
+    # J1 — M1: All-whitespace requestId is rejected
+    def test_whitespace_only_request_id_returns_400(self):
+        """
+        POST /billTransferRequests with requestId "   " must return 400.
+        Before the M1 fix, "   ".strip() == "" would be accepted as a valid
+        idempotency key, making the first call succeed with a blank key.
+        """
+        body = {"requestId": "   ", "billId": BILL_ID}
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+
+    # J2 — M1: All-whitespace billId is rejected
+    def test_whitespace_only_bill_id_returns_400(self):
+        body = {"requestId": REQUEST_ID, "billId": "   "}
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+
+    # J3 — M1: Empty string requestId is rejected
+    def test_empty_string_request_id_returns_400(self):
+        body = {"requestId": "", "billId": BILL_ID}
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        # DRF treats "" as blank which is normally rejected by CharField (required=True, allow_blank=False by default)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+
+    # J4 — M1: Valid non-blank requestId still succeeds
+    def test_valid_request_id_not_affected_by_blank_check(self):
+        body = _transfer_body()
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+    # J5 — M1: requestId with surrounding whitespace is stripped and accepted
+    def test_request_id_with_surrounding_whitespace_is_stripped(self):
+        """
+        A requestId like "  REQ-001  " should be stripped to "REQ-001" and succeed.
+        The blank guard only fires when the stripped value is empty.
+        """
+        body = {"requestId": f"  {REQUEST_ID}  ", "billId": BILL_ID}
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 200)
+        # Confirm the stored request_id is the stripped version
+        payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
+        self.assertEqual(payment.request_id, REQUEST_ID)
+
+    # J6 — M5: bill_id is in readonly_fields on GovStackBillAdmin
+    def test_admin_bill_id_is_readonly(self):
+        """
+        GovStackBillAdmin.readonly_fields must include 'bill_id' so staff
+        cannot change the external identifier after a bill is created.
+        """
+        from django.contrib.admin.sites import AdminSite
+        from apps.payments.admin import GovStackBillAdmin
+
+        site = AdminSite()
+        model_admin = GovStackBillAdmin(GovStackBill, site)
+
+        self.assertIn(
+            "bill_id",
+            model_admin.readonly_fields,
+            "bill_id must be in readonly_fields — it is a stable external identifier "
+            "referenced by downstream systems and audit trails.",
+        )
+
+    # J7 — M5: amount and currency remain editable (not over-restricted)
+    def test_admin_amount_and_currency_are_editable(self):
+        """
+        amount and currency must NOT be in readonly_fields — staff need to correct
+        data-entry errors on unpaid bills.  This test guards against over-restriction.
+        """
+        from django.contrib.admin.sites import AdminSite
+        from apps.payments.admin import GovStackBillAdmin
+
+        site = AdminSite()
+        model_admin = GovStackBillAdmin(GovStackBill, site)
+
+        self.assertNotIn(
+            "amount",
+            model_admin.readonly_fields,
+            "amount should be editable by staff for data-entry corrections.",
+        )
+        self.assertNotIn(
+            "currency",
+            model_admin.readonly_fields,
+            "currency should be editable by staff for data-entry corrections.",
+        )
