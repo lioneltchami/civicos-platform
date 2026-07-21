@@ -119,8 +119,9 @@ class DocumentAdminListView(LoginRequiredMixin, PermissionRequiredMixin, ListVie
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         ctx["filter_form"] = DocumentFilterForm(self.request.GET or None)
-        # total_count: use the already-evaluated queryset stored by ListView so
-        # we don't issue a second COUNT query.
+        # total_count: .count() on the already-filtered queryset avoids
+        # re-specifying the filter logic. A COUNT(*) query is still issued,
+        # but it uses the same filter dimensions as the list view queryset.
         ctx["total_count"] = self.object_list.count()
         # categories: needed by the template's category filter dropdown.
         ctx["categories"] = DocumentCategory.objects.order_by("name_en")
