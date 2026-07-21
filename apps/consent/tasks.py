@@ -172,6 +172,22 @@ def process_data_export(self, export_request_id: str) -> dict:
                     )
             raise
 
+        # Clean up the legacy storage file now that the Document BB record is the
+        # authoritative copy. The file at saved_path (exports/{token}.json) is a
+        # redundant copy written before the Documents BB integration. Once the DB
+        # transaction succeeds, both copies exist; retaining both violates PIPEDA
+        # data-minimisation (4.5.3) — the Documents BB lifecycle manages the
+        # authoritative copy. If _doc is None (category not seeded), saved_path is
+        # the ONLY copy and must not be deleted.
+        if _doc is not None:
+            try:
+                default_storage.delete(saved_path)
+            except Exception as _del_err:
+                logger.warning(
+                    "process_data_export: could not clean up legacy export file: %s",
+                    type(_del_err).__name__,  # Don't log saved_path (contains download token)
+                )
+
         # Notify citizen by email
         _notify_export_ready(req)
 
@@ -233,11 +249,15 @@ def cleanup_export_files(self) -> dict:
             expires_at__lte=now,
         )
         count = 0
-        for req in expired_qs.select_related("document__category"):
+        for req in expired_qs.select_related("document__category", "citizen"):
             if req.document_id and req.document.category and req.document.category.is_transitory:
                 try:
                     from apps.documents.services.retention import mark_purpose_fulfilled
-                    mark_purpose_fulfilled(document=req.document, actor=None)
+                    # PIPEDA: actor is the citizen who owns the export request.
+                    # Passing actor=None would crash at actor.pk inside mark_purpose_fulfilled()
+                    # (the function signature is non-Optional). Using req.citizen records the
+                    # correct disposal actor and keeps the audit trail coherent.
+                    mark_purpose_fulfilled(document=req.document, actor=req.citizen)
                 except Exception as exc:
                     logger.error(
                         "cleanup_export_files: mark_purpose_fulfilled failed for document pk=%s: %s",

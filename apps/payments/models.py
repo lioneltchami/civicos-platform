@@ -21,6 +21,8 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from django.contrib.contenttypes.fields import GenericRelation
+
 from apps.core.fields import EncryptedCharField, _get_fernet  # noqa: F401
 from apps.core.models import TimestampedModel
 
@@ -1168,6 +1170,16 @@ class ServiceFeePayment(TimestampedModel):
         blank=True,
         verbose_name=_("Description (French)"),
         help_text="Snapshot of fee description (FR).",
+    )
+
+    # Documents BB — optional confirmation documents (e.g. payment receipts, fee waivers).
+    # GenericRelation does not require a migration on this model; the FK lives on
+    # DocumentAttachment. Spec §16.4.
+    document_attachments = GenericRelation(
+        "documents.DocumentAttachment",
+        content_type_field="content_type",
+        object_id_field="object_id",
+        related_query_name="service_fee_payment",
     )
 
     class Meta:

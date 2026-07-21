@@ -38,6 +38,8 @@ from django.db.models.functions import ExtractYear
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from django.contrib.contenttypes.fields import GenericRelation
+
 from apps.core.models import TimestampedModel
 
 
@@ -738,6 +740,17 @@ class VolunteerApplication(TimestampedModel):
         on_delete=models.SET_NULL,
         related_name="volunteer_application",
         verbose_name=_("Workflow work item"),
+    )
+
+    # Documents BB — supporting documents uploaded by or for this application.
+    # (e.g. references, identity documents, certifications requested during onboarding.)
+    # GenericRelation does not require a migration on this model; the FK lives on
+    # DocumentAttachment. Spec §16.3.
+    document_attachments = GenericRelation(
+        "documents.DocumentAttachment",
+        content_type_field="content_type",
+        object_id_field="object_id",
+        related_query_name="volunteer_application",
     )
 
     class Meta:

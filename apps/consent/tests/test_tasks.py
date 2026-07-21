@@ -224,7 +224,7 @@ class CleanupExportFilesTaskTests(TestCase):
         ) as mock_mpf, patch(_STORAGE):
             cleanup_export_files.apply()
 
-        mock_mpf.assert_called_once_with(document=doc, actor=None)
+        mock_mpf.assert_called_once_with(document=doc, actor=self.citizen)
 
     def test_creates_audit_entry_with_export_expired_action(self):
         export = self._make_ready_expired()

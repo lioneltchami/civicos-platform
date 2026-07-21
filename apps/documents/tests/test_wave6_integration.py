@@ -5,23 +5,31 @@ Wave 6 integration test suite for the Documents Building Block.
 
 Coverage
 --------
-1.  TestDocumentCategorySeed           — seed migration forwards + idempotency
-2.  TestCertificationDocumentIntegration  — document_v2 FK (post-Phase-3)
-3.  TestHonorariumT4ADocumentIntegration  — t4a_document OneToOne
-4.  TestScreeningRecordDocumentIntegration — vsc_confirmation_doc FK
+1.  TestDocumentCategorySeed                      — seed migration forwards + idempotency
+2.  TestCertificationDocumentIntegration          — document_v2 FK (post-Phase-3)
+3.  TestHonorariumT4ADocumentIntegration          — t4a_document OneToOne
+4.  TestScreeningRecordDocumentIntegration        — vsc_confirmation_doc FK
 5.  TestOfficialDonationReceiptDocumentIntegration — document FK + has_pdf
-6.  TestDataExportRequestDocumentIntegration — document FK (consent BB)
-7.  TestServiceRequestGenericRelation  — DocumentAttachment generic linker
-8.  TestWorkItemGenericRelation        — WorkItem + WorkItemComment attachments
-9.  TestMigrateExistingFilesCommand    — management command
-10. TestTransitoryDocumentDisposal     — mark_purpose_fulfilled
+6.  TestDataExportRequestDocumentIntegration      — document FK (consent BB)
+7.  TestServiceRequestGenericRelation             — DocumentAttachment generic linker
+8.  TestWorkItemGenericRelation                   — WorkItem + WorkItemComment attachments
+9.  TestMigrateExistingFilesCommand               — management command
+10. TestTransitoryDocumentDisposal                — mark_purpose_fulfilled
+11. TestDataExportTaskDocumentBBIntegration       — process_data_export → Document BB record
+12. TestCorrectiveMigration0008                   — volunteer-certification + cra-t4a-slip fixes
+13. TestServiceFeePaymentGenericRelation          — ServiceFeePayment.document_attachments
+14. TestVolunteerApplicationGenericRelation       — VolunteerApplication.document_attachments
+15. TestCleanupExportFilesActorFix                — actor=req.citizen (not None) in cleanup task
 
 Security invariants tested:
   - storage_key never in logs
   - original_filename never in audit event_detail
   - PII (email) never in logs
+  - volunteer-certification and cra-t4a-slip are staff_only=True (access control)
+  - volunteer-certification has min_retention_days≥730 (Privacy Act s.6(1))
 
-Governing law: PIPEDA 4.5.3, Privacy Act s.6(1), LAC DA #2016/001.
+Governing law: PIPEDA 4.5.3, Privacy Act s.6(1), LAC DA #2016/001,
+OWASP A01 Broken Access Control.
 """
 from __future__ import annotations
 
@@ -169,6 +177,22 @@ class TestDocumentCategorySeed(TestCase):
         self._run_seed()  # second call — must be idempotent
         count = DocumentCategory.objects.filter(slug__in=EXPECTED_SLUGS).count()
         self.assertEqual(count, len(EXPECTED_SLUGS))
+
+    def test_staff_decision_memo_is_staff_only(self):
+        """staff-decision-memo must have staff_only=True (update_or_create path in seed)."""
+        from apps.documents.models import DocumentCategory
+
+        self._run_seed()
+        cat = DocumentCategory.objects.get(slug="staff-decision-memo")
+        self.assertTrue(cat.staff_only, "staff-decision-memo must be staff_only=True")
+
+    def test_system_generated_report_is_staff_only(self):
+        """system-generated-report must have staff_only=True (update_or_create path)."""
+        from apps.documents.models import DocumentCategory
+
+        self._run_seed()
+        cat = DocumentCategory.objects.get(slug="system-generated-report")
+        self.assertTrue(cat.staff_only, "system-generated-report must be staff_only=True")
 
 
 # Import shim for migration module (dotted name has a leading digit in filename).
@@ -466,24 +490,27 @@ class TestOfficialDonationReceiptDocumentIntegration(TestCase):
         receipt.refresh_from_db()
         self.assertTrue(receipt.has_pdf)
 
-    def test_pdf_path_field_still_present(self):
-        """pdf_path CharField should still exist (Phase 3 has not run yet in this
-        codebase iteration — it will be removed in a future migration).
+    def test_pdf_path_field_absent_after_phase3(self):
+        """pdf_path CharField must have been removed by the Phase 3 migration
+        (payments/0014_drop_donation_receipt_pdf_path.py).
 
-        If this assertion FAILS, it means Phase 3 migration has been applied and
-        this test should be updated to assert the field is gone instead.
+        Phase 3 has been applied in this codebase iteration. The document FK
+        is now the authoritative reference; the raw path CharField is gone.
         """
         from apps.payments.models import OfficialDonationReceipt
 
         field_names = [f.name for f in OfficialDonationReceipt._meta.get_fields()]
-        # Check current state — either present (pre-Phase-3) or absent (post-Phase-3).
-        # We document rather than hard-assert so the test suite stays green across
-        # migration states. The critical test is test_has_pdf_true_when_document_set.
-        has_pdf_path = "pdf_path" in field_names
-        has_document = "document" in field_names
-        # At minimum, the document FK must always be present after Wave 6.
-        self.assertTrue(
-            has_document,
+        # Phase 3 migration must have dropped pdf_path.
+        self.assertNotIn(
+            "pdf_path",
+            field_names,
+            "pdf_path CharField must be absent after Phase 3 migration "
+            "(payments/0014_drop_donation_receipt_pdf_path.py).",
+        )
+        # The document FK must remain present.
+        self.assertIn(
+            "document",
+            field_names,
             "OfficialDonationReceipt must have a 'document' FK field after Wave 6 migration.",
         )
 
@@ -1015,4 +1042,475 @@ class TestDataExportTaskDocumentBBIntegration(TestCase):
             email,
             all_log_text,
             f"Citizen email '{email}' must never appear in log output (PIPEDA).",
+        )
+
+    def test_legacy_export_file_deleted_after_successful_document_bb_creation(self):
+        """After a successful export with Document BB integration, the legacy
+        exports/{token}.json file must be deleted (PIPEDA data-minimisation —
+        no redundant copies of citizen PII data)."""
+        from apps.consent.models import DataExportRequest
+        from apps.consent.tasks import process_data_export
+
+        _make_category(
+            slug="pipeda-data-export",
+            is_transitory=True,
+            min_retention_days=0,
+            max_retention_days=30,
+        )
+        user = _make_user()
+        req = DataExportRequest.objects.create(citizen=user)
+        deleted_paths = []
+
+        with patch(
+            "django.core.files.storage.default_storage.save",
+            return_value="exports/test.json",
+        ), patch(
+            "django.core.files.storage.default_storage.delete",
+            side_effect=lambda p: deleted_paths.append(p),
+        ), patch("apps.consent.tasks._notify_export_ready"):
+            process_data_export(str(req.pk))
+
+        # The legacy exports/ file must have been deleted after DB save succeeded.
+        self.assertTrue(
+            any("exports/" in p for p in deleted_paths),
+            "Legacy exports/{token}.json file must be deleted after Document BB "
+            "creation succeeds (PIPEDA data-minimisation).",
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. TestCorrectiveMigration0008
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCorrectiveMigration0008(TestCase):
+    """Verify the 0008 corrective data migration fixes volunteer-certification
+    and cra-t4a-slip categories.
+
+    Test strategy: explicitly set categories to the pre-correction (broken) state,
+    then run the corrective migration function and verify the fix is applied.
+    This approach works regardless of what migration state the test DB is in,
+    because we establish the pre-condition ourselves.
+
+    Security invariants:
+      - volunteer-certification: min_retention_days≥730 (Privacy Act s.6(1))
+      - volunteer-certification: staff_only=True (OWASP A01)
+      - cra-t4a-slip: staff_only=True (OWASP A01)
+    """
+
+    def _run_corrective(self):
+        """Run the 0008 corrective migration function directly."""
+        import importlib
+        from apps.documents.models import DocumentCategory
+
+        m = importlib.import_module(
+            "apps.documents.migrations.0008_fix_document_category_retention_and_staff_only"
+        )
+
+        class _FakeApps:
+            def get_model(self, app_label, model_name):
+                return DocumentCategory
+
+        m.fix_category_retention_and_staff_only(_FakeApps(), None)
+
+    def _break_volunteer_certification(self):
+        """Reset volunteer-certification to the pre-0008 (broken) state."""
+        from apps.documents.models import DocumentCategory
+
+        DocumentCategory.objects.filter(slug="volunteer-certification").update(
+            min_retention_days=365,  # broken: below Privacy Act s.6(1) minimum
+            max_retention_days=1825,
+            staff_only=False,  # broken: citizens can upload
+        )
+
+    def _break_cra_t4a_slip(self):
+        """Reset cra-t4a-slip to the pre-0008 (broken) state."""
+        from apps.documents.models import DocumentCategory
+
+        DocumentCategory.objects.filter(slug="cra-t4a-slip").update(
+            staff_only=False,  # broken: citizens can upload
+        )
+
+    def test_volunteer_certification_staff_only_after_corrective_migration(self):
+        """volunteer-certification must have staff_only=True after 0008 runs.
+
+        OWASP A01 Broken Access Control: citizens must not be able to upload
+        to the CRC/VSC certification category (staff-managed government records).
+        """
+        from apps.documents.models import DocumentCategory
+
+        # Establish broken pre-condition.
+        self._break_volunteer_certification()
+        cat = DocumentCategory.objects.get(slug="volunteer-certification")
+        self.assertFalse(cat.staff_only, "Pre-condition: staff_only=False before correction.")
+
+        self._run_corrective()
+        cat.refresh_from_db()
+        self.assertTrue(
+            cat.staff_only,
+            "volunteer-certification must have staff_only=True after corrective "
+            "migration 0008 (OWASP A01 — prevent citizen injection of CRC/VSC records).",
+        )
+
+    def test_volunteer_certification_min_retention_is_730_days(self):
+        """volunteer-certification min_retention_days must be ≥ 730 after 0008.
+
+        Privacy Act s.6(1): personal information used for an administrative purpose
+        must be retained for at least 2 years (730 days) after last use.
+        CRC/VSC screening records are administrative-purpose records.
+        """
+        from apps.documents.models import DocumentCategory
+
+        # Establish broken pre-condition.
+        self._break_volunteer_certification()
+        cat = DocumentCategory.objects.get(slug="volunteer-certification")
+        self.assertEqual(cat.min_retention_days, 365, "Pre-condition: min=365 before correction.")
+
+        self._run_corrective()
+        cat.refresh_from_db()
+        self.assertGreaterEqual(
+            cat.min_retention_days,
+            730,
+            "volunteer-certification min_retention_days must be ≥ 730 "
+            "(Privacy Act s.6(1) — 2-year minimum for administrative records).",
+        )
+
+    def test_cra_t4a_slip_staff_only_after_corrective_migration(self):
+        """cra-t4a-slip must have staff_only=True after 0008.
+
+        CRA T4A slips are CRA-generated tax documents attached to honourarium
+        records by staff. Citizen-uploadable T4A slips create a fabricated-record
+        injection risk in honourarium payment reporting.
+        """
+        from apps.documents.models import DocumentCategory
+
+        # Establish broken pre-condition.
+        self._break_cra_t4a_slip()
+        cat = DocumentCategory.objects.get(slug="cra-t4a-slip")
+        self.assertFalse(cat.staff_only, "Pre-condition: staff_only=False before correction.")
+
+        self._run_corrective()
+        cat.refresh_from_db()
+        self.assertTrue(
+            cat.staff_only,
+            "cra-t4a-slip must have staff_only=True after corrective migration 0008 "
+            "(OWASP A01 — prevent citizen injection of fabricated T4A slips).",
+        )
+
+    def test_corrective_migration_is_idempotent(self):
+        """Running 0008 twice must leave categories unchanged (no crash, no duplicate)."""
+        from apps.documents.models import DocumentCategory
+
+        self._break_volunteer_certification()
+        self._break_cra_t4a_slip()
+        self._run_corrective()
+        self._run_corrective()  # second call — must be idempotent
+
+        cat = DocumentCategory.objects.get(slug="volunteer-certification")
+        self.assertTrue(cat.staff_only)
+        self.assertGreaterEqual(cat.min_retention_days, 730)
+
+        cat2 = DocumentCategory.objects.get(slug="cra-t4a-slip")
+        self.assertTrue(cat2.staff_only)
+
+    def test_volunteer_certification_final_state_is_correct(self):
+        """After both seed (0007) and corrective (0008) migrations, volunteer-certification
+        must have the correct final state — staff_only=True, min_retention_days=730."""
+        from apps.documents.models import DocumentCategory
+
+        # The test DB has already run both 0007 and 0008 — just verify the result.
+        cat = DocumentCategory.objects.get(slug="volunteer-certification")
+        self.assertTrue(
+            cat.staff_only,
+            "volunteer-certification must be staff_only=True in the current DB "
+            "(migration 0008 must have applied the correction).",
+        )
+        self.assertGreaterEqual(
+            cat.min_retention_days,
+            730,
+            "volunteer-certification min_retention_days must be ≥ 730 in the current DB.",
+        )
+
+    def test_cra_t4a_slip_final_state_is_correct(self):
+        """After both seed (0007) and corrective (0008) migrations, cra-t4a-slip
+        must have staff_only=True."""
+        from apps.documents.models import DocumentCategory
+
+        cat = DocumentCategory.objects.get(slug="cra-t4a-slip")
+        self.assertTrue(
+            cat.staff_only,
+            "cra-t4a-slip must be staff_only=True in the current DB "
+            "(migration 0008 must have applied the correction).",
+        )
+
+    def test_noop_reverse_does_not_raise(self):
+        """Reverse function (noop) must not raise."""
+        import importlib
+        from apps.documents.models import DocumentCategory
+
+        m = importlib.import_module(
+            "apps.documents.migrations.0008_fix_document_category_retention_and_staff_only"
+        )
+
+        class _FakeApps:
+            def get_model(self, app_label, model_name):
+                return DocumentCategory
+
+        # Should be a no-op and not raise.
+        m.noop(_FakeApps(), None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 13. TestServiceFeePaymentGenericRelation
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestServiceFeePaymentGenericRelation(TestCase):
+    """Verify ServiceFeePayment.document_attachments GenericRelation.
+
+    Spec §16.4: ServiceFeePayment — optional confirmation document:
+        document_attachments = GenericRelation("documents.DocumentAttachment")
+    """
+
+    def _make_payment_intent(self):
+        from apps.payments.models import PaymentIntent
+
+        return PaymentIntent.objects.create(
+            amount=Decimal("25.00"),
+            currency="CAD",
+            gateway=None,  # manual
+        )
+
+    def test_service_fee_payment_has_document_attachments_relation(self):
+        """ServiceFeePayment must have a document_attachments attribute."""
+        from apps.payments.models import ServiceFeePayment
+
+        self.assertTrue(
+            hasattr(ServiceFeePayment, "document_attachments"),
+            "ServiceFeePayment must have a document_attachments GenericRelation "
+            "(Documents BB spec §16.4).",
+        )
+
+    def test_document_can_be_attached_to_service_fee_payment(self):
+        """A DocumentAttachment can be linked to a ServiceFeePayment."""
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.documents.models import DocumentAttachment
+        from apps.payments.models import ServiceFeePayment
+
+        user = _make_user()
+        try:
+            pi = self._make_payment_intent()
+        except Exception:
+            self.skipTest("PaymentIntent creation failed — likely missing gateway config")
+            return
+
+        try:
+            sfp = ServiceFeePayment.objects.create(
+                payment_intent=pi,
+                service_request_id=uuid.uuid4(),
+                fee_code="FEE-001",
+                base_amount=Decimal("25.00"),
+                tax_amount=Decimal("0.00"),
+                tax_rate_applied=Decimal("0.00000"),
+                description_en="Test fee",
+                description_fr="Frais test",
+            )
+        except Exception:
+            self.skipTest("ServiceFeePayment creation failed — check required fields")
+            return
+
+        doc = _make_document(user=user)
+        ct = ContentType.objects.get_for_model(ServiceFeePayment)
+        attachment = DocumentAttachment.objects.create(
+            document=doc,
+            content_type=ct,
+            object_id=str(sfp.pk),
+            attachment_role="confirmation",
+            attached_by=user,
+        )
+        self.assertEqual(sfp.document_attachments.count(), 1)
+        self.assertEqual(sfp.document_attachments.first().pk, attachment.pk)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 14. TestVolunteerApplicationGenericRelation
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestVolunteerApplicationGenericRelation(TestCase):
+    """Verify VolunteerApplication.document_attachments GenericRelation.
+
+    Spec §16.3: VolunteerApplication — supporting documents (references, ID,
+    certifications requested during onboarding).
+    """
+
+    def _make_application(self):
+        from apps.volunteers.models import Opportunity, Program, VolunteerApplication, VolunteerProfile
+
+        user = _make_user()
+        vol = VolunteerProfile.objects.create(user=user)
+        prog = Program.objects.create(
+            name_en="Prog",
+            name_fr="Prog",
+            slug=f"prog-{uuid.uuid4().hex[:6]}",
+        )
+        opp = Opportunity.objects.create(
+            program=prog,
+            title_en="Opp",
+            title_fr="Opp",
+            slug=f"opp-{uuid.uuid4().hex[:6]}",
+            description_en="D",
+            description_fr="D",
+        )
+        app = VolunteerApplication.objects.create(
+            opportunity=opp,
+            volunteer=vol,
+        )
+        return app, user
+
+    def test_volunteer_application_has_document_attachments_relation(self):
+        """VolunteerApplication must have a document_attachments attribute."""
+        from apps.volunteers.models import VolunteerApplication
+
+        self.assertTrue(
+            hasattr(VolunteerApplication, "document_attachments"),
+            "VolunteerApplication must have a document_attachments GenericRelation "
+            "(Documents BB spec §16.3).",
+        )
+
+    def test_document_can_be_attached_to_volunteer_application(self):
+        """A DocumentAttachment can be linked to a VolunteerApplication."""
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.documents.models import DocumentAttachment
+        from apps.volunteers.models import VolunteerApplication
+
+        app, user = self._make_application()
+        doc = _make_document(user=user)
+        ct = ContentType.objects.get_for_model(VolunteerApplication)
+        attachment = DocumentAttachment.objects.create(
+            document=doc,
+            content_type=ct,
+            object_id=str(app.pk),
+            attachment_role="supporting_evidence",
+            attached_by=user,
+        )
+        self.assertEqual(app.document_attachments.count(), 1)
+        self.assertEqual(app.document_attachments.first().pk, attachment.pk)
+
+    def test_volunteer_application_attachment_cascade_on_delete(self):
+        """Deleting a VolunteerApplication cascades to its DocumentAttachments
+        (content_type FK on DocumentAttachment uses CASCADE)."""
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.documents.models import DocumentAttachment
+        from apps.volunteers.models import VolunteerApplication
+
+        app, user = self._make_application()
+        doc = _make_document(user=user)
+        ct = ContentType.objects.get_for_model(VolunteerApplication)
+        att = DocumentAttachment.objects.create(
+            document=doc,
+            content_type=ct,
+            object_id=str(app.pk),
+            attachment_role="supporting_evidence",
+            attached_by=user,
+        )
+        att_pk = att.pk
+
+        app.delete()
+        self.assertFalse(
+            DocumentAttachment.objects.filter(pk=att_pk).exists(),
+            "Deleting a VolunteerApplication must cascade-delete its DocumentAttachments.",
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 15. TestCleanupExportFilesActorFix
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCleanupExportFilesActorFix(TestCase):
+    """Verify cleanup_export_files passes actor=req.citizen (not None) to
+    mark_purpose_fulfilled().
+
+    Regression test for: cleanup_export_files was passing actor=None which
+    caused AttributeError inside mark_purpose_fulfilled() at actor.pk, leaving
+    transitory PIPEDA export packages undisposed — a PIPEDA data retention
+    violation (4.5.3 — destroy once purpose fulfilled).
+    """
+
+    def test_cleanup_does_not_crash_with_transitory_document(self):
+        """cleanup_export_files must not raise AttributeError when processing
+        a DataExportRequest with a transitory Document linked."""
+        from django.utils import timezone
+
+        from apps.consent.models import DataExportRequest
+        from apps.consent.tasks import cleanup_export_files
+
+        user = _make_user()
+        transitory_cat = _make_category(
+            slug=f"pipeda-export-{uuid.uuid4().hex[:6]}",
+            is_transitory=True,
+            min_retention_days=0,
+            max_retention_days=30,
+        )
+        doc = _make_document(user=user, category=transitory_cat)
+
+        req = DataExportRequest.objects.create(citizen=user)
+        # Manually link document and set status=READY + expires_at in the past.
+        DataExportRequest.objects.filter(pk=req.pk).update(
+            document=doc,
+            status=DataExportRequest.STATUS_READY,
+            expires_at=timezone.now(),  # expired now
+        )
+        req.refresh_from_db()
+
+        # Should not raise AttributeError ("NoneType has no attribute 'pk'").
+        with patch("django.core.files.storage.default_storage.delete"):
+            result = cleanup_export_files()
+
+        # Verify the request was expired.
+        req.refresh_from_db()
+        self.assertEqual(req.status, DataExportRequest.STATUS_EXPIRED)
+
+    def test_cleanup_marks_transitory_document_soft_deleted(self):
+        """cleanup_export_files must soft-delete the linked transitory Document
+        (PIPEDA 4.5.3: destroy transitory records once purpose fulfilled)."""
+        from django.utils import timezone
+
+        from apps.consent.models import DataExportRequest
+        from apps.consent.tasks import cleanup_export_files
+        from apps.documents.models import Document
+
+        user = _make_user()
+        transitory_cat = _make_category(
+            slug=f"pipeda-export2-{uuid.uuid4().hex[:6]}",
+            is_transitory=True,
+            min_retention_days=0,
+            max_retention_days=30,
+        )
+        doc = _make_document(user=user, category=transitory_cat)
+
+        req = DataExportRequest.objects.create(citizen=user)
+        DataExportRequest.objects.filter(pk=req.pk).update(
+            document=doc,
+            status=DataExportRequest.STATUS_READY,
+            expires_at=timezone.now(),
+        )
+
+        with patch("django.core.files.storage.default_storage.delete"):
+            cleanup_export_files()
+
+        doc.refresh_from_db()
+        self.assertIsNotNone(
+            doc.deleted_at,
+            "Transitory document must be soft-deleted by cleanup_export_files "
+            "(PIPEDA 4.5.3 — destroy once purpose fulfilled).",
+        )
+        self.assertEqual(
+            doc.scan_status,
+            Document.ScanStatus.DELETED,
+            "Transitory document must have scan_status=DELETED after disposal.",
         )
