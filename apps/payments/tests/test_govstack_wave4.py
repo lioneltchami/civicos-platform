@@ -43,6 +43,8 @@ Coverage matrix:
      C9:  Unknown Gov_Stack_BB (empty) → HTTP 460
      C10: Voucher not found → HTTP 456
      C11: Voucher not in ACTIVATED state → HTTP 456
+     C12: Integer voucher_number accepted (harness sends int)
+     C13: Double redemption → HTTP 456 (CONSUMED is terminal)
 
   D. VoucherStatusCheck view — GET scenarios
      D1:  GET with known serial → HTTP 200
@@ -90,6 +92,7 @@ Coverage matrix:
      F27: cancel() creates ACTION_VOUCHER_CANCELLED audit entry
      F28: get_status() returns voucher for known serial
      F29: get_status() raises InvalidVoucherSerial for unknown serial
+     F30: preactivate() retries on serial collision and succeeds with second serial
 
   G. Security invariants
      G1:  voucher_secret never in any preactivation response
@@ -516,6 +519,26 @@ class VoucherRedemptionHarnessTest(TestCase):
         })
         self.assertEqual(resp.status_code, 200, resp.data)
 
+    def test_c13_double_redemption_returns_456(self):
+        """
+        Redeeming an already-CONSUMED voucher must return 456.
+
+        This tests the most common real-world error path for a voucher system,
+        and validates that the select_for_update() lock in redeem() leaves the
+        voucher in CONSUMED state after the first redemption so the second
+        attempt sees an invalid transition and raises InvalidVoucherSerial.
+        """
+        v = _make_voucher(serial=FIXED_SERIAL_3, status=GovStackVoucher.STATUS_ACTIVATED)
+        # First redemption — must succeed.
+        resp1 = self._post(_redemption_body(voucher_number=FIXED_SERIAL_3))
+        self.assertEqual(resp1.status_code, 200, resp1.data)
+        v.refresh_from_db()
+        self.assertEqual(v.status, GovStackVoucher.STATUS_CONSUMED)
+        # Second redemption — voucher is CONSUMED (terminal) → 456.
+        resp2 = self._post(_redemption_body(voucher_number=FIXED_SERIAL_3))
+        self.assertEqual(resp2.status_code, 456)
+        self.assertIn("message", resp2.data)
+
 
 # ---------------------------------------------------------------------------
 # D. VoucherStatusCheck view — GET
@@ -724,6 +747,39 @@ class VoucherServicePreactivateTest(TestCase):
                 voucher_group=GROUP,
                 issuing_bb="",
             )
+
+    @patch(
+        "apps.payments.govstack_services._generate_voucher_serial",
+        side_effect=[FIXED_SERIAL, FIXED_SERIAL_2],
+    )
+    def test_f30_serial_collision_retry_uses_second_serial(self, mock_gen):
+        """
+        When _generate_voucher_serial() returns a serial that is already taken,
+        preactivate() retries and succeeds with the second serial.
+
+        Validates the _SERIAL_MAX_RETRIES collision loop in GovStackVoucherService.preactivate().
+        """
+        # Pre-occupy FIXED_SERIAL so the first attempt causes an IntegrityError.
+        _make_voucher(serial=FIXED_SERIAL)
+
+        # preactivate() should:
+        #   attempt 1 → serial = FIXED_SERIAL → IntegrityError (unique constraint)
+        #   attempt 2 → serial = FIXED_SERIAL_2 → success
+        voucher = GovStackVoucherService.preactivate(
+            voucher_amount=Decimal("100.00"),
+            voucher_currency=CURRENCY,
+            voucher_group=GROUP,
+            issuing_bb=BB_ID,
+        )
+
+        self.assertEqual(voucher.serial_number, FIXED_SERIAL_2)
+        self.assertEqual(voucher.status, GovStackVoucher.STATUS_PREACTIVATED)
+        # Generator called exactly twice: once for the collision, once for the success.
+        self.assertEqual(mock_gen.call_count, 2)
+        # Both vouchers exist in the DB.
+        self.assertEqual(GovStackVoucher.objects.filter(
+            serial_number__in=[FIXED_SERIAL, FIXED_SERIAL_2]
+        ).count(), 2)
 
 
 class VoucherServiceActivateTest(TestCase):

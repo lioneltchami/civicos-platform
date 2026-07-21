@@ -488,7 +488,11 @@ class VoucherActivationRequestSerializer(serializers.Serializer):
     NOTE: voucher_serial_number is sent as integer by the harness.
     """
     voucher_serial_number = serializers.CharField(
-        help_text="Voucher serial number (may be sent as int by harness, treated as string).",
+        max_length=20,
+        help_text=(
+            "Voucher serial number (may be sent as int by harness, treated as string). "
+            "max_length=20 matches the model field and prevents unbounded DB queries."
+        ),
     )
     Gov_Stack_BB = serializers.CharField(
         max_length=50,
@@ -525,7 +529,11 @@ class VoucherRedemptionRequestSerializer(serializers.Serializer):
     NOTE: voucher_number is sent as integer by the harness.
     """
     voucher_number = serializers.CharField(
-        help_text="Voucher number (may be sent as int by harness).",
+        max_length=20,
+        help_text=(
+            "Voucher number (may be sent as int by harness). "
+            "max_length=20 matches the model field and prevents unbounded DB queries."
+        ),
     )
     Gov_Stack_BB = serializers.CharField(
         max_length=50,
@@ -539,6 +547,16 @@ class VoucherRedemptionRequestSerializer(serializers.Serializer):
     merchant_bank_details = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
     merchant_voucher_group = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
     override = serializers.BooleanField(required=False, default=False)
+    agent_id = serializers.CharField(
+        max_length=10,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Agent ID performing the redemption. Stored as redeemed_by_agent_id (max 10 chars). "
+            "Optional — not tested by the GovStack harness but wired through for production use."
+        ),
+    )
 
     def validate_voucher_number(self, value) -> str:
         return str(value).strip()

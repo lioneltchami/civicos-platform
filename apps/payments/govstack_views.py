@@ -703,6 +703,7 @@ class VoucherRedemptionView(GovStackAPIView):
             merchant_bank_details=d.get("merchant_bank_details", ""),
             merchant_voucher_group=d.get("merchant_voucher_group", ""),
             override=d.get("override", False),
+            agent_id=d.get("agent_id", ""),
         )
 
         return Response(

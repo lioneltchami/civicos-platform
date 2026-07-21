@@ -591,10 +591,15 @@ class GovStackVoucherService:
                         group_code=voucher_group.strip(),
                         status=GovStackVoucher.STATUS_PREACTIVATED,
                         issuing_bb=issuing_bb.strip(),
-                        registering_institution_id=registering_institution_id,
-                        batch_id=batch_id[:12] if batch_id else "",
-                        payee_functional_id=payee_functional_id[:20] if payee_functional_id else "",
-                        callback_url=callback_url,
+                        # Clamp all variable-length inputs to their model field max_length.
+                        # The serializer already limits Gov_Stack_BB to max_length=50 (matching
+                        # the model).  For fields that arrive as HTTP headers or optional params,
+                        # we clamp here defensively — a long header value would otherwise raise
+                        # a DataError at the DB layer (uncaught → HTTP 500).
+                        registering_institution_id=registering_institution_id[:20],  # model max_length=20
+                        batch_id=batch_id[:12] if batch_id else "",                  # model max_length=12
+                        payee_functional_id=payee_functional_id[:20] if payee_functional_id else "",  # model max_length=20
+                        callback_url=callback_url[:500],                              # URLField max_length=500
                         expiry_date=expiry,
                     )
                     GovStackPaymentAuditEntry.objects.create(
@@ -641,52 +646,61 @@ class GovStackVoucherService:
         Raises:
             GovStackBBNotFound (HTTP 460): issuing_bb is empty/blank.
             InvalidVoucherSerial (HTTP 456): serial not found or invalid transition.
+
+        Concurrency: select_for_update() prevents concurrent activations of the same
+        serial from both passing the in-memory transition_to() check simultaneously.
+        The entire fetch→transition→save→audit sequence is a single atomic unit.
         """
         # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
         if not issuing_bb or not issuing_bb.strip():
             raise GovStackBBNotFound()
 
-        # ── Fetch voucher → 456 ───────────────────────────────────────────────
-        voucher = GovStackVoucher.objects.filter(
-            serial_number=voucher_serial_number
-        ).first()
-        if voucher is None:
-            logger.warning(
-                "govstack.voucher_activate serial not found issuing_bb=%s",
+        # ── Fetch + lock + transition + audit (single atomic block) ──────────
+        with transaction.atomic():
+            # select_for_update() acquires a row-level lock for the duration of
+            # this transaction, preventing concurrent requests from activating
+            # the same voucher simultaneously.
+            voucher = GovStackVoucher.objects.select_for_update().filter(
+                serial_number=voucher_serial_number
+            ).first()
+            if voucher is None:
+                logger.warning(
+                    "govstack.voucher_activate serial not found issuing_bb=%s",
+                    issuing_bb.strip(),
+                )
+                raise InvalidVoucherSerial()
+
+            # ── Transition PREACTIVATED → ACTIVATED ───────────────────────────
+            try:
+                voucher.transition_to(GovStackVoucher.STATUS_ACTIVATED)
+            except ValueError:
+                # Not in a state that allows → ACTIVATED (e.g. CONSUMED/CANCELLED).
+                logger.warning(
+                    "govstack.voucher_activate invalid transition from=%s voucher_pk=%s",
+                    voucher.status,
+                    voucher.pk,
+                )
+                raise InvalidVoucherSerial()
+
+            voucher.save(update_fields=["status"])
+
+            GovStackPaymentAuditEntry.objects.create(
+                action=GovStackPaymentAuditEntry.ACTION_VOUCHER_ACTIVATED,
+                actor_bb_id=issuing_bb.strip(),
+                object_type="voucher",
+                object_pk=str(voucher.pk),
+                details={
+                    "serial_number": voucher.serial_number,
+                    "group_code": voucher.group_code,
+                    "new_status": voucher.status,
+                },
+            )
+            logger.info(
+                "govstack.voucher_activated voucher_pk=%s issuing_bb=%s",
+                voucher.pk,
                 issuing_bb.strip(),
             )
-            raise InvalidVoucherSerial()
 
-        # ── Transition PREACTIVATED → ACTIVATED ───────────────────────────────
-        try:
-            voucher.transition_to(GovStackVoucher.STATUS_ACTIVATED)
-        except ValueError:
-            # Not in a state that can transition to ACTIVATED — treat as not-found.
-            logger.warning(
-                "govstack.voucher_activate invalid transition from=%s voucher_pk=%s",
-                voucher.status,
-                voucher.pk,
-            )
-            raise InvalidVoucherSerial()
-
-        voucher.save(update_fields=["status"])
-
-        GovStackPaymentAuditEntry.objects.create(
-            action=GovStackPaymentAuditEntry.ACTION_VOUCHER_ACTIVATED,
-            actor_bb_id=issuing_bb.strip(),
-            object_type="voucher",
-            object_pk=str(voucher.pk),
-            details={
-                "serial_number": voucher.serial_number,
-                "group_code": voucher.group_code,
-                "new_status": voucher.status,
-            },
-        )
-        logger.info(
-            "govstack.voucher_activated voucher_pk=%s issuing_bb=%s",
-            voucher.pk,
-            issuing_bb.strip(),
-        )
         return voucher
 
     @staticmethod
@@ -698,7 +712,7 @@ class GovStackVoucherService:
         merchant_voucher_group: str = "",
         override: bool = False,
         agent_id: str = "",
-        voucher_secret_number: str = "",
+        voucher_secret_number: str = "",  # Reserved: Wave 5 will validate the secret. Not used in Wave 4.
     ) -> GovStackVoucher:
         """
         Transition ACTIVATED → CONSUMED. Records merchant redemption details.
@@ -710,71 +724,81 @@ class GovStackVoucherService:
         Raises:
             GovStackBBNotFound (HTTP 460): issuing_bb is empty/blank.
             InvalidVoucherSerial (HTTP 456): serial not found or invalid transition.
+
+        Concurrency: select_for_update() prevents double-redemption. Without the lock,
+        two concurrent requests could both observe the voucher as ACTIVATED, both
+        generate distinct transaction_ids, and both write — leaving the audit trail
+        with two entries carrying different IDs. The DB row ends up with the last
+        write's transaction_id, creating an irreconcilable audit inconsistency.
         """
         # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
         if not issuing_bb or not issuing_bb.strip():
             raise GovStackBBNotFound()
 
-        # ── Fetch voucher by serial number → 456 ─────────────────────────────
-        voucher = GovStackVoucher.objects.filter(
-            serial_number=voucher_number
-        ).first()
-        if voucher is None:
-            logger.warning(
-                "govstack.voucher_redeem voucher not found issuing_bb=%s",
+        # ── Fetch + lock + transition + record + audit (single atomic block) ─
+        with transaction.atomic():
+            # select_for_update() holds a row-level lock until the transaction
+            # commits, making double-redemption impossible.
+            voucher = GovStackVoucher.objects.select_for_update().filter(
+                serial_number=voucher_number
+            ).first()
+            if voucher is None:
+                logger.warning(
+                    "govstack.voucher_redeem voucher not found issuing_bb=%s",
+                    issuing_bb.strip(),
+                )
+                raise InvalidVoucherSerial()
+
+            # ── Transition ACTIVATED → CONSUMED ───────────────────────────────
+            try:
+                voucher.transition_to(GovStackVoucher.STATUS_CONSUMED)
+            except ValueError:
+                logger.warning(
+                    "govstack.voucher_redeem invalid transition from=%s voucher_pk=%s",
+                    voucher.status,
+                    voucher.pk,
+                )
+                raise InvalidVoucherSerial()
+
+            # ── Record redemption details ──────────────────────────────────────
+            now = timezone.now()
+            transaction_id = secrets.token_hex(10)  # 20 hex chars ≤ max_length=20
+
+            voucher.redeemed_by_agent_id = agent_id[:10] if agent_id else ""
+            voucher.redeemed_merchant_name = merchant_name[:200]
+            voucher.redeemed_merchant_bank_details = merchant_bank_details[:200]
+            voucher.redeemed_merchant_voucher_group = merchant_voucher_group[:100]
+            voucher.redeemed_at = now
+            voucher.redemption_transaction_id = transaction_id
+
+            voucher.save(update_fields=[
+                "status",
+                "redeemed_by_agent_id",
+                "redeemed_merchant_name",
+                "redeemed_merchant_bank_details",
+                "redeemed_merchant_voucher_group",
+                "redeemed_at",
+                "redemption_transaction_id",
+            ])
+
+            GovStackPaymentAuditEntry.objects.create(
+                action=GovStackPaymentAuditEntry.ACTION_VOUCHER_REDEEMED,
+                actor_bb_id=issuing_bb.strip(),
+                object_type="voucher",
+                object_pk=str(voucher.pk),
+                details={
+                    "serial_number": voucher.serial_number,
+                    "transaction_id": transaction_id,
+                    # merchant details intentionally omitted — may contain PII.
+                },
+            )
+            logger.info(
+                "govstack.voucher_redeemed voucher_pk=%s transaction_id=%s issuing_bb=%s",
+                voucher.pk,
+                transaction_id,
                 issuing_bb.strip(),
             )
-            raise InvalidVoucherSerial()
 
-        # ── Transition ACTIVATED → CONSUMED ───────────────────────────────────
-        try:
-            voucher.transition_to(GovStackVoucher.STATUS_CONSUMED)
-        except ValueError:
-            logger.warning(
-                "govstack.voucher_redeem invalid transition from=%s voucher_pk=%s",
-                voucher.status,
-                voucher.pk,
-            )
-            raise InvalidVoucherSerial()
-
-        # ── Record redemption details ─────────────────────────────────────────
-        now = timezone.now()
-        transaction_id = secrets.token_hex(10)  # 20 hex chars ≤ max_length=20
-
-        voucher.redeemed_by_agent_id = agent_id[:10] if agent_id else ""
-        voucher.redeemed_merchant_name = merchant_name[:200]
-        voucher.redeemed_merchant_bank_details = merchant_bank_details[:200]
-        voucher.redeemed_merchant_voucher_group = merchant_voucher_group[:100]
-        voucher.redeemed_at = now
-        voucher.redemption_transaction_id = transaction_id
-
-        voucher.save(update_fields=[
-            "status",
-            "redeemed_by_agent_id",
-            "redeemed_merchant_name",
-            "redeemed_merchant_bank_details",
-            "redeemed_merchant_voucher_group",
-            "redeemed_at",
-            "redemption_transaction_id",
-        ])
-
-        GovStackPaymentAuditEntry.objects.create(
-            action=GovStackPaymentAuditEntry.ACTION_VOUCHER_REDEEMED,
-            actor_bb_id=issuing_bb.strip(),
-            object_type="voucher",
-            object_pk=str(voucher.pk),
-            details={
-                "serial_number": voucher.serial_number,
-                "transaction_id": transaction_id,
-                # merchant details intentionally omitted — may contain PII.
-            },
-        )
-        logger.info(
-            "govstack.voucher_redeemed voucher_pk=%s transaction_id=%s issuing_bb=%s",
-            voucher.pk,
-            transaction_id,
-            issuing_bb.strip(),
-        )
         return voucher
 
     @staticmethod
@@ -789,45 +813,57 @@ class GovStackVoucherService:
                 terminal state (CONSUMED, PURGED) that cannot be cancelled.
             VoucherAlreadyCancelled (HTTP 464): voucher is already CANCELLED
                 (idempotent double-cancel guard).
+
+        Concurrency: select_for_update() prevents two concurrent cancel requests from
+        both passing the STATUS_CANCELLED check and both writing to the DB, which
+        would create duplicate audit entries for a single cancellation event.
         """
-        # ── Fetch voucher → 463 ───────────────────────────────────────────────
-        voucher = GovStackVoucher.objects.filter(
-            serial_number=voucher_serial_number
-        ).first()
-        if voucher is None:
-            raise InvalidCancellationSerial()
+        with transaction.atomic():
+            # ── Fetch + lock → 463 ───────────────────────────────────────────
+            # select_for_update() serialises concurrent cancel requests on the
+            # same serial number. Without the lock, two requests could both fetch
+            # a non-CANCELLED voucher, both pass the STATUS_CANCELLED check, and
+            # both write — producing two VOUCHER_CANCELLED audit entries.
+            voucher = GovStackVoucher.objects.select_for_update().filter(
+                serial_number=voucher_serial_number
+            ).first()
+            if voucher is None:
+                raise InvalidCancellationSerial()
 
-        # ── Already cancelled → 464 ───────────────────────────────────────────
-        if voucher.status == GovStackVoucher.STATUS_CANCELLED:
-            raise VoucherAlreadyCancelled()
+            # ── Already cancelled → 464 ───────────────────────────────────────
+            # This check is now inside the lock, so the STATUS_CANCELLED guard
+            # is evaluated on the current (post-lock) DB state, not a stale read.
+            if voucher.status == GovStackVoucher.STATUS_CANCELLED:
+                raise VoucherAlreadyCancelled()
 
-        # ── Attempt transition → 463 if not allowed (e.g. CONSUMED / PURGED) ─
-        try:
-            voucher.transition_to(GovStackVoucher.STATUS_CANCELLED)
-        except ValueError:
-            logger.warning(
-                "govstack.voucher_cancel invalid transition from=%s voucher_pk=%s",
-                voucher.status,
+            # ── Attempt transition → 463 if not allowed (e.g. CONSUMED / PURGED)
+            try:
+                voucher.transition_to(GovStackVoucher.STATUS_CANCELLED)
+            except ValueError:
+                logger.warning(
+                    "govstack.voucher_cancel invalid transition from=%s voucher_pk=%s",
+                    voucher.status,
+                    voucher.pk,
+                )
+                raise InvalidCancellationSerial()
+
+            voucher.save(update_fields=["status"])
+
+            GovStackPaymentAuditEntry.objects.create(
+                action=GovStackPaymentAuditEntry.ACTION_VOUCHER_CANCELLED,
+                actor_bb_id="",
+                object_type="voucher",
+                object_pk=str(voucher.pk),
+                details={
+                    "serial_number": voucher.serial_number,
+                    "group_code": voucher.group_code,
+                },
+            )
+            logger.info(
+                "govstack.voucher_cancelled voucher_pk=%s",
                 voucher.pk,
             )
-            raise InvalidCancellationSerial()
 
-        voucher.save(update_fields=["status"])
-
-        GovStackPaymentAuditEntry.objects.create(
-            action=GovStackPaymentAuditEntry.ACTION_VOUCHER_CANCELLED,
-            actor_bb_id="",
-            object_type="voucher",
-            object_pk=str(voucher.pk),
-            details={
-                "serial_number": voucher.serial_number,
-                "group_code": voucher.group_code,
-            },
-        )
-        logger.info(
-            "govstack.voucher_cancelled voucher_pk=%s",
-            voucher.pk,
-        )
         return voucher
 
     @staticmethod
