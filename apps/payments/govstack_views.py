@@ -70,8 +70,15 @@ from .govstack_serializers import (
     PrepaymentValidationResponseAckSerializer,
     RegisterBeneficiaryRequestSerializer,
     UpdateBeneficiaryRequestSerializer,
+    VoucherActivationRequestSerializer,
+    VoucherPreactivationRequestSerializer,
+    VoucherRedemptionRequestSerializer,
 )
-from .govstack_services import GovStackBeneficiaryService, GovStackBulkPaymentService
+from .govstack_services import (
+    GovStackBeneficiaryService,
+    GovStackBulkPaymentService,
+    GovStackVoucherService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +94,7 @@ class GovStackAPIView(APIView):
     - Custom exception handler (normalises all errors to {"message": "..."})
     - Throttle scope "govstack_bb" (100 req/min per IP via ScopedRateThrottle)
     - Logging of incoming requests at DEBUG level (no PII)
+    - _flatten_errors() helper for both Voucher and G2P validation error rendering
 
     Wave 2+ concrete views delegate to service methods and return proper shapes.
     """
@@ -105,6 +113,57 @@ class GovStackAPIView(APIView):
             request.method,
             request.path,
         )
+
+    def _flatten_errors(self, errors, _prefix: str = "") -> str:
+        """
+        Recursively flatten DRF serializer error dicts into a concise string.
+
+        Available on GovStackAPIView (base) so both Voucher and G2P views can use it.
+
+        Handles:
+          - Top-level field errors:  {"voucher_amount": ["error"]}
+          - List field errors:       {"Beneficiaries": ["This list may not be empty."]}
+          - Nested list item errors: {"Beneficiaries": [{"PayeeFunctionalID": ["error"]}]}
+        """
+        parts: list[str] = []
+
+        if isinstance(errors, dict):
+            for field, value in errors.items():
+                key = f"{_prefix}.{field}" if _prefix else field
+                if isinstance(value, list):
+                    plain = [m for m in value if not isinstance(m, dict)]
+                    nested = [m for m in value if isinstance(m, dict) and m]
+                    if plain:
+                        parts.append(f"{key}: {'; '.join(str(m) for m in plain)}")
+                    for item_errors in nested:
+                        inner = self._flatten_errors(item_errors, key)
+                        if inner:
+                            parts.append(inner)
+                elif isinstance(value, dict):
+                    inner = self._flatten_errors(value, key)
+                    if inner:
+                        parts.append(inner)
+                else:
+                    parts.append(f"{key}: {value}")
+
+        elif isinstance(errors, list):
+            plain = [m for m in errors if not isinstance(m, dict)]
+            nested = [m for m in errors if isinstance(m, dict) and m]
+            if plain:
+                label = f"{_prefix}: " if _prefix else ""
+                parts.append(f"{label}{'; '.join(str(m) for m in plain)}")
+            for item_errors in nested:
+                inner = self._flatten_errors(item_errors, _prefix)
+                if inner:
+                    parts.append(inner)
+
+        else:
+            parts.append(str(errors))
+
+        result = " | ".join(p for p in parts if p)
+        if len(result) > 200:
+            return result[:197] + "..."
+        return result or "Validation error."
 
 
 # ---------------------------------------------------------------------------
@@ -185,59 +244,8 @@ class GovStackG2PView(GovStackAPIView):
             status=400,
         )
 
-    def _flatten_errors(self, errors, _prefix: str = "") -> str:
-        """
-        Recursively flatten DRF serializer error dicts into a concise string.
-
-        Handles:
-          - Top-level field errors:  {"SourceBBID": ["error"]}
-          - List field errors:       {"Beneficiaries": ["This list may not be empty."]}
-          - Nested list item errors: {"Beneficiaries": [{"PayeeFunctionalID": ["error"]}]}
-        """
-        parts: list[str] = []
-
-        if isinstance(errors, dict):
-            for field, value in errors.items():
-                key = f"{_prefix}.{field}" if _prefix else field
-                if isinstance(value, list):
-                    # Separate plain strings (field-level messages) from dicts (nested items)
-                    plain = [m for m in value if not isinstance(m, dict)]
-                    nested = [m for m in value if isinstance(m, dict) and m]
-                    if plain:
-                        parts.append(f"{key}: {'; '.join(str(m) for m in plain)}")
-                    for item_errors in nested:
-                        inner = self._flatten_errors(item_errors, key)
-                        if inner:
-                            parts.append(inner)
-                elif isinstance(value, dict):
-                    inner = self._flatten_errors(value, key)
-                    if inner:
-                        parts.append(inner)
-                else:
-                    parts.append(f"{key}: {value}")
-
-        elif isinstance(errors, list):
-            plain = [m for m in errors if not isinstance(m, dict)]
-            nested = [m for m in errors if isinstance(m, dict) and m]
-            if plain:
-                label = f"{_prefix}: " if _prefix else ""
-                parts.append(f"{label}{'; '.join(str(m) for m in plain)}")
-            for item_errors in nested:
-                inner = self._flatten_errors(item_errors, _prefix)
-                if inner:
-                    parts.append(inner)
-
-        else:
-            parts.append(str(errors))
-
-        result = " | ".join(p for p in parts if p)
-        if len(result) > 200:
-            return result[:197] + "..."
-        # Never return "" — the harness g2pResponseSchema requires ResponseDescription
-        # to have minLength: 1.  An empty errors dict (shouldn't happen in practice
-        # since DRF always populates at least one key when is_valid() returns False)
-        # or a dict with only empty list values would otherwise produce "" here.
-        return result or "Validation error."
+    # _flatten_errors is inherited from GovStackAPIView (base class).
+    # Removed duplicate override — keeping it in one place prevents drift.
 
 
 # ---------------------------------------------------------------------------
@@ -551,25 +559,65 @@ class VoucherPreactivationView(GovStackAPIView):
     GovStack spec: api/Voucher API YAMLs/VoucherPreactivationRequest.yml
     Harness: voucher_preactivation.feature @endpoint=/vouchers/voucher_preactivation
 
-    Required headers: X-Registering-Institution-Id (optional: X-Callback-URL)
+    Headers consumed:
+      X-Registering-Institution-Id  (optional — stored on voucher record)
+      X-Callback-URL                 (optional — stored on voucher record)
+
     Body: {voucher_amount, voucher_currency, voucher_group, Gov_Stack_BB}
-    Response: {voucherNumber, voucherSerialNumber, voucherGroup, expiryDate}
+    Response 200: {voucherNumber, voucherSerialNumber, voucherGroup, expiryDate}
 
-    Custom error codes:
-      452 — invalid voucher_amount
-      453 — invalid voucher_currency
-      454 — invalid voucher_group
-      460 — unknown Gov_Stack_BB
+    Custom error codes (all return {"message": "..."}):
+      400 — missing / non-numeric fields (standard DRF validation)
+      452 — voucher_amount is zero or negative
+      453 — voucher_currency is not a valid ISO 4217 code
+      454 — voucher_group is empty or blank
+      460 — Gov_Stack_BB is unknown or empty
 
-    Wave 1: stub.
-    Wave 4: full implementation.
+    Security:
+      Serial number is public (in response). voucher_secret is stored encrypted
+      and NEVER returned.
     """
     permission_classes = [AllowAnyBB]
 
     def post(self, request: Request) -> Response:
+        ser = VoucherPreactivationRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                {"message": self._flatten_errors(ser.errors)},
+                status=400,
+            )
+        d = ser.validated_data
+
+        registering_institution_id = (
+            request.headers.get("X-Registering-Institution-Id", "").strip()
+            or request.headers.get("X-Registering-Institution-ID", "").strip()
+        )
+        callback_url = request.headers.get("X-Callback-URL", "").strip()
+
+        # InvalidVoucherAmount (452), InvalidVoucherGroup (454), GovStackBBNotFound (460)
+        # are all APIException subclasses — DRF catches and calls govstack_exception_handler
+        # automatically, which normalises them to {"message": "..."} with the correct code.
+        voucher = GovStackVoucherService.preactivate(
+            voucher_amount=d["voucher_amount"],
+            voucher_currency=d["voucher_currency"],
+            voucher_group=d["voucher_group"],
+            issuing_bb=d["Gov_Stack_BB"],
+            registering_institution_id=registering_institution_id,
+            callback_url=callback_url,
+        )
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "voucherNumber": voucher.serial_number,
+                "voucherSerialNumber": voucher.serial_number,
+                "voucherGroup": voucher.group_code,
+                "expiryDate": (
+                    voucher.expiry_date.isoformat()
+                    if voucher.expiry_date
+                    else None
+                ),
+            },
+            status=200,
         )
 
 
@@ -580,23 +628,38 @@ class VoucherActivationView(GovStackAPIView):
     GovStack spec: api/Voucher API YAMLs/VoucherActivate.yml
     Harness: voucher_activation.feature @endpoint=/vouchers/voucher_activation
 
-    Required headers: X-Registering-Institution-Id
-    Body: {voucher_serial_number (int), Gov_Stack_BB}
-    Response: {voucherNumber, voucherSerialNumber, voucherStatus, voucherGroup}
+    Body: {voucher_serial_number (int or str), Gov_Stack_BB}
+    Response 200: {voucherNumber, voucherSerialNumber, voucherStatus, voucherGroup}
 
     Custom error codes:
-      456 — serial number not found
-      460 — unknown Gov_Stack_BB
-
-    Wave 1: stub.
-    Wave 4: full implementation.
+      456 — voucher serial number not found (or invalid state transition)
+      460 — Gov_Stack_BB is unknown or empty
     """
     permission_classes = [AllowAnyBB]
 
     def patch(self, request: Request) -> Response:
+        ser = VoucherActivationRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                {"message": self._flatten_errors(ser.errors)},
+                status=400,
+            )
+        d = ser.validated_data
+
+        # InvalidVoucherSerial (456) and GovStackBBNotFound (460) are APIExceptions.
+        voucher = GovStackVoucherService.activate(
+            voucher_serial_number=d["voucher_serial_number"],
+            issuing_bb=d["Gov_Stack_BB"],
+        )
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "voucherNumber": voucher.serial_number,
+                "voucherSerialNumber": voucher.serial_number,
+                "voucherStatus": voucher.status,
+                "voucherGroup": voucher.group_code,
+            },
+            status=200,
         )
 
 
@@ -607,23 +670,55 @@ class VoucherRedemptionView(GovStackAPIView):
     GovStack spec: api/Voucher API YAMLs/VoucherRedemption.yml
     Harness: voucher_redemption.feature @endpoint=/vouchers/voucher_redemption
 
-    Auth: JWT Bearer (HasVoucherJWT — harness-relaxed in Wave 4)
-    Body: {voucher_number (int), Gov_Stack_BB, merchant_name, merchant_bank_details,
-           merchant_voucher_group, override}
-    Response: {status (int), message, serialNumber, value, timestamp, transactionId}
+    Auth: JWT Bearer via HasVoucherJWT (harness-relaxed — GOVSTACK_VOUCHER_REQUIRE_JWT=False)
+
+    Body: {voucher_number (int or str), Gov_Stack_BB, merchant_name?,
+           merchant_bank_details?, merchant_voucher_group?, override?}
+    Response 200: {status (int), message, serialNumber, value, timestamp, transactionId}
 
     Custom error codes:
-      460 — unknown Gov_Stack_BB
+      456 — voucher number not found or invalid state (not ACTIVATED)
+      460 — Gov_Stack_BB is unknown or empty
 
-    Wave 1: stub.
-    Wave 4: full implementation.
+    Security:
+      merchant_name / merchant_bank_details may contain PII and are NOT echoed
+      back in the response — only stored internally.
     """
     permission_classes = [HasVoucherJWT]
 
     def post(self, request: Request) -> Response:
+        ser = VoucherRedemptionRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                {"message": self._flatten_errors(ser.errors)},
+                status=400,
+            )
+        d = ser.validated_data
+
+        # GovStackBBNotFound (460) and InvalidVoucherSerial (456) are APIExceptions.
+        voucher = GovStackVoucherService.redeem(
+            voucher_number=d["voucher_number"],
+            issuing_bb=d["Gov_Stack_BB"],
+            merchant_name=d.get("merchant_name", ""),
+            merchant_bank_details=d.get("merchant_bank_details", ""),
+            merchant_voucher_group=d.get("merchant_voucher_group", ""),
+            override=d.get("override", False),
+        )
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "status": voucher.status_int,
+                "message": "Voucher redeemed successfully.",
+                "serialNumber": voucher.serial_number,
+                "value": str(voucher.amount),
+                "timestamp": (
+                    voucher.redeemed_at.isoformat()
+                    if voucher.redeemed_at
+                    else None
+                ),
+                "transactionId": voucher.redemption_transaction_id,
+            },
+            status=200,
         )
 
 
@@ -636,30 +731,49 @@ class VoucherStatusCheckView(GovStackAPIView):
       GET   → voucher_status_check.feature  @endpoint=/vouchers/voucherstatuscheck
       PATCH → voucher_cancelation.feature   @endpoint=/vouchers/voucherstatuscheck
 
-    GET response:  {status (int), serialNumber, value}
-    PATCH response: {voucherSerialNumber, voucherStatus}
+    URL param: voucherserialnumber (str path segment — may be sent as int by harness)
+
+    GET response 200:  {status (int), serialNumber, value}
+    PATCH response 200: {voucherSerialNumber, voucherStatus}
 
     PATCH custom error codes:
-      463 — invalid serial number (not found)
-      464 — voucher already cancelled
+      463 — serial number not found, or voucher in a non-cancellable state
+      464 — voucher already cancelled (idempotent double-cancel)
 
-    URL param: voucherserialnumber (str path segment)
-
-    Wave 1: stub.
-    Wave 4: full implementation.
+    GET custom error codes:
+      456 — serial number not found
     """
     permission_classes = [AllowAnyBB]
 
     def get(self, request: Request, voucherserialnumber: str) -> Response:
+        # URL parameter may arrive as an integer string from the harness.
+        serial = str(voucherserialnumber).strip()
+
+        # InvalidVoucherSerial (456) is an APIException — handled automatically.
+        voucher = GovStackVoucherService.get_status(serial_number=serial)
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "status": voucher.status_int,
+                "serialNumber": voucher.serial_number,
+                "value": str(voucher.amount),
+            },
+            status=200,
         )
 
     def patch(self, request: Request, voucherserialnumber: str) -> Response:
+        serial = str(voucherserialnumber).strip()
+
+        # InvalidCancellationSerial (463) and VoucherAlreadyCancelled (464) are
+        # APIExceptions — DRF catches and calls govstack_exception_handler.
+        voucher = GovStackVoucherService.cancel(voucher_serial_number=serial)
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "voucherSerialNumber": voucher.serial_number,
+                "voucherStatus": voucher.status,
+            },
+            status=200,
         )
 
 

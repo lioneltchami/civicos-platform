@@ -1,0 +1,202 @@
+# Production Docker Compose — civicos
+# Usage:
+#   cp .env.example .env.prod  && fill in real values
+#   docker-compose -f docker-compose.prod.yml up -d
+#
+# Architecture:
+#   nginx → gunicorn (web) → postgres + redis
+#   celery worker + celery beat share db + redis
+#   migrate service runs once at deploy to apply migrations + seed tasks
+
+services:
+
+  # ----------------------------------------------------------------
+  # Nginx — reverse proxy + static file serving
+  # ----------------------------------------------------------------
+  nginx:
+    build:
+      context: ./nginx
+    restart: always
+    ports:
+      - "${CIVICOS_HOST_HTTP_BIND:-0.0.0.0}:${CIVICOS_HOST_HTTP_PORT:-80}:80"
+    volumes:
+      - static_data:/app/staticfiles:ro
+      - media_data:/app/media:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - civicos_net
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # ----------------------------------------------------------------
+  # Django / Gunicorn
+  # ----------------------------------------------------------------
+  web:
+    build:
+      context: .
+      target: production
+    restart: always
+    command: gunicorn --config gunicorn.conf.py config.wsgi:application
+    env_file: .env.prod
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    volumes:
+      - static_data:/app/staticfiles
+      - media_data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health/live/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - civicos_net
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # ----------------------------------------------------------------
+  # One-shot: migrate + seed periodic tasks
+  # ----------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      target: production
+    restart: "no"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py seed_periodic_tasks"
+    env_file: .env.prod
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - civicos_net
+
+  # ----------------------------------------------------------------
+  # Celery worker
+  # ----------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      target: production
+    restart: always
+    # volunteers queue: shift reminders, expiry checks, impact snapshots (Wave 2+)
+    command: celery -A config.celery worker -Q default,volunteers,documents --loglevel=info --concurrency=4
+    env_file: .env.prod
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    networks:
+      - civicos_net
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # ----------------------------------------------------------------
+  # Celery beat scheduler
+  # ----------------------------------------------------------------
+  beat:
+    build:
+      context: .
+      target: production
+    restart: always
+    command: >
+      celery -A config.celery beat
+             --loglevel=info
+             --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file: .env.prod
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    networks:
+      - civicos_net
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # ----------------------------------------------------------------
+  # PostgreSQL
+  # ----------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: always
+    env_file: .env.prod
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - civicos_net
+    # Port NOT exposed to host in production
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # ----------------------------------------------------------------
+  # Redis — broker + cache
+  # ----------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: >
+      redis-server
+        --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env.prod}
+        --maxmemory 512mb
+        --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env.prod}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - civicos_net
+    # Port NOT exposed to host in production
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_data:
+  media_data:
+
+networks:
+  civicos_net:
+    driver: bridge

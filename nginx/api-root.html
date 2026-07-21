@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CivicOS API</title>
+    <meta
+      name="description"
+      content="Public CivicOS API runtime for the GovStack-aligned Consent Building Block."
+    >
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #061124;
+        --panel: rgba(7, 21, 42, 0.88);
+        --panel-border: rgba(110, 201, 255, 0.2);
+        --text: #eaf4ff;
+        --muted: #9bb5cf;
+        --accent: #63d2ff;
+        --accent-strong: #8cf0d4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Outfit, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(99, 210, 255, 0.16), transparent 34%),
+          radial-gradient(circle at top right, rgba(140, 240, 212, 0.12), transparent 28%),
+          linear-gradient(180deg, #08152b 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+
+      main {
+        width: min(920px, calc(100% - 32px));
+        margin: 48px auto;
+        padding: 40px;
+        border: 1px solid var(--panel-border);
+        border-radius: 28px;
+        background: var(--panel);
+        box-shadow: 0 22px 60px rgba(0, 0, 0, 0.32);
+      }
+
+      .eyebrow {
+        margin: 0 0 14px;
+        color: var(--accent-strong);
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2.2rem, 4vw, 3.5rem);
+        line-height: 1;
+      }
+
+      .lead {
+        margin: 18px 0 0;
+        max-width: 700px;
+        font-size: 1.08rem;
+        line-height: 1.7;
+        color: var(--muted);
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 28px;
+        padding: 12px 16px;
+        border: 1px solid rgba(140, 240, 212, 0.28);
+        border-radius: 999px;
+        background: rgba(140, 240, 212, 0.08);
+        color: #dffef4;
+        font-size: 0.94rem;
+        font-weight: 600;
+      }
+
+      .status::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent-strong);
+        box-shadow: 0 0 18px rgba(140, 240, 212, 0.7);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 34px;
+      }
+
+      .card {
+        display: block;
+        padding: 22px;
+        border: 1px solid rgba(155, 181, 207, 0.18);
+        border-radius: 22px;
+        background: rgba(11, 24, 44, 0.78);
+        color: inherit;
+        text-decoration: none;
+        transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+      }
+
+      .card:hover,
+      .card:focus-visible {
+        transform: translateY(-2px);
+        border-color: rgba(99, 210, 255, 0.45);
+        background: rgba(13, 29, 53, 0.92);
+        outline: none;
+      }
+
+      .card-label {
+        display: block;
+        margin-bottom: 10px;
+        color: var(--accent);
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .card-title {
+        display: block;
+        font-size: 1.2rem;
+        font-weight: 700;
+      }
+
+      .card-copy {
+        display: block;
+        margin-top: 10px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .footer {
+        margin-top: 28px;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.7;
+      }
+
+      .footer a {
+        color: var(--accent-strong);
+      }
+
+      @media (max-width: 720px) {
+        main {
+          margin: 20px auto;
+          padding: 24px;
+          border-radius: 22px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">CivicOS Runtime</p>
+      <h1>CivicOS API</h1>
+      <p class="lead">
+        Public backend runtime for CivicOS, including the GovStack-aligned Consent
+        Building Block submission surface and generated OpenAPI evidence endpoints.
+      </p>
+
+      <div class="status">Live backend surface</div>
+
+      <div class="grid">
+        <a class="card" href="/api/v1/consent/docs/">
+          <span class="card-label">Reviewer view</span>
+          <span class="card-title">Consent API docs</span>
+          <span class="card-copy">
+            Open the generated Swagger UI for the GovStack-facing consent endpoints.
+          </span>
+        </a>
+
+        <a class="card" href="/api/v1/consent/schema/">
+          <span class="card-label">Machine-readable</span>
+          <span class="card-title">Consent OpenAPI schema</span>
+          <span class="card-copy">
+            Inspect the live OpenAPI document exposed by the deployed Django runtime.
+          </span>
+        </a>
+
+        <a class="card" href="/api/v1/docs/">
+          <span class="card-label">Platform</span>
+          <span class="card-title">General API docs</span>
+          <span class="card-copy">
+            Browse the broader CivicOS v1 API documentation surface beyond the consent scope.
+          </span>
+        </a>
+
+        <a class="card" href="https://civicosbb.ca/docs/consent">
+          <span class="card-label">Submission site</span>
+          <span class="card-title">Consent documentation website</span>
+          <span class="card-copy">
+            View the reviewer-facing documentation and implementation evidence on the main site.
+          </span>
+        </a>
+      </div>
+
+      <p class="footer">
+        This domain is the public backend entrypoint. For the broader product site, visit
+        <a href="https://civicosbb.ca">civicosbb.ca</a>.
+      </p>
+    </main>
+  </body>
+</html>

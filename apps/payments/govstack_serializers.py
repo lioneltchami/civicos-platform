@@ -427,25 +427,27 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
     )
     voucher_group = serializers.CharField(
         max_length=50,
-        help_text="Voucher group / program code.",
+        allow_blank=True,
+        help_text=(
+            "Voucher group / program code. "
+            "Blank/whitespace triggers InvalidVoucherGroup (454) from the service — "
+            "not a 400 from the serializer — so allow_blank=True is intentional."
+        ),
     )
     Gov_Stack_BB = serializers.CharField(
         max_length=50,
-        help_text="Issuing Gov_Stack_BB identifier.",
+        allow_blank=True,
+        help_text=(
+            "Issuing Gov_Stack_BB identifier. "
+            "Blank/whitespace triggers GovStackBBNotFound (460) from the service — "
+            "not a 400 from the serializer — so allow_blank=True is intentional."
+        ),
     )
 
     def validate_voucher_amount(self, value) -> Decimal:
-        # NOTE: the harness expects HTTP 452 (InvalidVoucherAmount), NOT 400, when the
-        # amount is zero or negative. For this reason we do NOT raise ValidationError
-        # here — instead the Wave 4 view/service raises InvalidVoucherAmount after
-        # calling is_valid(). We still reject non-parseable values at the field level
-        # (DecimalField raises ValidationError for non-numeric input, giving 400, which
-        # is correct — a 452 only applies when the number is valid but out of range).
-        if value is not None and value <= 0:
-            # Wave 4 TODO: remove this line and let the service raise InvalidVoucherAmount (HTTP 452).
-            # For now, keeping a 400 here is a known gap — the harness test for invalid
-            # amounts will pass only if the service correctly raises InvalidVoucherAmount.
-            raise serializers.ValidationError("voucher_amount must be a positive number.")
+        # Non-parseable input (e.g. "abc") is rejected by DecimalField → HTTP 400. Correct.
+        # Non-positive values (0 or negative) MUST produce HTTP 452 (InvalidVoucherAmount),
+        # not 400.  Pass them through here — the service raises InvalidVoucherAmount(452).
         return value
 
     def validate_voucher_currency(self, value: str) -> str:
@@ -458,10 +460,9 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
         # but not supported by the program.
         return _validate_iso4217(upper)
 
-    def validate_voucher_group(self, value: str) -> str:
-        if not value or not value.strip():
-            raise serializers.ValidationError("voucher_group is required.")
-        return value
+    # NOTE: no validate_voucher_group — blank groups reach the service, which raises
+    # InvalidVoucherGroup (454).  Serializer-level rejection would give HTTP 400, which
+    # does not match the GovStack spec for this field.
 
 
 class VoucherPreactivationResponseSerializer(serializers.Serializer):
@@ -491,7 +492,11 @@ class VoucherActivationRequestSerializer(serializers.Serializer):
     )
     Gov_Stack_BB = serializers.CharField(
         max_length=50,
-        help_text="Issuing Gov_Stack_BB identifier.",
+        allow_blank=True,
+        help_text=(
+            "Issuing Gov_Stack_BB identifier. "
+            "Blank triggers GovStackBBNotFound (460) from the service."
+        ),
     )
 
     def validate_voucher_serial_number(self, value) -> str:
@@ -522,7 +527,14 @@ class VoucherRedemptionRequestSerializer(serializers.Serializer):
     voucher_number = serializers.CharField(
         help_text="Voucher number (may be sent as int by harness).",
     )
-    Gov_Stack_BB = serializers.CharField(max_length=50)
+    Gov_Stack_BB = serializers.CharField(
+        max_length=50,
+        allow_blank=True,
+        help_text=(
+            "Issuing Gov_Stack_BB identifier. "
+            "Blank triggers GovStackBBNotFound (460) from the service."
+        ),
+    )
     merchant_name = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
     merchant_bank_details = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
     merchant_voucher_group = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")

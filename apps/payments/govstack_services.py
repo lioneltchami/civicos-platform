@@ -24,17 +24,32 @@ Wave status:
 from __future__ import annotations
 
 import logging
+import secrets
+from datetime import timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
-from apps.payments.govstack_exceptions import DuplicateBatchError, DuplicateValidationRequestError
+from apps.payments.govstack_exceptions import (
+    DuplicateBatchError,
+    DuplicateValidationRequestError,
+    GovStackBBNotFound,
+    InvalidCancellationSerial,
+    InvalidVoucherAmount,
+    InvalidVoucherGroup,
+    InvalidVoucherSerial,
+    VoucherAlreadyCancelled,
+)
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
     GovStackBeneficiary,
     GovStackPaymentAuditEntry,
+    GovStackVoucher,
     PrepaymentValidationRequest,
+    _generate_voucher_serial,
 )
 
 logger = logging.getLogger(__name__)
@@ -520,6 +535,9 @@ class GovStackVoucherService:
       voucher_cancelation, voucher_status_check
     """
 
+    # Max serial number generation retries before giving up on a collision.
+    _SERIAL_MAX_RETRIES = 5
+
     @staticmethod
     def preactivate(
         voucher_amount: Decimal,
@@ -530,35 +548,146 @@ class GovStackVoucherService:
         batch_id: str = "",
         payee_functional_id: str = "",
         callback_url: str = "",
-    ):
+    ) -> GovStackVoucher:
         """
         Create a GovStackVoucher in PREACTIVATED status.
 
-        Generates a unique serial_number and voucher_secret.
-        Returns the GovStackVoucher instance.
+        Generates a unique 6-digit serial_number with up to 5 collision retries.
+        Returns the saved GovStackVoucher instance.
 
         Raises:
-            apps.payments.govstack_exceptions.InvalidVoucherAmount: HTTP 452
-            apps.payments.govstack_exceptions.InvalidVoucherCurrency: HTTP 453
-            apps.payments.govstack_exceptions.InvalidVoucherGroup: HTTP 454
-            apps.payments.govstack_exceptions.GovStackBBNotFound: HTTP 460
-            NotImplementedError: until Wave 4 implementation.
+            InvalidVoucherAmount (HTTP 452): amount ≤ 0 or zero.
+            InvalidVoucherGroup (HTTP 454): group is empty/blank.
+            GovStackBBNotFound (HTTP 460): issuing_bb is empty/blank.
         """
-        raise NotImplementedError("GovStackVoucherService.preactivate — implement in Wave 4.")
+        # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
+        if not issuing_bb or not issuing_bb.strip():
+            raise GovStackBBNotFound()
+
+        # ── Validate amount → 452 ─────────────────────────────────────────────
+        # Non-parseable amounts are rejected by the serializer (400).
+        # Non-positive amounts must return 452 (spec requirement).
+        if voucher_amount is None or voucher_amount <= 0:
+            raise InvalidVoucherAmount()
+
+        # ── Validate group → 454 ──────────────────────────────────────────────
+        if not voucher_group or not voucher_group.strip():
+            raise InvalidVoucherGroup()
+
+        # ── Compute expiry ────────────────────────────────────────────────────
+        expiry_days = getattr(settings, "GOVSTACK_VOUCHER_EXPIRY_DAYS", 90)
+        expiry = timezone.now() + timedelta(days=expiry_days)
+
+        # ── Create with serial collision retry ────────────────────────────────
+        max_retries = GovStackVoucherService._SERIAL_MAX_RETRIES
+        for attempt in range(max_retries):
+            serial = _generate_voucher_serial()
+            try:
+                with transaction.atomic():
+                    voucher = GovStackVoucher.objects.create(
+                        serial_number=serial,
+                        amount=voucher_amount,
+                        currency=voucher_currency,
+                        group_code=voucher_group.strip(),
+                        status=GovStackVoucher.STATUS_PREACTIVATED,
+                        issuing_bb=issuing_bb.strip(),
+                        registering_institution_id=registering_institution_id,
+                        batch_id=batch_id[:12] if batch_id else "",
+                        payee_functional_id=payee_functional_id[:20] if payee_functional_id else "",
+                        callback_url=callback_url,
+                        expiry_date=expiry,
+                    )
+                    GovStackPaymentAuditEntry.objects.create(
+                        action=GovStackPaymentAuditEntry.ACTION_VOUCHER_PREACTIVATED,
+                        actor_bb_id=issuing_bb.strip(),
+                        object_type="voucher",
+                        object_pk=str(voucher.pk),
+                        details={
+                            "serial_number": voucher.serial_number,
+                            "group_code": voucher.group_code,
+                            "currency": voucher.currency,
+                            # NOTE: amount intentionally omitted — not PII but kept minimal.
+                            # NOTE: payee_functional_id NEVER in audit details.
+                        },
+                    )
+                    logger.info(
+                        "govstack.voucher_preactivated voucher_pk=%s issuing_bb=%s",
+                        voucher.pk,
+                        issuing_bb.strip(),
+                    )
+                    return voucher
+            except IntegrityError:
+                if attempt == max_retries - 1:
+                    logger.error(
+                        "govstack.voucher_preactivate serial collision exhausted "
+                        "after %d retries issuing_bb=%s",
+                        max_retries,
+                        issuing_bb.strip(),
+                    )
+                    raise  # Let Django 500 — this is a fatal infrastructure error
+                logger.warning(
+                    "govstack.voucher_preactivate serial collision retry %d/%d",
+                    attempt + 1,
+                    max_retries,
+                )
 
     @staticmethod
-    def activate(voucher_serial_number: str, issuing_bb: str):
+    def activate(voucher_serial_number: str, issuing_bb: str) -> GovStackVoucher:
         """
         Transition PREACTIVATED → ACTIVATED.
 
         Returns the updated GovStackVoucher instance.
 
         Raises:
-            apps.payments.govstack_exceptions.InvalidVoucherSerial: HTTP 456
-            apps.payments.govstack_exceptions.GovStackBBNotFound: HTTP 460
-            NotImplementedError: until Wave 4 implementation.
+            GovStackBBNotFound (HTTP 460): issuing_bb is empty/blank.
+            InvalidVoucherSerial (HTTP 456): serial not found or invalid transition.
         """
-        raise NotImplementedError("GovStackVoucherService.activate — implement in Wave 4.")
+        # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
+        if not issuing_bb or not issuing_bb.strip():
+            raise GovStackBBNotFound()
+
+        # ── Fetch voucher → 456 ───────────────────────────────────────────────
+        voucher = GovStackVoucher.objects.filter(
+            serial_number=voucher_serial_number
+        ).first()
+        if voucher is None:
+            logger.warning(
+                "govstack.voucher_activate serial not found issuing_bb=%s",
+                issuing_bb.strip(),
+            )
+            raise InvalidVoucherSerial()
+
+        # ── Transition PREACTIVATED → ACTIVATED ───────────────────────────────
+        try:
+            voucher.transition_to(GovStackVoucher.STATUS_ACTIVATED)
+        except ValueError:
+            # Not in a state that can transition to ACTIVATED — treat as not-found.
+            logger.warning(
+                "govstack.voucher_activate invalid transition from=%s voucher_pk=%s",
+                voucher.status,
+                voucher.pk,
+            )
+            raise InvalidVoucherSerial()
+
+        voucher.save(update_fields=["status"])
+
+        GovStackPaymentAuditEntry.objects.create(
+            action=GovStackPaymentAuditEntry.ACTION_VOUCHER_ACTIVATED,
+            actor_bb_id=issuing_bb.strip(),
+            object_type="voucher",
+            object_pk=str(voucher.pk),
+            details={
+                "serial_number": voucher.serial_number,
+                "group_code": voucher.group_code,
+                "new_status": voucher.status,
+            },
+        )
+        logger.info(
+            "govstack.voucher_activated voucher_pk=%s issuing_bb=%s",
+            voucher.pk,
+            issuing_bb.strip(),
+        )
+        return voucher
 
     @staticmethod
     def redeem(
@@ -570,45 +699,151 @@ class GovStackVoucherService:
         override: bool = False,
         agent_id: str = "",
         voucher_secret_number: str = "",
-    ):
+    ) -> GovStackVoucher:
         """
         Transition ACTIVATED → CONSUMED. Records merchant redemption details.
 
+        voucher_number corresponds to the voucher's serial_number (the public identifier).
+
+        Returns the updated GovStackVoucher instance with redemption fields populated.
+
+        Raises:
+            GovStackBBNotFound (HTTP 460): issuing_bb is empty/blank.
+            InvalidVoucherSerial (HTTP 456): serial not found or invalid transition.
+        """
+        # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
+        if not issuing_bb or not issuing_bb.strip():
+            raise GovStackBBNotFound()
+
+        # ── Fetch voucher by serial number → 456 ─────────────────────────────
+        voucher = GovStackVoucher.objects.filter(
+            serial_number=voucher_number
+        ).first()
+        if voucher is None:
+            logger.warning(
+                "govstack.voucher_redeem voucher not found issuing_bb=%s",
+                issuing_bb.strip(),
+            )
+            raise InvalidVoucherSerial()
+
+        # ── Transition ACTIVATED → CONSUMED ───────────────────────────────────
+        try:
+            voucher.transition_to(GovStackVoucher.STATUS_CONSUMED)
+        except ValueError:
+            logger.warning(
+                "govstack.voucher_redeem invalid transition from=%s voucher_pk=%s",
+                voucher.status,
+                voucher.pk,
+            )
+            raise InvalidVoucherSerial()
+
+        # ── Record redemption details ─────────────────────────────────────────
+        now = timezone.now()
+        transaction_id = secrets.token_hex(10)  # 20 hex chars ≤ max_length=20
+
+        voucher.redeemed_by_agent_id = agent_id[:10] if agent_id else ""
+        voucher.redeemed_merchant_name = merchant_name[:200]
+        voucher.redeemed_merchant_bank_details = merchant_bank_details[:200]
+        voucher.redeemed_merchant_voucher_group = merchant_voucher_group[:100]
+        voucher.redeemed_at = now
+        voucher.redemption_transaction_id = transaction_id
+
+        voucher.save(update_fields=[
+            "status",
+            "redeemed_by_agent_id",
+            "redeemed_merchant_name",
+            "redeemed_merchant_bank_details",
+            "redeemed_merchant_voucher_group",
+            "redeemed_at",
+            "redemption_transaction_id",
+        ])
+
+        GovStackPaymentAuditEntry.objects.create(
+            action=GovStackPaymentAuditEntry.ACTION_VOUCHER_REDEEMED,
+            actor_bb_id=issuing_bb.strip(),
+            object_type="voucher",
+            object_pk=str(voucher.pk),
+            details={
+                "serial_number": voucher.serial_number,
+                "transaction_id": transaction_id,
+                # merchant details intentionally omitted — may contain PII.
+            },
+        )
+        logger.info(
+            "govstack.voucher_redeemed voucher_pk=%s transaction_id=%s issuing_bb=%s",
+            voucher.pk,
+            transaction_id,
+            issuing_bb.strip(),
+        )
+        return voucher
+
+    @staticmethod
+    def cancel(voucher_serial_number: str) -> GovStackVoucher:
+        """
+        Transition PREACTIVATED | ACTIVATED | BLOCKED | SUSPENDED → CANCELLED.
+
         Returns the updated GovStackVoucher instance.
 
         Raises:
-            apps.payments.govstack_exceptions.GovStackBBNotFound: HTTP 460
-            apps.payments.govstack_exceptions.InvalidVoucherSerial: if not found
-            NotImplementedError: until Wave 4 implementation.
+            InvalidCancellationSerial (HTTP 463): serial not found, or voucher is in a
+                terminal state (CONSUMED, PURGED) that cannot be cancelled.
+            VoucherAlreadyCancelled (HTTP 464): voucher is already CANCELLED
+                (idempotent double-cancel guard).
         """
-        raise NotImplementedError("GovStackVoucherService.redeem — implement in Wave 4.")
+        # ── Fetch voucher → 463 ───────────────────────────────────────────────
+        voucher = GovStackVoucher.objects.filter(
+            serial_number=voucher_serial_number
+        ).first()
+        if voucher is None:
+            raise InvalidCancellationSerial()
+
+        # ── Already cancelled → 464 ───────────────────────────────────────────
+        if voucher.status == GovStackVoucher.STATUS_CANCELLED:
+            raise VoucherAlreadyCancelled()
+
+        # ── Attempt transition → 463 if not allowed (e.g. CONSUMED / PURGED) ─
+        try:
+            voucher.transition_to(GovStackVoucher.STATUS_CANCELLED)
+        except ValueError:
+            logger.warning(
+                "govstack.voucher_cancel invalid transition from=%s voucher_pk=%s",
+                voucher.status,
+                voucher.pk,
+            )
+            raise InvalidCancellationSerial()
+
+        voucher.save(update_fields=["status"])
+
+        GovStackPaymentAuditEntry.objects.create(
+            action=GovStackPaymentAuditEntry.ACTION_VOUCHER_CANCELLED,
+            actor_bb_id="",
+            object_type="voucher",
+            object_pk=str(voucher.pk),
+            details={
+                "serial_number": voucher.serial_number,
+                "group_code": voucher.group_code,
+            },
+        )
+        logger.info(
+            "govstack.voucher_cancelled voucher_pk=%s",
+            voucher.pk,
+        )
+        return voucher
 
     @staticmethod
-    def cancel(voucher_serial_number: str):
+    def get_status(serial_number: str) -> GovStackVoucher:
         """
-        Transition PREACTIVATED | ACTIVATED → CANCELLED.
+        Retrieve a GovStackVoucher by serial number for the status check endpoint.
 
-        Returns the updated GovStackVoucher instance.
+        Returns the GovStackVoucher instance (all fields; view selects what to expose).
 
         Raises:
-            apps.payments.govstack_exceptions.InvalidCancellationSerial: HTTP 463 (not found)
-            apps.payments.govstack_exceptions.VoucherAlreadyCancelled: HTTP 464 (already cancelled)
-            NotImplementedError: until Wave 4 implementation.
+            InvalidVoucherSerial (HTTP 456): serial not found.
         """
-        raise NotImplementedError("GovStackVoucherService.cancel — implement in Wave 4.")
-
-    @staticmethod
-    def get_status(serial_number: str):
-        """
-        Retrieve a GovStackVoucher by serial number.
-
-        Returns the GovStackVoucher instance.
-
-        Raises:
-            apps.payments.govstack_exceptions.InvalidVoucherSerial: if not found
-            NotImplementedError: until Wave 4 implementation.
-        """
-        raise NotImplementedError("GovStackVoucherService.get_status — implement in Wave 4.")
+        voucher = GovStackVoucher.objects.filter(serial_number=serial_number).first()
+        if voucher is None:
+            raise InvalidVoucherSerial()
+        return voucher
 
 
 # ---------------------------------------------------------------------------
