@@ -33,7 +33,10 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.payments.govstack_exceptions import (
+    BillNotFound,
+    BillPaymentNotFound,
     DuplicateBatchError,
+    DuplicateBillPaymentError,
     DuplicateValidationRequestError,
     GovStackBBNotFound,
     InvalidCancellationSerial,
@@ -46,6 +49,8 @@ from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
     GovStackBeneficiary,
+    GovStackBill,
+    GovStackBillPayment,
     GovStackPaymentAuditEntry,
     GovStackVoucher,
     PrepaymentValidationRequest,
@@ -890,40 +895,217 @@ class GovStackP2GService:
     """
     P2G — Person to Government: bill inquiry and payment notification.
 
-    Adapts existing CivicOS FeeSchedule + PaymentIntent models to the
-    GovStack P2G API surface.
+    Implements the GovStack P2G API surface against the dedicated
+    GovStackBill and GovStackBillPayment models.
 
     GovStack spec: api/P2G API YAMLs/
-    No harness features yet for P2G.
+    No P2G harness features in current GovStack certification cycle.
+
+    Typical P2G flow:
+      1. Source BB (mobile money operator) calls GET /bills/{billId} to look
+         up the bill amount and confirm the bill exists.
+      2. Citizen pays via mobile money.
+      3. Source BB calls POST /billTransferRequests to notify the Payments BB
+         that the payment was made.
+      4. Payments BB records the payment (GovStackBillPayment, STATUS_COMPLETED)
+         and marks the bill as PAID.
+      5. Source BB can poll GET /transferRequests/{requestId} to confirm.
+
+    Staff fallback:
+      POST /bills/{billId}/mark-paid manually marks a bill PAID when the
+      automatic notification did not arrive (e.g. mobile money network outage).
+
+    Security:
+    - No citizen PII is stored on GovStackBill or GovStackBillPayment.
+    - payer_fi_id identifies the financial institution, not the citizen.
+    - payer_fi_id is stored on GovStackBillPayment but omitted from audit
+      details (it is already retrievable via the model record itself).
+    - All log messages use str(obj.pk) as the object identifier.
     """
 
     @staticmethod
-    def get_bill(bill_id: str) -> dict:
+    def get_bill(bill_id: str) -> GovStackBill:
         """
-        Retrieve bill details for a given fee code.
+        Retrieve a GovStackBill by its bill_id.
 
-        Maps CivicOS FeeSchedule.fee_code → GovStack bill shape.
+        Returns the GovStackBill instance (all fields; view selects what to expose).
 
         Raises:
-            NotImplementedError: until Wave 5 implementation.
+            BillNotFound (HTTP 404): bill_id not found in the database.
         """
-        raise NotImplementedError("GovStackP2GService.get_bill — implement in Wave 5.")
+        bill = GovStackBill.objects.filter(bill_id=bill_id).first()
+        if bill is None:
+            logger.info(
+                "govstack.p2g.bill_not_found bill_id_len=%d",
+                len(bill_id),
+                # bill_id intentionally omitted: it is an external ID and may be
+                # sensitive in some government contexts.
+            )
+            raise BillNotFound()
+        return bill
 
     @staticmethod
-    def receive_transfer_notification(
+    def create_transfer_request(
         request_id: str,
         bill_id: str,
         bill_inquiry_request_id: str = "",
         payment_reference_id: str = "",
-    ) -> dict:
+        correlation_id: str = "",
+        payer_fi_id: str = "",
+        platform_tenant_id: str = "",
+    ) -> GovStackBillPayment:
         """
-        Receive a mobile money payment notification for a bill.
+        Record a P2G bill payment notification and mark the bill as PAID.
 
-        Creates or updates a CivicOS PaymentIntent to COMPLETED.
+        Creates a GovStackBillPayment with STATUS_COMPLETED and transitions
+        the linked GovStackBill to STATUS_PAID (if not already paid).
+
+        The bill status is only set to PAID inside the same atomic transaction
+        as the payment record creation, so concurrent duplicate requests will
+        produce at most one payment record (the second raises DuplicateBillPaymentError
+        via the unique constraint on request_id).
+
+        Returns the saved GovStackBillPayment instance.
 
         Raises:
-            NotImplementedError: until Wave 5 implementation.
+            BillNotFound (HTTP 404): bill_id not found.
+            DuplicateBillPaymentError: request_id already exists (caller should
+                treat this as "already processed" and NOT retry).
+
+        Concurrency:
+            select_for_update() on the bill row prevents two concurrent requests
+            from both reading STATUS_UNPAID and both writing STATUS_PAID, which
+            would create two GovStackBillPayment records for the same bill.
+            The unique constraint on request_id acts as a second guard.
         """
-        raise NotImplementedError(
-            "GovStackP2GService.receive_transfer_notification — implement in Wave 5."
+        try:
+            with transaction.atomic():
+                # ── Lock the bill row + look up → 404 ──────────────────────
+                locked_bill = GovStackBill.objects.select_for_update().filter(
+                    bill_id=bill_id
+                ).first()
+                if locked_bill is None:
+                    raise BillNotFound()
+
+                # ── Create the payment record ────────────────────────────────
+                payment = GovStackBillPayment.objects.create(
+                    request_id=request_id[:100],
+                    bill=locked_bill,
+                    bill_inquiry_request_id=bill_inquiry_request_id[:100],
+                    payment_reference_id=payment_reference_id[:100],
+                    correlation_id=correlation_id[:100],
+                    payer_fi_id=payer_fi_id[:100],
+                    platform_tenant_id=platform_tenant_id[:100],
+                    # Snapshot bill values at payment time.
+                    amount=locked_bill.amount,
+                    currency=locked_bill.currency,
+                    status=GovStackBillPayment.STATUS_COMPLETED,
+                )
+
+                # ── Transition bill to PAID (idempotent if already PAID) ────
+                if locked_bill.status != GovStackBill.STATUS_PAID:
+                    locked_bill.status = GovStackBill.STATUS_PAID
+                    locked_bill.save(update_fields=["status"])
+
+                # ── Audit ────────────────────────────────────────────────────
+                GovStackPaymentAuditEntry.objects.create(
+                    action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED,
+                    actor_bb_id="",  # P2G requests come from financial institutions, not BBs.
+                    object_type="bill_payment",
+                    object_pk=str(payment.pk),
+                    details={
+                        "request_id": payment.request_id,
+                        "bill_pk": str(locked_bill.pk),
+                        # payer_fi_id intentionally omitted — stored on the model record.
+                    },
+                )
+                logger.info(
+                    "govstack.p2g.transfer_request_created payment_pk=%s bill_pk=%s",
+                    payment.pk,
+                    locked_bill.pk,
+                )
+
+        except IntegrityError:
+            # Unique constraint on GovStackBillPayment.request_id fired.
+            # Return 400 — the caller should not retry with the same request_id.
+            logger.warning(
+                "govstack.p2g.duplicate_transfer_request request_id_len=%d",
+                len(request_id),
+            )
+            raise DuplicateBillPaymentError(request_id=request_id)
+
+        return payment
+
+    @staticmethod
+    def mark_bill_paid(bill_id: str) -> GovStackBill:
+        """
+        Manually mark a GovStackBill as PAID.
+
+        Staff / fallback endpoint: used when the automatic POST /billTransferRequests
+        notification was not received (e.g. mobile money network outage), but the
+        government has confirmed receipt of payment through another channel.
+
+        Unlike create_transfer_request(), this does NOT create a GovStackBillPayment
+        record — it only transitions the bill status.  No idempotency key is required;
+        marking an already-PAID bill is a no-op (returns the bill as-is).
+
+        Returns the updated GovStackBill instance.
+
+        Raises:
+            BillNotFound (HTTP 404): bill_id not found.
+
+        Concurrency:
+            select_for_update() prevents concurrent mark-paid calls from both
+            writing the status change and creating duplicate audit entries.
+        """
+        with transaction.atomic():
+            bill = GovStackBill.objects.select_for_update().filter(
+                bill_id=bill_id
+            ).first()
+            if bill is None:
+                raise BillNotFound()
+
+            if bill.status != GovStackBill.STATUS_PAID:
+                bill.status = GovStackBill.STATUS_PAID
+                bill.save(update_fields=["status"])
+
+                GovStackPaymentAuditEntry.objects.create(
+                    action=GovStackPaymentAuditEntry.ACTION_BILL_PAID,
+                    actor_bb_id="",  # Staff action — no BB authentication.
+                    object_type="bill",
+                    object_pk=str(bill.pk),
+                    details={"bill_id": bill.bill_id},
+                )
+                logger.info(
+                    "govstack.p2g.bill_marked_paid bill_pk=%s",
+                    bill.pk,
+                )
+            else:
+                logger.info(
+                    "govstack.p2g.bill_already_paid bill_pk=%s (no-op)",
+                    bill.pk,
+                )
+
+        return bill
+
+    @staticmethod
+    def get_transfer_request(request_id: str) -> GovStackBillPayment:
+        """
+        Retrieve a GovStackBillPayment by its request_id.
+
+        Returns the GovStackBillPayment with the related bill pre-fetched
+        (select_related) so the view can access payment.bill.bill_id without
+        an extra query.
+
+        Raises:
+            BillPaymentNotFound (HTTP 404): request_id not found.
+        """
+        payment = (
+            GovStackBillPayment.objects
+            .select_related("bill")
+            .filter(request_id=request_id)
+            .first()
         )
+        if payment is None:
+            raise BillPaymentNotFound()
+        return payment

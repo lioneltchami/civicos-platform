@@ -632,22 +632,107 @@ class VoucherCancellationResponseSerializer(serializers.Serializer):
 
 
 # ---------------------------------------------------------------------------
-# P2G — Bill Payments (Wave 5 stubs)
+# P2G — Bill Payments (Wave 5)
+# ---------------------------------------------------------------------------
+
+class BillTransferRequestSerializer(serializers.Serializer):
+    """
+    POST /govstack/payments/billTransferRequests
+    GovStack spec: P2G API YAMLs/BillTransferRequest.yml
+    Harness: no P2G harness feature in current certification cycle.
+
+    Caller is a mobile money operator / financial institution BB notifying the
+    Payments BB that a citizen has submitted a payment for a government bill.
+
+    requestId is the caller's idempotency key — duplicate requestIds return
+    HTTP 400 (DuplicateBillPaymentError) rather than creating a duplicate record.
+    """
+    requestId = serializers.CharField(
+        max_length=100,
+        help_text=(
+            "Caller-supplied idempotency key. Uniquely identifies this transfer request. "
+            "Duplicate requestIds return HTTP 400."
+        ),
+    )
+    billId = serializers.CharField(
+        max_length=100,
+        help_text="Government-assigned bill identifier matching GovStackBill.bill_id.",
+    )
+    billInquiryRequestId = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="requestId from a prior GET /bills/{billId} inquiry (optional).",
+    )
+    paymentReferenceID = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Mobile money / financial network payment reference (optional).",
+    )
+
+    def validate_requestId(self, value: str) -> str:
+        return value.strip()
+
+    def validate_billId(self, value: str) -> str:
+        return value.strip()
+
+
+# ---------------------------------------------------------------------------
+# P2G — Response serializers (schema documentation only)
+# ---------------------------------------------------------------------------
+# These classes document the exact JSON shape returned by each P2G endpoint.
+# Views construct response dicts directly; these serve as:
+#   1. Authoritative field-level schema reference.
+#   2. Source material for auto-generated OpenAPI/Swagger documentation.
+# The view Response() dict is always the source of truth.
 # ---------------------------------------------------------------------------
 
 class BillInquiryResponseSerializer(serializers.Serializer):
-    """GET /govstack/payments/bills/{billId}"""
+    """
+    Response shape for GET /govstack/payments/bills/{bill_id} → HTTP 200.
+    Schema documentation only.
+    """
     billId = serializers.CharField(read_only=True)
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     currency = serializers.CharField(read_only=True)
     description = serializers.CharField(read_only=True)
-    status = serializers.CharField(read_only=True)
-    dueDate = serializers.DateField(read_only=True, required=False)
+    status = serializers.CharField(read_only=True)         # "unpaid" | "paid" | "overdue" | "cancelled"
+    dueDate = serializers.DateField(read_only=True, allow_null=True)   # null when not set
 
 
-class BillTransferRequestSerializer(serializers.Serializer):
-    """POST /govstack/payments/billTransferRequests"""
-    requestId = serializers.CharField(max_length=20)
-    billInquiryRequestId = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
-    billId = serializers.CharField(max_length=100)
-    paymentReferenceID = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+class BillTransferResponseSerializer(serializers.Serializer):
+    """
+    Response shape for POST /govstack/payments/billTransferRequests → HTTP 200.
+    Schema documentation only.
+    """
+    requestId = serializers.CharField(read_only=True)
+    billId = serializers.CharField(read_only=True)
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    currency = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)         # "completed"
+    message = serializers.CharField(read_only=True)
+
+
+class MarkBillPaidResponseSerializer(serializers.Serializer):
+    """
+    Response shape for POST /govstack/payments/bills/{bill_id}/mark-paid → HTTP 200.
+    Schema documentation only.
+    """
+    billId = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)         # "paid"
+    message = serializers.CharField(read_only=True)
+
+
+class TransferRequestStatusSerializer(serializers.Serializer):
+    """
+    Response shape for GET /govstack/payments/transferRequests/{request_id} → HTTP 200.
+    Schema documentation only.
+    """
+    requestId = serializers.CharField(read_only=True)
+    billId = serializers.CharField(read_only=True)
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    currency = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)         # "pending" | "completed" | "failed"

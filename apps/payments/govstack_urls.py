@@ -84,6 +84,16 @@ urlpatterns = [
     ),
 
     # ── P2G — Bill Payments (Wave 5) ──────────────────────────────────────
+    # ORDERING NOTE: bills/<str:bill_id>/mark-paid MUST appear before
+    # bills/<str:bill_id> so Django's URL router tries the more specific
+    # pattern first.  Django's <str:...> converter matches only a single
+    # path segment (no slashes), so these patterns do NOT overlap, but
+    # explicit ordering makes intent clear and guards against future changes.
+    path(
+        "bills/<str:bill_id>/mark-paid",
+        gv.MarkBillPaidView.as_view(),
+        name="mark_bill_paid",
+    ),
     path(
         "bills/<str:bill_id>",
         gv.BillInquiryView.as_view(),
@@ -93,11 +103,6 @@ urlpatterns = [
         "billTransferRequests",
         gv.BillTransferRequestView.as_view(),
         name="bill_transfer",
-    ),
-    path(
-        "bills/<str:bill_id>/mark-paid",
-        gv.MarkBillPaidView.as_view(),
-        name="mark_bill_paid",
     ),
     path(
         "transferRequests/<str:transfer_request_id>",

@@ -22,6 +22,8 @@ from .govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
     GovStackBeneficiary,
+    GovStackBill,
+    GovStackBillPayment,
     GovStackPaymentAuditEntry,
     GovStackVoucher,
     PrepaymentValidationRequest,
@@ -1068,3 +1070,109 @@ class GovStackPaymentAuditEntryAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None) -> bool:
         return False  # Permanent: cannot be deleted
+
+
+# ===========================================================================
+# P2G — Bill Payments (Wave 5)
+# ===========================================================================
+
+
+@admin.register(GovStackBill)
+class GovStackBillAdmin(admin.ModelAdmin):
+    """
+    GovStackBill admin.
+
+    Bills are created by staff (import or direct admin entry) and read by the
+    P2G API.  Admin allows add and change (status can be corrected by staff),
+    but delete is blocked once a bill has GovStackBillPayment records attached
+    (enforced by PROTECT FK on GovStackBillPayment.bill).
+    """
+
+    list_display = [
+        "bill_id",
+        "status",
+        "amount",
+        "currency",
+        "due_date",
+        "created_at",
+    ]
+    list_filter = ["status", "currency"]
+    search_fields = ["bill_id", "description", "correlation_id"]
+    readonly_fields = ["id", "created_at", "updated_at"]
+    ordering = ["-created_at"]
+
+    fieldsets = (
+        (
+            "Bill Details",
+            {
+                "fields": (
+                    "id",
+                    "bill_id",
+                    "amount",
+                    "currency",
+                    "description",
+                    "status",
+                    "due_date",
+                    "correlation_id",
+                ),
+            },
+        ),
+        (
+            "Timestamps",
+            {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},
+        ),
+    )
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        # Deleting a bill that has payments attached is blocked at the DB layer
+        # (PROTECT FK), but we also block it in admin to give a clear message.
+        if obj is not None and obj.payments.exists():
+            return False
+        return True
+
+
+@admin.register(GovStackBillPayment)
+class GovStackBillPaymentAdmin(admin.ModelAdmin):
+    """
+    GovStackBillPayment admin (read-only).
+
+    Payment records are created by the P2G API (POST /billTransferRequests)
+    and must not be modified or deleted after creation.  The admin provides
+    a read-only audit view only.
+    """
+
+    list_display = [
+        "request_id",
+        "bill",
+        "status",
+        "amount",
+        "currency",
+        "created_at",
+    ]
+    list_filter = ["status", "currency"]
+    search_fields = ["request_id", "payment_reference_id", "correlation_id"]
+    readonly_fields = [
+        "id",
+        "request_id",
+        "bill",
+        "bill_inquiry_request_id",
+        "payment_reference_id",
+        "correlation_id",
+        "payer_fi_id",
+        "platform_tenant_id",
+        "amount",
+        "currency",
+        "status",
+        "created_at",
+        "updated_at",
+    ]
+    ordering = ["-created_at"]
+
+    def has_add_permission(self, request) -> bool:
+        return False  # Created via P2G API only
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False  # Payment records are immutable
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False  # Payment records are permanent

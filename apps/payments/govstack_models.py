@@ -827,6 +827,9 @@ class GovStackPaymentAuditEntry(TimestampedModel):
     ACTION_VOUCHER_ACTIVATED = "voucher_activated"
     ACTION_VOUCHER_REDEEMED = "voucher_redeemed"
     ACTION_VOUCHER_CANCELLED = "voucher_cancelled"
+    # P2G — Bill Payments (Wave 5)
+    ACTION_BILL_PAYMENT_REQUESTED = "bill_payment_requested"
+    ACTION_BILL_PAID = "bill_paid"
 
     ACTION_CHOICES = [
         (ACTION_BENEFICIARY_REGISTERED, _("Beneficiary Registered")),
@@ -843,6 +846,9 @@ class GovStackPaymentAuditEntry(TimestampedModel):
         (ACTION_VOUCHER_ACTIVATED, _("Voucher Activated")),
         (ACTION_VOUCHER_REDEEMED, _("Voucher Redeemed")),
         (ACTION_VOUCHER_CANCELLED, _("Voucher Cancelled")),
+        # Wave 5
+        (ACTION_BILL_PAYMENT_REQUESTED, _("Bill Payment Requested")),
+        (ACTION_BILL_PAID, _("Bill Paid")),
     ]
 
     id = models.UUIDField(
@@ -925,3 +931,237 @@ class GovStackPaymentAuditEntry(TimestampedModel):
         raise PermissionError(
             "GovStackPaymentAuditEntry records are permanent and cannot be deleted."
         )
+
+
+# ---------------------------------------------------------------------------
+# GovStackBill  (P2G — Person to Government)
+# ---------------------------------------------------------------------------
+
+class GovStackBill(TimestampedModel):
+    """
+    A government bill / fee that a citizen can pay via the P2G API.
+
+    GovStack spec: api/P2G API YAMLs/
+    Harness: no P2G harness features in current certification cycle.
+
+    Bills are created by government staff (admin or import jobs), not via the
+    P2G API itself.  The P2G API only reads bills and records payment requests.
+
+    Status state machine:
+      UNPAID → PAID (via POST /billTransferRequests or POST /bills/{id}/mark-paid)
+      UNPAID → OVERDUE (via scheduled task — not Wave 5 scope)
+      Any non-terminal → CANCELLED (admin action only)
+      PAID and CANCELLED are terminal.
+
+    Security:
+    - No citizen PII stored on this model (bill_id is a government-assigned ID,
+      not a citizen identifier).
+    - correlation_id and payer_fi_id on GovStackBillPayment may identify a
+      financial institution (not a citizen), so they are omitted from audit details.
+    """
+
+    STATUS_UNPAID = "unpaid"
+    STATUS_PAID = "paid"
+    STATUS_OVERDUE = "overdue"
+    STATUS_CANCELLED = "cancelled"
+
+    STATUS_CHOICES = [
+        (STATUS_UNPAID, _("Unpaid")),
+        (STATUS_PAID, _("Paid")),
+        (STATUS_OVERDUE, _("Overdue")),
+        (STATUS_CANCELLED, _("Cancelled")),
+    ]
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        verbose_name=_("ID"),
+    )
+    bill_id = models.CharField(
+        max_length=100,
+        unique=True,  # unique already creates an index
+        verbose_name=_("Bill ID"),
+        help_text=_(
+            "Government-assigned bill identifier. Used as the {bill_id} URL parameter. "
+            "Safe to expose in API responses."
+        ),
+    )
+    amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        verbose_name=_("Amount"),
+    )
+    currency = models.CharField(
+        max_length=3,
+        validators=[_ISO4217_VALIDATOR],
+        verbose_name=_("Currency"),
+        help_text=_("ISO 4217 3-letter code. NOT restricted to CAD."),
+    )
+    description = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name=_("Description"),
+        help_text=_("Human-readable description of the bill (e.g. 'Passport Application Fee')."),
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_UNPAID,
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+    due_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Due Date"),
+        help_text=_("Date by which the bill must be paid. Optional."),
+    )
+    correlation_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Correlation ID"),
+        help_text=_("Optional cross-system correlation identifier for this bill."),
+    )
+
+    class Meta:
+        verbose_name = _("GovStack Bill")
+        verbose_name_plural = _("GovStack Bills")
+        indexes = [
+            models.Index(fields=["status", "due_date"], name="gs_bill_status_due_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="gs_bill_amount_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Bill {self.bill_id} [{self.status}]"
+
+
+# ---------------------------------------------------------------------------
+# GovStackBillPayment  (P2G Transfer Request)
+# ---------------------------------------------------------------------------
+
+class GovStackBillPayment(TimestampedModel):
+    """
+    A P2G bill payment record — the result of a POST /billTransferRequests call.
+
+    GovStack spec: api/P2G API YAMLs/BillTransferRequest.yml
+    Corresponds to the GovStack "Transfer Request" concept.
+
+    Each record is identified by request_id (supplied by the caller) which
+    acts as an idempotency key — duplicate request_ids return HTTP 400
+    (DuplicateBillPaymentError) rather than creating duplicate records.
+
+    Amounts and currency are snapshotted from GovStackBill at payment time so
+    the payment record remains accurate even if the bill's fee is later updated.
+
+    Security:
+    - payer_fi_id identifies the financial institution (not the citizen) and
+      is stored as plain text.  It is NOT included in audit details because:
+      (a) it is potentially identifiable infrastructure metadata, and
+      (b) it is already stored on this model for direct lookup.
+    - No citizen PII is stored on this model.
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, _("Pending")),
+        (STATUS_COMPLETED, _("Completed")),
+        (STATUS_FAILED, _("Failed")),
+    ]
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        verbose_name=_("ID"),
+    )
+    request_id = models.CharField(
+        max_length=100,
+        unique=True,  # unique already creates an index; enforces idempotency
+        verbose_name=_("Request ID"),
+        help_text=_(
+            "Caller-supplied idempotency key. Duplicate request_ids return HTTP 400 "
+            "instead of creating duplicate payment records."
+        ),
+    )
+    bill = models.ForeignKey(
+        GovStackBill,
+        on_delete=models.PROTECT,  # PROTECT: cannot delete a bill that has payment records
+        related_name="payments",
+        verbose_name=_("Bill"),
+    )
+    bill_inquiry_request_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Bill Inquiry Request ID"),
+        help_text=_("Request ID from a prior GET /bills/{billId} inquiry (optional)."),
+    )
+    payment_reference_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Payment Reference ID"),
+        help_text=_("Mobile money / financial network payment reference (optional)."),
+    )
+    correlation_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Correlation ID"),
+        help_text=_("X-CorrelationID header value for cross-system tracing."),
+    )
+    payer_fi_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Payer FI ID"),
+        help_text=_("X-PayerFI-Id header: financial institution that originated the payment."),
+    )
+    platform_tenant_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Platform Tenant ID"),
+        help_text=_("X-Platform-TenantId header value."),
+    )
+    # Snapshot of bill values at payment time.
+    amount = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        verbose_name=_("Amount"),
+        help_text=_("Snapshotted from GovStackBill.amount at payment time."),
+    )
+    currency = models.CharField(
+        max_length=3,
+        validators=[_ISO4217_VALIDATOR],
+        verbose_name=_("Currency"),
+        help_text=_("Snapshotted from GovStackBill.currency at payment time."),
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+
+    class Meta:
+        verbose_name = _("GovStack Bill Payment")
+        verbose_name_plural = _("GovStack Bill Payments")
+        indexes = [
+            models.Index(fields=["bill", "status"], name="gs_billpay_bill_status_idx"),
+            models.Index(fields=["status", "created_at"], name="gs_billpay_status_created_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="gs_billpay_amount_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"BillPayment {self.request_id} [{self.status}] (bill={self.bill_id})"

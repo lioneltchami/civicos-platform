@@ -60,11 +60,13 @@ from rest_framework.views import APIView
 from .govstack_auth import AllowAnyBB, HasVoucherJWT, IsTrustedSourceBB
 from .govstack_exceptions import (
     DuplicateBatchError,
+    DuplicateBillPaymentError,
     DuplicateValidationRequestError,
     govstack_exception_handler,
     govstack_g2p_exception_handler,
 )
 from .govstack_serializers import (
+    BillTransferRequestSerializer,
     BulkPaymentRequestSerializer,
     PrepaymentValidationRequestSerializer,
     PrepaymentValidationResponseAckSerializer,
@@ -77,6 +79,7 @@ from .govstack_serializers import (
 from .govstack_services import (
     GovStackBeneficiaryService,
     GovStackBulkPaymentService,
+    GovStackP2GService,
     GovStackVoucherService,
 )
 
@@ -786,18 +789,38 @@ class BillInquiryView(GovStackAPIView):
     """
     GET /govstack/payments/bills/{bill_id}
 
-    Adapts CivicOS FeeSchedule → GovStack P2G bill inquiry shape.
-    No harness feature yet.
+    GovStack spec: api/P2G API YAMLs/
+    Harness: no P2G harness feature in current certification cycle.
 
-    Wave 1: stub.
-    Wave 5: full implementation.
+    Look up a government bill by its bill_id.  Typically called by the Source BB
+    (mobile money operator) before initiating payment so it can display the
+    correct amount and description to the citizen.
+
+    URL param: bill_id (str) — must match GovStackBill.bill_id exactly.
+
+    Response 200: {billId, amount, currency, description, status, dueDate}
+    Response 404: {"message": "Bill not found."}
+
+    Security:
+    - bill_id is a government-assigned identifier; not citizen PII.
+    - description field is admin-controlled and reviewed before DB insert.
     """
     permission_classes = [AllowAnyBB]
 
     def get(self, request: Request, bill_id: str) -> Response:
+        # BillNotFound (404) is an APIException — handled by govstack_exception_handler.
+        bill = GovStackP2GService.get_bill(bill_id=str(bill_id).strip())
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "billId": bill.bill_id,
+                "amount": str(bill.amount),
+                "currency": bill.currency,
+                "description": bill.description,
+                "status": bill.status,
+                "dueDate": bill.due_date.isoformat() if bill.due_date else None,
+            },
+            status=200,
         )
 
 
@@ -805,18 +828,69 @@ class BillTransferRequestView(GovStackAPIView):
     """
     POST /govstack/payments/billTransferRequests
 
-    Receives a mobile money payment notification for a bill.
-    Required headers: X-CorrelationID, X-Platform-TenantId, X-PayerFI-Id
+    GovStack spec: api/P2G API YAMLs/BillTransferRequest.yml
+    Harness: no P2G harness feature in current certification cycle.
 
-    Wave 1: stub.
-    Wave 5: full implementation.
+    Called by a Source BB (mobile money operator) to notify the Payments BB
+    that a citizen has submitted a payment for a government bill.
+
+    Optional headers consumed:
+      X-CorrelationID       — stored on the payment record for cross-system tracing
+      X-PayerFI-Id          — financial institution that originated the payment
+      X-Platform-TenantId   — platform tenant identifier
+
+    Body: {requestId, billId, billInquiryRequestId?, paymentReferenceID?}
+    Response 200: {requestId, billId, amount, currency, status, message}
+    Response 400: {"message": "..."} (missing fields or duplicate requestId)
+    Response 404: {"message": "Bill not found."}
+
+    Security:
+    - merchant / citizen details are NOT stored here; GovStackBillPayment only
+      stores the financial institution ID (payer_fi_id), not citizen data.
+    - payer_fi_id is not echoed back in the response.
     """
     permission_classes = [AllowAnyBB]
 
     def post(self, request: Request) -> Response:
+        ser = BillTransferRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                {"message": self._flatten_errors(ser.errors)},
+                status=400,
+            )
+        d = ser.validated_data
+
+        correlation_id = request.headers.get("X-CorrelationID", "").strip()
+        payer_fi_id = request.headers.get("X-PayerFI-Id", "").strip()
+        platform_tenant_id = request.headers.get("X-Platform-TenantId", "").strip()
+
+        try:
+            # BillNotFound (404) is an APIException — propagates automatically.
+            payment = GovStackP2GService.create_transfer_request(
+                request_id=d["requestId"],
+                bill_id=d["billId"],
+                bill_inquiry_request_id=d.get("billInquiryRequestId", ""),
+                payment_reference_id=d.get("paymentReferenceID", ""),
+                correlation_id=correlation_id,
+                payer_fi_id=payer_fi_id,
+                platform_tenant_id=platform_tenant_id,
+            )
+        except DuplicateBillPaymentError:
+            return Response(
+                {"message": "Transfer request ID has already been received."},
+                status=400,
+            )
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "requestId": payment.request_id,
+                "billId": payment.bill.bill_id,
+                "amount": str(payment.amount),
+                "currency": payment.currency,
+                "status": payment.status,
+                "message": "Bill payment request received successfully.",
+            },
+            status=200,
         )
 
 
@@ -824,18 +898,36 @@ class MarkBillPaidView(GovStackAPIView):
     """
     POST /govstack/payments/bills/{bill_id}/mark-paid
 
-    Staff endpoint: manually mark a bill as paid after confirming
-    mobile money receipt.
+    GovStack spec: staff / fallback endpoint (not in the citizen-facing P2G spec).
+    Harness: no P2G harness feature in current certification cycle.
 
-    Wave 1: stub.
-    Wave 5: full implementation.
+    Manually marks a GovStackBill as PAID.  Used when the automatic
+    POST /billTransferRequests notification was not received (e.g. mobile money
+    network outage) but the government has confirmed payment through another channel.
+
+    Unlike POST /billTransferRequests, this does NOT require a requestId body and
+    does NOT create a GovStackBillPayment record — it only transitions the bill's
+    status to PAID.  Marking an already-PAID bill is a no-op (returns 200 as-is).
+
+    URL param: bill_id (str) — must match GovStackBill.bill_id exactly.
+
+    Body: (empty — no body required)
+    Response 200: {billId, status, message}
+    Response 404: {"message": "Bill not found."}
     """
     permission_classes = [AllowAnyBB]
 
     def post(self, request: Request, bill_id: str) -> Response:
+        # BillNotFound (404) is an APIException — handled automatically.
+        bill = GovStackP2GService.mark_bill_paid(bill_id=str(bill_id).strip())
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "billId": bill.bill_id,
+                "status": bill.status,
+                "message": "Bill marked as paid successfully.",
+            },
+            status=200,
         )
 
 
@@ -843,15 +935,32 @@ class TransferRequestStatusView(GovStackAPIView):
     """
     GET /govstack/payments/transferRequests/{transfer_request_id}
 
-    Status check for a P2G transfer request.
+    GovStack spec: api/P2G API YAMLs/
+    Harness: no P2G harness feature in current certification cycle.
 
-    Wave 1: stub.
-    Wave 5: full implementation.
+    Status check for a P2G transfer request.  Source BBs can poll this endpoint
+    after submitting POST /billTransferRequests to confirm the payment was recorded.
+
+    URL param: transfer_request_id (str) — matches GovStackBillPayment.request_id.
+
+    Response 200: {requestId, billId, amount, currency, status}
+    Response 404: {"message": "Transfer request not found."}
     """
     permission_classes = [AllowAnyBB]
 
     def get(self, request: Request, transfer_request_id: str) -> Response:
+        # BillPaymentNotFound (404) is an APIException — handled automatically.
+        payment = GovStackP2GService.get_transfer_request(
+            request_id=str(transfer_request_id).strip()
+        )
+
         return Response(
-            {"status": "not_implemented"},
-            status=501,
+            {
+                "requestId": payment.request_id,
+                "billId": payment.bill.bill_id,
+                "amount": str(payment.amount),
+                "currency": payment.currency,
+                "status": payment.status,
+            },
+            status=200,
         )

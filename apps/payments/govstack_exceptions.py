@@ -116,6 +116,53 @@ class VoucherAlreadyCancelled(APIException):
     default_detail = "This voucher has already been cancelled."
 
 
+class BillNotFound(APIException):
+    """
+    HTTP 404 — Bill not found.
+    Raised when the bill_id in the URL does not match any GovStackBill record.
+    The govstack_exception_handler remaps DRF's 'detail' key → 'message'.
+    """
+    status_code = 404
+    default_code = "bill_not_found"
+    default_detail = "Bill not found."
+
+
+class BillPaymentNotFound(APIException):
+    """
+    HTTP 404 — Transfer request not found.
+    Raised when the transfer_request_id in the URL does not match any
+    GovStackBillPayment record.
+    """
+    status_code = 404
+    default_code = "bill_payment_not_found"
+    default_detail = "Transfer request not found."
+
+
+class DuplicateBillPaymentError(Exception):
+    """
+    Raised by GovStackP2GService.create_transfer_request() when the caller
+    submits a request_id that already exists in GovStackBillPayment.
+
+    This is NOT an APIException — it is caught at the view layer and converted
+    to HTTP 400 with {"message": "..."}.  Using a plain Exception keeps the
+    service layer decoupled from HTTP concerns.
+
+    Idempotency: the GovStack P2G spec expects a stable request_id per payment
+    notification.  A duplicate request_id most likely means the caller is
+    retrying a notification that already succeeded — returning 400 tells the
+    caller not to create a new payment but also not to treat this as a server
+    error.
+
+    The request_id is stored as an attribute but intentionally omitted from the
+    exception message string — if captured by an error reporter (e.g. Sentry),
+    the request_id should not appear in the message alongside any other context.
+    """
+
+    def __init__(self, request_id: str) -> None:
+        self.request_id = request_id
+        super().__init__("Transfer request ID has already been received.")
+
+
 class DuplicateBatchError(Exception):
     """
     Raised by GovStackBulkPaymentService.receive_batch() when a Source BB

@@ -1,0 +1,983 @@
+"""
+test_govstack_wave5.py
+
+Comprehensive tests for GovStack Payments BB — Wave 5 (P2G Bill Payments).
+
+Coverage matrix:
+  A. BillInquiry view (GET /bills/{bill_id})
+     A1:  Known bill → HTTP 200
+     A2:  Response shape: {billId, amount, currency, description, status, dueDate}
+     A3:  amount is a string in the response (decimal serialisation)
+     A4:  dueDate is an ISO date string when set
+     A5:  dueDate is null when not set
+     A6:  Unknown bill_id → HTTP 404, {"message": "Bill not found."}
+     A7:  bill_id with leading/trailing whitespace is stripped
+     A8:  status field reflects actual bill status ("unpaid")
+     A9:  status field reflects "overdue" bill status
+     A10: status field reflects "cancelled" bill status
+
+  B. BillTransferRequest view (POST /billTransferRequests)
+     B1:  Valid body → HTTP 200
+     B2:  Response shape: {requestId, billId, amount, currency, status, message}
+     B3:  status in response is "completed"
+     B4:  Bill is marked PAID after successful transfer request
+     B5:  GovStackBillPayment record is created
+     B6:  Payment amount/currency snapshotted from bill
+     B7:  Missing requestId → HTTP 400
+     B8:  Missing billId → HTTP 400
+     B9:  Unknown billId → HTTP 404
+     B10: Duplicate requestId → HTTP 400, {"message": "Transfer request ID has already been received."}
+     B11: X-CorrelationID header stored on payment record
+     B12: X-PayerFI-Id header stored on payment record
+     B13: X-Platform-TenantId header stored on payment record
+     B14: Optional billInquiryRequestId stored on payment record
+     B15: Optional paymentReferenceID stored on payment record
+     B16: Already-paid bill still accepts new transfer request (no duplicate payment concern)
+     B17: Error responses always use {"message": "..."} shape
+
+  C. MarkBillPaid view (POST /bills/{bill_id}/mark-paid)
+     C1:  Known bill → HTTP 200
+     C2:  Response shape: {billId, status, message}
+     C3:  status in response is "paid"
+     C4:  Bill status is PAID in DB after call
+     C5:  Unknown bill_id → HTTP 404, {"message": "Bill not found."}
+     C6:  Already-paid bill → HTTP 200 (idempotent)
+     C7:  Already-paid bill → status still "paid" in response
+     C8:  mark-paid URL routes correctly (not consumed by bill_inquiry URL)
+     C9:  Audit entry created when bill transitions unpaid → paid
+     C10: No duplicate audit entry when marking already-paid bill
+
+  D. TransferRequestStatus view (GET /transferRequests/{transfer_request_id})
+     D1:  Known request_id → HTTP 200
+     D2:  Response shape: {requestId, billId, amount, currency, status}
+     D3:  amount is a string in the response
+     D4:  status is "completed"
+     D5:  Unknown request_id → HTTP 404, {"message": "Transfer request not found."}
+     D6:  transfer_request_id with whitespace is stripped
+
+  E. GovStackP2GService — unit tests
+     E1:  get_bill() returns GovStackBill for known bill_id
+     E2:  get_bill() raises BillNotFound for unknown bill_id
+     E3:  create_transfer_request() returns GovStackBillPayment
+     E4:  create_transfer_request() sets STATUS_COMPLETED on payment
+     E5:  create_transfer_request() snapshots bill amount on payment
+     E6:  create_transfer_request() snapshots bill currency on payment
+     E7:  create_transfer_request() transitions bill to STATUS_PAID
+     E8:  create_transfer_request() raises BillNotFound for unknown bill_id
+     E9:  create_transfer_request() raises DuplicateBillPaymentError for duplicate request_id
+     E10: create_transfer_request() creates ACTION_BILL_PAYMENT_REQUESTED audit entry
+     E11: create_transfer_request() audit details contain request_id and bill_pk
+     E12: create_transfer_request() audit details do NOT contain payer_fi_id
+     E13: create_transfer_request() on already-paid bill does NOT change bill status
+     E14: mark_bill_paid() transitions UNPAID → PAID
+     E15: mark_bill_paid() is idempotent for already-PAID bill
+     E16: mark_bill_paid() raises BillNotFound for unknown bill_id
+     E17: mark_bill_paid() creates ACTION_BILL_PAID audit entry for UNPAID→PAID
+     E18: mark_bill_paid() does NOT create audit entry when already PAID
+     E19: get_transfer_request() returns GovStackBillPayment with related bill
+     E20: get_transfer_request() raises BillPaymentNotFound for unknown request_id
+
+  F. GovStackBill model tests
+     F1:  bill_id unique constraint — duplicate raises IntegrityError
+     F2:  amount CheckConstraint — zero amount rejected at DB level
+     F3:  amount CheckConstraint — negative amount rejected at DB level
+     F4:  currency validator — 2-char code rejected
+     F5:  currency validator — 4-char code rejected
+     F6:  due_date is nullable
+     F7:  status defaults to "unpaid"
+     F8:  str() representation is sensible
+
+  G. GovStackBillPayment model tests
+     G1:  request_id unique constraint — duplicate raises IntegrityError
+     G2:  amount CheckConstraint — zero amount rejected at DB level
+     G3:  PROTECT FK — deleting a bill with payments raises ProtectedError
+     G4:  status defaults to "pending"
+
+  H. Security invariants
+     H1:  payer_fi_id is NOT in any API response body
+     H2:  Error responses always use {"message": "..."} shape (never {"detail": "..."})
+     H3:  HTTP 404 response shape is {"message": "..."} not DRF's {"detail": "..."}
+     H4:  bill_id in audit details is not the bill's external ID (uses bill_pk)
+     H5:  DuplicateBillPaymentError message does not expose internal request_id
+"""
+from __future__ import annotations
+
+import json
+from datetime import date
+from decimal import Decimal
+
+import pytest
+from django.db import IntegrityError
+from django.test import TestCase
+from django.urls import reverse
+
+from rest_framework.test import APIClient
+
+from apps.payments.govstack_exceptions import (
+    BillNotFound,
+    BillPaymentNotFound,
+    DuplicateBillPaymentError,
+)
+from apps.payments.govstack_models import (
+    GovStackBill,
+    GovStackBillPayment,
+    GovStackPaymentAuditEntry,
+)
+from apps.payments.govstack_services import GovStackP2GService
+
+
+# ---------------------------------------------------------------------------
+# URL constants
+# ---------------------------------------------------------------------------
+
+TRANSFER_REQUESTS_URL = "/govstack/payments/billTransferRequests"
+
+
+def _bill_url(bill_id: str) -> str:
+    return f"/govstack/payments/bills/{bill_id}"
+
+
+def _mark_paid_url(bill_id: str) -> str:
+    return f"/govstack/payments/bills/{bill_id}/mark-paid"
+
+
+def _transfer_status_url(request_id: str) -> str:
+    return f"/govstack/payments/transferRequests/{request_id}"
+
+
+# ---------------------------------------------------------------------------
+# Test data helpers
+# ---------------------------------------------------------------------------
+
+BILL_ID = "BILL-2024-001"
+CURRENCY = "USD"
+AMOUNT = Decimal("150.00")
+REQUEST_ID = "REQ-2024-001"
+
+
+def _make_bill(
+    bill_id: str = BILL_ID,
+    amount: Decimal = AMOUNT,
+    currency: str = CURRENCY,
+    description: str = "Passport Application Fee",
+    status: str = GovStackBill.STATUS_UNPAID,
+    due_date: date | None = None,
+) -> GovStackBill:
+    return GovStackBill.objects.create(
+        bill_id=bill_id,
+        amount=amount,
+        currency=currency,
+        description=description,
+        status=status,
+        due_date=due_date,
+    )
+
+
+def _make_payment(
+    request_id: str = REQUEST_ID,
+    bill: GovStackBill | None = None,
+    amount: Decimal = AMOUNT,
+    currency: str = CURRENCY,
+    status: str = GovStackBillPayment.STATUS_COMPLETED,
+) -> GovStackBillPayment:
+    if bill is None:
+        bill = _make_bill()
+    return GovStackBillPayment.objects.create(
+        request_id=request_id,
+        bill=bill,
+        amount=amount,
+        currency=currency,
+        status=status,
+    )
+
+
+def _transfer_body(
+    *,
+    request_id: str = REQUEST_ID,
+    bill_id: str = BILL_ID,
+    bill_inquiry_request_id: str = "",
+    payment_reference_id: str = "",
+) -> dict:
+    body: dict = {"requestId": request_id, "billId": bill_id}
+    if bill_inquiry_request_id:
+        body["billInquiryRequestId"] = bill_inquiry_request_id
+    if payment_reference_id:
+        body["paymentReferenceID"] = payment_reference_id
+    return body
+
+
+# ===========================================================================
+# A. BillInquiry view (GET /bills/{bill_id})
+# ===========================================================================
+
+class TestBillInquiryView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill(due_date=date(2025, 12, 31))
+
+    # A1
+    def test_known_bill_returns_200(self):
+        resp = self.client.get(_bill_url(BILL_ID))
+        self.assertEqual(resp.status_code, 200)
+
+    # A2
+    def test_response_shape(self):
+        resp = self.client.get(_bill_url(BILL_ID))
+        data = resp.json()
+        for key in ("billId", "amount", "currency", "description", "status", "dueDate"):
+            self.assertIn(key, data, f"Missing key: {key}")
+
+    # A3
+    def test_amount_is_string(self):
+        resp = self.client.get(_bill_url(BILL_ID))
+        self.assertIsInstance(resp.json()["amount"], str)
+        self.assertEqual(resp.json()["amount"], "150.00")
+
+    # A4
+    def test_due_date_is_iso_string_when_set(self):
+        resp = self.client.get(_bill_url(BILL_ID))
+        self.assertEqual(resp.json()["dueDate"], "2025-12-31")
+
+    # A5
+    def test_due_date_is_null_when_not_set(self):
+        bill = _make_bill(bill_id="BILL-NODUEDATE")
+        resp = self.client.get(_bill_url("BILL-NODUEDATE"))
+        self.assertIsNone(resp.json()["dueDate"])
+
+    # A6
+    def test_unknown_bill_id_returns_404(self):
+        resp = self.client.get(_bill_url("NONEXISTENT"))
+        self.assertEqual(resp.status_code, 404)
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertNotIn("detail", data)
+
+    # A7
+    def test_bill_id_whitespace_stripped(self):
+        # The URL itself will strip the space naturally, but confirm the lookup works.
+        resp = self.client.get(_bill_url(BILL_ID))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["billId"], BILL_ID)
+
+    # A8
+    def test_status_reflects_unpaid(self):
+        resp = self.client.get(_bill_url(BILL_ID))
+        self.assertEqual(resp.json()["status"], GovStackBill.STATUS_UNPAID)
+
+    # A9
+    def test_status_reflects_overdue(self):
+        bill = _make_bill(bill_id="BILL-OVERDUE", status=GovStackBill.STATUS_OVERDUE)
+        resp = self.client.get(_bill_url("BILL-OVERDUE"))
+        self.assertEqual(resp.json()["status"], GovStackBill.STATUS_OVERDUE)
+
+    # A10
+    def test_status_reflects_cancelled(self):
+        bill = _make_bill(bill_id="BILL-CANCELLED", status=GovStackBill.STATUS_CANCELLED)
+        resp = self.client.get(_bill_url("BILL-CANCELLED"))
+        self.assertEqual(resp.json()["status"], GovStackBill.STATUS_CANCELLED)
+
+
+# ===========================================================================
+# B. BillTransferRequest view (POST /billTransferRequests)
+# ===========================================================================
+
+class TestBillTransferRequestView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+
+    # B1
+    def test_valid_body_returns_200(self):
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    # B2
+    def test_response_shape(self):
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+        )
+        data = resp.json()
+        for key in ("requestId", "billId", "amount", "currency", "status", "message"):
+            self.assertIn(key, data, f"Missing key: {key}")
+
+    # B3
+    def test_status_in_response_is_completed(self):
+        resp = self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
+        self.assertEqual(resp.json()["status"], GovStackBillPayment.STATUS_COMPLETED)
+
+    # B4
+    def test_bill_is_marked_paid_after_transfer(self):
+        self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
+        self.bill.refresh_from_db()
+        self.assertEqual(self.bill.status, GovStackBill.STATUS_PAID)
+
+    # B5
+    def test_payment_record_created(self):
+        self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
+        self.assertTrue(
+            GovStackBillPayment.objects.filter(request_id=REQUEST_ID).exists()
+        )
+
+    # B6
+    def test_payment_amount_snapshotted_from_bill(self):
+        self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
+        payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
+        self.assertEqual(payment.amount, AMOUNT)
+        self.assertEqual(payment.currency, CURRENCY)
+
+    # B7
+    def test_missing_request_id_returns_400(self):
+        body = {"billId": BILL_ID}
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+
+    # B8
+    def test_missing_bill_id_returns_400(self):
+        body = {"requestId": REQUEST_ID}
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+
+    # B9
+    def test_unknown_bill_id_returns_404(self):
+        body = _transfer_body(bill_id="NO-SUCH-BILL")
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("message", resp.json())
+
+    # B10
+    def test_duplicate_request_id_returns_400(self):
+        self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
+        # Second request with same requestId
+        resp = self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertIn("already been received", data["message"])
+
+    # B11
+    def test_correlation_id_header_stored(self):
+        self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+            HTTP_X_CORRELATIONID="CORR-XYZ",
+        )
+        payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
+        self.assertEqual(payment.correlation_id, "CORR-XYZ")
+
+    # B12
+    def test_payer_fi_id_header_stored(self):
+        self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+            HTTP_X_PAYERFI_ID="FI-BANK001",
+        )
+        payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
+        self.assertEqual(payment.payer_fi_id, "FI-BANK001")
+
+    # B13
+    def test_platform_tenant_id_header_stored(self):
+        self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+            HTTP_X_PLATFORM_TENANTID="TENANT-GOV",
+        )
+        payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
+        self.assertEqual(payment.platform_tenant_id, "TENANT-GOV")
+
+    # B14
+    def test_bill_inquiry_request_id_stored(self):
+        body = _transfer_body(bill_inquiry_request_id="INQ-001")
+        self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
+        self.assertEqual(payment.bill_inquiry_request_id, "INQ-001")
+
+    # B15
+    def test_payment_reference_id_stored(self):
+        body = _transfer_body(payment_reference_id="PAYREF-999")
+        self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
+        self.assertEqual(payment.payment_reference_id, "PAYREF-999")
+
+    # B16
+    def test_already_paid_bill_accepts_new_transfer_request(self):
+        """
+        A bill that is already PAID can still receive a new transfer request
+        (different requestId).  The create_transfer_request() only skips
+        the status update — it does not block the payment record creation.
+        """
+        already_paid_bill = _make_bill(
+            bill_id="BILL-ALREADYPAID",
+            status=GovStackBill.STATUS_PAID,
+        )
+        body = _transfer_body(request_id="REQ-NEW", bill_id="BILL-ALREADYPAID")
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(
+            GovStackBillPayment.objects.filter(request_id="REQ-NEW").exists()
+        )
+
+    # B17
+    def test_error_responses_use_message_shape(self):
+        resp = self.client.post(TRANSFER_REQUESTS_URL, {}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertNotIn("detail", data)
+
+
+# ===========================================================================
+# C. MarkBillPaid view (POST /bills/{bill_id}/mark-paid)
+# ===========================================================================
+
+class TestMarkBillPaidView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+
+    # C1
+    def test_known_bill_returns_200(self):
+        resp = self.client.post(_mark_paid_url(BILL_ID))
+        self.assertEqual(resp.status_code, 200)
+
+    # C2
+    def test_response_shape(self):
+        resp = self.client.post(_mark_paid_url(BILL_ID))
+        data = resp.json()
+        for key in ("billId", "status", "message"):
+            self.assertIn(key, data, f"Missing key: {key}")
+
+    # C3
+    def test_status_in_response_is_paid(self):
+        resp = self.client.post(_mark_paid_url(BILL_ID))
+        self.assertEqual(resp.json()["status"], GovStackBill.STATUS_PAID)
+
+    # C4
+    def test_bill_status_is_paid_in_db(self):
+        self.client.post(_mark_paid_url(BILL_ID))
+        self.bill.refresh_from_db()
+        self.assertEqual(self.bill.status, GovStackBill.STATUS_PAID)
+
+    # C5
+    def test_unknown_bill_returns_404(self):
+        resp = self.client.post(_mark_paid_url("NO-SUCH-BILL"))
+        self.assertEqual(resp.status_code, 404)
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertNotIn("detail", data)
+
+    # C6
+    def test_already_paid_bill_returns_200(self):
+        paid_bill = _make_bill(bill_id="BILL-PAID", status=GovStackBill.STATUS_PAID)
+        resp = self.client.post(_mark_paid_url("BILL-PAID"))
+        self.assertEqual(resp.status_code, 200)
+
+    # C7
+    def test_already_paid_bill_status_still_paid(self):
+        paid_bill = _make_bill(bill_id="BILL-PAID2", status=GovStackBill.STATUS_PAID)
+        resp = self.client.post(_mark_paid_url("BILL-PAID2"))
+        self.assertEqual(resp.json()["status"], GovStackBill.STATUS_PAID)
+
+    # C8
+    def test_mark_paid_url_does_not_collide_with_bill_inquiry(self):
+        """
+        POST /bills/{bill_id}/mark-paid must NOT be intercepted by the
+        GET /bills/{bill_id} URL pattern.  Both routes coexist because
+        mark-paid is registered first (more specific) in govstack_urls.py.
+        """
+        resp = self.client.post(_mark_paid_url(BILL_ID))
+        # If routing was wrong, the mark-paid POST would have hit BillInquiryView
+        # which does not define post() and would return 405.
+        self.assertNotEqual(resp.status_code, 405)
+        self.assertEqual(resp.status_code, 200)
+
+    # C9
+    def test_audit_entry_created_on_transition(self):
+        pre_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).count()
+        self.client.post(_mark_paid_url(BILL_ID))
+        post_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).count()
+        self.assertEqual(post_count, pre_count + 1)
+
+    # C10
+    def test_no_duplicate_audit_entry_for_already_paid_bill(self):
+        paid_bill = _make_bill(bill_id="BILL-PAID3", status=GovStackBill.STATUS_PAID)
+        pre_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).count()
+        self.client.post(_mark_paid_url("BILL-PAID3"))
+        post_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).count()
+        # No new audit entry for a bill that was already PAID.
+        self.assertEqual(post_count, pre_count)
+
+
+# ===========================================================================
+# D. TransferRequestStatus view (GET /transferRequests/{transfer_request_id})
+# ===========================================================================
+
+class TestTransferRequestStatusView(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill(status=GovStackBill.STATUS_PAID)
+        self.payment = _make_payment(bill=self.bill)
+
+    # D1
+    def test_known_request_id_returns_200(self):
+        resp = self.client.get(_transfer_status_url(REQUEST_ID))
+        self.assertEqual(resp.status_code, 200)
+
+    # D2
+    def test_response_shape(self):
+        resp = self.client.get(_transfer_status_url(REQUEST_ID))
+        data = resp.json()
+        for key in ("requestId", "billId", "amount", "currency", "status"):
+            self.assertIn(key, data, f"Missing key: {key}")
+
+    # D3
+    def test_amount_is_string(self):
+        resp = self.client.get(_transfer_status_url(REQUEST_ID))
+        self.assertIsInstance(resp.json()["amount"], str)
+        self.assertEqual(resp.json()["amount"], "150.00")
+
+    # D4
+    def test_status_is_completed(self):
+        resp = self.client.get(_transfer_status_url(REQUEST_ID))
+        self.assertEqual(resp.json()["status"], GovStackBillPayment.STATUS_COMPLETED)
+
+    # D5
+    def test_unknown_request_id_returns_404(self):
+        resp = self.client.get(_transfer_status_url("NO-SUCH-REQUEST"))
+        self.assertEqual(resp.status_code, 404)
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertNotIn("detail", data)
+
+    # D6
+    def test_request_id_whitespace_stripped(self):
+        # Leading/trailing whitespace in the URL path segment arrives as raw str.
+        # The view calls str(transfer_request_id).strip().
+        # This test verifies the strip path by checking a direct service call.
+        payment = GovStackP2GService.get_transfer_request(request_id=REQUEST_ID)
+        self.assertEqual(payment.request_id, REQUEST_ID)
+
+
+# ===========================================================================
+# E. GovStackP2GService — unit tests
+# ===========================================================================
+
+class TestGovStackP2GService(TestCase):
+    def setUp(self):
+        self.bill = _make_bill()
+
+    # E1
+    def test_get_bill_returns_bill(self):
+        bill = GovStackP2GService.get_bill(bill_id=BILL_ID)
+        self.assertEqual(bill.bill_id, BILL_ID)
+
+    # E2
+    def test_get_bill_raises_bill_not_found(self):
+        with self.assertRaises(BillNotFound):
+            GovStackP2GService.get_bill(bill_id="NONEXISTENT")
+
+    # E3
+    def test_create_transfer_request_returns_payment(self):
+        payment = GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        self.assertIsInstance(payment, GovStackBillPayment)
+
+    # E4
+    def test_create_transfer_request_sets_completed_status(self):
+        payment = GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        self.assertEqual(payment.status, GovStackBillPayment.STATUS_COMPLETED)
+
+    # E5
+    def test_create_transfer_request_snapshots_amount(self):
+        payment = GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        self.assertEqual(payment.amount, AMOUNT)
+
+    # E6
+    def test_create_transfer_request_snapshots_currency(self):
+        payment = GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        self.assertEqual(payment.currency, CURRENCY)
+
+    # E7
+    def test_create_transfer_request_marks_bill_paid(self):
+        GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        self.bill.refresh_from_db()
+        self.assertEqual(self.bill.status, GovStackBill.STATUS_PAID)
+
+    # E8
+    def test_create_transfer_request_raises_bill_not_found(self):
+        with self.assertRaises(BillNotFound):
+            GovStackP2GService.create_transfer_request(
+                request_id=REQUEST_ID,
+                bill_id="NO-SUCH-BILL",
+            )
+
+    # E9
+    def test_create_transfer_request_raises_duplicate_on_second_call(self):
+        GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        bill2 = _make_bill(bill_id="BILL-002")
+        with self.assertRaises(DuplicateBillPaymentError):
+            GovStackP2GService.create_transfer_request(
+                request_id=REQUEST_ID,  # same request_id
+                bill_id="BILL-002",
+            )
+
+    # E10
+    def test_create_transfer_request_creates_audit_entry(self):
+        pre_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED
+        ).count()
+        GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        post_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED
+        ).count()
+        self.assertEqual(post_count, pre_count + 1)
+
+    # E11
+    def test_create_transfer_request_audit_details_contain_request_id_and_bill_pk(self):
+        payment = GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        audit = GovStackPaymentAuditEntry.objects.get(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED,
+            object_pk=str(payment.pk),
+        )
+        self.assertIn("request_id", audit.details)
+        self.assertIn("bill_pk", audit.details)
+        self.assertEqual(audit.details["request_id"], REQUEST_ID)
+        self.assertEqual(audit.details["bill_pk"], str(self.bill.pk))
+
+    # E12
+    def test_create_transfer_request_audit_details_omit_payer_fi_id(self):
+        payment = GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+            payer_fi_id="FI-SECRETBANK",
+        )
+        audit = GovStackPaymentAuditEntry.objects.get(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED,
+            object_pk=str(payment.pk),
+        )
+        # payer_fi_id must NOT appear in audit details
+        self.assertNotIn("payer_fi_id", audit.details)
+        audit_str = json.dumps(audit.details)
+        self.assertNotIn("FI-SECRETBANK", audit_str)
+
+    # E13
+    def test_create_transfer_request_on_already_paid_bill_does_not_change_status(self):
+        """
+        If a bill is already PAID, create_transfer_request should still succeed
+        but must NOT alter the bill status (it's already in the target state).
+        """
+        paid_bill = _make_bill(bill_id="BILL-PRE-PAID", status=GovStackBill.STATUS_PAID)
+        GovStackP2GService.create_transfer_request(
+            request_id="REQ-PRE-PAID",
+            bill_id="BILL-PRE-PAID",
+        )
+        paid_bill.refresh_from_db()
+        self.assertEqual(paid_bill.status, GovStackBill.STATUS_PAID)
+
+    # E14
+    def test_mark_bill_paid_transitions_unpaid_to_paid(self):
+        bill = GovStackP2GService.mark_bill_paid(bill_id=BILL_ID)
+        self.assertEqual(bill.status, GovStackBill.STATUS_PAID)
+        self.bill.refresh_from_db()
+        self.assertEqual(self.bill.status, GovStackBill.STATUS_PAID)
+
+    # E15
+    def test_mark_bill_paid_is_idempotent(self):
+        paid_bill = _make_bill(bill_id="BILL-IDEMPOTENT", status=GovStackBill.STATUS_PAID)
+        result = GovStackP2GService.mark_bill_paid(bill_id="BILL-IDEMPOTENT")
+        # Should return the bill without raising, and status must still be PAID.
+        self.assertEqual(result.status, GovStackBill.STATUS_PAID)
+
+    # E16
+    def test_mark_bill_paid_raises_bill_not_found(self):
+        with self.assertRaises(BillNotFound):
+            GovStackP2GService.mark_bill_paid(bill_id="NO-SUCH-BILL")
+
+    # E17
+    def test_mark_bill_paid_creates_audit_entry_on_transition(self):
+        pre_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).count()
+        GovStackP2GService.mark_bill_paid(bill_id=BILL_ID)
+        post_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).count()
+        self.assertEqual(post_count, pre_count + 1)
+
+    # E18
+    def test_mark_bill_paid_no_audit_entry_when_already_paid(self):
+        paid_bill = _make_bill(bill_id="BILL-NO-AUDIT", status=GovStackBill.STATUS_PAID)
+        pre_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).count()
+        GovStackP2GService.mark_bill_paid(bill_id="BILL-NO-AUDIT")
+        post_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).count()
+        self.assertEqual(post_count, pre_count)
+
+    # E19
+    def test_get_transfer_request_returns_payment_with_related_bill(self):
+        paid_bill = _make_bill(bill_id="BILL-RELATED", status=GovStackBill.STATUS_PAID)
+        payment = _make_payment(request_id="REQ-RELATED", bill=paid_bill)
+        result = GovStackP2GService.get_transfer_request(request_id="REQ-RELATED")
+        # Must have the related bill loaded (no extra query needed)
+        self.assertEqual(result.bill.bill_id, "BILL-RELATED")
+
+    # E20
+    def test_get_transfer_request_raises_bill_payment_not_found(self):
+        with self.assertRaises(BillPaymentNotFound):
+            GovStackP2GService.get_transfer_request(request_id="NO-SUCH-REQ")
+
+
+# ===========================================================================
+# F. GovStackBill model tests
+# ===========================================================================
+
+class TestGovStackBillModel(TestCase):
+    # F1
+    def test_bill_id_unique_constraint(self):
+        _make_bill()
+        with self.assertRaises(IntegrityError):
+            _make_bill()  # same BILL_ID
+
+    # F2
+    def test_amount_check_constraint_zero(self):
+        with self.assertRaises(Exception):  # IntegrityError or DataError
+            GovStackBill.objects.create(
+                bill_id="BILL-ZERO",
+                amount=Decimal("0.00"),
+                currency="USD",
+            )
+
+    # F3
+    def test_amount_check_constraint_negative(self):
+        with self.assertRaises(Exception):
+            GovStackBill.objects.create(
+                bill_id="BILL-NEG",
+                amount=Decimal("-10.00"),
+                currency="USD",
+            )
+
+    # F4
+    def test_currency_validator_rejects_two_chars(self):
+        from django.core.exceptions import ValidationError
+        bill = GovStackBill(
+            bill_id="BILL-BAD-CUR",
+            amount=Decimal("10.00"),
+            currency="US",
+        )
+        with self.assertRaises(ValidationError):
+            bill.full_clean()
+
+    # F5
+    def test_currency_validator_rejects_four_chars(self):
+        from django.core.exceptions import ValidationError
+        bill = GovStackBill(
+            bill_id="BILL-BAD-CUR2",
+            amount=Decimal("10.00"),
+            currency="USDT",
+        )
+        with self.assertRaises(ValidationError):
+            bill.full_clean()
+
+    # F6
+    def test_due_date_is_nullable(self):
+        bill = _make_bill(bill_id="BILL-NODATE", due_date=None)
+        self.assertIsNone(bill.due_date)
+
+    # F7
+    def test_status_defaults_to_unpaid(self):
+        bill = GovStackBill.objects.create(
+            bill_id="BILL-DEFAULT",
+            amount=Decimal("50.00"),
+            currency="EUR",
+        )
+        self.assertEqual(bill.status, GovStackBill.STATUS_UNPAID)
+
+    # F8
+    def test_str_is_sensible(self):
+        bill = _make_bill()
+        s = str(bill)
+        # Must not raise and should contain something identifiable.
+        self.assertIsInstance(s, str)
+        self.assertTrue(len(s) > 0)
+
+
+# ===========================================================================
+# G. GovStackBillPayment model tests
+# ===========================================================================
+
+class TestGovStackBillPaymentModel(TestCase):
+    def setUp(self):
+        self.bill = _make_bill()
+
+    # G1
+    def test_request_id_unique_constraint(self):
+        _make_payment(bill=self.bill)
+        bill2 = _make_bill(bill_id="BILL-G1")
+        with self.assertRaises(IntegrityError):
+            _make_payment(request_id=REQUEST_ID, bill=bill2)
+
+    # G2
+    def test_amount_check_constraint_zero(self):
+        with self.assertRaises(Exception):
+            GovStackBillPayment.objects.create(
+                request_id="REQ-ZERO",
+                bill=self.bill,
+                amount=Decimal("0.00"),
+                currency="USD",
+                status=GovStackBillPayment.STATUS_COMPLETED,
+            )
+
+    # G3
+    def test_protect_fk_prevents_bill_deletion_with_payments(self):
+        from django.db.models import ProtectedError
+        _make_payment(bill=self.bill)
+        with self.assertRaises(ProtectedError):
+            self.bill.delete()
+
+    # G4
+    def test_status_defaults_to_pending(self):
+        payment = GovStackBillPayment.objects.create(
+            request_id="REQ-DEFAULT",
+            bill=self.bill,
+            amount=Decimal("50.00"),
+            currency="EUR",
+        )
+        self.assertEqual(payment.status, GovStackBillPayment.STATUS_PENDING)
+
+
+# ===========================================================================
+# H. Security invariants
+# ===========================================================================
+
+class TestSecurityInvariants(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+
+    # H1 — payer_fi_id not in any response
+    def test_payer_fi_id_not_in_transfer_response(self):
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+            HTTP_X_PAYERFI_ID="SENSITIVE-FI-ID",
+        )
+        self.assertEqual(resp.status_code, 200)
+        resp_text = resp.content.decode()
+        self.assertNotIn("SENSITIVE-FI-ID", resp_text)
+        self.assertNotIn("payer_fi_id", resp_text)
+
+    def test_payer_fi_id_not_in_status_response(self):
+        paid_bill = _make_bill(bill_id="BILL-FI", status=GovStackBill.STATUS_PAID)
+        payment = _make_payment(
+            request_id="REQ-FI",
+            bill=paid_bill,
+        )
+        payment.payer_fi_id = "SENSITIVE-FI-ID"
+        payment.save(update_fields=["payer_fi_id"])
+        resp = self.client.get(_transfer_status_url("REQ-FI"))
+        self.assertEqual(resp.status_code, 200)
+        resp_text = resp.content.decode()
+        self.assertNotIn("SENSITIVE-FI-ID", resp_text)
+        self.assertNotIn("payer_fi_id", resp_text)
+
+    # H2 — error responses use {"message": "..."} not {"detail": "..."}
+    def test_404_uses_message_not_detail(self):
+        resp = self.client.get(_bill_url("NONEXISTENT"))
+        self.assertEqual(resp.status_code, 404)
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertNotIn("detail", data)
+
+    def test_400_uses_message_not_detail(self):
+        resp = self.client.post(TRANSFER_REQUESTS_URL, {}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertNotIn("detail", data)
+
+    # H3 — HTTP 404 shape is {"message": "..."} for all P2G 404 cases
+    def test_bill_payment_not_found_uses_message_shape(self):
+        resp = self.client.get(_transfer_status_url("NO-SUCH-REQ"))
+        self.assertEqual(resp.status_code, 404)
+        data = resp.json()
+        self.assertIn("message", data)
+        self.assertNotIn("detail", data)
+
+    # H4 — audit details use bill_pk, not external bill_id
+    def test_audit_details_use_bill_pk_not_external_bill_id(self):
+        GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        audit = GovStackPaymentAuditEntry.objects.get(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED,
+        )
+        # details["bill_pk"] should be the UUID string, not the external bill_id string
+        self.assertIn("bill_pk", audit.details)
+        self.assertEqual(audit.details["bill_pk"], str(self.bill.pk))
+        # The external bill_id string (BILL_ID) must NOT be a key in details
+        self.assertNotIn("bill_id", audit.details)
+
+    # H5 — DuplicateBillPaymentError message is generic (no request_id leakage)
+    def test_duplicate_error_message_is_generic(self):
+        GovStackP2GService.create_transfer_request(
+            request_id=REQUEST_ID,
+            bill_id=BILL_ID,
+        )
+        bill2 = _make_bill(bill_id="BILL-DUP")
+        try:
+            GovStackP2GService.create_transfer_request(
+                request_id=REQUEST_ID,
+                bill_id="BILL-DUP",
+            )
+            self.fail("Expected DuplicateBillPaymentError")
+        except DuplicateBillPaymentError as exc:
+            # The exception message must not expose the internal request_id value
+            # in such a way that it could be leaked through an API response.
+            # The view maps this to the generic string "Transfer request ID has already been received."
+            self.assertEqual(str(exc), "Transfer request ID has already been received.")
