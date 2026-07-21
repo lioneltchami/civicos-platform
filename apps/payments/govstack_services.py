@@ -710,7 +710,7 @@ class GovStackVoucherService:
         merchant_name: str = "",
         merchant_bank_details: str = "",
         merchant_voucher_group: str = "",
-        override: bool = False,
+        override: bool = False,          # Reserved: Wave 5 will use this to bypass group/currency checks. Not used in Wave 4.
         agent_id: str = "",
         voucher_secret_number: str = "",  # Reserved: Wave 5 will validate the secret. Not used in Wave 4.
     ) -> GovStackVoucher:
@@ -851,7 +851,7 @@ class GovStackVoucherService:
 
             GovStackPaymentAuditEntry.objects.create(
                 action=GovStackPaymentAuditEntry.ACTION_VOUCHER_CANCELLED,
-                actor_bb_id="",
+                actor_bb_id="",  # Cancellation requires no BB authentication per GovStack spec.
                 object_type="voucher",
                 object_pk=str(voucher.pk),
                 details={

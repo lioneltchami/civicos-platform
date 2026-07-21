@@ -455,9 +455,11 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("voucher_currency is required.")
         upper = value.upper()
         # Apply ISO 4217 regex: exactly 3 uppercase letters.
-        # Invalid format returns HTTP 400 here; the service may raise
-        # InvalidVoucherCurrency (HTTP 453) for codes that are syntactically valid
-        # but not supported by the program.
+        # Invalid format returns HTTP 400 here.
+        # Wave 5 may raise InvalidVoucherCurrency (HTTP 453) for codes that are
+        # syntactically valid but not accepted by the program (e.g. during secret
+        # validation).  In Wave 4 the service does not validate currency beyond
+        # what this serializer enforces.
         return _validate_iso4217(upper)
 
     # NOTE: no validate_voucher_group — blank groups reach the service, which raises
