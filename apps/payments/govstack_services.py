@@ -978,16 +978,24 @@ class GovStackP2GService:
             would create two GovStackBillPayment records for the same bill.
             The unique constraint on request_id acts as a second guard.
         """
-        try:
-            with transaction.atomic():
-                # ── Lock the bill row + look up → 404 ──────────────────────
-                locked_bill = GovStackBill.objects.select_for_update().filter(
-                    bill_id=bill_id
-                ).first()
-                if locked_bill is None:
-                    raise BillNotFound()
+        with transaction.atomic():
+            # ── Lock the bill row + look up → 404 ──────────────────────────
+            # BillNotFound is raised OUTSIDE the IntegrityError guard below so
+            # it propagates cleanly to the view without risk of being swallowed
+            # by a broad except-IntegrityError clause.
+            locked_bill = GovStackBill.objects.select_for_update().filter(
+                bill_id=bill_id
+            ).first()
+            if locked_bill is None:
+                raise BillNotFound()
 
-                # ── Create the payment record ────────────────────────────────
+            # ── Create the payment record ────────────────────────────────────
+            # The IntegrityError guard is scoped ONLY to this create() call.
+            # Wrapping the entire atomic block (including the BillNotFound raise
+            # above) would be a logic hazard: any future IntegrityError from
+            # unrelated ORM calls inside the block would be mistakenly converted
+            # into DuplicateBillPaymentError.  Narrow scope = clear semantics.
+            try:
                 payment = GovStackBillPayment.objects.create(
                     request_id=request_id[:100],
                     bill=locked_bill,
@@ -1001,38 +1009,37 @@ class GovStackP2GService:
                     currency=locked_bill.currency,
                     status=GovStackBillPayment.STATUS_COMPLETED,
                 )
-
-                # ── Transition bill to PAID (idempotent if already PAID) ────
-                if locked_bill.status != GovStackBill.STATUS_PAID:
-                    locked_bill.status = GovStackBill.STATUS_PAID
-                    locked_bill.save(update_fields=["status"])
-
-                # ── Audit ────────────────────────────────────────────────────
-                GovStackPaymentAuditEntry.objects.create(
-                    action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED,
-                    actor_bb_id="",  # P2G requests come from financial institutions, not BBs.
-                    object_type="bill_payment",
-                    object_pk=str(payment.pk),
-                    details={
-                        "request_id": payment.request_id,
-                        "bill_pk": str(locked_bill.pk),
-                        # payer_fi_id intentionally omitted — stored on the model record.
-                    },
+            except IntegrityError:
+                # Unique constraint on GovStackBillPayment.request_id fired.
+                # Return 400 — the caller should not retry with the same request_id.
+                logger.warning(
+                    "govstack.p2g.duplicate_transfer_request request_id_len=%d",
+                    len(request_id),
                 )
-                logger.info(
-                    "govstack.p2g.transfer_request_created payment_pk=%s bill_pk=%s",
-                    payment.pk,
-                    locked_bill.pk,
-                )
+                raise DuplicateBillPaymentError(request_id=request_id)
 
-        except IntegrityError:
-            # Unique constraint on GovStackBillPayment.request_id fired.
-            # Return 400 — the caller should not retry with the same request_id.
-            logger.warning(
-                "govstack.p2g.duplicate_transfer_request request_id_len=%d",
-                len(request_id),
+            # ── Transition bill to PAID (idempotent if already PAID) ────────
+            if locked_bill.status != GovStackBill.STATUS_PAID:
+                locked_bill.status = GovStackBill.STATUS_PAID
+                locked_bill.save(update_fields=["status"])
+
+            # ── Audit ────────────────────────────────────────────────────────
+            GovStackPaymentAuditEntry.objects.create(
+                action=GovStackPaymentAuditEntry.ACTION_BILL_PAYMENT_REQUESTED,
+                actor_bb_id="",  # P2G requests come from financial institutions, not BBs.
+                object_type="bill_payment",
+                object_pk=str(payment.pk),
+                details={
+                    "request_id": payment.request_id,
+                    "bill_pk": str(locked_bill.pk),
+                    # payer_fi_id intentionally omitted — stored on the model record.
+                },
             )
-            raise DuplicateBillPaymentError(request_id=request_id)
+            logger.info(
+                "govstack.p2g.transfer_request_created payment_pk=%s bill_pk=%s",
+                payment.pk,
+                locked_bill.pk,
+            )
 
         return payment
 

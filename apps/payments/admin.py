@@ -1125,10 +1125,49 @@ class GovStackBillAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None) -> bool:
         # Deleting a bill that has payments attached is blocked at the DB layer
-        # (PROTECT FK), but we also block it in admin to give a clear message.
+        # (PROTECT FK), but we also block it in admin to give a clear message
+        # before the DELETE is even attempted.
         if obj is not None and obj.payments.exists():
             return False
         return True
+
+    def delete_view(self, request, object_id, extra_context=None):
+        """
+        Override to catch ProtectedError from a TOCTOU race condition.
+
+        has_delete_permission() blocks deletion when payments exist, but
+        there is a window between the permission check and the SQL DELETE
+        where a concurrent POST /billTransferRequests could create a payment
+        against the same bill.  Without this override, that race causes an
+        unhandled ProtectedError → Django admin renders a 500.
+
+        This override catches ProtectedError and redirects to the change page
+        with a user-readable error message instead.
+        """
+        from django.contrib import messages
+        from django.db.models import ProtectedError
+        from django.http import HttpResponseRedirect
+        from django.urls import reverse
+
+        try:
+            return super().delete_view(request, object_id, extra_context)
+        except ProtectedError:
+            obj = self.get_object(request, object_id)
+            label = str(obj) if obj else object_id
+            self.message_user(
+                request,
+                (
+                    f'Bill "{label}" cannot be deleted because it has associated '
+                    "payment records. Remove or reassign the payments first."
+                ),
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(
+                reverse(
+                    f"admin:{self.opts.app_label}_{self.opts.model_name}_change",
+                    args=[object_id],
+                )
+            )
 
 
 @admin.register(GovStackBillPayment)

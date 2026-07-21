@@ -981,3 +981,160 @@ class TestSecurityInvariants(TestCase):
             # in such a way that it could be leaked through an API response.
             # The view maps this to the generic string "Transfer request ID has already been received."
             self.assertEqual(str(exc), "Transfer request ID has already been received.")
+
+
+# ===========================================================================
+# I. High-severity regression tests (post-review fixes)
+# ===========================================================================
+
+class TestHighSeverityRegressions(TestCase):
+    """
+    Targeted regression tests for H1 and H2 fixes.
+
+    H1 — IntegrityError scope in create_transfer_request():
+      The try/except IntegrityError now wraps ONLY GovStackBillPayment.objects.create().
+      BillNotFound is raised OUTSIDE the guard.  These tests confirm that:
+        (a) BillNotFound propagates cleanly from create_transfer_request()
+            when the bill does not exist — it is NOT misidentified as a
+            DuplicateBillPaymentError.
+        (b) DuplicateBillPaymentError is still raised correctly when the
+            request_id unique constraint fires.
+        (c) A valid request on a known bill still succeeds normally.
+
+    H2 — ProtectedError in GovStackBillAdmin.delete_view():
+      The admin now overrides delete_view() to catch ProtectedError and redirect
+      with an error message instead of surfacing a 500.  These tests confirm that:
+        (d) The PROTECT FK still raises ProtectedError when deleting a bill with
+            payments at the ORM level (the guard is DB-enforced, not admin-only).
+        (e) has_delete_permission() returns False for a bill with payments,
+            preventing the delete UI from appearing in normal flow.
+    """
+
+    def setUp(self):
+        self.bill = _make_bill()
+
+    # I1 — H1 regression: BillNotFound is NOT swallowed by IntegrityError guard
+    def test_bill_not_found_propagates_from_create_transfer_request(self):
+        """
+        create_transfer_request() with an unknown bill_id must raise BillNotFound,
+        not DuplicateBillPaymentError and not IntegrityError.
+
+        Before the H1 fix, if BillNotFound had somehow been caught by the outer
+        try/except IntegrityError (which it cannot be — BillNotFound is not an
+        IntegrityError), it would have been silently converted.  This test pins
+        the correct exception type to guard against future refactors.
+        """
+        with self.assertRaises(BillNotFound):
+            GovStackP2GService.create_transfer_request(
+                request_id="REQ-H1-NOEXIST",
+                bill_id="BILL-DOES-NOT-EXIST",
+            )
+
+    def test_bill_not_found_is_not_duplicate_error(self):
+        """
+        The exception raised for an unknown bill must not be DuplicateBillPaymentError.
+        Confirms the two error paths are independent after the H1 scope narrowing.
+        """
+        try:
+            GovStackP2GService.create_transfer_request(
+                request_id="REQ-H1-NOEXIST2",
+                bill_id="BILL-DOES-NOT-EXIST-2",
+            )
+            self.fail("Expected BillNotFound")
+        except BillNotFound:
+            pass  # Correct
+        except DuplicateBillPaymentError:
+            self.fail(
+                "Got DuplicateBillPaymentError for a non-existent bill — "
+                "IntegrityError guard scope is too broad (H1 regression)."
+            )
+
+    # I2 — H1 regression: DuplicateBillPaymentError still fires correctly
+    def test_duplicate_request_id_still_raises_duplicate_error(self):
+        """
+        After narrowing the IntegrityError scope, duplicate request_ids must still
+        be caught and converted to DuplicateBillPaymentError.
+        """
+        GovStackP2GService.create_transfer_request(
+            request_id="REQ-H1-DUP",
+            bill_id=BILL_ID,
+        )
+        bill2 = _make_bill(bill_id="BILL-H1-DUP2")
+        with self.assertRaises(DuplicateBillPaymentError):
+            GovStackP2GService.create_transfer_request(
+                request_id="REQ-H1-DUP",  # same request_id
+                bill_id="BILL-H1-DUP2",
+            )
+
+    # I3 — H1 regression: happy path still works after scope narrowing
+    def test_valid_request_on_known_bill_succeeds_after_h1_fix(self):
+        """
+        The H1 refactor must not break the happy path.
+        """
+        payment = GovStackP2GService.create_transfer_request(
+            request_id="REQ-H1-OK",
+            bill_id=BILL_ID,
+        )
+        self.assertIsInstance(payment, GovStackBillPayment)
+        self.assertEqual(payment.status, GovStackBillPayment.STATUS_COMPLETED)
+        self.bill.refresh_from_db()
+        self.assertEqual(self.bill.status, GovStackBill.STATUS_PAID)
+
+    # I4 — H2 regression: ProtectedError is still raised at ORM level (DB guard intact)
+    def test_protect_fk_still_raises_at_orm_level(self):
+        """
+        The H2 fix adds an admin-layer ProtectedError handler, but the underlying
+        DB-level PROTECT FK must remain intact.  Confirms the ORM still raises
+        ProtectedError when a bill with payments is deleted directly.
+        """
+        from django.db.models import ProtectedError
+        _make_payment(bill=self.bill)
+        with self.assertRaises(ProtectedError):
+            self.bill.delete()
+
+    # I5 — H2 regression: has_delete_permission returns False for bill with payments
+    def test_admin_has_delete_permission_false_for_bill_with_payments(self):
+        """
+        GovStackBillAdmin.has_delete_permission() must return False when the bill
+        has associated payment records, preventing the delete UI from appearing
+        in normal flow (before any TOCTOU race can occur).
+        """
+        from django.contrib.admin.sites import AdminSite
+        from apps.payments.admin import GovStackBillAdmin
+
+        _make_payment(bill=self.bill)
+
+        site = AdminSite()
+        model_admin = GovStackBillAdmin(GovStackBill, site)
+
+        # Simulate an admin request (no real request needed — just needs to be truthy)
+        class _FakeRequest:
+            pass
+
+        fake_request = _FakeRequest()
+
+        # Without an obj, should return True (general permission check)
+        self.assertTrue(model_admin.has_delete_permission(fake_request, obj=None))
+
+        # With a bill that has payments, must return False
+        self.assertFalse(model_admin.has_delete_permission(fake_request, obj=self.bill))
+
+    # I6 — H2 regression: has_delete_permission returns True for bill without payments
+    def test_admin_has_delete_permission_true_for_bill_without_payments(self):
+        """
+        has_delete_permission() must return True for a bill that has no payment records,
+        since the PROTECT FK allows deletion in that case.
+        """
+        from django.contrib.admin.sites import AdminSite
+        from apps.payments.admin import GovStackBillAdmin
+
+        # No payments created against self.bill in this test.
+        site = AdminSite()
+        model_admin = GovStackBillAdmin(GovStackBill, site)
+
+        class _FakeRequest:
+            pass
+
+        self.assertTrue(
+            model_admin.has_delete_permission(_FakeRequest(), obj=self.bill)
+        )
