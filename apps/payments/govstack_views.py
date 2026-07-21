@@ -875,7 +875,16 @@ class BillTransferRequestView(GovStackAPIView):
                 payer_fi_id=payer_fi_id,
                 platform_tenant_id=platform_tenant_id,
             )
-        except DuplicateBillPaymentError:
+        except DuplicateBillPaymentError as exc:
+            # Log the duplicate at WARNING level using only the length of the
+            # request_id — never the value itself — to avoid leaking idempotency
+            # keys into log aggregators or error reporters (Sentry, etc.).
+            # exc.request_id is available for structured log enrichment here;
+            # it is intentionally omitted from the response body.
+            logger.warning(
+                "govstack.p2g.duplicate_transfer_request_rejected request_id_len=%d",
+                len(exc.request_id),
+            )
             return Response(
                 {"message": "Transfer request ID has already been received."},
                 status=400,

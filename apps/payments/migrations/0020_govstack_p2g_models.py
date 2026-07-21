@@ -5,9 +5,20 @@
 #   - GovStackBillPayment: a transfer request / payment record (idempotency key = request_id).
 #
 # The GovStackPaymentAuditEntry.action choices list was also extended with
-# bill_payment_requested and bill_paid — but since choices= is metadata only
-# (no DB constraint for VARCHAR fields in PostgreSQL/SQLite), those new action
-# strings do NOT require a migration.
+# bill_payment_requested and bill_paid.  Those new action strings do NOT
+# require a migration because:
+#
+#   Django's `choices=` parameter on a CharField is pure Python/ORM metadata.
+#   It generates NO database-level constraint.  In PostgreSQL, VARCHAR columns
+#   have no implicit CHECK constraint limiting values to the choices list unless
+#   you explicitly add one (e.g. via models.CheckConstraint or a PostgreSQL ENUM
+#   type).  In SQLite, the same applies — no constraint is emitted.  Adding a
+#   new choices value therefore only changes Python validation behaviour; no DDL
+#   statement is needed and no migration is required.
+#
+#   If you ever migrate a field to a PostgreSQL ENUM type or add a CheckConstraint
+#   that enumerates the allowed values, you WILL need a migration for any new
+#   choices — but the default CharField approach does not require one.
 
 import django.core.validators
 import django.db.models.deletion

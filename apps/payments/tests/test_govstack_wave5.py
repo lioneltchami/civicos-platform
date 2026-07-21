@@ -99,6 +99,29 @@ Coverage matrix:
      H3:  HTTP 404 response shape is {"message": "..."} not DRF's {"detail": "..."}
      H4:  bill_id in audit details is not the bill's external ID (uses bill_pk)
      H5:  DuplicateBillPaymentError message does not expose internal request_id
+
+  I. High-severity regression tests (post-review fixes)
+     I1:  BillNotFound propagates cleanly from create_transfer_request() (H1)
+     I2:  BillNotFound is NOT a DuplicateBillPaymentError (H1)
+     I3:  DuplicateBillPaymentError still fires for duplicate request_id (H1)
+     I4:  Happy path still works after H1 scope narrowing
+     I5:  ProtectedError still raised at ORM level (DB guard intact) (H2)
+     I6:  has_delete_permission() returns False for bill with payments (H2)
+     I7:  has_delete_permission() returns True for bill without payments (H2)
+
+  J. Medium-severity regression tests (post-review fixes)
+     J1:  All-whitespace requestId is rejected (M1)
+     J2:  All-whitespace billId is rejected (M1)
+     J3:  Empty string requestId is rejected (M1)
+     J4:  Valid non-blank requestId still succeeds (M1)
+     J5:  requestId with surrounding whitespace is stripped and accepted (M1)
+     J6:  bill_id is in readonly_fields on GovStackBillAdmin (M5)
+     J7:  amount and currency remain editable — not over-restricted (M5)
+
+  K. Low-severity regression tests (post-review fixes)
+     K1:  billId is present and correct in POST /billTransferRequests response (L7)
+     K2:  GET /transferRequests/{requestId} also returns billId (L7)
+     K3:  delete_view catches ProtectedError and redirects, not 500 (L8)
 """
 from __future__ import annotations
 
@@ -423,9 +446,9 @@ class TestBillTransferRequestView(TestCase):
         body = _transfer_body(request_id="REQ-NEW", bill_id="BILL-ALREADYPAID")
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(
-            GovStackBillPayment.objects.filter(request_id="REQ-NEW").exists()
-        )
+        payment = GovStackBillPayment.objects.get(request_id="REQ-NEW")
+        # Verify the payment is correctly linked to the already-paid bill.
+        self.assertEqual(payment.bill_id, already_paid_bill.pk)
 
     # B17
     def test_error_responses_use_message_shape(self):
@@ -784,7 +807,10 @@ class TestGovStackBillModel(TestCase):
 
     # F2
     def test_amount_check_constraint_zero(self):
-        with self.assertRaises(Exception):  # IntegrityError or DataError
+        # Django's CheckConstraint(amount__gt=0) raises IntegrityError in both
+        # SQLite (test database) and PostgreSQL (production).  DataError would
+        # only occur for values that overflow the column type — not for zero.
+        with self.assertRaises(IntegrityError):
             GovStackBill.objects.create(
                 bill_id="BILL-ZERO",
                 amount=Decimal("0.00"),
@@ -793,7 +819,7 @@ class TestGovStackBillModel(TestCase):
 
     # F3
     def test_amount_check_constraint_negative(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises(IntegrityError):
             GovStackBill.objects.create(
                 bill_id="BILL-NEG",
                 amount=Decimal("-10.00"),
@@ -862,7 +888,10 @@ class TestGovStackBillPaymentModel(TestCase):
 
     # G2
     def test_amount_check_constraint_zero(self):
-        with self.assertRaises(Exception):
+        # Same as F2: CheckConstraint(amount__gt=0) raises IntegrityError, not
+        # the generic Exception base class.  Being specific here ensures the test
+        # would fail if the constraint were ever accidentally removed.
+        with self.assertRaises(IntegrityError):
             GovStackBillPayment.objects.create(
                 request_id="REQ-ZERO",
                 bill=self.bill,
@@ -1249,3 +1278,121 @@ class TestMediumSeverityRegressions(TestCase):
             model_admin.readonly_fields,
             "currency should be editable by staff for data-entry corrections.",
         )
+
+
+# ===========================================================================
+# K. Low-severity regression tests (post-review fixes)
+# ===========================================================================
+
+class TestLowSeverityRegressions(TestCase):
+    """
+    Targeted regression tests for low-severity review findings.
+
+    L7 — billId must appear in POST /billTransferRequests response:
+      The transfer response shape is {requestId, billId, amount, currency,
+      status, message}.  billId ties the payment record back to the originating
+      bill in a single round trip, avoiding a separate GET.
+
+    L8 — GovStackBillAdmin.delete_view() catches ProtectedError and redirects:
+      When a concurrent POST /billTransferRequests creates a payment between
+      has_delete_permission() returning True and the SQL DELETE executing,
+      Django raises ProtectedError.  The delete_view() override must catch this
+      and return an HttpResponseRedirect (302) to the change page, never a 500.
+    """
+
+    def setUp(self):
+        self.bill = _make_bill()
+
+    # K1 — L7: billId is present and correct in POST /billTransferRequests response
+    def test_transfer_response_contains_bill_id(self):
+        """
+        POST /billTransferRequests must return billId in the response body.
+        The value must match the bill_id of the bill that was paid — not the
+        UUID primary key — because bill_id is the stable external identifier.
+        """
+        body = _transfer_body()
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn(
+            "billId",
+            data,
+            "Transfer response must include 'billId' key (L7).",
+        )
+        self.assertEqual(
+            data["billId"],
+            BILL_ID,
+            "billId in response must equal the bill's external bill_id string.",
+        )
+
+    # K2 — L7: GET /transferRequests/{requestId} also returns billId
+    def test_transfer_status_response_contains_bill_id(self):
+        """
+        GET /transferRequests/{requestId} must also include billId so callers
+        can reconstruct the bill-payment relationship without a second query.
+        """
+        _make_payment(bill=self.bill)
+        resp = self.client.get(_transfer_status_url(REQUEST_ID))
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn(
+            "billId",
+            data,
+            "Transfer status response must include 'billId' key (L7).",
+        )
+        self.assertEqual(data["billId"], BILL_ID)
+
+    # K3 — L8: delete_view catches ProtectedError and redirects (no 500)
+    def test_admin_delete_view_catches_protected_error_and_redirects(self):
+        """
+        Simulates the TOCTOU race where a payment is created between
+        has_delete_permission() returning True and the actual SQL DELETE.
+
+        Strategy: we patch super().delete_view() to raise ProtectedError
+        directly (bypassing Django's delete confirmation flow), then call
+        GovStackBillAdmin.delete_view() and assert we get an HttpResponseRedirect
+        rather than an unhandled exception.
+
+        This is the exact scenario that caused a 500 before the H2 fix, and
+        this test pins that the delete_view() override handles it gracefully.
+        """
+        from unittest.mock import patch, MagicMock
+        from django.contrib.admin.sites import AdminSite
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from django.db.models import ProtectedError
+        from django.http import HttpResponseRedirect
+        from django.test import RequestFactory
+        from apps.payments.admin import GovStackBillAdmin
+
+        # Build a minimal admin request using Django's RequestFactory
+        factory = RequestFactory()
+        request = factory.post(
+            f"/admin/payments/govstackbill/{self.bill.pk}/delete/",
+            data={"post": "yes"},
+        )
+        # Django admin needs a session and message storage on the request object
+        request.session = {}
+        request._messages = FallbackStorage(request)
+
+        site = AdminSite()
+        model_admin = GovStackBillAdmin(GovStackBill, site)
+
+        # Patch the parent delete_view to raise ProtectedError, simulating
+        # the TOCTOU window where a payment is created just before the DELETE.
+        protected_objs = GovStackBillPayment.objects.none()
+        with patch(
+            "django.contrib.admin.options.ModelAdmin.delete_view",
+            side_effect=ProtectedError("Protected by payment FK", protected_objs),
+        ):
+            response = model_admin.delete_view(
+                request, str(self.bill.pk)
+            )
+
+        # Must redirect, not raise
+        self.assertIsInstance(
+            response,
+            HttpResponseRedirect,
+            "delete_view() must redirect on ProtectedError, not raise a 500 (L8).",
+        )
+        # Redirect target must be the change page for this bill
+        self.assertIn(str(self.bill.pk), response["Location"])
