@@ -573,9 +573,8 @@ class DocumentUploadConfirmViewEdgeCaseTests(TestCase):
             return_value=self.doc,
         ) as mock_confirm:
             self.client.post(self._url())
-        call_kwargs = mock_confirm.call_args.kwargs
-        doc_id_arg = call_kwargs.get("doc_id", mock_confirm.call_args[0][1] if mock_confirm.call_args[0] else None)
-        # doc_id must be a str, not a UUID
+        # The view always calls confirm_upload with keyword args (user=, doc_id=).
+        doc_id_arg = mock_confirm.call_args.kwargs["doc_id"]
         self.assertIsInstance(doc_id_arg, str)
         self.assertEqual(doc_id_arg, str(self.doc.pk))
 
@@ -645,17 +644,6 @@ class DocumentDownloadViewEdgeCaseTests(TestCase):
         )
         response = self.client.get(self._url(doc.pk))
         self.assertEqual(response.status_code, 404)
-
-    # -- Auth guard -----------------------------------------------------------
-
-    def test_token_redeem_requires_login(self) -> None:
-        """Unauthenticated request to token-redeem must redirect to login."""
-        anon_client = Client()
-        response = anon_client.get(
-            reverse("documents:token-redeem", args=["a" * 64])
-        )
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("/login", response["Location"])
 
 
 # ---------------------------------------------------------------------------
@@ -862,3 +850,19 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
         all_header_values = " ".join(str(v) for v in response.headers.values())
         self.assertNotIn(storage_key, all_header_values)
         self.assertNotIn("quarantine/", all_header_values)
+
+    # -- Auth guard -----------------------------------------------------------
+
+    def test_token_redeem_requires_login(self) -> None:
+        """
+        Unauthenticated request to the token-redeem URL must redirect to login.
+
+        (Moved here from DocumentDownloadViewEdgeCaseTests where it was
+        mis-classified — this tests the token-redeem URL, not the download URL.)
+        """
+        anon_client = Client()
+        response = anon_client.get(
+            reverse("documents:token-redeem", args=["a" * 64])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login", response["Location"])

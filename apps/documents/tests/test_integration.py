@@ -63,6 +63,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
 from django.test import TestCase, TransactionTestCase, override_settings
@@ -205,10 +206,16 @@ def _grant_legal_hold_perm(user: User) -> User:
     apply_legal_hold() and release_legal_hold() check has_perm() which uses
     Django's permission cache. After adding a permission, the cache on the
     in-memory user instance must be cleared so the new permission is visible.
+
+    Uses get_or_create() (not bare .get()) so the permission row is guaranteed
+    to exist even in environments where post_migrate didn't fully run — matching
+    the pattern used across all other test files in this app.
     """
-    perm = Permission.objects.get(
+    ct = ContentType.objects.get(app_label="documents", model="document")
+    perm, _ = Permission.objects.get_or_create(
         codename="manage_legal_hold",
-        content_type__app_label="documents",
+        content_type=ct,
+        defaults={"name": "Can manage legal hold"},
     )
     user.user_permissions.add(perm)
     # Clear Django's cached permission set on this user instance.
@@ -220,10 +227,16 @@ def _grant_legal_hold_perm(user: User) -> User:
 
 
 def _grant_upload_perm(user: User) -> User:
-    """Grant documents.upload_document and clear cache."""
-    perm = Permission.objects.get(
+    """
+    Grant documents.upload_document and clear the permission cache.
+
+    Uses get_or_create() for robustness (see _grant_legal_hold_perm above).
+    """
+    ct = ContentType.objects.get(app_label="documents", model="document")
+    perm, _ = Permission.objects.get_or_create(
         codename="upload_document",
-        content_type__app_label="documents",
+        content_type=ct,
+        defaults={"name": "Can upload document"},
     )
     user.user_permissions.add(perm)
     if hasattr(user, "_perm_cache"):

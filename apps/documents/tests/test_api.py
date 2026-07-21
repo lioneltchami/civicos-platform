@@ -52,7 +52,7 @@ from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -81,8 +81,10 @@ def _slug() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Shared CIVICOS settings used by all classes that call the upload/download
-# service layer.  Provides fast-path values that avoid real ClamAV calls.
+# CIVICOS settings applied via @override_settings to test classes that depend
+# on specific CIVICOS values.  TokenRedeemHttpTests uses this directly because
+# its small/large-file branching is governed by DOCUMENT_PROXY_MAX_BYTES.
+# Other classes mock the service layer entirely and don't need it.
 # ---------------------------------------------------------------------------
 CIVICOS_SETTINGS = {
     "CLAMAV_HOST": "",
@@ -465,12 +467,19 @@ class DownloadHttpTests(TestCase):
 # ===========================================================================
 
 
+@override_settings(CIVICOS=CIVICOS_SETTINGS)
 class TokenRedeemHttpTests(TestCase):
     """
     HTTP contract for DocumentTokenRedeemView.
 
     Small files (size_bytes ≤ DOCUMENT_PROXY_MAX_BYTES = 1 MB) are proxied
     as FileResponse; large files redirect to a storage-generated URL.
+
+    @override_settings(CIVICOS=CIVICOS_SETTINGS) ensures DOCUMENT_PROXY_MAX_BYTES
+    is exactly 1 MB for every test method, regardless of the project test settings.
+    This pins the small/large-file branching threshold to a known value so the
+    doc size_bytes used in each test (256 B, 512 B, 1 KB, 2 MB) reliably exercises
+    the intended code path.
 
     PIPEDA invariants:
     - Content-Disposition uses document PK, never original_filename.
