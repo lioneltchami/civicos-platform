@@ -566,14 +566,28 @@ class GovStackVoucher(TimestampedModel):
 
     # ── Valid state machine transitions ─────────────────────────────────────
     ALLOWED_TRANSITIONS: dict[str, list[str]] = {
+        # ── GovStack spec artifact ────────────────────────────────────────────
+        # STATUS_NOT_PREACTIVATED → PREACTIVATED is defined by the GovStack
+        # Voucher spec as the "initial issuance" transition.
+        # In this implementation, GovStackVoucherService.preactivate() creates
+        # vouchers directly in STATUS_PREACTIVATED (the model default), so this
+        # entry is never exercised at runtime — no voucher is ever persisted in
+        # the NOT_PREACTIVATED state.
+        # Kept for spec completeness and to keep transition_to() exhaustive
+        # (it would raise ValueError for any unmapped from-state, so every
+        # spec-defined state must appear as a key here).
         STATUS_NOT_PREACTIVATED: [STATUS_PREACTIVATED],
+
+        # ── Active lifecycle ──────────────────────────────────────────────────
         STATUS_PREACTIVATED: [STATUS_ACTIVATED, STATUS_CANCELLED],
         STATUS_ACTIVATED: [STATUS_CONSUMED, STATUS_BLOCKED, STATUS_SUSPENDED, STATUS_CANCELLED],
         STATUS_BLOCKED: [STATUS_ACTIVATED, STATUS_CANCELLED],
         STATUS_SUSPENDED: [STATUS_ACTIVATED, STATUS_CANCELLED],
-        STATUS_CONSUMED: [],   # terminal
-        STATUS_CANCELLED: [],  # terminal
-        STATUS_PURGED: [],     # terminal
+
+        # ── Terminal states (no outbound transitions) ─────────────────────────
+        STATUS_CONSUMED: [],
+        STATUS_CANCELLED: [],
+        STATUS_PURGED: [],
     }
 
     # ── Fields ───────────────────────────────────────────────────────────────

@@ -465,9 +465,32 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
     # does not match the GovStack spec for this field.
 
 
+# ---------------------------------------------------------------------------
+# Voucher response serializers — SCHEMA DOCUMENTATION ONLY
+# ---------------------------------------------------------------------------
+# The five classes below document the exact JSON shape returned by each
+# successful voucher endpoint.  Views construct response dicts directly
+# (the DRF pattern used throughout this codebase) rather than running data
+# through serializer.data at request time — so none of these classes are
+# instantiated during normal request handling.
+#
+# They serve three purposes:
+#   1. Authoritative field-level schema reference for API consumers and
+#      code reviewers — one place to see every key and type in each response.
+#   2. Source material for auto-generated OpenAPI / Swagger documentation.
+#   3. A migration path: if a future wave requires output validation or
+#      serializer.data() rendering, switch the view to use these classes
+#      directly without changing any field definitions.
+#
+# Canonical rule: if the view's Response() dict and the corresponding
+# serializer below ever drift apart, the serializer is wrong.
+# The view Response() dict is always the source of truth.
+# ---------------------------------------------------------------------------
+
 class VoucherPreactivationResponseSerializer(serializers.Serializer):
     """
-    Response for successful voucher pre-activation.
+    Response shape for POST /vouchers/voucher_preactivation → HTTP 200.
+    Schema documentation only — see section note above.
     """
     voucherNumber = serializers.CharField(read_only=True)
     voucherSerialNumber = serializers.CharField(read_only=True)
@@ -509,7 +532,10 @@ class VoucherActivationRequestSerializer(serializers.Serializer):
 
 
 class VoucherActivationResponseSerializer(serializers.Serializer):
-    """Response for successful voucher activation."""
+    """
+    Response shape for PATCH /vouchers/voucher_activation → HTTP 200.
+    Schema documentation only — see section note above.
+    """
     voucherNumber = serializers.CharField(read_only=True)
     voucherSerialNumber = serializers.CharField(read_only=True)
     voucherStatus = serializers.CharField(read_only=True)
@@ -563,13 +589,16 @@ class VoucherRedemptionRequestSerializer(serializers.Serializer):
 
 
 class VoucherRedemptionResponseSerializer(serializers.Serializer):
-    """Response for successful voucher redemption."""
-    status = serializers.IntegerField(read_only=True)
+    """
+    Response shape for POST /vouchers/voucher_redemption → HTTP 200.
+    Schema documentation only — see section note above.
+    """
+    status = serializers.IntegerField(read_only=True)       # status_int (CONSUMED = 3)
     message = serializers.CharField(read_only=True)
     serialNumber = serializers.CharField(read_only=True)
     value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    timestamp = serializers.DateTimeField(read_only=True)
-    transactionId = serializers.CharField(read_only=True)
+    timestamp = serializers.DateTimeField(read_only=True)   # redeemed_at
+    transactionId = serializers.CharField(read_only=True)   # redemption_transaction_id (20 hex chars)
 
 
 # ---------------------------------------------------------------------------
@@ -578,9 +607,10 @@ class VoucherRedemptionResponseSerializer(serializers.Serializer):
 
 class VoucherStatusResponseSerializer(serializers.Serializer):
     """
-    Response for GET /govstack/payments/vouchers/voucherstatuscheck/{serial}
+    Response shape for GET /vouchers/voucherstatuscheck/{serial} → HTTP 200.
+    Schema documentation only — see section note above.
     """
-    status = serializers.IntegerField(read_only=True)
+    status = serializers.IntegerField(read_only=True)       # status_int from STATUS_INT_MAP
     serialNumber = serializers.CharField(read_only=True)
     value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
 
@@ -591,11 +621,12 @@ class VoucherStatusResponseSerializer(serializers.Serializer):
 
 class VoucherCancellationResponseSerializer(serializers.Serializer):
     """
-    Response for PATCH /govstack/payments/vouchers/voucherstatuscheck/{serial}
-    (cancellation — same URL as status check, different HTTP method)
+    Response shape for PATCH /vouchers/voucherstatuscheck/{serial} → HTTP 200.
+    (Cancellation — same URL as status check, different HTTP method.)
+    Schema documentation only — see section note above.
     """
     voucherSerialNumber = serializers.CharField(read_only=True)
-    voucherStatus = serializers.CharField(read_only=True)
+    voucherStatus = serializers.CharField(read_only=True)   # GovStackVoucher.STATUS_CANCELLED = "cancelled"
 
 
 # ---------------------------------------------------------------------------
