@@ -252,10 +252,20 @@ class TestBillInquiryView(TestCase):
             self.assertIn(key, data, f"Missing key: {key}")
 
     # A3
-    def test_amount_is_string(self):
+    def test_amount_is_number(self):
+        # Spec §14.2: "amount": 150.00 — JSON number, NOT a string.
         resp = self.client.get(_bill_url(BILL_ID))
-        self.assertIsInstance(resp.json()["amount"], str)
-        self.assertEqual(resp.json()["amount"], "150.00")
+        self.assertIsInstance(
+            resp.json()["amount"],
+            (int, float),
+            "Bill inquiry 'amount' must be a JSON number, not a string.",
+        )
+        self.assertAlmostEqual(
+            resp.json()["amount"],
+            float("150.00"),
+            places=2,
+            msg="Bill inquiry 'amount' must equal the bill's stored amount.",
+        )
 
     # A4
     def test_due_date_is_iso_string_when_set(self):
@@ -329,6 +339,23 @@ class TestBillTransferRequestView(TestCase):
         data = resp.json()
         for key in ("requestId", "billId", "amount", "currency", "status", "message"):
             self.assertIn(key, data, f"Missing key: {key}")
+
+    # B2b
+    def test_amount_is_number(self):
+        # The POST /billTransferRequests response echoes the bill amount.
+        # Spec: JSON number, not a string.
+        resp = self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
+        self.assertIsInstance(
+            resp.json()["amount"],
+            (int, float),
+            "BillTransferRequest response 'amount' must be a JSON number, not a string.",
+        )
+        self.assertAlmostEqual(
+            resp.json()["amount"],
+            float("150.00"),
+            places=2,
+            msg="BillTransferRequest response 'amount' must equal the bill's stored amount.",
+        )
 
     # B3
     def test_status_in_response_is_completed(self):
@@ -573,10 +600,20 @@ class TestTransferRequestStatusView(TestCase):
             self.assertIn(key, data, f"Missing key: {key}")
 
     # D3
-    def test_amount_is_string(self):
+    def test_amount_is_number(self):
+        # Spec: transfer request response "amount" must be a JSON number, not a string.
         resp = self.client.get(_transfer_status_url(REQUEST_ID))
-        self.assertIsInstance(resp.json()["amount"], str)
-        self.assertEqual(resp.json()["amount"], "150.00")
+        self.assertIsInstance(
+            resp.json()["amount"],
+            (int, float),
+            "Transfer request status 'amount' must be a JSON number, not a string.",
+        )
+        self.assertAlmostEqual(
+            resp.json()["amount"],
+            float("150.00"),
+            places=2,
+            msg="Transfer request status 'amount' must equal the bill's stored amount.",
+        )
 
     # D4
     def test_status_is_completed(self):

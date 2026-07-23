@@ -864,7 +864,7 @@ class BillInquiryView(GovStackAPIView):
         return Response(
             {
                 "billId": bill.bill_id,
-                "amount": str(bill.amount),
+                "amount": float(bill.amount),  # Spec §14.2: "amount": 150.00 (JSON number)
                 "currency": bill.currency,
                 "description": bill.description,
                 "status": bill.status,
@@ -944,7 +944,7 @@ class BillTransferRequestView(GovStackAPIView):
             {
                 "requestId": payment.request_id,
                 "billId": payment.bill.bill_id,
-                "amount": str(payment.amount),
+                "amount": float(payment.amount),  # Spec: JSON number, not string
                 "currency": payment.currency,
                 "status": payment.status,
                 "message": "Bill payment request received successfully.",
@@ -1017,7 +1017,7 @@ class TransferRequestStatusView(GovStackAPIView):
             {
                 "requestId": payment.request_id,
                 "billId": payment.bill.bill_id,
-                "amount": str(payment.amount),
+                "amount": float(payment.amount),  # Spec: JSON number, not string
                 "currency": payment.currency,
                 "status": payment.status,
             },
