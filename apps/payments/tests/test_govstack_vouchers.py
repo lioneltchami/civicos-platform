@@ -24,7 +24,7 @@ Coverage matrix:
   B. VoucherActivation view — harness scenarios
      B1:  Smoke PATCH with pre-created PREACTIVATED voucher → HTTP 200
      B2:  Response shape: {voucherNumber, voucherSerialNumber, voucherStatus, voucherGroup}
-     B3:  voucherStatus is "activated" after activation
+     B3:  voucherStatus is "Activated" after activation
      B4:  Serial not found → HTTP 456
      B5:  Empty Gov_Stack_BB → HTTP 460
      B6:  Missing voucher_serial_number field → HTTP 400
@@ -57,7 +57,7 @@ Coverage matrix:
      E1:  PATCH cancel PREACTIVATED voucher → HTTP 200
      E2:  PATCH cancel ACTIVATED voucher → HTTP 200
      E3:  Response shape: {voucherSerialNumber, voucherStatus}
-     E4:  voucherStatus is "cancelled" after cancellation
+     E4:  voucherStatus is "Cancelled" after cancellation
      E5:  Cancel unknown serial → HTTP 463
      E6:  Cancel already-cancelled voucher → HTTP 464
      E7:  Cancel CONSUMED voucher → HTTP 463 (terminal state, invalid transition)
@@ -407,7 +407,9 @@ class VoucherActivationHarnessTest(TestCase):
     def test_b3_status_is_activated(self):
         resp = self._patch(_activation_body(serial=FIXED_SERIAL))
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data["voucherStatus"], GovStackVoucher.STATUS_ACTIVATED)
+        # GAP-6: spec requires title-case label, not raw DB constant.
+        # get_status_display() returns "Activated"; voucher.status returns "activated".
+        self.assertEqual(resp.data["voucherStatus"], "Activated")
         self.voucher.refresh_from_db()
         self.assertEqual(self.voucher.status, GovStackVoucher.STATUS_ACTIVATED)
 
@@ -638,7 +640,8 @@ class VoucherCancellationHarnessTest(TestCase):
     def test_e4_voucher_status_is_cancelled(self):
         _make_voucher(serial=FIXED_SERIAL, status=GovStackVoucher.STATUS_PREACTIVATED)
         resp = self._patch(FIXED_SERIAL)
-        self.assertEqual(resp.data["voucherStatus"], GovStackVoucher.STATUS_CANCELLED)
+        # GAP-6: spec requires title-case label, not raw DB constant.
+        self.assertEqual(resp.data["voucherStatus"], "Cancelled")
 
     def test_e5_unknown_serial_returns_463(self):
         resp = self._patch("999999")
@@ -1152,7 +1155,8 @@ class VoucherFullChainedFlowTest(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp2.status_code, 200, resp2.data)
-        self.assertEqual(resp2.data["voucherStatus"], GovStackVoucher.STATUS_ACTIVATED)
+        # GAP-6: spec §13.2 requires "Activated", not raw DB value "activated".
+        self.assertEqual(resp2.data["voucherStatus"], "Activated")
 
         # Step 3: Status check (ACTIVATED)
         resp3 = self.client.get(_status_url(serial))
@@ -1190,7 +1194,8 @@ class VoucherFullChainedFlowTest(TestCase):
         # Cancel
         resp2 = self.client.patch(_status_url(serial))
         self.assertEqual(resp2.status_code, 200)
-        self.assertEqual(resp2.data["voucherStatus"], GovStackVoucher.STATUS_CANCELLED)
+        # GAP-6: spec §13.4 requires "Cancelled", not raw DB value "cancelled".
+        self.assertEqual(resp2.data["voucherStatus"], "Cancelled")
 
         # Double-cancel → 464
         resp3 = self.client.patch(_status_url(serial))

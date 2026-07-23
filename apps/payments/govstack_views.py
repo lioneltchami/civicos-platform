@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import logging
 
+from django.db import transaction
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -82,6 +83,7 @@ from .govstack_services import (
     GovStackP2GService,
     GovStackVoucherService,
 )
+from .govstack_tasks import process_bulk_payment_batch, validate_prepayment_async
 
 logger = logging.getLogger(__name__)
 
@@ -378,7 +380,7 @@ class BulkPaymentView(GovStackG2PView):
 
         d = ser.validated_data
         try:
-            GovStackBulkPaymentService.receive_batch(
+            batch = GovStackBulkPaymentService.receive_batch(
                 request_id=d.get("RequestID", ""),
                 source_bb_id=d["SourceBBID"],
                 batch_id=d["BatchID"],
@@ -391,6 +393,13 @@ class BulkPaymentView(GovStackG2PView):
             # BatchID is not surfaced in the error message to avoid it co-appearing
             # with PII in logging; the Source BB already knows which BatchID it sent.
             return self._g2p_bad(request, "Batch ID has already been received.")
+
+        # Dispatch async processing only after the BulkPaymentBatch (and its
+        # CreditInstructions) have been committed.  transaction.on_commit ensures
+        # the task can safely read the batch record — it will never see a partially
+        # committed state.  Use a closure-local name to avoid variable-capture bugs.
+        _batch_pk = str(batch.pk)
+        transaction.on_commit(lambda: process_bulk_payment_batch.delay(_batch_pk))
 
         return self._g2p_ok(request, "Bulk payment batch received successfully.")
 
@@ -469,7 +478,7 @@ class PrepaymentValidationView(GovStackG2PView):
         instruction = d["CreditInstructions"][0]
 
         try:
-            GovStackBulkPaymentService.validate_prepayment(
+            pvr = GovStackBulkPaymentService.validate_prepayment(
                 request_id=d.get("RequestID", ""),
                 source_bb_id=d["SourceBBID"],
                 batch_id=d["BatchID"],
@@ -492,6 +501,11 @@ class PrepaymentValidationView(GovStackG2PView):
                 },
                 status=200,
             )
+
+        # Dispatch async validation only after the PrepaymentValidationRequest has
+        # been committed.  Use a closure-local name to avoid variable-capture bugs.
+        _pvr_pk = str(pvr.pk)
+        transaction.on_commit(lambda: validate_prepayment_async.delay(_pvr_pk))
 
         return Response(
             {
@@ -659,7 +673,11 @@ class VoucherActivationView(GovStackAPIView):
             {
                 "voucherNumber": voucher.serial_number,
                 "voucherSerialNumber": voucher.serial_number,
-                "voucherStatus": voucher.status,
+                # get_status_display() returns the title-cased human label from
+                # GovStackVoucher.STATUS_CHOICES, e.g. "Activated".
+                # The harness validates this value against the spec examples
+                # (§13.2: "Activated"), NOT the raw DB constant ("activated").
+                "voucherStatus": voucher.get_status_display(),
                 "voucherGroup": voucher.group_code,
             },
             status=200,
@@ -731,6 +749,12 @@ class VoucherStatusCheckView(GovStackAPIView):
     GET  /govstack/payments/vouchers/voucherstatuscheck/{voucherserialnumber}
     PATCH /govstack/payments/vouchers/voucherstatuscheck/{voucherserialnumber}
 
+    Auth: JWT Bearer via HasVoucherJWT (mirrors VoucherRedemptionView).
+    Both the GET (status inquiry) and PATCH (cancellation) operations carry
+    voucher-lifecycle risk and are therefore JWT-gated in production.
+    In the GovStack harness environment set GOVSTACK_VOUCHER_REQUIRE_JWT=False
+    so the harness can call these endpoints without a Bearer token.
+
     Two harness features share this URL, one per HTTP method:
       GET   → voucher_status_check.feature  @endpoint=/vouchers/voucherstatuscheck
       PATCH → voucher_cancelation.feature   @endpoint=/vouchers/voucherstatuscheck
@@ -747,7 +771,10 @@ class VoucherStatusCheckView(GovStackAPIView):
     GET custom error codes:
       456 — serial number not found
     """
-    permission_classes = [AllowAnyBB]
+    # HasVoucherJWT: no-op when GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode);
+    # requires request.user.is_authenticated when =True (production mode).
+    # This mirrors VoucherRedemptionView — both are higher-risk than preactivation.
+    permission_classes = [HasVoucherJWT]
 
     def get(self, request: Request, voucherserialnumber: str) -> Response:
         # URL parameter may arrive as an integer string from the harness.
@@ -775,7 +802,10 @@ class VoucherStatusCheckView(GovStackAPIView):
         return Response(
             {
                 "voucherSerialNumber": voucher.serial_number,
-                "voucherStatus": voucher.status,
+                # get_status_display() returns title-cased label, e.g. "Cancelled".
+                # Spec §13.4 requires this form; raw DB value ("cancelled") would fail
+                # the harness assertion.
+                "voucherStatus": voucher.get_status_display(),
             },
             status=200,
         )
