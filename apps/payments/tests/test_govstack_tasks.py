@@ -138,22 +138,30 @@ class GovStackCeleryTasksTest(TestCase):
     """
     G (tasks). process_bulk_payment_batch + validate_prepayment_async Celery tasks.
 
-    G1:  BulkPaymentView.post() dispatches process_bulk_payment_batch via on_commit
-    G2:  process_bulk_payment_batch transitions all CreditInstructions → COMPLETED
-    G3:  process_bulk_payment_batch sets BulkPaymentBatch.status → COMPLETED
-    G4:  process_bulk_payment_batch writes ACTION_BATCH_COMPLETED audit entry
-    G5:  process_bulk_payment_batch POSTs to callback_url when non-empty
-    G6:  process_bulk_payment_batch does NOT post when callback_url is empty
-    G7:  process_bulk_payment_batch callback payload never includes payee_functional_id
-    G8:  process_bulk_payment_batch is idempotent (second call is a no-op)
-    G9:  PrepaymentValidationView.post() dispatches validate_prepayment_async via on_commit
-    G10: validate_prepayment_async sets beneficiary_found=True for registered payee_functional_id
-    G11: validate_prepayment_async sets beneficiary_found=False for unknown payee_functional_id
-    G12: validate_prepayment_async transitions PrepaymentValidationRequest.status → COMPLETED
-    G13: validate_prepayment_async writes ACTION_VALIDATION_COMPLETED audit entry
-    G14: validate_prepayment_async callback payload has correct shape (no payee_functional_id)
-    G15: validate_prepayment_async callback POST failure is non-fatal (task still completes)
-    G16: validate_prepayment_async is idempotent (second call is a no-op)
+    G1:      BulkPaymentView.post() dispatches process_bulk_payment_batch via on_commit
+    G2:      process_bulk_payment_batch marks instruction COMPLETED when beneficiary exists
+    G3:      process_bulk_payment_batch sets BulkPaymentBatch.status → COMPLETED (all succeed)
+    G3b:     process_bulk_payment_batch sets completed_amount + result_generated_at
+    G4:      process_bulk_payment_batch writes ACTION_BATCH_COMPLETED audit entry
+    G5:      process_bulk_payment_batch POSTs to callback_url when non-empty
+    G6:      process_bulk_payment_batch does NOT post when callback_url is empty
+    G7:      process_bulk_payment_batch callback payload never includes payee_functional_id;
+             Status field reflects actual batch outcome ("COMPLETED")
+    G8:      process_bulk_payment_batch is idempotent (second call is a no-op)
+    G3-upd:  process_bulk_payment_batch marks instruction FAILED + ACTION_INSTRUCTION_FAILED
+             when payee_functional_id not in GovStackBeneficiary; audit details contain no PII
+    G-new-1: batch.status = PARTIAL when some instructions pass, some fail;
+             completed_amount / failed_amount / result_generated_at all set correctly
+    G-new-2: batch.status = FAILED + ACTION_BATCH_FAILED when all instructions fail
+    G-new-3: batch.failed_amount reflects sum of all failed instruction amounts
+    G9:      PrepaymentValidationView.post() dispatches validate_prepayment_async via on_commit
+    G10:     validate_prepayment_async sets beneficiary_found=True for registered payee
+    G11:     validate_prepayment_async sets beneficiary_found=False for unknown payee
+    G12:     validate_prepayment_async transitions PrepaymentValidationRequest.status → COMPLETED
+    G13:     validate_prepayment_async writes ACTION_VALIDATION_COMPLETED audit entry
+    G14:     validate_prepayment_async callback payload has correct shape (no payee_functional_id)
+    G15:     validate_prepayment_async callback POST failure is non-fatal (task still completes)
+    G16:     validate_prepayment_async is idempotent (second call is a no-op)
     """
 
     def setUp(self):
@@ -412,6 +420,13 @@ class GovStackCeleryTasksTest(TestCase):
         )
         # The batch_id business key must appear — confirms the callback is meaningful.
         self.assertIn(batch.batch_id, payload_str)
+        # Status must reflect the actual batch outcome.
+        # All instructions COMPLETED (beneficiary registered) → "COMPLETED".
+        self.assertEqual(
+            payload.get("Status"),
+            "COMPLETED",
+            "Callback Status must be 'COMPLETED' when all instructions succeed.",
+        )
 
     # ------------------------------------------------------------------
     # G8 — process_bulk_payment_batch is idempotent
@@ -487,10 +502,16 @@ class GovStackCeleryTasksTest(TestCase):
             object_pk=str(instr.pk),
         )
         details_str = json.dumps(entry.details)
+        # Check that neither the field name nor the actual value leaks into audit details.
         self.assertNotIn(
             "payee_functional_id",
             details_str.lower(),
-            "ACTION_INSTRUCTION_FAILED audit details must never contain payee_functional_id.",
+            "ACTION_INSTRUCTION_FAILED audit details must never contain payee_functional_id key.",
+        )
+        self.assertNotIn(
+            "GPayeeIDtask1234",
+            details_str,
+            "Actual payee_functional_id value must not appear in audit details.",
         )
 
     # ------------------------------------------------------------------
@@ -546,6 +567,21 @@ class GovStackCeleryTasksTest(TestCase):
             BulkPaymentBatch.STATUS_PARTIAL,
             "batch.status must be PARTIAL when some instructions succeed and some fail.",
         )
+        # Accounting fields must correctly split completed vs failed amounts.
+        self.assertEqual(
+            batch.completed_amount,
+            Decimal("100.00"),
+            "completed_amount must equal the sum of COMPLETED instruction amounts.",
+        )
+        self.assertEqual(
+            batch.failed_amount,
+            Decimal("100.00"),
+            "failed_amount must equal the sum of FAILED instruction amounts.",
+        )
+        self.assertIsNotNone(
+            batch.result_generated_at,
+            "result_generated_at must be set on a PARTIAL batch.",
+        )
 
     # ------------------------------------------------------------------
     # G-new-2 — batch.status = FAILED when all instructions fail
@@ -568,6 +604,16 @@ class GovStackCeleryTasksTest(TestCase):
             batch.status,
             BulkPaymentBatch.STATUS_FAILED,
             "batch.status must be FAILED when all instructions fail the ID Mapper lookup.",
+        )
+        # The batch-level audit entry must use ACTION_BATCH_FAILED.
+        batch_audit_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BATCH_FAILED,
+            object_pk=str(batch.pk),
+        ).count()
+        self.assertEqual(
+            batch_audit_count,
+            1,
+            "Exactly one ACTION_BATCH_FAILED audit entry expected when all instructions fail.",
         )
 
     # ------------------------------------------------------------------

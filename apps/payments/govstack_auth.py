@@ -14,14 +14,16 @@ Permission matrix:
 
 For the GovStack test harness:
   The harness calls endpoints without a pre-negotiated API key.
-  IsTrustedSourceBB accepts any non-empty X-Registering-Institution-ID header.
+  Set GOVSTACK_REQUIRE_REGISTERED_BB=False in the harness environment (default in
+  tests) so IsTrustedSourceBB accepts any valid non-empty header without a DB lookup.
   AllowAnyBB accepts any non-empty Gov_Stack_BB value in the request body.
 
 For production deployment:
-  Replace the body of IsTrustedSourceBB.has_permission() with a lookup against
-  a GovStackRegisteredBB table (to be added in a future wave).
-  AllowAnyBB.has_permission() similarly should validate Gov_Stack_BB against
-  a registered BB registry.
+  GOVSTACK_REQUIRE_REGISTERED_BB=True (the production default set in production.py)
+  causes IsTrustedSourceBB to query the GovStackRegisteredBB whitelist table.
+  Only BBs with a matching, is_active=True row are granted access.
+  Run seed_govstack_vouchers before enabling this in the harness environment to
+  create GovStackRegisteredBB(bb_id="GS-HARNESS") so the harness ID passes.
 
 Security note:
   These permissions do NOT authenticate individual citizens. They authenticate
@@ -42,8 +44,9 @@ logger = logging.getLogger(__name__)
 
 class IsTrustedSourceBB(BasePermission):
     """
-    Grants access when the X-Registering-Institution-ID header is present
-    and non-empty.
+    Grants access when the X-Registering-Institution-ID header is present,
+    non-empty, ≤ 20 chars, AND (in production mode) matches an active
+    GovStackRegisteredBB whitelist row.
 
     Used on:
       - POST /govstack/payments/register-beneficiary
@@ -52,14 +55,22 @@ class IsTrustedSourceBB(BasePermission):
       - POST /govstack/payments/prepayment-validation
       - POST /govstack/payments/prepayment-validation-response
 
-    Production upgrade path:
-      Validate institution_id against a whitelist / database table of
-      registered institutions. For now (harness testing), any non-empty
-      string passes.
+    Two operating modes, controlled by the GOVSTACK_REQUIRE_REGISTERED_BB
+    Django setting (mirrors the GOVSTACK_VOUCHER_REQUIRE_JWT pattern):
 
-    Failure response: HTTP 401 (DRF returns 401 for anonymous users that fail a permission
-    check, since authentication was not attempted). The harness does not explicitly test
-    the failure status code on these endpoints.
+      GOVSTACK_REQUIRE_REGISTERED_BB=False (default in tests / harness):
+        Header-only check — any non-empty, ≤ 20-char header value passes.
+        This preserves backward compatibility with harness runs and existing
+        tests that do not seed the GovStackRegisteredBB table.
+
+      GOVSTACK_REQUIRE_REGISTERED_BB=True (production default via production.py):
+        DB lookup — the institution_id must match a GovStackRegisteredBB row
+        with is_active=True.  Run seed_govstack_vouchers first to create the
+        harness row (bb_id="GS-HARNESS") before enabling this mode.
+
+    Failure response: HTTP 401 (DRF returns NotAuthenticated for anonymous
+    callers that fail a permission check, since authentication was not attempted).
+    The harness does not explicitly test the failure status code here.
     """
 
     message = "Missing or invalid X-Registering-Institution-ID header."
@@ -69,6 +80,8 @@ class IsTrustedSourceBB(BasePermission):
             request.headers.get("X-Registering-Institution-ID", "").strip()
             or request.headers.get("X-Registering-Institution-Id", "").strip()
         )
+
+        # Header presence and length validation is ALWAYS applied regardless of mode.
         if not institution_id:
             logger.debug(
                 "govstack_auth.IsTrustedSourceBB: missing X-Registering-Institution-ID "
@@ -77,7 +90,6 @@ class IsTrustedSourceBB(BasePermission):
             )
             return False
 
-        # Validate length per spec (max 20 chars)
         if len(institution_id) > 20:
             logger.debug(
                 "govstack_auth.IsTrustedSourceBB: institution_id too long (%d chars) path=%s",
@@ -86,7 +98,31 @@ class IsTrustedSourceBB(BasePermission):
             )
             return False
 
-        return True
+        # Mode switch — same pattern as HasVoucherJWT / GOVSTACK_VOUCHER_REQUIRE_JWT.
+        require_registered = getattr(settings, "GOVSTACK_REQUIRE_REGISTERED_BB", False)
+        if not require_registered:
+            # Harness / test mode: header-only check is sufficient.
+            return True
+
+        # Production mode: validate against the GovStackRegisteredBB whitelist.
+        # Lazy import avoids circular import issues at module load time and keeps
+        # this file importable before the app registry is fully initialised.
+        from apps.payments.govstack_models import GovStackRegisteredBB  # noqa: PLC0415
+
+        granted = GovStackRegisteredBB.objects.filter(
+            bb_id=institution_id,
+            is_active=True,
+        ).exists()
+
+        if not granted:
+            logger.warning(
+                "govstack_auth.IsTrustedSourceBB: institution_id=%r not in whitelist "
+                "or inactive path=%s",
+                institution_id,
+                request.path,
+            )
+
+        return granted
 
 
 class AllowAnyBB(BasePermission):
@@ -98,13 +134,16 @@ class AllowAnyBB(BasePermission):
     Used on:
       - POST /govstack/payments/vouchers/voucher_preactivation
       - PATCH /govstack/payments/vouchers/voucher_activation
-      - POST /govstack/payments/vouchers/voucher_redemption
-      - GET/PATCH /govstack/payments/vouchers/voucherstatuscheck/{serial}
+      - G2P bulk-payment, prepayment-validation, P2G bill endpoints
+        (via GovStackG2PView which sets permission_classes = [AllowAnyBB])
+
+    NOT used on:
+      - POST /govstack/payments/vouchers/voucher_redemption  → HasVoucherJWT
+      - GET/PATCH /govstack/payments/vouchers/voucherstatuscheck/{serial} → HasVoucherJWT
 
     This is intentionally permissive at the permission layer because:
       1. The harness does not send a pre-registered auth token.
       2. Gov_Stack_BB validation (HTTP 460) happens at the business logic level.
-      3. Voucher redemption/status additionally require JWT auth (see HasVoucherJWT).
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
@@ -121,7 +160,9 @@ class HasVoucherJWT(BasePermission):
 
     For Wave 4 implementation:
       This delegates to DRF's built-in JWTAuthentication (simplejwt).
-      The view must also include JWTAuthentication in its authentication_classes.
+      JWTAuthentication is active via the global DEFAULT_AUTHENTICATION_CLASSES
+      in config/settings/base.py — the views using this permission do NOT need
+      to set authentication_classes explicitly.
 
     For the harness:
       The harness may supply a test JWT. If it does not, this permission

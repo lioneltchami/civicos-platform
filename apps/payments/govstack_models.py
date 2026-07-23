@@ -1172,3 +1172,68 @@ class GovStackBillPayment(TimestampedModel):
 
     def __str__(self) -> str:
         return f"BillPayment {self.request_id} [{self.status}] (bill={self.bill_id})"
+
+
+# ---------------------------------------------------------------------------
+# GovStackRegisteredBB  (BB Whitelist — GAP-4)
+# ---------------------------------------------------------------------------
+
+class GovStackRegisteredBB(TimestampedModel):
+    """
+    Registry of GovStack Building Blocks authorised to call this BB's endpoints.
+
+    Used by IsTrustedSourceBB.has_permission() when
+    GOVSTACK_REQUIRE_REGISTERED_BB=True (the production default).
+
+    Each row maps a bb_id (the exact string sent in the
+    X-Registering-Institution-ID request header) to an active/inactive flag.
+    Rows with is_active=False are silently rejected — this supports
+    temporary suspension of a BB's access without deleting audit history.
+
+    Harness setup:
+      seed_govstack_vouchers creates GovStackRegisteredBB(bb_id="GS-HARNESS")
+      so the harness institution ID passes after the table is populated.
+
+    Production setup:
+      Add a row per registered Building Block via Django admin before enabling
+      GOVSTACK_REQUIRE_REGISTERED_BB=True in the environment.
+
+    Security:
+      bb_id is validated against _BB_ID_VALIDATOR (1–20 alphanumeric/hyphen chars)
+      at both the model and DB layer (unique constraint).
+      No PII is stored here — bb_id is an infrastructure identifier, not a citizen ID.
+    """
+
+    bb_id = models.CharField(
+        max_length=20,
+        unique=True,
+        validators=[_BB_ID_VALIDATOR],
+        verbose_name=_("BB Identifier"),
+        help_text=_(
+            "Must match the X-Registering-Institution-ID header value sent by the BB. "
+            "1–20 alphanumeric or hyphen characters. Case-sensitive."
+        ),
+    )
+    description = models.TextField(
+        blank=True,
+        verbose_name=_("Description"),
+        help_text=_("Human-readable description of this Building Block (optional)."),
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        verbose_name=_("Active"),
+        help_text=_(
+            "Inactive BBs are rejected by IsTrustedSourceBB even if their bb_id "
+            "is present in the table. Use this to suspend access without deleting records."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("GovStack Registered BB")
+        verbose_name_plural = _("GovStack Registered BBs")
+        ordering = ["bb_id"]
+
+    def __str__(self) -> str:
+        status = "active" if self.is_active else "inactive"
+        return f"{self.bb_id} ({status})"

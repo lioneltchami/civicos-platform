@@ -25,6 +25,7 @@ from .govstack_models import (
     GovStackBill,
     GovStackBillPayment,
     GovStackPaymentAuditEntry,
+    GovStackRegisteredBB,
     GovStackVoucher,
     PrepaymentValidationRequest,
 )
@@ -1222,3 +1223,79 @@ class GovStackBillPaymentAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None) -> bool:
         return False  # Payment records are permanent
+
+
+# ===========================================================================
+# BB Whitelist (GAP-4)
+# ===========================================================================
+
+
+@admin.register(GovStackRegisteredBB)
+class GovStackRegisteredBBAdmin(admin.ModelAdmin):
+    """
+    GovStackRegisteredBB admin — manages the whitelist of Building Blocks
+    authorised to call this BB's G2P endpoints when
+    GOVSTACK_REQUIRE_REGISTERED_BB=True.
+
+    Operators can:
+      - Add new BB entries before enabling GOVSTACK_REQUIRE_REGISTERED_BB=True.
+      - Deactivate BBs by unchecking is_active (no data loss).
+      - View the bb_id and description.
+
+    bb_id is immutable after creation (it is the lookup key used in HTTP
+    headers — changing it would silently break the calling BB).
+    Delete is disabled; use is_active=False for suspension instead so the
+    audit trail of when the BB was first registered is preserved.
+
+    No PII is stored here — bb_id is an infrastructure identifier only.
+    """
+
+    list_display = [
+        "bb_id",
+        "is_active",
+        "description_short",
+        "created_at",
+        "updated_at",
+    ]
+    list_filter = ["is_active"]
+    search_fields = ["bb_id", "description"]
+    ordering = ["bb_id"]
+
+    def get_readonly_fields(self, request, obj=None):
+        # Timestamps are always auto-set — show as read-only on both forms.
+        # bb_id is immutable after creation (it's the lookup key in HTTP headers;
+        # renaming it would silently break the calling BB).
+        # On the ADD form (obj=None) bb_id must remain editable so operators can
+        # set it. A class-level readonly_fields would hide the input on the ADD
+        # form, making the admin incapable of creating new rows.
+        base = ["created_at", "updated_at"]
+        if obj is not None:
+            # Change form: lock bb_id to prevent renaming.
+            return [*base, "bb_id"]
+        return base
+
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": ["bb_id", "description", "is_active"],
+            },
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": ["created_at", "updated_at"],
+                "classes": ["collapse"],
+            },
+        ),
+    ]
+
+    @admin.display(description="Description")
+    def description_short(self, obj) -> str:
+        """Truncate long descriptions to keep list_display readable."""
+        return (obj.description[:60] + "…") if len(obj.description) > 60 else obj.description
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        # Deletion is blocked — use is_active=False to suspend a BB.
+        # This preserves the record of when the BB was first registered.
+        return False

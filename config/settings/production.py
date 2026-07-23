@@ -192,3 +192,39 @@ CACHES = {
 #         "TIMEOUT": 5,
 #     }
 # }
+
+# ---------------------------------------------------------------------------
+# GovStack Payments BB — BB whitelist enforcement (GAP-4)
+# ---------------------------------------------------------------------------
+
+# Controls whether IsTrustedSourceBB.has_permission() validates the
+# X-Registering-Institution-ID header against the GovStackRegisteredBB
+# database table (whitelist mode) or accepts any non-empty, ≤ 20-char value.
+#
+# Production deployments MUST set this to True (the default here).
+# GovStack harness environments set GOVSTACK_REQUIRE_REGISTERED_BB=False via
+# environment variable IF the harness sends a non-whitelisted institution ID.
+# After running seed_govstack_vouchers (which seeds GovStackRegisteredBB
+# with bb_id="GS-HARNESS"), the harness ID passes even when this is True.
+# Never hardcode False in this file — use the env var for per-environment control.
+#
+# Handled by apps/payments/govstack_auth.IsTrustedSourceBB.has_permission().
+GOVSTACK_REQUIRE_REGISTERED_BB = env.bool("GOVSTACK_REQUIRE_REGISTERED_BB", default=True)
+
+# ---------------------------------------------------------------------------
+# GovStack Payments BB — voucher endpoint JWT enforcement
+# ---------------------------------------------------------------------------
+
+# Controls whether Bearer JWT authentication is required on the voucher
+# redemption and status-check endpoints:
+#   POST /govstack/payments/vouchers/voucher_redemption
+#   GET  /govstack/payments/vouchers/voucherstatuscheck/{serial}
+#   PATCH /govstack/payments/vouchers/voucherstatuscheck/{serial}
+#
+# Production deployments MUST set this to True (the default here).
+# GovStack harness environments set GOVSTACK_VOUCHER_REQUIRE_JWT=False via
+# environment variable because the harness cannot supply a Bearer JWT.
+# Never hardcode False in this file — use the env var for per-environment control.
+#
+# Handled by apps/payments/govstack_auth.HasVoucherJWT.has_permission().
+GOVSTACK_VOUCHER_REQUIRE_JWT = env.bool("GOVSTACK_VOUCHER_REQUIRE_JWT", default=True)

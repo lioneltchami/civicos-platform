@@ -380,6 +380,10 @@ CELERY_TASK_ROUTES = {
     "apps.payments.tasks_receipts.generate_and_send_receipt": {"queue": "receipts"},
     # kickoff_annual_receipts is a lightweight Beat trigger — runs on default queue;
     # it immediately delegates to generate_annual_receipts (receipts queue) via .delay().
+    # GovStack Payments BB — async G2P batch processing and prepayment validation.
+    # Dispatched via transaction.on_commit() in BulkPaymentView / PrepaymentValidationView.
+    "payments.process_bulk_payment_batch": {"queue": "payments"},
+    "payments.validate_prepayment_async":  {"queue": "payments"},
 }
 
 # Task time limits — prevent runaway workers
