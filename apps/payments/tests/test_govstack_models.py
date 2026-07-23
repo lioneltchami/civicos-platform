@@ -1,0 +1,371 @@
+"""
+test_govstack_models.py
+
+Unit tests for GovStack Payments BB model layer (spec §18.1).
+
+Coverage matrix:
+  M1.  _generate_voucher_serial() — 6-digit string in 100000–999999
+  M2.  _generate_voucher_serial() — returns str, not int
+  M3.  GovStackBeneficiary.__str__() — excludes payee_functional_id (security)
+  M4.  GovStackBeneficiary.payee_functional_id — unique constraint enforced
+  M5.  BulkPaymentBatch.batch_id — unique constraint enforced
+  M6.  CreditInstruction — unique_together ("batch", "instruction_id") enforced
+  M7.  GovStackVoucher.transition_to() — valid transition succeeds
+  M8.  GovStackVoucher.transition_to() — invalid transition raises ValueError
+  M9.  GovStackVoucher.status_int — maps STATUS_ACTIVATED to correct int
+  M10. GovStackVoucher.status_int — unrecognised status returns STATUS_ERROR_INT
+  M11. GovStackVoucher.is_terminal — CONSUMED is terminal
+  M12. GovStackVoucher.is_terminal — PREACTIVATED is not terminal
+  M13. GovStackVoucher.STATUS_ERROR_INT == 9
+  M14. GovStackPaymentAuditEntry — save() after initial creation raises PermissionError
+  M15. GovStackPaymentAuditEntry — delete() on instance raises PermissionError
+  M16. GovStackPaymentAuditEntry — QuerySet.delete() raises PermissionError
+  M17. GovStackPaymentAuditEntry — QuerySet.update() raises PermissionError
+  M18. GovStackPaymentAuditEntry — initial creation (save()) succeeds
+  M19. GovStackVoucher.__str__() — includes serial_number and status
+  M20. GovStackBeneficiary.is_active defaults to True
+
+Security invariants tested:
+  - payee_functional_id NEVER appears in GovStackBeneficiary.__str__()
+  - GovStackPaymentAuditEntry is truly append-only: no mutation path succeeds
+"""
+from __future__ import annotations
+
+from decimal import Decimal
+
+from django.db import IntegrityError
+from django.test import TestCase
+
+from apps.payments.govstack_models import (
+    BulkPaymentBatch,
+    CreditInstruction,
+    GovStackBeneficiary,
+    GovStackPaymentAuditEntry,
+    GovStackVoucher,
+    _generate_voucher_serial,
+)
+
+
+# ============================================================================
+# M1–M2  _generate_voucher_serial
+# ============================================================================
+
+class GenerateVoucherSerialTest(TestCase):
+    """Tests for the _generate_voucher_serial() module-level function."""
+
+    def test_m1_serial_is_in_range(self):
+        """
+        M1: Generated serial is between 100000 and 999999 inclusive.
+        Run several times to reduce the probability of a flaky pass.
+        """
+        for _ in range(20):
+            serial = _generate_voucher_serial()
+            value = int(serial)
+            self.assertGreaterEqual(value, 100_000, f"Serial {serial!r} < 100000")
+            self.assertLessEqual(value, 999_999, f"Serial {serial!r} > 999999")
+
+    def test_m2_serial_is_string(self):
+        """M2: _generate_voucher_serial() returns a str, not an int."""
+        serial = _generate_voucher_serial()
+        self.assertIsInstance(serial, str)
+        self.assertEqual(len(serial), 6)
+
+
+# ============================================================================
+# M3–M4  GovStackBeneficiary
+# ============================================================================
+
+class GovStackBeneficiaryModelTest(TestCase):
+    """Tests for the GovStackBeneficiary model."""
+
+    def _make(self, payee_id: str = "2ba5ed20-a1b2", **kwargs) -> GovStackBeneficiary:
+        defaults = {
+            "payee_functional_id": payee_id,
+            "source_bb_id": "gs-bb-01",
+            "financial_address": "DE89370400440532013000",
+            "payment_modality": "BK",
+            "is_active": True,
+        }
+        defaults.update(kwargs)
+        return GovStackBeneficiary.objects.create(**defaults)
+
+    def test_m3_str_excludes_payee_functional_id(self):
+        """
+        M3: GovStackBeneficiary.__str__() must NOT expose payee_functional_id.
+
+        Security invariant: the payee_functional_id is a government-assigned
+        identity and must never appear in log lines (which often call str() on
+        model instances).
+        """
+        payee_id = "2ba5ed20-0f42-4eff-8"
+        b = self._make(payee_id=payee_id)
+        result = str(b)
+        self.assertNotIn(payee_id, result, (
+            f"payee_functional_id {payee_id!r} must not appear in __str__(). "
+            f"Got: {result!r}"
+        ))
+
+    def test_m4_payee_functional_id_unique(self):
+        """M4: payee_functional_id has a unique constraint — duplicate raises IntegrityError."""
+        payee_id = "2ba5ed20-a1b2"
+        self._make(payee_id=payee_id)
+        with self.assertRaises(IntegrityError):
+            self._make(payee_id=payee_id)
+
+    def test_m20_is_active_defaults_to_true(self):
+        """M20: GovStackBeneficiary.is_active defaults to True."""
+        b = GovStackBeneficiary.objects.create(
+            payee_functional_id="2ba5ed20-ffff",
+            source_bb_id="gs-bb-01",
+        )
+        self.assertTrue(b.is_active)
+
+
+# ============================================================================
+# M5  BulkPaymentBatch
+# ============================================================================
+
+class BulkPaymentBatchModelTest(TestCase):
+    """Tests for the BulkPaymentBatch model."""
+
+    def _make(self, batch_id: str = "BATCH001", **kwargs) -> BulkPaymentBatch:
+        defaults = {
+            "batch_id": batch_id,
+            "request_id": "REQ001",
+            "source_bb_id": "gs-bb-01",
+            "status": BulkPaymentBatch.STATUS_RECEIVED,
+            "total_amount": Decimal("100.00"),
+        }
+        defaults.update(kwargs)
+        return BulkPaymentBatch.objects.create(**defaults)
+
+    def test_m5_batch_id_unique(self):
+        """M5: BulkPaymentBatch.batch_id has unique=True — duplicate raises IntegrityError."""
+        self._make(batch_id="BATCH-DUPE")
+        with self.assertRaises(IntegrityError):
+            self._make(batch_id="BATCH-DUPE")
+
+
+# ============================================================================
+# M6  CreditInstruction
+# ============================================================================
+
+class CreditInstructionModelTest(TestCase):
+    """Tests for the CreditInstruction model."""
+
+    def setUp(self):
+        self.batch = BulkPaymentBatch.objects.create(
+            batch_id="BATCH-CI-001",
+            request_id="REQ-CI-001",
+            source_bb_id="gs-bb-01",
+            status=BulkPaymentBatch.STATUS_RECEIVED,
+            total_amount=Decimal("200.00"),
+        )
+
+    def test_m6_unique_together_batch_instruction_id(self):
+        """
+        M6: CreditInstruction.Meta.unique_together = [("batch", "instruction_id")].
+        Same (batch, instruction_id) pair raises IntegrityError.
+        Different instruction_id within the same batch is allowed.
+        """
+        CreditInstruction.objects.create(
+            batch=self.batch,
+            instruction_id="INSTR-001",
+            payee_functional_id="2ba5ed20-aabb",
+            amount=Decimal("100.00"),
+            currency="USD",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        # Duplicate (batch, instruction_id) must fail.
+        with self.assertRaises(IntegrityError):
+            CreditInstruction.objects.create(
+                batch=self.batch,
+                instruction_id="INSTR-001",  # same — must fail
+                payee_functional_id="2ba5ed20-ccdd",
+                amount=Decimal("50.00"),
+                currency="USD",
+                status=CreditInstruction.STATUS_PENDING,
+            )
+
+    def test_m6b_different_instruction_id_same_batch_allowed(self):
+        """M6b: Two instructions with different instruction_ids in the same batch are allowed."""
+        CreditInstruction.objects.create(
+            batch=self.batch,
+            instruction_id="INSTR-A",
+            payee_functional_id="2ba5ed20-aa00",
+            amount=Decimal("100.00"),
+            currency="USD",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        # Different instruction_id — must succeed.
+        CreditInstruction.objects.create(
+            batch=self.batch,
+            instruction_id="INSTR-B",
+            payee_functional_id="2ba5ed20-bb00",
+            amount=Decimal("100.00"),
+            currency="USD",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        self.assertEqual(
+            CreditInstruction.objects.filter(batch=self.batch).count(), 2
+        )
+
+
+# ============================================================================
+# M7–M13, M19  GovStackVoucher
+# ============================================================================
+
+class GovStackVoucherModelTest(TestCase):
+    """Tests for the GovStackVoucher model."""
+
+    def _make(self, serial: str = "123456", status: str = GovStackVoucher.STATUS_PREACTIVATED) -> GovStackVoucher:
+        return GovStackVoucher.objects.create(
+            serial_number=serial,
+            amount=Decimal("50.00"),
+            currency="USD",
+            group_code="FOOD",
+            status=status,
+            issuing_bb="gs-bb-01",
+        )
+
+    def test_m7_valid_transition_succeeds(self):
+        """M7: transition_to() with a valid next status updates in-memory status."""
+        v = self._make(status=GovStackVoucher.STATUS_PREACTIVATED)
+        v.transition_to(GovStackVoucher.STATUS_ACTIVATED)
+        self.assertEqual(v.status, GovStackVoucher.STATUS_ACTIVATED)
+
+    def test_m8_invalid_transition_raises_value_error(self):
+        """M8: transition_to() raises ValueError when the transition is not allowed."""
+        v = self._make(status=GovStackVoucher.STATUS_PREACTIVATED)
+        # PREACTIVATED → CONSUMED is not in ALLOWED_TRANSITIONS.
+        with self.assertRaises(ValueError):
+            v.transition_to(GovStackVoucher.STATUS_CONSUMED)
+
+    def test_m9_status_int_activated(self):
+        """M9: status_int returns the integer code for STATUS_ACTIVATED (2)."""
+        v = self._make(status=GovStackVoucher.STATUS_ACTIVATED)
+        # STATUS_INT_MAP: activated → 2
+        self.assertEqual(v.status_int, GovStackVoucher.STATUS_INT_MAP[GovStackVoucher.STATUS_ACTIVATED])
+        self.assertIsInstance(v.status_int, int)
+
+    def test_m10_status_int_unrecognised_returns_error_int(self):
+        """M10: status_int returns STATUS_ERROR_INT (9) for an unrecognised status string."""
+        v = self._make()
+        # Manually inject an unknown status bypassing the state machine.
+        v.status = "__unknown__"
+        self.assertEqual(v.status_int, GovStackVoucher.STATUS_ERROR_INT)
+
+    def test_m11_is_terminal_consumed(self):
+        """M11: CONSUMED is a terminal state."""
+        v = self._make(status=GovStackVoucher.STATUS_CONSUMED)
+        self.assertTrue(v.is_terminal)
+
+    def test_m12_is_terminal_preactivated_false(self):
+        """M12: PREACTIVATED is not terminal — further transitions are possible."""
+        v = self._make(status=GovStackVoucher.STATUS_PREACTIVATED)
+        self.assertFalse(v.is_terminal)
+
+    def test_m13_status_error_int_is_nine(self):
+        """M13: GovStackVoucher.STATUS_ERROR_INT must equal 9 (spec §13.5)."""
+        self.assertEqual(GovStackVoucher.STATUS_ERROR_INT, 9)
+
+    def test_m19_str_includes_serial_and_status(self):
+        """M19: __str__() includes the serial_number and status for debug readability."""
+        v = self._make(serial="777888", status=GovStackVoucher.STATUS_PREACTIVATED)
+        result = str(v)
+        self.assertIn("777888", result)
+        self.assertIn(GovStackVoucher.STATUS_PREACTIVATED, result)
+
+    def test_m19b_cancelled_is_terminal(self):
+        """M19b: CANCELLED is terminal (no further transitions allowed)."""
+        v = self._make(status=GovStackVoucher.STATUS_CANCELLED)
+        self.assertTrue(v.is_terminal)
+
+
+# ============================================================================
+# M14–M18  GovStackPaymentAuditEntry (append-only enforcement)
+# ============================================================================
+
+class AuditEntryAppendOnlyTest(TestCase):
+    """
+    Tests that GovStackPaymentAuditEntry is truly append-only:
+      - Initial create (save with no pk) succeeds.
+      - save() on an existing instance (with pk) raises PermissionError.
+      - instance.delete() raises PermissionError.
+      - QuerySet.delete() raises PermissionError.
+      - QuerySet.update() raises PermissionError.
+    """
+
+    def _make_entry(self, action: str = GovStackPaymentAuditEntry.ACTION_BENEFICIARY_REGISTERED) -> GovStackPaymentAuditEntry:
+        """Create a fresh audit entry. Should always succeed."""
+        return GovStackPaymentAuditEntry.objects.create(
+            action=action,
+            actor_bb_id="gs-bb-test",
+            object_type="beneficiary",
+            object_pk="test-pk-001",
+            request_id="REQ-TEST-01",
+            details={"test": True},
+        )
+
+    def test_m18_initial_create_succeeds(self):
+        """M18: Creating a new audit entry (save without pk) succeeds."""
+        entry = self._make_entry()
+        self.assertIsNotNone(entry.pk)
+        self.assertEqual(entry.object_pk, "test-pk-001")
+
+    def test_m14_save_after_creation_raises_permission_error(self):
+        """
+        M14: save() on an already-persisted audit entry raises PermissionError.
+        This enforces append-only semantics — the audit trail cannot be tampered with.
+        """
+        entry = self._make_entry()
+        # Attempt to mutate after initial creation.
+        entry.actor_bb_id = "tampered-bb"
+        with self.assertRaises(PermissionError):
+            entry.save()
+
+    def test_m15_instance_delete_raises_permission_error(self):
+        """
+        M15: instance.delete() raises PermissionError.
+        Audit records are permanent and cannot be deleted.
+        """
+        entry = self._make_entry()
+        with self.assertRaises(PermissionError):
+            entry.delete()
+
+    def test_m16_queryset_delete_raises_permission_error(self):
+        """
+        M16: QuerySet.delete() raises PermissionError.
+
+        Django's standard QuerySet.delete() bypasses the model's delete() override
+        and issues raw SQL DELETE. _AuditEntryQuerySet.delete() guards against this.
+        """
+        self._make_entry()
+        with self.assertRaises(PermissionError):
+            GovStackPaymentAuditEntry.objects.filter(
+                actor_bb_id="gs-bb-test"
+            ).delete()
+
+    def test_m17_queryset_update_raises_permission_error(self):
+        """
+        M17: QuerySet.update() raises PermissionError.
+
+        Django's QuerySet.update() issues raw SQL UPDATE bypassing save() overrides.
+        _AuditEntryQuerySet.update() guards against this so the audit trail cannot
+        be silently mutated by bulk-update calls.
+        """
+        self._make_entry()
+        with self.assertRaises(PermissionError):
+            GovStackPaymentAuditEntry.objects.filter(
+                actor_bb_id="gs-bb-test"
+            ).update(actor_bb_id="tampered")
+
+    def test_m17b_multiple_entries_same_object_allowed(self):
+        """
+        M17b: Multiple distinct audit entries for the same object_pk are allowed
+        (idiomatic audit log — one row per event, not one row per object).
+        """
+        self._make_entry(action=GovStackPaymentAuditEntry.ACTION_BENEFICIARY_REGISTERED)
+        self._make_entry(action=GovStackPaymentAuditEntry.ACTION_BENEFICIARY_UPDATED)
+        count = GovStackPaymentAuditEntry.objects.filter(object_pk="test-pk-001").count()
+        self.assertEqual(count, 2)
