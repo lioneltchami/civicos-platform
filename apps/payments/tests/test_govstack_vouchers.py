@@ -1,7 +1,7 @@
 """
-test_govstack_wave4.py
+test_govstack_vouchers.py
 
-Comprehensive tests for GovStack Payments BB — Wave 4 (Voucher Engine).
+Comprehensive tests for GovStack Payments BB — Voucher Engine (spec §18).
 
 Coverage matrix:
   A. VoucherPreactivation view — harness scenarios
@@ -62,6 +62,16 @@ Coverage matrix:
      E6:  Cancel already-cancelled voucher → HTTP 464
      E7:  Cancel CONSUMED voucher → HTTP 463 (terminal state, invalid transition)
 
+  F31–F36: seed_govstack_vouchers management command
+  F37: GOVSTACK_VOUCHER_REQUIRE_JWT=True → unauthenticated POST to voucher_redemption → 401/403
+  F38: GOVSTACK_VOUCHER_REQUIRE_JWT=True → unauthenticated PATCH to voucherstatuscheck → 401/403
+  F39: GOVSTACK_VOUCHER_REQUIRE_JWT=True → unauthenticated GET to voucherstatuscheck → 401/403
+  F40: GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode) → unauthenticated GET to voucherstatuscheck → HTTP 200
+  F41: GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode) → unauthenticated POST to voucher_redemption → HTTP 200
+  F42: GOVSTACK_VOUCHER_REQUIRE_JWT=True + authenticated user → POST to voucher_redemption → HTTP 200
+  F43: GOVSTACK_VOUCHER_REQUIRE_JWT=True + authenticated user → GET to voucherstatuscheck → HTTP 200
+  F44: GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode) → unauthenticated PATCH to voucherstatuscheck → HTTP 200
+
   F. GovStackVoucherService — service layer unit tests
      F1:  preactivate() returns a GovStackVoucher with STATUS_PREACTIVATED
      F2:  preactivate() stores correct amount/currency/group
@@ -94,6 +104,14 @@ Coverage matrix:
      F29: get_status() raises InvalidVoucherSerial for unknown serial
      F30: preactivate() retries on serial collision and succeeds with second serial
 
+  F (seed). SeedGovStackVouchersCommandTests — management command unit tests
+     F31: seed command creates all 14 expected serials when DB is empty
+     F32: seed command is idempotent — zero new rows on second run, no IntegrityError
+     F33: all seeded vouchers have STATUS_PREACTIVATED
+     F34: serial_number stored as exact string value (no zero-padding, no truncation)
+     F35: --reset flag deletes all seed serials and recreates them in PREACTIVATED state
+     F36: issuing_bb is exactly "GS-HARNESS" on all seeded rows
+
   G. Security invariants
      G1:  voucher_secret never in any preactivation response
      G2:  payee_functional_id never in any response body
@@ -113,10 +131,12 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from io import StringIO
 from unittest.mock import patch
 
-from django.test import TestCase
-from django.urls import reverse
+from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.payments.govstack_exceptions import (
@@ -1175,3 +1195,573 @@ class VoucherFullChainedFlowTest(TestCase):
         # Double-cancel → 464
         resp3 = self.client.patch(_status_url(serial))
         self.assertEqual(resp3.status_code, 464)
+
+
+# ---------------------------------------------------------------------------
+# F31–F36  seed_govstack_vouchers management command
+# ---------------------------------------------------------------------------
+
+class SeedGovStackVouchersCommandTests(TestCase):
+    """
+    Tests for the ``seed_govstack_vouchers`` management command.
+
+    These tests validate that the command:
+      - creates exactly the 14 GovStack harness vouchers (F31)
+      - is idempotent on repeated runs (F32)
+      - seeds all rows in STATUS_PREACTIVATED (F33)
+      - preserves exact serial number strings without padding or truncation (F34)
+      - supports --reset to delete and recreate seed rows (F35)
+      - tags all rows with issuing_bb == "GS-HARNESS" (F36)
+
+    The full seed set uses 4-digit serials (5550–6004) and 5-digit serials
+    (60000–60001) — values outside the auto-generation range (100 000–999 999)
+    and therefore guaranteed not to conflict with production vouchers.
+    """
+
+    # Canonical list of all serial numbers the seed command must create.
+    # Order matches _SEED_VOUCHERS in the management command.
+    EXPECTED_SERIALS: list[str] = [
+        "5550", "5551", "5552", "5553", "5554", "5555",
+        "5556", "5557", "5558", "5559", "5560",
+        "6004",
+        "60000", "60001",
+    ]
+
+    # Expected group_code + amount_str + currency for spot-check rows
+    # (serial → (group_code, amount_str, currency))
+    _EXPECTED_DATA: dict[str, tuple[str, str, str]] = {
+        "5550":  ("FOOD",      "100.00", "CAD"),
+        "5552":  ("FOOD",      "200.00", "CAD"),
+        "5556":  ("HEALTH",    "75.00",  "CAD"),
+        "6004":  ("HEALTH",    "200.00", "CAD"),
+        "60000": ("TRANSPORT", "50.00",  "CAD"),
+        "60001": ("TRANSPORT", "50.00",  "CAD"),
+    }
+
+    def _call_seed(self, *, reset: bool = False, verbosity: int = 0) -> str:
+        """Invoke the seed command and return captured stdout."""
+        out = StringIO()
+        call_command(
+            "seed_govstack_vouchers",
+            reset=reset,
+            verbosity=verbosity,
+            stdout=out,
+        )
+        return out.getvalue()
+
+    # ── F31 ──────────────────────────────────────────────────────────────────
+
+    def test_f31_creates_all_14_serials_when_db_is_empty(self):
+        """Command creates exactly 14 seed vouchers starting from an empty DB."""
+        self.assertEqual(GovStackVoucher.objects.count(), 0)
+
+        self._call_seed()
+
+        qs = GovStackVoucher.objects.all()
+        self.assertEqual(qs.count(), len(self.EXPECTED_SERIALS))
+        created_serials = set(qs.values_list("serial_number", flat=True))
+        self.assertEqual(created_serials, set(self.EXPECTED_SERIALS))
+
+    # ── F32 ──────────────────────────────────────────────────────────────────
+
+    def test_f32_command_is_idempotent(self):
+        """Running the command twice creates 0 additional rows, raises no errors."""
+        self._call_seed()
+        count_after_first = GovStackVoucher.objects.count()
+        self.assertEqual(count_after_first, len(self.EXPECTED_SERIALS))
+
+        # Second run must not raise IntegrityError or create duplicates
+        self._call_seed()
+        count_after_second = GovStackVoucher.objects.count()
+        self.assertEqual(count_after_second, count_after_first)
+
+    # ── F33 ──────────────────────────────────────────────────────────────────
+
+    def test_f33_seeded_vouchers_are_preactivated(self):
+        """All 14 seed vouchers have STATUS_PREACTIVATED after seeding."""
+        self._call_seed()
+
+        non_preactivated = GovStackVoucher.objects.filter(
+            serial_number__in=self.EXPECTED_SERIALS,
+        ).exclude(status=GovStackVoucher.STATUS_PREACTIVATED)
+
+        self.assertEqual(
+            non_preactivated.count(),
+            0,
+            msg=(
+                "Some seed vouchers have unexpected status: "
+                + str(list(non_preactivated.values_list("serial_number", "status")))
+            ),
+        )
+
+    # ── F34 ──────────────────────────────────────────────────────────────────
+
+    def test_f34_serial_numbers_are_exact_strings(self):
+        """
+        serial_number is the exact string value specified in _SEED_VOUCHERS —
+        no zero-padding, no truncation, no integer coercion.
+
+        Spot-checks 4-digit serials (5550, 5560, 6004) and 5-digit serials
+        (60000, 60001).  Also verifies that zero-padded variants do NOT exist.
+        """
+        self._call_seed()
+
+        # Exact 4-digit serials must exist
+        for serial in ("5550", "5560", "6004"):
+            self.assertTrue(
+                GovStackVoucher.objects.filter(serial_number=serial).exists(),
+                msg=f"Expected exact serial_number={serial!r} to exist in DB.",
+            )
+            # Zero-padded form (e.g. "005550") must NOT be created
+            padded = serial.zfill(6)
+            if padded != serial:
+                self.assertFalse(
+                    GovStackVoucher.objects.filter(serial_number=padded).exists(),
+                    msg=(
+                        f"Zero-padded serial_number={padded!r} must NOT exist — "
+                        f"seed uses exact value {serial!r}."
+                    ),
+                )
+
+        # Exact 5-digit serials must exist
+        for serial in ("60000", "60001"):
+            self.assertTrue(
+                GovStackVoucher.objects.filter(serial_number=serial).exists(),
+                msg=f"Expected exact serial_number={serial!r} to exist in DB.",
+            )
+            # 6-digit zero-padded form must NOT exist
+            padded = serial.zfill(6)
+            if padded != serial:
+                self.assertFalse(
+                    GovStackVoucher.objects.filter(serial_number=padded).exists(),
+                    msg=(
+                        f"Zero-padded serial_number={padded!r} must NOT exist — "
+                        f"seed uses exact value {serial!r}."
+                    ),
+                )
+
+    # ── F35 ──────────────────────────────────────────────────────────────────
+
+    def test_f35_reset_flag_deletes_and_recreates_seed_rows(self):
+        """
+        --reset deletes ALL vouchers whose serial_number is in the seed list
+        (regardless of status or issuing_bb) and then recreates them all in
+        STATUS_PREACTIVATED with the correct group_code and amount.
+
+        Scenario: simulates a harness run that consumed serial 5550 and
+        cancelled serial 60001, then the operator runs --reset to restore
+        them before the next harness submission.
+        """
+        from datetime import timedelta
+        from django.utils import timezone
+
+        # Pre-create two seed serials in terminal/modified states
+        GovStackVoucher.objects.create(
+            serial_number="5550",
+            amount=Decimal("999.00"),
+            currency="USD",              # Wrong currency — will be deleted and replaced by seed value
+            group_code="WRONG",          # Wrong group — will be deleted and replaced by seed value
+            status=GovStackVoucher.STATUS_CONSUMED,
+            issuing_bb="SOME-OTHER-BB",  # Not GS-HARNESS — reset must still delete it
+            expiry_date=timezone.now() + timedelta(days=1),
+        )
+        GovStackVoucher.objects.create(
+            serial_number="60001",
+            amount=Decimal("1.00"),
+            currency="USD",
+            group_code="WRONG",
+            status=GovStackVoucher.STATUS_CANCELLED,
+            issuing_bb="GS-HARNESS",
+            expiry_date=timezone.now() + timedelta(days=1),
+        )
+        self.assertEqual(GovStackVoucher.objects.count(), 2)
+
+        # Run seed with --reset
+        self._call_seed(reset=True, verbosity=1)
+
+        # All 14 seed rows must now be present
+        self.assertEqual(
+            GovStackVoucher.objects.count(),
+            len(self.EXPECTED_SERIALS),
+        )
+
+        # Serial 5550 must be freshly created in PREACTIVATED state with correct data
+        v5550 = GovStackVoucher.objects.get(serial_number="5550")
+        self.assertEqual(v5550.status, GovStackVoucher.STATUS_PREACTIVATED)
+        self.assertEqual(v5550.group_code, "FOOD")
+        self.assertEqual(v5550.amount, Decimal("100.00"))
+        self.assertEqual(v5550.currency, "CAD")
+        self.assertEqual(v5550.issuing_bb, "GS-HARNESS")
+
+        # Serial 60001 must be freshly created in PREACTIVATED state with correct data
+        v60001 = GovStackVoucher.objects.get(serial_number="60001")
+        self.assertEqual(v60001.status, GovStackVoucher.STATUS_PREACTIVATED)
+        self.assertEqual(v60001.group_code, "TRANSPORT")
+        self.assertEqual(v60001.amount, Decimal("50.00"))
+        self.assertEqual(v60001.currency, "CAD")
+        self.assertEqual(v60001.issuing_bb, "GS-HARNESS")
+
+    # ── F36 ──────────────────────────────────────────────────────────────────
+
+    def test_f36_issuing_bb_is_gs_harness(self):
+        """All 14 seed vouchers have issuing_bb == 'GS-HARNESS'."""
+        self._call_seed()
+
+        wrong_bb = GovStackVoucher.objects.filter(
+            serial_number__in=self.EXPECTED_SERIALS,
+        ).exclude(issuing_bb="GS-HARNESS")
+
+        self.assertEqual(
+            wrong_bb.count(),
+            0,
+            msg=(
+                "Some seed vouchers have wrong issuing_bb: "
+                + str(list(wrong_bb.values_list("serial_number", "issuing_bb")))
+            ),
+        )
+
+    # ── Bonus: spot-check group_code, amount, currency per seed spec ─────────
+
+    def test_f36b_seed_data_matches_spec_values(self):
+        """
+        Spot-checks that group_code, amount, currency, and expiry_date match
+        the expected values from the seed spec for a representative sample of
+        serials.
+
+        expiry_date is included here because the harness requires unexpired
+        vouchers — a missing or past expiry would cause harness failures that
+        are hard to diagnose.
+        """
+        from django.utils import timezone as tz
+
+        self._call_seed()
+
+        for serial, (expected_group, expected_amount_str, expected_currency) in (
+            self._EXPECTED_DATA.items()
+        ):
+            v = GovStackVoucher.objects.get(serial_number=serial)
+            self.assertEqual(
+                v.group_code,
+                expected_group,
+                msg=f"serial={serial!r}: expected group_code={expected_group!r}",
+            )
+            self.assertEqual(
+                v.amount,
+                Decimal(expected_amount_str),
+                msg=f"serial={serial!r}: expected amount={expected_amount_str}",
+            )
+            self.assertEqual(
+                v.currency,
+                expected_currency,
+                msg=f"serial={serial!r}: expected currency={expected_currency!r}",
+            )
+            # expiry_date must be set and in the future — harness needs live vouchers.
+            self.assertIsNotNone(
+                v.expiry_date,
+                msg=f"serial={serial!r}: expiry_date must not be None.",
+            )
+            self.assertGreater(
+                v.expiry_date,
+                tz.now(),
+                msg=f"serial={serial!r}: expiry_date must be in the future.",
+            )
+
+    # ── Security invariant: seed rows carry no PII ────────────────────────────
+
+    def test_f36c_seed_rows_have_no_payee_functional_id(self):
+        """
+        Seed vouchers must have an empty payee_functional_id.
+        They carry no PII and no financial address.
+        """
+        self._call_seed()
+
+        with_pii = GovStackVoucher.objects.filter(
+            serial_number__in=self.EXPECTED_SERIALS,
+        ).exclude(payee_functional_id="")
+
+        self.assertEqual(
+            with_pii.count(),
+            0,
+            msg=(
+                "Seed vouchers must not carry payee_functional_id: "
+                + str(list(with_pii.values_list("serial_number", "payee_functional_id")))
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# F37–F40  GOVSTACK_VOUCHER_REQUIRE_JWT enforcement (GAP-3)
+# ---------------------------------------------------------------------------
+
+class VoucherJWTEnforcementTest(TestCase):
+    """
+    Tests for the GOVSTACK_VOUCHER_REQUIRE_JWT production guard on voucher
+    endpoints.
+
+    Affected endpoints (both handled by HasVoucherJWT permission):
+      POST  /govstack/payments/vouchers/voucher_redemption   (VoucherRedemptionView)
+      GET   /govstack/payments/vouchers/voucherstatuscheck/{serial} (VoucherStatusCheckView)
+      PATCH /govstack/payments/vouchers/voucherstatuscheck/{serial} (VoucherStatusCheckView)
+
+    Test matrix (7 rejection + bypass + positive-path cases):
+      F37: JWT=True  → POST  voucher_redemption      unauthenticated → 401/403
+      F38: JWT=True  → PATCH voucherstatuscheck      unauthenticated → 401/403
+      F39: JWT=True  → GET   voucherstatuscheck      unauthenticated → 401/403
+      F40: JWT=False → GET   voucherstatuscheck      unauthenticated → 200
+      F41: JWT=False → POST  voucher_redemption      unauthenticated → 200
+      F42: JWT=True  → POST  voucher_redemption      authenticated   → 200
+      F43: JWT=True  → GET   voucherstatuscheck      authenticated   → 200
+      F44: JWT=False → PATCH voucherstatuscheck      unauthenticated → 200
+
+    Mode semantics:
+      GOVSTACK_VOUCHER_REQUIRE_JWT=True  (production default) →
+          unauthenticated requests are rejected (HTTP 401 or 403).
+          DRF returns 401 when the request has no successful authenticator
+          (NotAuthenticated), which is the standard Django REST Framework
+          behaviour for anonymous API clients.
+
+      GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness / test mode) →
+          HasVoucherJWT.has_permission() returns True unconditionally,
+          so unauthenticated requests succeed.
+
+    Note on 401 vs 403:
+      The spec (GAP-3) lists HTTP 403 for F37–F39 as a shorthand for "access
+      denied". DRF raises NotAuthenticated (→ 401) when authentication was not
+      attempted and PermissionDenied (→ 403) when it was attempted but failed.
+      For an anonymous APIClient with DRF's default authentication classes,
+      the actual code is 401.  The tests therefore assert
+      ``status_code in (401, 403)`` to cover both semantics without
+      over-specifying DRF internals.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        # A PREACTIVATED voucher for cancellation / status-check tests.
+        self.preactivated = _make_voucher(
+            serial=FIXED_SERIAL,
+            status=GovStackVoucher.STATUS_PREACTIVATED,
+        )
+        # An ACTIVATED voucher for redemption tests (redemption requires ACTIVATED).
+        self.activated = _make_voucher(
+            serial=FIXED_SERIAL_2,
+            status=GovStackVoucher.STATUS_ACTIVATED,
+        )
+
+    # ── F37 ──────────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_JWT=True)
+    def test_f37_require_jwt_true_rejects_unauthenticated_redemption(self):
+        """
+        GOVSTACK_VOUCHER_REQUIRE_JWT=True: unauthenticated POST to
+        voucher_redemption must be rejected.
+
+        DRF returns HTTP 401 (NotAuthenticated) for anonymous callers when
+        authentication classes are configured, which is the case here.
+        Asserts membership in (401, 403) to be robust to configuration changes.
+        """
+        resp = self.client.post(
+            REDEMPTION_URL,
+            data=json.dumps(_redemption_body(voucher_number=FIXED_SERIAL_2)),
+            content_type="application/json",
+        )
+        self.assertIn(
+            resp.status_code,
+            (401, 403),
+            f"Expected 401 or 403 when GOVSTACK_VOUCHER_REQUIRE_JWT=True, "
+            f"got {resp.status_code}: {resp.data}",
+        )
+
+    # ── F38 ──────────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_JWT=True)
+    def test_f38_require_jwt_true_rejects_unauthenticated_cancellation(self):
+        """
+        GOVSTACK_VOUCHER_REQUIRE_JWT=True: unauthenticated PATCH to
+        /voucherstatuscheck/{serial} (cancellation) must be rejected.
+
+        VoucherStatusCheckView.permission_classes = [HasVoucherJWT] ensures
+        this setting is honoured for both GET and PATCH on that view.
+        """
+        resp = self.client.patch(_status_url(FIXED_SERIAL))
+        self.assertIn(
+            resp.status_code,
+            (401, 403),
+            f"Expected 401 or 403 when GOVSTACK_VOUCHER_REQUIRE_JWT=True, "
+            f"got {resp.status_code}: {resp.data}",
+        )
+        # Voucher must NOT have been cancelled (request was rejected before service).
+        self.preactivated.refresh_from_db()
+        self.assertEqual(
+            self.preactivated.status,
+            GovStackVoucher.STATUS_PREACTIVATED,
+            "Unauthenticated PATCH must not mutate the voucher.",
+        )
+
+    # ── F39 ──────────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_JWT=True)
+    def test_f39_require_jwt_true_rejects_unauthenticated_status_check(self):
+        """
+        GOVSTACK_VOUCHER_REQUIRE_JWT=True: unauthenticated GET to
+        /voucherstatuscheck/{serial} (status inquiry) must be rejected.
+        """
+        resp = self.client.get(_status_url(FIXED_SERIAL))
+        self.assertIn(
+            resp.status_code,
+            (401, 403),
+            f"Expected 401 or 403 when GOVSTACK_VOUCHER_REQUIRE_JWT=True, "
+            f"got {resp.status_code}: {resp.data}",
+        )
+
+    # ── F40 ──────────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_JWT=False)
+    def test_f40_require_jwt_false_allows_unauthenticated_status_check(self):
+        """
+        GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode): unauthenticated GET
+        to /voucherstatuscheck/{serial} must succeed (HTTP 200).
+
+        This confirms the harness can call the status-check endpoint without
+        a Bearer JWT when the env var is cleared for the harness run.
+        """
+        resp = self.client.get(_status_url(FIXED_SERIAL))
+        self.assertEqual(
+            resp.status_code,
+            200,
+            f"Expected 200 when GOVSTACK_VOUCHER_REQUIRE_JWT=False, "
+            f"got {resp.status_code}: {resp.data}",
+        )
+        # Response shape must be intact — the setting must only gate auth,
+        # not corrupt the business logic.
+        self.assertIn("status", resp.data)
+        self.assertIn("serialNumber", resp.data)
+        self.assertIn("value", resp.data)
+
+    # ── F41 ──────────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_JWT=False)
+    def test_f41_require_jwt_false_allows_unauthenticated_redemption(self):
+        """
+        GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode): unauthenticated POST
+        to voucher_redemption must succeed (HTTP 200).
+
+        Redemption is the higher-risk endpoint; this explicitly confirms that
+        the harness mode bypass applies there too, not just to the status check.
+        Complements F40 which only covers the GET status-check path.
+        """
+        resp = self.client.post(
+            REDEMPTION_URL,
+            data=json.dumps(_redemption_body(voucher_number=FIXED_SERIAL_2)),
+            content_type="application/json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            200,
+            f"Expected 200 when GOVSTACK_VOUCHER_REQUIRE_JWT=False, "
+            f"got {resp.status_code}: {resp.data}",
+        )
+        # Confirm the voucher was actually consumed (not just a stub 200).
+        self.activated.refresh_from_db()
+        self.assertEqual(self.activated.status, GovStackVoucher.STATUS_CONSUMED)
+
+    # ── F42 ──────────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_JWT=True)
+    def test_f42_require_jwt_true_authenticated_user_can_redeem(self):
+        """
+        GOVSTACK_VOUCHER_REQUIRE_JWT=True + authenticated user:
+        POST to voucher_redemption must succeed (HTTP 200).
+
+        This is the positive production-path test. It verifies that
+        HasVoucherJWT.has_permission() returns True for request.user.is_authenticated,
+        not just that unauthenticated requests are rejected (F37).
+
+        Without this test, a misconfiguration that removed JWTAuthentication
+        from authentication_classes or broke request.user population would
+        leave all three rejection tests (F37–F39) green while the endpoint
+        would reject every real authenticated user in production.
+        """
+        user = get_user_model().objects.create_user(
+            email="voucher_jwt_test@example.com",
+            password="testpass123",
+        )
+        self.client.force_authenticate(user=user)
+        resp = self.client.post(
+            REDEMPTION_URL,
+            data=json.dumps(_redemption_body(voucher_number=FIXED_SERIAL_2)),
+            content_type="application/json",
+        )
+        self.assertEqual(
+            resp.status_code,
+            200,
+            f"Expected 200 for authenticated user when GOVSTACK_VOUCHER_REQUIRE_JWT=True, "
+            f"got {resp.status_code}: {resp.data}",
+        )
+        # Confirm service ran: voucher is now CONSUMED.
+        self.activated.refresh_from_db()
+        self.assertEqual(self.activated.status, GovStackVoucher.STATUS_CONSUMED)
+
+    # ── F43 ──────────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_JWT=True)
+    def test_f43_require_jwt_true_authenticated_user_can_check_status(self):
+        """
+        GOVSTACK_VOUCHER_REQUIRE_JWT=True + authenticated user:
+        GET to /voucherstatuscheck/{serial} must succeed (HTTP 200).
+
+        Positive production-path test for VoucherStatusCheckView.
+        Complements F39 (unauthenticated GET rejected) to confirm the permission
+        gate is correctly binary: reject anonymous, allow authenticated.
+        """
+        user = get_user_model().objects.create_user(
+            email="voucher_status_test@example.com",
+            password="testpass123",
+        )
+        self.client.force_authenticate(user=user)
+        resp = self.client.get(_status_url(FIXED_SERIAL))
+        self.assertEqual(
+            resp.status_code,
+            200,
+            f"Expected 200 for authenticated user when GOVSTACK_VOUCHER_REQUIRE_JWT=True, "
+            f"got {resp.status_code}: {resp.data}",
+        )
+        self.assertIn("status", resp.data)
+        self.assertIn("serialNumber", resp.data)
+        self.assertIn("value", resp.data)
+
+    # ── F44 ──────────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_JWT=False)
+    def test_f44_require_jwt_false_allows_unauthenticated_cancellation(self):
+        """
+        GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode): unauthenticated PATCH
+        to /voucherstatuscheck/{serial} (cancellation) must succeed (HTTP 200).
+
+        Completes the harness-mode bypass matrix:
+          F40: GET  voucherstatuscheck  JWT=False → 200
+          F41: POST voucher_redemption  JWT=False → 200
+          F44: PATCH voucherstatuscheck JWT=False → 200  ← this test
+
+        Although GET and PATCH share the same permission class on VoucherStatusCheckView,
+        an explicit PATCH test is necessary because:
+          1. PATCH is the higher-risk operation (it mutates state).
+          2. It proves the bypass applies to the mutation path, not just read paths.
+          3. It confirms the harness cancel feature works end-to-end without JWT.
+        """
+        resp = self.client.patch(_status_url(FIXED_SERIAL))
+        self.assertEqual(
+            resp.status_code,
+            200,
+            f"Expected 200 when GOVSTACK_VOUCHER_REQUIRE_JWT=False, "
+            f"got {resp.status_code}: {getattr(resp, 'data', resp.content)}",
+        )
+        # Response shape must be intact.
+        self.assertIn("voucherSerialNumber", resp.data)
+        self.assertIn("voucherStatus", resp.data)
+        # Voucher must actually be cancelled — not just a stub 200.
+        self.preactivated.refresh_from_db()
+        self.assertEqual(
+            self.preactivated.status,
+            GovStackVoucher.STATUS_CANCELLED,
+            "Voucher must transition to STATUS_CANCELLED after successful unauthenticated PATCH.",
+        )

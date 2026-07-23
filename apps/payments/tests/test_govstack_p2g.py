@@ -1,7 +1,7 @@
 """
-test_govstack_wave5.py
+test_govstack_p2g.py
 
-Comprehensive tests for GovStack Payments BB — Wave 5 (P2G Bill Payments).
+Comprehensive tests for GovStack Payments BB — P2G Bill Payments (spec §18).
 
 Coverage matrix:
   A. BillInquiry view (GET /bills/{bill_id})
@@ -132,10 +132,8 @@ import json
 from datetime import date
 from decimal import Decimal
 
-import pytest
 from django.db import IntegrityError
 from django.test import TestCase
-from django.urls import reverse
 
 from rest_framework.test import APIClient
 

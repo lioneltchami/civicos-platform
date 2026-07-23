@@ -1,8 +1,10 @@
 """
-test_govstack_wave3.py
+test_govstack_bulk_payment.py
 
-Comprehensive tests for GovStack Payments BB — Wave 3
-(G2P Bulk Payment + Prepayment Validation).
+Comprehensive tests for GovStack Payments BB — G2P Bulk Payment and Prepayment
+Validation endpoints (spec §18).
+
+Celery task tests (G1–G16) live in test_govstack_tasks.py.
 
 Coverage matrix:
   A. BulkPayment view — harness scenarios (7 total)
@@ -1253,3 +1255,4 @@ class PrepaymentSerializerTest(TestCase):
         self.assertTrue(ser.is_valid(), ser.errors)
         # But Source_BatchID defaults to "" because the key didn't match
         self.assertEqual(ser.validated_data.get("Source_BatchID", ""), "")
+

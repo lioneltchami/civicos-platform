@@ -1,7 +1,7 @@
 """
-test_govstack_wave2.py
+test_govstack_beneficiary.py
 
-Comprehensive tests for GovStack Payments BB — Wave 2 (G2P Beneficiary endpoints).
+Comprehensive tests for GovStack Payments BB — Beneficiary endpoints (spec §18).
 
 Coverage matrix:
   A. View-level harness scenarios (12 total — 6 per endpoint)
@@ -59,7 +59,6 @@ from __future__ import annotations
 import json
 
 from django.test import TestCase, override_settings
-from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.payments.govstack_exceptions import govstack_g2p_exception_handler
