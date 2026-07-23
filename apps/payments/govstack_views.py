@@ -734,7 +734,7 @@ class VoucherRedemptionView(GovStackAPIView):
                 "status": voucher.status_int,
                 "message": "Voucher redeemed successfully.",
                 "serialNumber": voucher.serial_number,
-                "value": str(voucher.amount),
+                "value": float(voucher.amount),  # GAP-10: spec §13.3 requires JSON number, not string
                 "timestamp": (
                     voucher.redeemed_at.isoformat()
                     if voucher.redeemed_at
@@ -807,7 +807,7 @@ class VoucherStatusCheckView(GovStackAPIView):
             {
                 "status": voucher.status_int,
                 "serialNumber": voucher.serial_number,
-                "value": str(voucher.amount),
+                "value": float(voucher.amount),  # GAP-10: spec §13.5 requires JSON number, not string
             },
             status=200,
         )

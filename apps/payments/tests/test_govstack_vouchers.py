@@ -491,9 +491,20 @@ class VoucherRedemptionHarnessTest(TestCase):
         self.assertEqual(resp.data["status"], GovStackVoucher.STATUS_INT_MAP[GovStackVoucher.STATUS_CONSUMED])
 
     def test_c4_value_matches_amount(self):
+        # GAP-10: spec §13.3 requires "value" to be a JSON number, not a string.
         resp = self._post(_redemption_body())
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(Decimal(resp.data["value"]), Decimal(AMOUNT))
+        self.assertIsInstance(
+            resp.data["value"],
+            (int, float),
+            "Redemption response 'value' must be a JSON number (int or float), not a string.",
+        )
+        self.assertAlmostEqual(
+            resp.data["value"],
+            float(AMOUNT),
+            places=2,
+            msg="Redemption response 'value' must equal the voucher amount.",
+        )
 
     def test_c5_serial_number_matches(self):
         resp = self._post(_redemption_body())
@@ -605,8 +616,19 @@ class VoucherStatusCheckGetTest(TestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_d5_value_matches_amount(self):
+        # GAP-10: spec §13.5 requires "value" to be a JSON number, not a string.
         resp = self.client.get(_status_url(FIXED_SERIAL))
-        self.assertEqual(Decimal(resp.data["value"]), Decimal(AMOUNT))
+        self.assertIsInstance(
+            resp.data["value"],
+            (int, float),
+            "Status check response 'value' must be a JSON number (int or float), not a string.",
+        )
+        self.assertAlmostEqual(
+            resp.data["value"],
+            float(AMOUNT),
+            places=2,
+            msg="Status check response 'value' must equal the voucher amount.",
+        )
 
     # --- D8–D11: GAP-7 harness negative-path assertions -----------------------
 
