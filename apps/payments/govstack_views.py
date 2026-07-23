@@ -63,9 +63,11 @@ from .govstack_exceptions import (
     DuplicateBatchError,
     DuplicateBillPaymentError,
     DuplicateValidationRequestError,
+    InvalidVoucherSerial,
     govstack_exception_handler,
     govstack_g2p_exception_handler,
 )
+from .govstack_models import GovStackVoucher
 from .govstack_serializers import (
     BillTransferRequestSerializer,
     BulkPaymentRequestSerializer,
@@ -768,8 +770,12 @@ class VoucherStatusCheckView(GovStackAPIView):
       463 — serial number not found, or voucher in a non-cancellable state
       464 — voucher already cancelled (idempotent double-cancel)
 
-    GET custom error codes:
-      456 — serial number not found
+    GET error codes:
+      400 — serial number not found (GAP-7: spec §13.5 requires 400, NOT 456).
+             Body: {"status": 9, "message": "Voucher not found.",
+                    "serialNumber": "<submitted serial>", "value": 0.0}
+             The harness voucher_status_check.feature asserts HTTP 400 on this path;
+             using 456 (InvalidVoucherSerial as APIException) would fail the harness.
     """
     # HasVoucherJWT: no-op when GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode);
     # requires request.user.is_authenticated when =True (production mode).
@@ -780,8 +786,22 @@ class VoucherStatusCheckView(GovStackAPIView):
         # URL parameter may arrive as an integer string from the harness.
         serial = str(voucherserialnumber).strip()
 
-        # InvalidVoucherSerial (456) is an APIException — handled automatically.
-        voucher = GovStackVoucherService.get_status(serial_number=serial)
+        # GAP-7: spec §13.5 requires HTTP 400 (not 456) for an unknown serial,
+        # with a specific body shape: {status:9, message, serialNumber, value:0.0}.
+        # We must catch InvalidVoucherSerial before it propagates as an APIException
+        # (which would produce HTTP 456 via govstack_exception_handler).
+        try:
+            voucher = GovStackVoucherService.get_status(serial_number=serial)
+        except InvalidVoucherSerial:
+            return Response(
+                {
+                    "status": GovStackVoucher.STATUS_ERROR_INT,  # = 9
+                    "message": "Voucher not found.",
+                    "serialNumber": serial,
+                    "value": 0.0,
+                },
+                status=400,
+            )
 
         return Response(
             {

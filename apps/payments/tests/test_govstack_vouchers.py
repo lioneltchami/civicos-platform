@@ -50,8 +50,13 @@ Coverage matrix:
      D1:  GET with known serial → HTTP 200
      D2:  GET response shape: {status (int), serialNumber, value}
      D3:  status is an integer (not a string)
-     D4:  GET unknown serial → HTTP 456
+     D4:  GET unknown serial → HTTP 400 (GAP-7: was 456, spec §13.5 requires 400)
      D5:  value matches amount (string representation)
+     D8:  GET unknown serial → HTTP 400 (harness negative path)
+     D9:  GET unknown serial → body["status"] == 9 (STATUS_ERROR_INT)
+     D10: GET unknown serial → body["serialNumber"] echoes the submitted serial
+     D11: GET unknown serial → body["value"] == 0.0
+     D12: GET unknown serial → body["message"] == "Voucher not found."
 
   E. VoucherCancellation view — PATCH scenarios
      E1:  PATCH cancel PREACTIVATED voucher → HTTP 200
@@ -593,14 +598,51 @@ class VoucherStatusCheckGetTest(TestCase):
         # ACTIVATED = 2 in STATUS_INT_MAP
         self.assertEqual(resp.data["status"], 2)
 
-    def test_d4_unknown_serial_returns_456(self):
+    def test_d4_unknown_serial_returns_400(self):
+        # GAP-7: spec §13.5 requires HTTP 400 for an unknown serial on GET.
+        # Old behaviour was HTTP 456 (InvalidVoucherSerial as APIException).
         resp = self.client.get(_status_url("999999"))
-        self.assertEqual(resp.status_code, 456)
-        self.assertIn("message", resp.data)
+        self.assertEqual(resp.status_code, 400)
 
     def test_d5_value_matches_amount(self):
         resp = self.client.get(_status_url(FIXED_SERIAL))
         self.assertEqual(Decimal(resp.data["value"]), Decimal(AMOUNT))
+
+    # --- D8–D11: GAP-7 harness negative-path assertions -----------------------
+
+    def test_d8_unknown_serial_returns_400(self):
+        # Explicit harness test: unknown serial → HTTP 400, not 456.
+        resp = self.client.get(_status_url("DOESNOTEXIST"))
+        self.assertEqual(resp.status_code, 400, resp.data)
+
+    def test_d9_unknown_serial_body_status_is_9(self):
+        # body["status"] must be the integer 9 (STATUS_ERROR_INT).
+        resp = self.client.get(_status_url("DOESNOTEXIST"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data["status"], GovStackVoucher.STATUS_ERROR_INT)
+        self.assertIsInstance(resp.data["status"], int)
+
+    def test_d10_unknown_serial_body_serial_number_echoed(self):
+        # body["serialNumber"] must echo the submitted serial (harness verifies this).
+        submitted = "NOTREAL_SERIAL_XYZ"
+        resp = self.client.get(_status_url(submitted))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data["serialNumber"], submitted)
+
+    def test_d11_unknown_serial_body_value_is_zero(self):
+        # body["value"] must be 0.0 (a JSON number, not a string).
+        resp = self.client.get(_status_url("DOESNOTEXIST"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data["value"], 0.0)
+        self.assertIsInstance(resp.data["value"], float)
+
+    def test_d12_unknown_serial_body_message_text(self):
+        # body["message"] must be present and match the spec §13.5 literal.
+        # The harness may assert exact message text.
+        resp = self.client.get(_status_url("DOESNOTEXIST"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.data)
+        self.assertEqual(resp.data["message"], "Voucher not found.")
 
 
 # ---------------------------------------------------------------------------
