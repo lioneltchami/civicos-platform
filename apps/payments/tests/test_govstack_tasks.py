@@ -10,23 +10,28 @@ PrepaymentValidationView respectively.  The tests verify both the dispatch
 mechanism (G1, G9) and the task execution logic (G2–G8, G10–G16).
 
 Coverage matrix:
-  G1:  BulkPaymentView.post() dispatches process_bulk_payment_batch via on_commit
-  G2:  process_bulk_payment_batch transitions all CreditInstructions → COMPLETED
-  G3:  process_bulk_payment_batch sets BulkPaymentBatch.status → COMPLETED
-  G3b: process_bulk_payment_batch sets completed_amount + result_generated_at
-  G4:  process_bulk_payment_batch writes ACTION_BATCH_COMPLETED audit entry
-  G5:  process_bulk_payment_batch POSTs to callback_url when non-empty
-  G6:  process_bulk_payment_batch does NOT post when callback_url is empty
-  G7:  process_bulk_payment_batch callback payload never includes payee_functional_id
-  G8:  process_bulk_payment_batch is idempotent (second call is a no-op)
-  G9:  PrepaymentValidationView.post() dispatches validate_prepayment_async via on_commit
-  G10: validate_prepayment_async sets beneficiary_found=True for registered payee_functional_id
-  G11: validate_prepayment_async sets beneficiary_found=False for unknown payee_functional_id
-  G12: validate_prepayment_async transitions PrepaymentValidationRequest.status → COMPLETED
-  G13: validate_prepayment_async writes ACTION_VALIDATION_COMPLETED audit entry
-  G14: validate_prepayment_async callback payload has correct shape (no payee_functional_id)
-  G15: validate_prepayment_async callback POST failure is non-fatal (task still completes)
-  G16: validate_prepayment_async is idempotent (second call is a no-op)
+  G1:       BulkPaymentView.post() dispatches process_bulk_payment_batch via on_commit
+  G2:       process_bulk_payment_batch marks instruction COMPLETED when beneficiary exists
+  G3:       process_bulk_payment_batch sets BulkPaymentBatch.status → COMPLETED (all succeed)
+  G3b:      process_bulk_payment_batch sets completed_amount + result_generated_at
+  G4:       process_bulk_payment_batch writes ACTION_BATCH_COMPLETED audit entry
+  G5:       process_bulk_payment_batch POSTs to callback_url when non-empty
+  G6:       process_bulk_payment_batch does NOT post when callback_url is empty
+  G7:       process_bulk_payment_batch callback payload never includes payee_functional_id
+  G8:       process_bulk_payment_batch is idempotent (second call is a no-op)
+  G3-upd:   process_bulk_payment_batch marks instruction FAILED + ACTION_INSTRUCTION_FAILED
+            when payee_functional_id not in GovStackBeneficiary
+  G-new-1:  batch.status = PARTIAL when some instructions pass, some fail
+  G-new-2:  batch.status = FAILED when all instructions fail ID Mapper lookup
+  G-new-3:  batch.failed_amount reflects sum of all failed instruction amounts
+  G9:       PrepaymentValidationView.post() dispatches validate_prepayment_async via on_commit
+  G10:      validate_prepayment_async sets beneficiary_found=True for registered payee
+  G11:      validate_prepayment_async sets beneficiary_found=False for unknown payee
+  G12:      validate_prepayment_async transitions PrepaymentValidationRequest.status → COMPLETED
+  G13:      validate_prepayment_async writes ACTION_VALIDATION_COMPLETED audit entry
+  G14:      validate_prepayment_async callback payload has correct shape (no payee_functional_id)
+  G15:      validate_prepayment_async callback POST failure is non-fatal (task still completes)
+  G16:      validate_prepayment_async is idempotent (second call is a no-op)
 
 Security invariants tested:
   - Task callback payloads never include payee_functional_id (G7, G14)
@@ -158,10 +163,37 @@ class GovStackCeleryTasksTest(TestCase):
     # Model-level helpers
     # ------------------------------------------------------------------
 
-    def _make_batch(self, *, batch_id: str = "GBatchIDtask1", callback_url: str = "") -> BulkPaymentBatch:
+    def _make_batch(
+        self,
+        *,
+        batch_id: str = "GBatchIDtask1",
+        callback_url: str = "",
+        with_beneficiary: bool = True,
+    ) -> BulkPaymentBatch:
         """
         Create a BulkPaymentBatch in STATUS_RECEIVED with one CreditInstruction.
         Used for direct task invocation in G2–G8.
+
+        Args:
+            batch_id:         Unique batch identifier — must differ across test
+                              methods that both call this helper.
+            callback_url:     Stored on the batch; triggers callback POST when set.
+            with_beneficiary: When True (default), also creates a matching
+                              GovStackBeneficiary so the ID Mapper lookup in
+                              process_bulk_payment_batch() succeeds and the
+                              instruction reaches STATUS_COMPLETED.
+
+                              Set False to test the FAILED / PARTIAL paths where
+                              the payee is NOT registered in the ID Mapper.
+
+        Note on validators
+        ------------------
+        GovStackBeneficiary.payee_functional_id and .source_bb_id both carry
+        _G2P_UUID_VALIDATOR (lowercase hex + hyphens).  Django validators are
+        called only by full_clean(), NOT by objects.create(), so the non-conforming
+        strings used here ("GPayeeIDtask1234", "GSourceBBtask") are accepted at
+        the DB level.  This is intentional — we are testing the task logic, not
+        beneficiary registration validation.
         """
         batch = BulkPaymentBatch.objects.create(
             request_id="GReqIDtask01",
@@ -181,6 +213,16 @@ class GovStackCeleryTasksTest(TestCase):
             narration="G-task test instruction",
             status=CreditInstruction.STATUS_PENDING,
         )
+        if with_beneficiary:
+            # Register the matching beneficiary so the ID Mapper lookup passes.
+            # GovStackBeneficiary.objects.create() bypasses _G2P_UUID_VALIDATOR;
+            # the payee_functional_id below is intentionally the same string used
+            # in the CreditInstruction above.
+            GovStackBeneficiary.objects.create(
+                payee_functional_id="GPayeeIDtask1234",
+                source_bb_id="GSourceBBtask",
+                is_active=True,
+            )
         return batch
 
     def _make_pvr(
@@ -235,11 +277,18 @@ class GovStackCeleryTasksTest(TestCase):
         )
 
     # ------------------------------------------------------------------
-    # G2 — Task transitions CreditInstructions to COMPLETED
+    # G2 — Task marks instruction COMPLETED when active beneficiary exists
     # ------------------------------------------------------------------
 
     def test_g2_process_batch_transitions_instructions_to_completed(self):
-        batch = self._make_batch()
+        """
+        G2: process_bulk_payment_batch marks a CreditInstruction STATUS_COMPLETED
+        when an active GovStackBeneficiary exists for its payee_functional_id.
+
+        _make_batch(with_beneficiary=True) registers the matching beneficiary
+        so the ID Mapper lookup succeeds.
+        """
+        batch = self._make_batch()  # with_beneficiary=True by default
         process_bulk_payment_batch.apply(args=[str(batch.pk)])
         completed = CreditInstruction.objects.filter(
             batch=batch,
@@ -389,6 +438,166 @@ class GovStackCeleryTasksTest(TestCase):
             completed_entries,
             1,
             f"Expected exactly 1 ACTION_BATCH_COMPLETED audit entry, found {completed_entries}.",
+        )
+
+    # ------------------------------------------------------------------
+    # G3-update — Instruction FAILED + audit when no beneficiary in ID Mapper
+    # ------------------------------------------------------------------
+
+    def test_g3_update_instruction_failed_when_no_beneficiary(self):
+        """
+        G3-update: process_bulk_payment_batch marks a CreditInstruction
+        STATUS_FAILED (with a non-PII failure_reason) and creates an
+        ACTION_INSTRUCTION_FAILED audit entry when the instruction's
+        payee_functional_id has no matching active GovStackBeneficiary.
+
+        This is the core GAP-9 fix: the task must NOT silently mark
+        instructions COMPLETED when the beneficiary is absent.
+        """
+        batch = self._make_batch(
+            batch_id="GBatchG3Update",
+            with_beneficiary=False,  # no beneficiary → FAILED path
+        )
+        process_bulk_payment_batch.apply(args=[str(batch.pk)])
+
+        instr = CreditInstruction.objects.get(batch=batch)
+        self.assertEqual(
+            instr.status,
+            CreditInstruction.STATUS_FAILED,
+            "Instruction must be FAILED when no matching beneficiary exists.",
+        )
+        self.assertIn(
+            "PayeeFunctionalID not found",
+            instr.failure_reason,
+            "failure_reason must be set to a non-PII message.",
+        )
+        # Per-instruction ACTION_INSTRUCTION_FAILED audit entry must exist.
+        audit_count = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
+            object_pk=str(instr.pk),
+        ).count()
+        self.assertEqual(
+            audit_count,
+            1,
+            "Exactly one ACTION_INSTRUCTION_FAILED audit entry expected.",
+        )
+        # The audit entry must NOT expose payee_functional_id.
+        entry = GovStackPaymentAuditEntry.objects.get(
+            action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
+            object_pk=str(instr.pk),
+        )
+        details_str = json.dumps(entry.details)
+        self.assertNotIn(
+            "payee_functional_id",
+            details_str.lower(),
+            "ACTION_INSTRUCTION_FAILED audit details must never contain payee_functional_id.",
+        )
+
+    # ------------------------------------------------------------------
+    # G-new-1 — batch.status = PARTIAL when some instructions pass, some fail
+    # ------------------------------------------------------------------
+
+    def test_g_new1_partial_batch_when_mixed_results(self):
+        """
+        G-new-1: When some CreditInstructions have a matching beneficiary and
+        some do not, BulkPaymentBatch.status must be STATUS_PARTIAL.
+
+        Setup: batch with two instructions.
+          - Instruction A: beneficiary registered → STATUS_COMPLETED.
+          - Instruction B: no beneficiary → STATUS_FAILED.
+        Expected outcome: batch.status = STATUS_PARTIAL.
+        """
+        batch = BulkPaymentBatch.objects.create(
+            request_id="GReqGNew0001",
+            source_bb_id="GSourceBBtask",
+            batch_id="GBatchGNew0001",
+            status=BulkPaymentBatch.STATUS_RECEIVED,
+            total_amount=Decimal("200.00"),
+        )
+        # Instruction A — will succeed: register matching beneficiary.
+        GovStackBeneficiary.objects.create(
+            payee_functional_id="gpayeenew1ok",  # 12 chars, lowercase
+            source_bb_id="GSourceBBtask",
+            is_active=True,
+        )
+        CreditInstruction.objects.create(
+            batch=batch,
+            instruction_id="GInstrNew1A",
+            payee_functional_id="gpayeenew1ok",
+            amount=Decimal("100.00"),
+            currency="USD",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        # Instruction B — will fail: no beneficiary registered for this ID.
+        CreditInstruction.objects.create(
+            batch=batch,
+            instruction_id="GInstrNew1B",
+            payee_functional_id="GPayeeNew1Miss",  # 14 chars, no beneficiary
+            amount=Decimal("100.00"),
+            currency="USD",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+
+        process_bulk_payment_batch.apply(args=[str(batch.pk)])
+        batch.refresh_from_db()
+
+        self.assertEqual(
+            batch.status,
+            BulkPaymentBatch.STATUS_PARTIAL,
+            "batch.status must be PARTIAL when some instructions succeed and some fail.",
+        )
+
+    # ------------------------------------------------------------------
+    # G-new-2 — batch.status = FAILED when all instructions fail
+    # ------------------------------------------------------------------
+
+    def test_g_new2_batch_failed_when_all_instructions_fail(self):
+        """
+        G-new-2: When ALL CreditInstructions fail the ID Mapper lookup,
+        BulkPaymentBatch.status must be STATUS_FAILED (not STATUS_COMPLETED
+        or STATUS_PARTIAL).
+        """
+        batch = self._make_batch(
+            batch_id="GBatchGNew0002",
+            with_beneficiary=False,  # no beneficiary → all instructions FAILED
+        )
+        process_bulk_payment_batch.apply(args=[str(batch.pk)])
+        batch.refresh_from_db()
+
+        self.assertEqual(
+            batch.status,
+            BulkPaymentBatch.STATUS_FAILED,
+            "batch.status must be FAILED when all instructions fail the ID Mapper lookup.",
+        )
+
+    # ------------------------------------------------------------------
+    # G-new-3 — batch.failed_amount correct when instructions fail
+    # ------------------------------------------------------------------
+
+    def test_g_new3_failed_amount_reflects_failed_instructions(self):
+        """
+        G-new-3: batch.failed_amount must equal the sum of the amounts of all
+        FAILED CreditInstructions (and batch.completed_amount must be 0.00).
+
+        Verifies that accounting fields are correctly separated between
+        succeeded and failed instructions.
+        """
+        batch = self._make_batch(
+            batch_id="GBatchGNew0003",
+            with_beneficiary=False,  # one instruction, amount=100.00, will FAIL
+        )
+        process_bulk_payment_batch.apply(args=[str(batch.pk)])
+        batch.refresh_from_db()
+
+        self.assertEqual(
+            batch.failed_amount,
+            Decimal("100.00"),
+            "failed_amount must equal the sum of all FAILED instruction amounts.",
+        )
+        self.assertEqual(
+            batch.completed_amount,
+            Decimal("0.00"),
+            "completed_amount must be 0.00 when all instructions fail.",
         )
 
     # ------------------------------------------------------------------
