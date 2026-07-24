@@ -724,6 +724,34 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
         help_text="List of HTTP headers to omit when sending the webhook payload (GovStack skippedHeaders).",
     )
 
+    # ── Webhook delivery replay log ───────────────────────────────────────────
+    # Stores the most recent successfully delivered payload so that
+    # GET /config/webhook/{id}/payload/ can return it for debugging.
+    # Written by the dispatch_consent_webhook Celery task on success.
+    last_payload = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "The full body (event + timestamp + payload) of the most recently "
+            "delivered webhook POST.  Null until the first successful delivery."
+        ),
+    )
+    last_delivery_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Timestamp of the most recent successful webhook delivery.",
+    )
+    last_delivery_status = models.CharField(
+        max_length=10,
+        choices=[("success", "Success"), ("failed", "Failed")],
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Result of the most recent delivery attempt.",
+    )
+
     class Meta:
         ordering = ["-created_at"]
         verbose_name = "Consent Webhook"

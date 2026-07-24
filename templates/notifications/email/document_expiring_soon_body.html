@@ -1,0 +1,69 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ recipient.preferred_language|default:'en' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% trans "Document Expiring Soon" %}</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 16px; line-height: 1.5; color: #1a1a1a; background: #ffffff; margin: 0; padding: 0; }
+    .email-wrapper { max-width: 600px; margin: 0 auto; padding: 24px 16px; }
+    .email-header { border-bottom: 2px solid #c8460a; padding-bottom: 16px; margin-bottom: 24px; }
+    .email-header h1 { font-size: 20px; margin: 0; color: #c8460a; }
+    .warning-banner { background: #fff3cd; border: 1px solid #f0ad4e; border-radius: 4px; padding: 16px; margin: 16px 0; color: #856404; }
+    .detail-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .detail-table th { text-align: left; font-weight: bold; padding: 8px; background: #f2f4f7; width: 40%; vertical-align: top; }
+    .detail-table td { padding: 8px; vertical-align: top; }
+    .days-remaining { font-size: 24px; font-weight: bold; color: #c8460a; }
+    .email-footer { border-top: 1px solid #cccccc; margin-top: 24px; padding-top: 16px; font-size: 13px; color: #666666; }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper" role="main">
+
+    <div class="email-header">
+      <h1>{% trans "Action Required: Document Expiring Soon" %}</h1>
+    </div>
+
+    <p>{% trans "Hello," %}</p>
+
+    <div class="warning-banner" role="alert" aria-label="{% trans "Document expiry notice" %}">
+      <strong>{% trans "Action required." %}</strong>
+      {% blocktrans with days=days_remaining doc=category_name %}
+        Your <strong>{{ doc }}</strong> document will expire in
+        <span class="days-remaining">{{ days }}</span> day{{ days|pluralize }}.
+      {% endblocktrans %}
+    </div>
+
+    <table class="detail-table" role="presentation">
+      <tr>
+        <th scope="row">{% trans "Document Type" %}</th>
+        <td>{{ category_name }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Expiry Date" %}</th>
+        <td>{{ expires_at }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Days Remaining" %}</th>
+        <td><strong><span class="days-remaining">{{ days_remaining }}</span> {% blocktrans with days=days_remaining %}day{{ days|pluralize }}{% endblocktrans %}</strong></td>
+      </tr>
+    </table>
+
+    <p>
+      {% trans "Please log in to your CivicOS account to renew or replace this document before it expires." %}
+      {% trans "If the document is no longer needed, no action is required." %}
+    </p>
+
+    <p>
+      {% trans "If you have questions, please contact the issuing authority or your service coordinator." %}
+    </p>
+
+    <div class="email-footer" role="contentinfo">
+      <p>{% trans "This is an automated notification. Please do not reply to this email." %}</p>
+      <p>{% trans "This message was sent by CivicOS Government Services." %}</p>
+    </div>
+
+  </div>
+</body>
+</html>

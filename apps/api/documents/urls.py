@@ -149,4 +149,13 @@ urlpatterns = [
         views.DocumentVersionsView.as_view(),
         name="document-versions",
     ),
+
+    # POST  /api/v1/documents/<doc_id>/new-version/
+    # Initiate a new version upload for an existing document chain.
+    # Returns presigned S3 POST URL (same flow as request-upload).
+    path(
+        "<uuid:doc_id>/new-version/",
+        views.DocumentNewVersionView.as_view(),
+        name="document-new-version",
+    ),
 ]

@@ -566,11 +566,18 @@ class ConfigWebhookPayloadView(APIView):
             webhook = ConsentWebhook.objects.get(pk=webhook_id)
         except ConsentWebhook.DoesNotExist:
             raise NotFound("Webhook not found.")
-        # Return the webhook configuration and a placeholder payload.
-        # In production this would include the last event dispatched.
+        # Return the webhook configuration and the last delivered payload.
+        # last_payload is populated by consent.dispatch_consent_webhook on
+        # every successful HTTP delivery and null until the first delivery.
         return Response({
             "webhook": WebhookSerializer(webhook).data,
-            "payload": None,  # No replay storage in this implementation
+            "payload": webhook.last_payload,
+            "deliveredAt": (
+                webhook.last_delivery_at.isoformat()
+                if webhook.last_delivery_at is not None
+                else None
+            ),
+            "status": webhook.last_delivery_status,
         })
 
 

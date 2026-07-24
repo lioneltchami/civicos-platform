@@ -1,0 +1,18 @@
+Hello,
+
+This is a reminder that one of your documents is expiring soon.
+
+  Document type:  {{ category_name }}
+  Expiry date:    {{ expires_at }}
+  Days remaining: {{ days_remaining }}
+
+Please log in to your CivicOS account to renew or replace this document
+before it expires. If the document is no longer needed, no action is required.
+
+If you have questions, please contact the issuing authority or your
+service coordinator.
+
+---
+This is an automated notification. Please do not reply to this email.
+
+This message was sent by CivicOS Government Services.

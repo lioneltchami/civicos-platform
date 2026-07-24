@@ -58,6 +58,7 @@ import logging
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ImproperlyConfigured
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.storage import default_storage
@@ -94,6 +95,7 @@ from apps.documents.services.upload import (
     confirm_upload,
     validate_upload_request,
 )
+from apps.documents.services.versioning import create_new_version
 
 logger = logging.getLogger(__name__)
 
@@ -968,4 +970,123 @@ class DocumentQuarantinedListView(generics.ListAPIView):
             )
             .select_related("category", "uploaded_by")
             .order_by("-updated_at")
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW  POST /api/v1/documents/{doc_id}/new-version/
+# Create a new version of an existing document chain
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class DocumentNewVersionView(APIView):
+    """
+    Initiate a new document version upload.
+
+    Spec §18 endpoint 7.11:
+      POST /api/v1/documents/{doc_id}/new-version/
+
+    Creates a new version in the same document chain as ``doc_id``.  The
+    caller must pass the same upload metadata as POST /request-upload/ and
+    then direct-upload to the presigned URL — after which they call
+    POST /{new_doc_id}/confirm-upload/ to activate the new version.
+
+    Permission rules (same as ``create_new_version()`` service):
+        1. Superusers: always allowed.
+        2. Staff with ``documents.upload_staff_document``: allowed (any doc).
+        3. Original uploader with ``documents.upload_document``: allowed
+           (citizen can re-version their own non-staff-only document).
+        4. Everyone else: 403.
+
+    IDOR: ``doc_id`` is resolved through ``_get_document_for_user()`` —
+    non-owned PKs return 404, not 403.
+
+    Request body (JSON):
+        original_filename  str   — client-side filename (stored; never used as path)
+        mime_type          str   — client-declared MIME type
+        size_bytes         int   — client-declared file size in bytes
+        description        str   — optional description for this version
+
+    Response (HTTP 201):
+        doc_id         str  — UUID of the new version document
+        upload_url     str  — presigned S3 POST URL ('' in dev)
+        upload_fields  dict — multipart form fields for the S3 POST
+        expires_at     str  — ISO-8601 expiry of the presigned URL
+        version_number int  — version number assigned to the new document
+
+    PIPEDA: ``storage_key`` is NEVER in the response.
+
+    Error responses:
+        400 — validation error (size, MIME type, extension, deleted chain).
+        401 — not authenticated.
+        403 — authenticated but not permitted to version this document.
+        404 — document not found or not owned by requesting user.
+        503 — presigned URL generation unavailable (SQLite / S3 misconfiguration).
+    """
+
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, doc_id):
+        # ── Validate request body ─────────────────────────────────────────────
+        serializer = DocumentUploadRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            raise ValidationError(serializer.errors)
+
+        # ── IDOR-safe document lookup ─────────────────────────────────────────
+        # Coordinators (view_all_documents) may version any document chain.
+        # Citizens get 404 for non-owned PKs (never 403 — that would reveal
+        # the document exists).
+        doc = _get_document_for_user(
+            request,
+            doc_id,
+            require_not_deleted=True,
+            allow_coordinator=True,
+        )
+
+        try:
+            result = create_new_version(
+                user=request.user,
+                root_document=doc,
+                original_filename=serializer.validated_data["original_filename"],
+                mime_type=serializer.validated_data["mime_type"],
+                size_bytes=serializer.validated_data["size_bytes"],
+                description=serializer.validated_data.get("description", ""),
+            )
+        except DjangoPermissionDenied:
+            raise PermissionDenied(
+                "You do not have permission to create a new version of this document."
+            )
+        except DjangoValidationError as exc:
+            raise ValidationError(detail=exc.messages)
+        except ImproperlyConfigured as exc:
+            # SQLite guard fires in test/dev environments without PostgreSQL.
+            # In production this should never happen; treat as 503.
+            logger.error(
+                "DocumentNewVersionView: ImproperlyConfigured for doc pk=%s: %s",
+                str(doc_id), exc,
+            )
+            return Response(
+                {"detail": "Document versioning is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # Fetch the new document to get its version_number without modifying
+        # the service layer's return contract (storage_key excluded — PIPEDA).
+        try:
+            new_doc = Document.objects.only("version_number").get(pk=result["doc_id"])
+            version_number = new_doc.version_number
+        except Document.DoesNotExist:
+            version_number = None
+
+        # PIPEDA: storage_key is NEVER in the response dict.
+        return Response(
+            {
+                "doc_id": result["doc_id"],
+                "upload_url": result["upload_url"],
+                "upload_fields": result["upload_fields"],
+                "expires_at": result["expires_at"],
+                "version_number": version_number,
+            },
+            status=status.HTTP_201_CREATED,
         )

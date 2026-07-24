@@ -1,13 +1,18 @@
 """
 Celery tasks for the Consent & Privacy building block.
 
-process_data_export   — generates the citizen's data export file
-cleanup_export_files  — marks expired export requests and logs them
+dispatch_consent_webhook — async HTTP POST for individual webhook deliveries
+process_data_export      — generates the citizen's data export file
+cleanup_export_files     — marks expired export requests and logs them
 """
 from __future__ import annotations
+import hashlib
+import hmac
 import json
 import logging
 from datetime import timedelta
+
+import requests as _requests
 
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
@@ -19,6 +24,139 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+
+@shared_task(
+    name="consent.dispatch_consent_webhook",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+    autoretry_for=(_requests.exceptions.RequestException,),
+    retry_backoff=True,
+    retry_backoff_max=60,
+)
+def dispatch_consent_webhook(
+    self,
+    webhook_pk: str,
+    event_type: str,
+    payload_dict: dict,
+    event_timestamp: str,
+) -> dict:
+    """
+    Deliver a single webhook payload via HTTP POST.
+
+    Called by ``ConsentService.dispatch_webhook()`` via
+    ``transaction.on_commit()`` for every active webhook subscribed to
+    ``event_type``.
+
+    Security invariants:
+      - ``webhook.secret_key`` is fetched from DB inside the task (Fernet-
+        decrypted at read time). It is NEVER passed as a task argument.
+      - No PII is written to task arguments or log messages. Only
+        ``webhook_pk`` (UUID) and ``event_type`` (string constant) are logged.
+
+    Retry behaviour:
+      - Retries up to 3 times on any ``requests.exceptions.RequestException``
+        (network errors, timeouts) with exponential backoff.
+      - ``acks_late=True`` + ``reject_on_worker_lost=True`` guarantee
+        at-least-once delivery even if the worker is killed mid-task.
+
+    On successful delivery (2xx response):
+      - Persists ``last_payload``, ``last_delivery_at``, and
+        ``last_delivery_status="success"`` on the ``ConsentWebhook`` row so
+        that ``GET /config/webhook/{id}/payload/`` can replay it.
+
+    On final failure (retries exhausted):
+      - Updates ``last_delivery_status="failed"`` without overwriting
+        ``last_payload`` (preserves the last successfully delivered payload).
+
+    Args:
+        webhook_pk:       PK (UUID str) of the ``ConsentWebhook`` to deliver to.
+        event_type:       GovStack event type string (e.g. "consent.granted").
+        payload_dict:     The event-specific payload dict (not the full body).
+        event_timestamp:  ISO-8601 timestamp string set at dispatch time so
+                          the body is consistent even if the task is delayed.
+    """
+    from apps.consent.models import ConsentWebhook
+
+    # Fetch the webhook inside the task so the Fernet-decrypted secret_key
+    # is never passed as a plain-text task argument.
+    try:
+        webhook = ConsentWebhook.objects.get(pk=webhook_pk)
+    except ConsentWebhook.DoesNotExist:
+        # Webhook was deleted between enqueue and execution — safe to discard.
+        logger.info(
+            "dispatch_consent_webhook: webhook %s not found; skipping.", webhook_pk
+        )
+        return {"status": "skipped", "reason": "webhook_not_found"}
+
+    if webhook.is_disabled:
+        logger.info(
+            "dispatch_consent_webhook: webhook %s is disabled; skipping.", webhook_pk
+        )
+        return {"status": "skipped", "reason": "webhook_disabled"}
+
+    # Build the signed body using the original event timestamp so that the
+    # HMAC signature matches what the subscriber would expect regardless of
+    # Celery task queue delay.
+    body = json.dumps(
+        {
+            "event": event_type,
+            "timestamp": event_timestamp,
+            "payload": payload_dict,
+        },
+        default=str,
+    )
+    sig = hmac.new(
+        webhook.secret_key.encode(),
+        body.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+    sig_header = webhook.signature_header or "X-GovStack-Signature"
+    try:
+        resp = _requests.post(
+            webhook.payload_url,
+            data=body,
+            headers={
+                "Content-Type": webhook.content_type,
+                sig_header: f"sha256={sig}",
+                "X-GovStack-Event": event_type,
+            },
+            timeout=10,
+        )
+    except _requests.exceptions.RequestException:
+        # Will be retried via autoretry_for; update status to "failed" only on
+        # final exhaustion (handled in on_failure below).
+        raise
+
+    if resp.ok:
+        # Persist the last successfully delivered payload for replay via
+        # GET /config/webhook/{id}/payload/.
+        # Use .update() to avoid a full model save; only touch the 3 new fields.
+        ConsentWebhook.objects.filter(pk=webhook_pk).update(
+            last_payload=json.loads(body),
+            last_delivery_at=timezone.now(),
+            last_delivery_status="success",
+        )
+        logger.debug(
+            "dispatch_consent_webhook: delivered event %s to webhook %s (HTTP %s).",
+            event_type, webhook_pk, resp.status_code,
+        )
+        return {"status": "delivered", "http_status": resp.status_code}
+    else:
+        # Non-2xx response from the receiver.  Do NOT autoretry on non-2xx —
+        # that is a receiver-side logic error, not a network error.
+        # Log it and record the failure in the replay log.
+        ConsentWebhook.objects.filter(pk=webhook_pk).update(
+            last_delivery_status="failed",
+        )
+        logger.warning(
+            "dispatch_consent_webhook: receiver returned HTTP %s for webhook %s event %s.",
+            resp.status_code, webhook_pk, event_type,
+        )
+        return {"status": "receiver_error", "http_status": resp.status_code}
 
 
 @shared_task(name="consent.process_data_export", bind=True, max_retries=2)

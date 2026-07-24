@@ -758,48 +758,47 @@ class ConsentService:
         """
         Fire all active webhooks subscribed to ``event_type``.
 
-        Uses HMAC-SHA256 to sign the payload with each webhook's secret_key.
-        Failures are logged but never re-raised — webhook errors must not
-        affect the main request flow.
+        Enqueues a Celery task (``dispatch_consent_webhook``) for each
+        subscribed webhook rather than making the HTTP POST synchronously.
+        This prevents slow or unresponsive webhook receivers from stalling
+        Django worker threads.
+
+        Each task:
+          - Fetches ``webhook.secret_key`` from DB (Fernet-decrypted) inside
+            the task so no secret ever travels through the task message broker.
+          - Signs the payload with HMAC-SHA256 and POSTs to ``payload_url``.
+          - Retries up to 3 times on network errors (autoretry_for).
+          - Persists last_payload / last_delivery_at for the replay endpoint.
+
+        The ``event_timestamp`` is captured here (at dispatch time) and passed
+        to the task so the HMAC body timestamp is accurate regardless of
+        Celery queue delay.
+
+        Failures are never re-raised — webhook errors must not affect the
+        main request flow.
         """
         from apps.consent.models import ConsentWebhook
+        from apps.consent.tasks import dispatch_consent_webhook
+
+        event_timestamp = str(timezone.now())
 
         webhooks = ConsentWebhook.objects.filter(is_disabled=False)
         for webhook in webhooks:
             if not webhook.is_subscribed_to(event_type):
                 continue
             try:
-                body = json.dumps({
-                    "event": event_type,
-                    "timestamp": str(timezone.now()),
-                    "payload": payload,
-                }, default=str)
-                sig = hmac.new(
-                    webhook.secret_key.encode(),
-                    body.encode(),
-                    hashlib.sha256,
-                ).hexdigest()
-                import requests as _requests
-                sig_header = webhook.signature_header or "X-GovStack-Signature"
-                resp = _requests.post(
-                    webhook.payload_url,
-                    data=body,
-                    headers={
-                        "Content-Type": webhook.content_type,
-                        sig_header: f"sha256={sig}",
-                        "X-GovStack-Event": event_type,
-                    },
-                    timeout=5,
+                dispatch_consent_webhook.delay(
+                    webhook_pk=str(webhook.pk),
+                    event_type=event_type,
+                    payload_dict=payload,
+                    event_timestamp=event_timestamp,
                 )
-                if not resp.ok:
-                    logger.warning(
-                        "dispatch_webhook: receiver returned %s for webhook %s event %s",
-                        resp.status_code, webhook.pk, event_type,
-                    )
             except Exception as exc:
+                # Task enqueue failure (e.g. broker unreachable) must not
+                # propagate to the caller — log and continue.
                 logger.warning(
-                    "dispatch_webhook: failed for webhook %s event %s: %s",
-                    webhook.pk, event_type, exc,
+                    "dispatch_webhook: failed to enqueue task for webhook %s event %s: %s",
+                    webhook.pk, event_type, type(exc).__name__,
                 )
 
 
