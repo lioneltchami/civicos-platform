@@ -24,6 +24,7 @@ Wave status:
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from datetime import timedelta
 from decimal import Decimal
@@ -41,6 +42,7 @@ from apps.payments.govstack_exceptions import (
     GovStackBBNotFound,
     InvalidCancellationSerial,
     InvalidVoucherAmount,
+    InvalidVoucherCurrency,
     InvalidVoucherGroup,
     InvalidVoucherSerial,
     VoucherAlreadyCancelled,
@@ -58,6 +60,13 @@ from apps.payments.govstack_models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ISO 4217 currency code validator: exactly 3 uppercase letters.
+# Defined here (not imported from govstack_serializers) to avoid a circular
+# import.  govstack_serializers._ISO4217_RE is kept there for bulk-payment
+# CreditInstruction validation which must return HTTP 400.  Voucher currency
+# validation moved here to return HTTP 453 per the GovStack Payments spec.
+_ISO4217_RE = re.compile(r"^[A-Z]{3}$")
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +587,14 @@ class GovStackVoucherService:
         # ── Validate group → 454 ──────────────────────────────────────────────
         if not voucher_group or not voucher_group.strip():
             raise InvalidVoucherGroup()
+
+        # ── Validate currency → 453 ──────────────────────────────────────────
+        # The serializer ensures voucher_currency is non-empty and .upper()-ed.
+        # Format validation (exactly 3 uppercase letters) is done here — not in
+        # the serializer — so the GovStack spec status 453 is returned instead
+        # of the serializer's HTTP 400 for an invalid format like "US" or "USDD".
+        if not _ISO4217_RE.match(voucher_currency):
+            raise InvalidVoucherCurrency()
 
         # ── Compute expiry ────────────────────────────────────────────────────
         expiry_days = getattr(settings, "GOVSTACK_VOUCHER_EXPIRY_DAYS", 90)

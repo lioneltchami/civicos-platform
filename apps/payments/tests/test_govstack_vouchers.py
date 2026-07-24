@@ -12,7 +12,7 @@ Coverage matrix:
      A5:  Missing voucher_group → HTTP 400
      A6:  Missing Gov_Stack_BB → HTTP 400
      A7:  Non-numeric voucher_amount → HTTP 400
-     A8:  Invalid voucher_currency format (2 chars) → HTTP 400
+     A8:  Invalid voucher_currency format (2 chars) → HTTP 453 (service raises InvalidVoucherCurrency)
      A9:  Zero voucher_amount → HTTP 452
      A10: Negative voucher_amount → HTTP 452
      A11: Empty Gov_Stack_BB string → HTTP 460 (service raises GovStackBBNotFound)
@@ -311,10 +311,17 @@ class VoucherPreactivationHarnessTest(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("message", resp.data)
 
-    def test_a8_invalid_currency_format_returns_400(self):
-        """2-char currency code fails the ISO 4217 regex in the serializer."""
+    def test_a8_invalid_currency_format_returns_453(self):
+        """
+        2-char currency code passes serializer (non-empty) but fails ISO 4217
+        format validation in GovStackVoucherService.preactivate() → HTTP 453.
+
+        GAP-C1 regression guard: the GovStack Payments spec assigns status 453
+        to invalid currency codes.  A serializer-level rejection would return
+        HTTP 400, which is a spec violation.
+        """
         resp = self._post(_preactivation_body(voucher_currency="US"))
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 453)
         self.assertIn("message", resp.data)
 
     def test_a9_zero_amount_returns_452(self):

@@ -4,9 +4,11 @@ test_govstack_beneficiary.py
 Comprehensive tests for GovStack Payments BB — Beneficiary endpoints (spec §18).
 
 Coverage matrix:
-  A. View-level harness scenarios (12 total — 6 per endpoint)
-     A1-A6:  POST /govstack/payments/register-beneficiary
-     A7-A12: POST /govstack/payments/update-beneficiary-details
+  A. View-level harness scenarios (14 total)
+     A1-A6:  POST /govstack/payments/register-beneficiary (success + validation errors)
+     A7-A12: POST /govstack/payments/update-beneficiary-details (success + validation errors)
+     A13:    RegisterBeneficiaryView — missing X-Registering-Institution-ID → HTTP 401
+     A14:    UpdateBeneficiaryView   — missing X-Registering-Institution-ID → HTTP 401
 
   B. G2P response envelope invariants
      - ResponseCode is exactly "00" (success) or "01" (error) — never anything else
@@ -127,8 +129,11 @@ class RegisterBeneficiaryHarnessTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        # Harness sends only Accept: application/json — no auth headers.
-        self.client.credentials()  # clear any default credentials
+        # RegisterBeneficiaryView uses IsTrustedSourceBB.
+        # The harness always sends X-Registering-Institution-ID on G2P endpoints.
+        # With GOVSTACK_REQUIRE_REGISTERED_BB=False (test default) IsTrustedSourceBB
+        # only checks header presence — any non-empty ≤20-char value is accepted.
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "GS-TEST"
 
     # A1 — smoke: minimal valid body → HTTP 200, ResponseCode "00"
     def test_a1_smoke_success(self):
@@ -200,6 +205,21 @@ class RegisterBeneficiaryHarnessTest(TestCase):
         self.assertEqual(body["ResponseCode"], "01")
         self.assertEqual(body["RequestID"], REQUEST_ID)
 
+    # A13 — missing X-Registering-Institution-ID header → HTTP 401 (GAP-C2 guard)
+    def test_a13_no_institution_header_returns_401(self):
+        """
+        RegisterBeneficiaryView now uses IsTrustedSourceBB.
+        A caller that omits X-Registering-Institution-ID is rejected with HTTP 401.
+
+        GAP-C2 regression guard: without this check, the view had AllowAnyBB
+        (return True unconditionally) — any caller could register beneficiaries
+        even without identifying itself as a registered GovStack BB.
+        """
+        client = APIClient()  # no HTTP_X_REGISTERING_INSTITUTION_ID default
+        resp = client.post(REGISTER_URL, _VALID_BODY, format="json")
+        self.assertNotEqual(resp.status_code, 200)
+        self.assertIn(resp.status_code, (401, 403))
+
 
 @_NO_THROTTLE
 class UpdateBeneficiaryHarnessTest(TestCase):
@@ -210,7 +230,10 @@ class UpdateBeneficiaryHarnessTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.client.credentials()
+        # UpdateBeneficiaryView uses IsTrustedSourceBB — send the institution header.
+        # GOVSTACK_REQUIRE_REGISTERED_BB=False (test default) means only header
+        # presence is checked; no DB lookup needed.
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "GS-TEST"
 
     # A7 — smoke → HTTP 200, ResponseCode "00"
     def test_a7_smoke_success(self):
@@ -276,6 +299,19 @@ class UpdateBeneficiaryHarnessTest(TestCase):
         body = resp.json()
         self.assertEqual(body["ResponseCode"], "01")
 
+    # A14 — missing X-Registering-Institution-ID header → HTTP 401 (GAP-C2 guard)
+    def test_a14_no_institution_header_returns_401(self):
+        """
+        UpdateBeneficiaryView now uses IsTrustedSourceBB.
+        A caller that omits X-Registering-Institution-ID is rejected with HTTP 401.
+
+        GAP-C2 regression guard: mirrors test_a13 for the update endpoint.
+        """
+        client = APIClient()  # no HTTP_X_REGISTERING_INSTITUTION_ID default
+        resp = client.post(UPDATE_URL, _VALID_BODY, format="json")
+        self.assertNotEqual(resp.status_code, 200)
+        self.assertIn(resp.status_code, (401, 403))
+
 
 # ============================================================================
 # B.  G2P response envelope invariants
@@ -290,7 +326,8 @@ class G2PEnvelopeInvariantsTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.client.credentials()
+        # Both beneficiary endpoints now require IsTrustedSourceBB.
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "GS-TEST"
 
     def _assert_g2p_envelope(self, body: dict, expected_code: str) -> None:
         """Assert the G2P envelope shape and that it never leaks PII."""
@@ -861,7 +898,8 @@ class DatabaseStateIntegrationTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.client.credentials()
+        # Both beneficiary endpoints require IsTrustedSourceBB.
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "GS-TEST"
 
     def test_h1_register_call_persists_beneficiary(self):
         self.assertEqual(GovStackBeneficiary.objects.count(), 0)

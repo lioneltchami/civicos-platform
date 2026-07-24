@@ -451,16 +451,15 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
         return value
 
     def validate_voucher_currency(self, value: str) -> str:
-        if not value:
+        if not value or not value.strip():
             raise serializers.ValidationError("voucher_currency is required.")
-        upper = value.upper()
-        # Apply ISO 4217 regex: exactly 3 uppercase letters.
-        # Invalid format returns HTTP 400 here.
-        # Wave 5 may raise InvalidVoucherCurrency (HTTP 453) for codes that are
-        # syntactically valid but not accepted by the program (e.g. during secret
-        # validation).  In Wave 4 the service does not validate currency beyond
-        # what this serializer enforces.
-        return _validate_iso4217(upper)
+        # ISO 4217 format validation is intentionally NOT applied here.
+        # It is performed in GovStackVoucherService.preactivate() so that an
+        # invalid format (e.g. "US" — 2 chars, "USDD" — 4 chars) raises
+        # InvalidVoucherCurrency (HTTP 453) rather than serializer.ValidationError
+        # (HTTP 400).  The GovStack Payments spec assigns status 453 to this
+        # error; HTTP 400 would be a spec violation.
+        return value.strip().upper()
 
     # NOTE: no validate_voucher_group — blank groups reach the service, which raises
     # InvalidVoucherGroup (454).  Serializer-level rejection would give HTTP 400, which

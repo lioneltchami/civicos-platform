@@ -186,8 +186,10 @@ class GovStackG2PView(GovStackAPIView):
         Failure  → HTTP 400  {ResponseCode: "01", RequestID: ..., ResponseDescription: ...}
 
     Key differences from GovStackAPIView:
-    - permission_classes defaults to [AllowAnyBB]: the GovStack harness does NOT send
-      X-Registering-Institution-ID, so IsTrustedSourceBB would block all harness tests.
+    - permission_classes defaults to [AllowAnyBB].  Individual G2P views that process
+      PII (RegisterBeneficiaryView, UpdateBeneficiaryView) override this with
+      [IsTrustedSourceBB] to enforce X-Registering-Institution-ID authentication.
+      Other G2P views keep AllowAnyBB (harness may omit the header for those).
     - get_exception_handler() returns govstack_g2p_exception_handler which wraps ALL
       exceptions (throttle, auth, unexpected errors) in the G2P envelope so the harness
       g2pResponseSchema check is never violated.
@@ -282,6 +284,13 @@ class RegisterBeneficiaryView(GovStackG2PView):
     Response: {ResponseCode, RequestID, ResponseDescription}
     """
 
+    # Override base class AllowAnyBB: these endpoints process PII (PayeeFunctionalID,
+    # FinancialAddress) and MUST authenticate the calling BB via
+    # X-Registering-Institution-ID.  IsTrustedSourceBB header-presence check
+    # runs in all environments; DB whitelist lookup only when
+    # GOVSTACK_REQUIRE_REGISTERED_BB=True (production default).
+    permission_classes = [IsTrustedSourceBB]
+
     def post(self, request: Request) -> Response:
         ser = RegisterBeneficiaryRequestSerializer(data=request.data)
         if not ser.is_valid():
@@ -320,6 +329,10 @@ class UpdateBeneficiaryView(GovStackG2PView):
     Semantics: upsert — creates the record if PayeeFunctionalID doesn't exist.
     The harness smoke test sends an unregistered ID and expects HTTP 200/"00".
     """
+
+    # Same reasoning as RegisterBeneficiaryView: PII-handling endpoint must
+    # authenticate the calling BB.
+    permission_classes = [IsTrustedSourceBB]
 
     def post(self, request: Request) -> Response:
         ser = UpdateBeneficiaryRequestSerializer(data=request.data)
