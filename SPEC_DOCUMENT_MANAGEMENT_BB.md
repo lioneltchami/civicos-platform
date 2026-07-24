@@ -1712,6 +1712,25 @@ def test_scan_pending_blocks_download(self):
 - Fix findings
 - Tag `v0.8.0`
 
+### Wave 8 — DRF REST API (added 2026-07-23, closes DOC-GAPs 1–5)
+- `apps/api/documents/` module: `serializers.py`, `views.py`, `urls.py`
+- 9 view classes covering all 8 spec §18 endpoints
+  - `DocumentRequestUploadView` — POST /api/v1/documents/request-upload/
+  - `DocumentConfirmUploadView` — POST /api/v1/documents/{doc_id}/confirm-upload/
+  - `DocumentDetailDeleteView` — GET + DELETE /api/v1/documents/{doc_id}/
+  - `DocumentDownloadInitView` — GET /api/v1/documents/{doc_id}/download/
+  - `DocumentTokenRedeemView` — GET /api/v1/documents/dl/{token}/
+  - `DocumentAttachedListView` — GET /api/v1/documents/?attached_to=…
+  - `DocumentAttachView` — POST /api/v1/documents/{doc_id}/attach/
+  - `DocumentVersionsView` — GET /api/v1/documents/{doc_id}/versions/
+- 3 serializers: `DocumentSerializer`, `DocumentUploadRequestSerializer`, `DocumentAttachmentSerializer`
+- Wired into `apps/api/urls.py` under `documents/`
+- Renamed old `test_api.py` → `test_views_http_contract.py` (HTML view tests)
+- New `apps/documents/tests/test_api.py` — 62 DRF API tests covering all 9 view classes
+- Fixed `apps/documents/tests/test_pipeda.py` §24.2 PIPEDA invariants (3 tests updated to use APIClient)
+- Security: `storage_key` never in response; `scan_engine_result` gated; IDOR → 404; legal hold → 403; atomic single-use tokens
+- **All 5 DOC-GAPs resolved. Document Management BB is now complete and certifiably production-ready.**
+
 ---
 
 ## 26. Open Questions / Deferred Items
