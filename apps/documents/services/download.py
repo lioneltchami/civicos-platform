@@ -5,8 +5,8 @@ Handles secure document download via single-use access tokens.
 
 Download flow (spec §12.3):
   1. issue_access_token()   — create a DocumentAccessToken for an authorised user.
-                               View: GET /api/v1/documents/{pk}/download/
-                               Returns: { token_url, expires_at }
+                               View: POST /api/v1/documents/{pk}/request-download/
+                               Returns: { download_url, expires_at }
   2. consume_access_token() — validate and redeem the token; return the Document.
                                View: GET /api/v1/documents/dl/{token}/
                                Returns: HTTP 302 (prod) or HTTP 200 file stream (dev).
@@ -46,6 +46,25 @@ if TYPE_CHECKING:
     User = get_user_model()
 
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Service-layer exceptions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TokenExpiredError(Exception):
+    """
+    Raised by consume_access_token() when the token exists and belongs to the
+    requesting user but has passed its ``expires_at`` timestamp.
+
+    The GovStack Document Management BB spec (§18, endpoint 7.5) requires HTTP
+    410 Gone for expired tokens — distinguishable from HTTP 404 (invalid/not-found).
+
+    This is deliberately NOT Http404 so the view can map it to 410 without
+    also mapping every other failure (wrong user, not found, already used) to 410.
+    """
+
 
 # Default access token TTL in seconds (5 minutes).
 # Override via CIVICOS['DOCUMENT_ACCESS_TOKEN_TTL_SECONDS'].
@@ -242,12 +261,20 @@ def consume_access_token(
             raise Http404
 
         # ── Validity check (under lock) ────────────────────────────────────────
-        # Re-evaluate is_valid under the lock to guard against race conditions:
-        # another request may have consumed the token between the initial
-        # fetch and this check (though select_for_update serialises this).
-        if not token.is_valid:
-            # Expired or already used: return 404 (same as invalid token).
+        # Re-evaluate under the lock to guard against race conditions.
+        # Split into two cases so the view can return the correct HTTP status:
+        #
+        #   already used  → Http404  (IDOR: same status as "not found")
+        #   expired        → TokenExpiredError  → view maps to HTTP 410 Gone
+        #                    (GovStack spec §18 endpoint 7.5 requirement)
+        #
+        # Order matters: check used_at first because a token can technically
+        # be both used and expired — "already used" should win for IDOR safety.
+        if token.used_at is not None:
             raise Http404
+
+        if token.expires_at <= timezone.now():
+            raise TokenExpiredError()
 
         # ── Mark as used (single-use enforcement) ─────────────────────────────
         token.used_at = timezone.now()

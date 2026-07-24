@@ -35,6 +35,7 @@ from django.utils import timezone
 
 from apps.documents.models import Document, DocumentAccessToken, DocumentCategory
 from apps.documents.services.download import (
+    TokenExpiredError,
     _mask_ip,
     _user_may_download,
     consume_access_token,
@@ -599,10 +600,15 @@ class ConsumeAccessTokenTests(TestCase):
 
     # ── Expiry gate ───────────────────────────────────────────────────────────
 
-    def test_expired_token_raises_404(self):
-        """An expired token (expires_at in the past) must raise Http404."""
+    def test_expired_token_raises_token_expired_error(self):
+        """
+        An expired (never-used) token raises TokenExpiredError, not Http404.
+
+        The view maps TokenExpiredError → HTTP 410 Gone (GovStack spec §18 §7.5).
+        Http404 is only raised for used (already-consumed) or nonexistent tokens.
+        """
         token = make_active_token(self.doc, self.user, expired=True)
-        with self.assertRaises(Http404):
+        with self.assertRaises(TokenExpiredError):
             consume_access_token(token_value=token.token, user=self.user)
 
     # ── Not-found gate ────────────────────────────────────────────────────────

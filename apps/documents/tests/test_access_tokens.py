@@ -25,7 +25,11 @@ from django.utils import timezone
 
 from apps.audit.models import AuditEventType, AuditLogEntry
 from apps.documents.models import Document, DocumentAccessToken, DocumentCategory
-from apps.documents.services.download import consume_access_token, issue_access_token
+from apps.documents.services.download import (
+    TokenExpiredError,
+    consume_access_token,
+    issue_access_token,
+)
 from apps.documents.services.retention import purge_expired_tokens
 
 User = get_user_model()
@@ -319,13 +323,13 @@ class ConsumeAccessTokenTests(TestCase):
             consume_access_token(token_value=self.token.token, user=self.user)
 
     def test_consume_token_raises_404_on_expired_token(self):
-        """Expired token → Http404."""
+        """Expired token → TokenExpiredError (→ 410 Gone via API; spec §18 §7.5)."""
         expired_token = DocumentAccessToken.objects.create(
             document=self.doc,
             issued_to=self.user,
             expires_at=timezone.now() - timedelta(seconds=1),
         )
-        with self.assertRaises(Http404):
+        with self.assertRaises(TokenExpiredError):
             consume_access_token(token_value=expired_token.token, user=self.user)
 
     def test_consume_token_raises_404_on_nonexistent_token(self):

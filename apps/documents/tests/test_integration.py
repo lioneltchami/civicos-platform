@@ -70,7 +70,11 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.documents.models import Document, DocumentAccessToken, DocumentCategory
-from apps.documents.services.download import consume_access_token, issue_access_token
+from apps.documents.services.download import (
+    TokenExpiredError,
+    consume_access_token,
+    issue_access_token,
+)
 from apps.documents.services.retention import (
     apply_legal_hold,
     hard_delete,
@@ -322,6 +326,13 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
                 "apps.documents.services.upload._read_first_bytes",
                 return_value=b"%PDF-1.4 fake content for integration test",
             ),
+            # Layer 5b: PDF encryption check calls _read_full_file then
+            # _check_pdf_encryption.  Patch both — no real file exists in CI.
+            patch(
+                "apps.documents.services.upload._read_full_file",
+                return_value=b"%PDF-1.4 fake content for integration test",
+            ),
+            patch("apps.documents.services.upload._check_pdf_encryption"),
             patch(
                 "apps.documents.tasks.scan_document.apply_async",
                 side_effect=_eager_apply_async,
@@ -425,6 +436,12 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
                 "apps.documents.services.upload._read_first_bytes",
                 return_value=b"%PDF-1.4",
             ),
+            # Layer 5b: PDF encryption check — patch storage reads so no real file needed.
+            patch(
+                "apps.documents.services.upload._read_full_file",
+                return_value=b"%PDF-1.4 fake content",
+            ),
+            patch("apps.documents.services.upload._check_pdf_encryption"),
         ):
             confirm_upload(user=self.user, doc_id=doc_id)
 
@@ -453,6 +470,12 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
                 "apps.documents.services.upload._read_first_bytes",
                 return_value=b"%PDF-1.4",
             ),
+            # Layer 5b: PDF encryption check — patch storage reads so no real file needed.
+            patch(
+                "apps.documents.services.upload._read_full_file",
+                return_value=b"%PDF-1.4 fake content",
+            ),
+            patch("apps.documents.services.upload._check_pdf_encryption"),
         ):
             confirm_upload(user=self.user, doc_id=doc_id)
 
@@ -552,7 +575,12 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
             )
 
     def test_expired_token_cannot_be_consumed(self) -> None:
-        """An expired token (expires_at in the past) raises Http404 on consumption."""
+        """
+        An expired (never-used) token raises TokenExpiredError on consumption.
+
+        The view maps TokenExpiredError → HTTP 410 Gone (GovStack spec §18 §7.5).
+        Http404 is reserved for used (already-consumed) or nonexistent tokens.
+        """
         doc_id, _ = self._run_pipeline()
         doc = Document.objects.get(pk=doc_id)
 
@@ -566,7 +594,7 @@ class FullUploadScanDownloadPipelineTests(TransactionTestCase):
             expires_at=timezone.now() - timedelta(minutes=1)
         )
 
-        with self.assertRaises(Http404, msg="Expired token must raise Http404."):
+        with self.assertRaises(TokenExpiredError, msg="Expired token must raise TokenExpiredError."):
             consume_access_token(
                 token_value=token.token,
                 user=self.user,

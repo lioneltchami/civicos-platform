@@ -640,6 +640,12 @@ class DocumentConfirmedSignalContractTests(TestCase):
                 "apps.documents.services.upload._validate_magic_bytes",
                 return_value=None,  # None = magic bypassed; mime_type unchanged
             ), patch(
+                # Layer 5b: PDF encryption check reads full file before _check_pdf_encryption.
+                "apps.documents.services.upload._read_full_file",
+                return_value=b"%PDF-1.4 dummy",
+            ), patch(
+                "apps.documents.services.upload._check_pdf_encryption",
+            ), patch(
                 "apps.audit.services.record_event",
                 return_value=None,
             ), patch(

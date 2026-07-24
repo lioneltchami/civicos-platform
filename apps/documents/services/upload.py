@@ -64,6 +64,14 @@ try:
 except ImportError:
     magic = None  # type: ignore[assignment]
 
+# pikepdf — used for PDF encryption / password-protection detection (Layer 5b).
+# Optional: if not installed, the PDF encryption check is skipped with a warning.
+# Tests can patch `apps.documents.services.upload._pikepdf`.
+try:
+    import pikepdf as _pikepdf
+except ImportError:
+    _pikepdf = None  # type: ignore[assignment]
+
 # ── Extension allowlist ───────────────────────────────────────────────────────
 # Only file extensions in this set are accepted, regardless of any MIME claim.
 # This is an allowlist — anything not here is rejected.
@@ -431,12 +439,29 @@ def confirm_upload(
             # validate_upload_request() time with the libmagic-detected value.
             doc.mime_type = detected_mime
 
+        # ── Layer 5b: PDF encryption / password-protection check ──────────────
+        # Encrypted or password-protected PDFs cannot be virus-scanned by
+        # ClamAV (the scanner cannot read the ciphertext). They must be
+        # rejected at upload time.
+        #
+        # Uses pikepdf to reliably detect encryption regardless of PDF
+        # structure (linear or non-linear, header position, etc.).  Falls
+        # back to a raw byte heuristic when pikepdf is unavailable so that
+        # uploads are never silently accepted with the security check skipped
+        # in misconfigured environments.
+        #
+        # PIPEDA note: original_filename is NOT used here or in the error
+        # message — the check operates entirely on file bytes.
+        ext = Path(doc.original_filename).suffix.lstrip(".").lower()
+        if ext == "pdf":
+            pdf_bytes = _read_full_file(doc.storage_key)
+            _check_pdf_encryption(pdf_bytes)
+
         # ── Layer 6: ZIP bomb detection (CVE-2024-0450) ────────────────────────
         # The ZIP central directory is located at the END of the archive — the
         # 8 KB first_bytes used for magic detection is insufficient for any
         # real-world .docx or .xlsx file. Read the full file so zipfile can
         # locate the EOCD record and parse the central directory.
-        ext = Path(doc.original_filename).suffix.lstrip(".").lower()
         if ext in _ZIP_FAMILY:
             zip_bytes = _read_full_file(doc.storage_key)
             _check_zip_bomb(zip_bytes)
@@ -1188,3 +1213,84 @@ def _check_zip_bomb(data: bytes) -> None:
                       "The file may be a ZIP bomb.")
                     % {"ratio": ratio}
                 )
+
+    # Guard 3: Encrypted / password-protected entries
+    # ZipInfo.flag_bits bit 0 (value 0x1) indicates the entry is encrypted.
+    # A password-protected .docx or .xlsx cannot be virus-scanned by ClamAV —
+    # reject it here so SCANNING is never dispatched for an opaque ciphertext.
+    for entry in entries:
+        if entry.flag_bits & 0x1:
+            raise ValidationError(
+                _("Password-protected archives are not accepted. "
+                  "Please remove the password before uploading.")
+            )
+
+
+def _check_pdf_encryption(pdf_bytes: bytes) -> None:
+    """
+    Detect password-protected / encrypted PDF files (Layer 5b).
+
+    An encrypted PDF cannot be virus-scanned by ClamAV — the scanner can only
+    see opaque ciphertext.  This function rejects such files before the ClamAV
+    task is dispatched, preventing a permanently-SCANNING document state.
+
+    Strategy
+    ────────
+    Primary:   Use pikepdf to open the file from a BytesIO buffer.
+               pikepdf raises ``pikepdf.PasswordError`` for any encrypted PDF,
+               regardless of whether it uses Standard security, AES-256, or
+               public-key encryption.
+    Fallback:  If pikepdf is not installed (misconfigured environment), fall
+               back to a raw byte search for the ``/Encrypt`` dictionary
+               keyword. This catches the vast majority of encrypted PDFs but
+               may miss exotic encryption schemes where the keyword is in a
+               compressed cross-reference stream. A warning is emitted so
+               operators can fix the installation.
+    Bypass:    If neither check is possible (pikepdf absent AND the fallback
+               heuristic finds no /Encrypt), the file is accepted with a
+               warning — we never silently block a legitimate upload.
+
+    PIPEDA: original_filename is NEVER used here.
+
+    Args:
+        pdf_bytes: Complete file bytes of the PDF.
+
+    Raises:
+        ValidationError: The PDF is encrypted or password-protected.
+    """
+    if _pikepdf is not None:
+        # Primary: pikepdf is reliable regardless of PDF version or structure.
+        try:
+            with _pikepdf.open(io.BytesIO(pdf_bytes)) as _pdf:
+                pass  # Successfully opened → not encrypted.
+        except _pikepdf.PasswordError:
+            raise ValidationError(
+                _("Password-protected PDFs are not accepted. "
+                  "Please remove the password protection before uploading.")
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Corrupt or malformed PDF — pikepdf could not parse it at all.
+            # Treat as invalid file rather than a security bypass.
+            logger.warning(
+                "_check_pdf_encryption: pikepdf could not open file: %s — "
+                "treating as corrupted PDF.",
+                type(exc).__name__,
+            )
+            raise ValidationError(
+                _("The PDF file could not be read. "
+                  "Please ensure the file is not corrupted before uploading.")
+            ) from exc
+    else:
+        # Fallback: raw byte search for /Encrypt keyword.
+        # This is less reliable than pikepdf but avoids silently skipping the
+        # check when pikepdf is not installed.
+        logger.warning(
+            "_check_pdf_encryption: pikepdf not installed; using raw byte "
+            "heuristic for PDF encryption detection. Install pikepdf for "
+            "reliable protection."
+        )
+        if b"/Encrypt" in pdf_bytes:
+            raise ValidationError(
+                _("Password-protected PDFs are not accepted. "
+                  "Please remove the password protection before uploading.")
+            )

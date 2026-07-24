@@ -694,12 +694,19 @@ class ConfirmUploadTests(TransactionTestCase):
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # M-3: must return str so doc.mime_type gets a valid value
                 ):
+                    # Layer 5b: PDF encryption check calls _read_full_file then
+                    # _check_pdf_encryption.  Patch both so tests don't need real files.
                     with patch(
-                        "apps.documents.tasks.scan_document.apply_async"
-                    ) as mock_task:
-                        result = confirm_upload(user=u, doc_id=str(doc.pk))
-                        # T-1: capture snapshot while still inside the context
-                        task_calls = list(mock_task.call_args_list)
+                        "apps.documents.services.upload._read_full_file",
+                        return_value=b"%PDF-1.4 dummy",
+                    ):
+                        with patch("apps.documents.services.upload._check_pdf_encryption"):
+                            with patch(
+                                "apps.documents.tasks.scan_document.apply_async"
+                            ) as mock_task:
+                                result = confirm_upload(user=u, doc_id=str(doc.pk))
+                                # T-1: capture snapshot while still inside the context
+                                task_calls = list(mock_task.call_args_list)
         return result, task_calls
 
     # ── IDOR ──────────────────────────────────────────────────────────────────
@@ -746,8 +753,10 @@ class ConfirmUploadTests(TransactionTestCase):
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str, not MagicMock
                 ):
-                    with patch("apps.documents.tasks.scan_document.apply_async"):
-                        result = confirm_upload(user=self.user, doc_id=str(doc.pk))
+                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                        with patch("apps.documents.services.upload._check_pdf_encryption"):
+                            with patch("apps.documents.tasks.scan_document.apply_async"):
+                                result = confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         doc.refresh_from_db()
         self.assertEqual(doc.scan_status, Document.ScanStatus.SCANNING)
@@ -762,15 +771,17 @@ class ConfirmUploadTests(TransactionTestCase):
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",
                 ):
-                    with patch(
-                        "apps.documents.tasks.scan_document.apply_async"
-                    ) as mock_task:
-                        confirm_upload(user=self.user, doc_id=str(doc.pk))
-                        # T-2: assert INSIDE the context with precise args/countdown
-                        # (on_commit fires synchronously in TransactionTestCase).
-                        mock_task.assert_called_once_with(
-                            args=[str(doc.pk)], countdown=2
-                        )
+                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                        with patch("apps.documents.services.upload._check_pdf_encryption"):
+                            with patch(
+                                "apps.documents.tasks.scan_document.apply_async"
+                            ) as mock_task:
+                                confirm_upload(user=self.user, doc_id=str(doc.pk))
+                                # T-2: assert INSIDE the context with precise args/countdown
+                                # (on_commit fires synchronously in TransactionTestCase).
+                                mock_task.assert_called_once_with(
+                                    args=[str(doc.pk)], countdown=2
+                                )
 
     def test_happy_path_fires_document_confirmed_signal(self):
         doc = self._make_pending_doc()
@@ -789,8 +800,10 @@ class ConfirmUploadTests(TransactionTestCase):
                         "apps.documents.services.upload._validate_magic_bytes",
                         return_value="application/pdf",  # H-4: must return str — MagicMock written to doc.mime_type otherwise
                     ):
-                        with patch("apps.documents.tasks.scan_document.apply_async"):
-                            confirm_upload(user=self.user, doc_id=str(doc.pk))
+                        with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                            with patch("apps.documents.services.upload._check_pdf_encryption"):
+                                with patch("apps.documents.tasks.scan_document.apply_async"):
+                                    confirm_upload(user=self.user, doc_id=str(doc.pk))
         finally:
             document_confirmed.disconnect(handler)
 
@@ -819,8 +832,10 @@ class ConfirmUploadTests(TransactionTestCase):
                         "apps.documents.services.upload._validate_magic_bytes",
                         return_value="application/pdf",
                     ):
-                        with patch("apps.documents.tasks.scan_document.apply_async"):
-                            confirm_upload(user=self.user, doc_id=str(doc.pk))
+                        with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                            with patch("apps.documents.services.upload._check_pdf_encryption"):
+                                with patch("apps.documents.tasks.scan_document.apply_async"):
+                                    confirm_upload(user=self.user, doc_id=str(doc.pk))
         finally:
             document_confirmed.disconnect(handler)
 
@@ -857,11 +872,13 @@ class ConfirmUploadTests(TransactionTestCase):
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str
                 ):
-                    with patch("apps.documents.tasks.scan_document.apply_async"):
-                        with patch(
-                            "apps.audit.services.record_event"
-                        ) as mock_audit:
-                            confirm_upload(user=self.user, doc_id=str(doc.pk))
+                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                        with patch("apps.documents.services.upload._check_pdf_encryption"):
+                            with patch("apps.documents.tasks.scan_document.apply_async"):
+                                with patch(
+                                    "apps.audit.services.record_event"
+                                ) as mock_audit:
+                                    confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         mock_audit.assert_called_once()
         call_kwargs = mock_audit.call_args.kwargs
@@ -897,11 +914,13 @@ class ConfirmUploadTests(TransactionTestCase):
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str
                 ):
-                    with patch("apps.documents.tasks.scan_document.apply_async"):
-                        with patch(
-                            "apps.audit.services.record_event"
-                        ) as mock_audit:
-                            confirm_upload(user=self.user, doc_id=str(doc.pk))
+                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                        with patch("apps.documents.services.upload._check_pdf_encryption"):
+                            with patch("apps.documents.tasks.scan_document.apply_async"):
+                                with patch(
+                                    "apps.audit.services.record_event"
+                                ) as mock_audit:
+                                    confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         call_kwargs = mock_audit.call_args.kwargs
         self.assertEqual(call_kwargs["actor_id"], str(self.user.pk))
@@ -1044,12 +1063,14 @@ class ConfirmUploadTests(TransactionTestCase):
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str
                 ):
-                    with patch(
-                        "apps.documents.services.upload._check_zip_bomb"
-                    ) as mock_zip_check:
-                        with patch("apps.documents.tasks.scan_document.apply_async"):
-                            confirm_upload(user=self.user, doc_id=str(doc.pk))
-                        mock_zip_check.assert_not_called()
+                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                        with patch("apps.documents.services.upload._check_pdf_encryption"):
+                            with patch(
+                                "apps.documents.services.upload._check_zip_bomb"
+                            ) as mock_zip_check:
+                                with patch("apps.documents.tasks.scan_document.apply_async"):
+                                    confirm_upload(user=self.user, doc_id=str(doc.pk))
+                                mock_zip_check.assert_not_called()
 
     # ── Security classification propagation ───────────────────────────────────
 
@@ -1062,8 +1083,10 @@ class ConfirmUploadTests(TransactionTestCase):
                     "apps.documents.services.upload._validate_magic_bytes",
                     return_value="application/pdf",  # H-4: must return str
                 ):
-                    with patch("apps.documents.tasks.scan_document.apply_async"):
-                        confirm_upload(user=self.user, doc_id=str(doc.pk))
+                    with patch("apps.documents.services.upload._read_full_file", return_value=b"%PDF-1.4 dummy"):
+                        with patch("apps.documents.services.upload._check_pdf_encryption"):
+                            with patch("apps.documents.tasks.scan_document.apply_async"):
+                                confirm_upload(user=self.user, doc_id=str(doc.pk))
         doc.refresh_from_db()
         self.assertEqual(doc.security_classification, original_classification)
 

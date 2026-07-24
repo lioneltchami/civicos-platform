@@ -3,17 +3,19 @@ apps/documents/tests/test_api.py
 ==================================
 DRF REST API integration tests for the Document Management BB (spec §18).
 
-These tests cover the eight API endpoints implemented in apps/api/documents/:
+These tests cover all API endpoints implemented in apps/api/documents/:
 
-  7.1  POST   /api/v1/documents/request-upload/              → 201
-  7.2  POST   /api/v1/documents/{doc_id}/confirm-upload/     → 200
-  7.3  GET    /api/v1/documents/{doc_id}/                    → 200
-  7.4  GET    /api/v1/documents/{doc_id}/download/           → 200
-  7.5  GET    /api/v1/documents/dl/{token}/                  → 200 or 302
-  7.6  GET    /api/v1/documents/?attached_to=…&object_id=…  → 200
-  7.7  POST   /api/v1/documents/{doc_id}/attach/             → 201
-  7.8  DELETE /api/v1/documents/{doc_id}/                    → 204
-  7.9  GET    /api/v1/documents/{doc_id}/versions/           → 200
+  7.1   POST   /api/v1/documents/request-upload/                    → 201
+  7.2   POST   /api/v1/documents/{doc_id}/confirm-upload/           → 200
+  7.3   GET    /api/v1/documents/{doc_id}/                          → 200
+  7.4   POST   /api/v1/documents/{doc_id}/request-download/         → 200
+  7.5   GET    /api/v1/documents/dl/{token}/                        → 200 or 302
+  7.6   GET    /api/v1/documents/                                   → 200 (general list)
+  7.6b  GET    /api/v1/documents/attachments/?attached_to=…&object_id=… → 200
+  7.7   POST   /api/v1/documents/{doc_id}/attach/                   → 201
+  7.8   DELETE /api/v1/documents/{doc_id}/                          → 204
+  7.9   GET    /api/v1/documents/{doc_id}/versions/                 → 200
+  7.10  GET    /api/v1/documents/quarantined/                       → 200
 
 Security invariants tested
 ──────────────────────────
@@ -36,14 +38,16 @@ Each view class has a corresponding test class. Within each class:
     are used without mocks where no storage access is required.
 
 URL name reference (apps/api/documents/urls.py):
-  document-request-upload   POST /api/v1/documents/request-upload/
-  api-token-redeem          GET  /api/v1/documents/dl/<token>/
-  document-attached-list    GET  /api/v1/documents/
-  document-detail           GET  /api/v1/documents/<uuid:doc_id>/
-  document-confirm-upload   POST /api/v1/documents/<uuid:doc_id>/confirm-upload/
-  document-download         GET  /api/v1/documents/<uuid:doc_id>/download/
-  document-attach           POST /api/v1/documents/<uuid:doc_id>/attach/
-  document-versions         GET  /api/v1/documents/<uuid:doc_id>/versions/
+  document-request-upload    POST /api/v1/documents/request-upload/
+  api-token-redeem           GET  /api/v1/documents/dl/<token>/
+  document-quarantined-list  GET  /api/v1/documents/quarantined/
+  document-attached-list     GET  /api/v1/documents/attachments/
+  document-list              GET  /api/v1/documents/
+  document-detail            GET  /api/v1/documents/<uuid:doc_id>/
+  document-confirm-upload    POST /api/v1/documents/<uuid:doc_id>/confirm-upload/
+  document-request-download  POST /api/v1/documents/<uuid:doc_id>/request-download/
+  document-attach            POST /api/v1/documents/<uuid:doc_id>/attach/
+  document-versions          GET  /api/v1/documents/<uuid:doc_id>/versions/
 """
 
 from __future__ import annotations
@@ -562,57 +566,71 @@ class DocumentDownloadInitAPITests(TestCase):
     """
     Tests for DocumentDownloadInitView (spec §18 endpoint 7.4).
 
+    Endpoint: POST /api/v1/documents/{doc_id}/request-download/
+    Response:  { "download_url": "<token redemption URL>", "expires_at": "<ISO 8601>" }
+
     issue_access_token() is real (DB-only); no storage access is needed here.
     The redemption URL is built using the test client's base URL (http://testserver).
+
+    Note: changed from GET /download/ → POST /request-download/ per GovStack spec §18
+    to reflect that issuing a token is a state-changing operation (creates a
+    DocumentAccessToken record + audit entry).  GET must be idempotent; this is not.
     """
 
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
         self.doc = _make_document(self.user, self.cat, scan_status=Document.ScanStatus.ACTIVE)
-        self.url = reverse("api-v1:document-download", args=[self.doc.pk])
+        self.url = reverse("api-v1:document-request-download", args=[self.doc.pk])
         self.client = APIClient()
 
-    def test_200_returns_token_url_and_expires_at(self):
-        """GET on ACTIVE own doc → 200 with token_url and expires_at."""
+    def test_200_returns_download_url_and_expires_at(self):
+        """POST on ACTIVE own doc → 200 with download_url and expires_at."""
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.get(self.url)
+        response = self.client.post(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("token_url", response.data)
+        self.assertIn("download_url", response.data)
         self.assertIn("expires_at", response.data)
 
-    def test_token_url_contains_dl_path(self):
-        """Returned token_url must point to the /dl/ redemption endpoint."""
+    def test_download_url_contains_dl_path(self):
+        """Returned download_url must point to the /dl/ redemption endpoint."""
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.get(self.url)
+        response = self.client.post(self.url)
         self.assertEqual(response.status_code, 200)
-        token_url = response.data["token_url"]
-        self.assertIn("/api/v1/documents/dl/", token_url)
+        download_url = response.data["download_url"]
+        self.assertIn("/api/v1/documents/dl/", download_url)
 
-    def test_token_url_does_not_contain_storage_key(self):
-        """S1: The token_url must not contain any part of the storage key."""
+    def test_s1_download_url_does_not_contain_storage_key(self):
+        """S1: The download_url must not contain any part of the storage key."""
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.get(self.url)
+        response = self.client.post(self.url)
         self.assertEqual(response.status_code, 200)
-        token_url = response.data["token_url"]
-        self.assertNotIn(self.doc._storage_key, token_url)
-        self.assertNotIn("storage_key", token_url)
+        download_url = response.data["download_url"]
+        self.assertNotIn(self.doc._storage_key, download_url)
+        self.assertNotIn("storage_key", download_url)
+
+    def test_no_token_url_field_in_response(self):
+        """Spec alignment: old 'token_url' field must NOT be present (renamed to download_url)."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("token_url", response.data)
 
     def test_404_scanning_document(self):
         """Scan gate: SCANNING document → 404 (scan not complete, unavailable)."""
         scanning_doc = _make_document(
             self.user, self.cat, scan_status=Document.ScanStatus.SCANNING
         )
-        url = reverse("api-v1:document-download", args=[scanning_doc.pk])
+        url = reverse("api-v1:document-request-download", args=[scanning_doc.pk])
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.get(url)
+        response = self.client.post(url)
         self.assertEqual(response.status_code, 404)
 
     def test_404_wrong_owner(self):
         """S4: IDOR — requesting token for another user's document → 404."""
         other_user = _make_user()
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(other_user))
-        response = self.client.get(self.url)
+        response = self.client.post(self.url)
         self.assertEqual(response.status_code, 404)
 
     def test_404_deleted_document(self):
@@ -622,12 +640,18 @@ class DocumentDownloadInitAPITests(TestCase):
         self.doc.save(update_fields=["deleted_at", "scan_status", "updated_at"])
 
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = self.client.get(self.url)
+        response = self.client.post(self.url)
         self.assertEqual(response.status_code, 404)
+
+    def test_405_get_not_allowed(self):
+        """GET on request-download/ → 405 Method Not Allowed (is POST only)."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 405)
 
     def test_a5_401_unauthenticated(self):
         """A5: No credentials → 401."""
-        response = self.client.get(self.url)
+        response = self.client.post(self.url)
         self.assertEqual(response.status_code, 401)
 
 
@@ -738,14 +762,20 @@ class DocumentTokenRedeemAPITests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
 
-    def test_expired_token_returns_404(self):
-        """Expired token (expires_at in past) → 404."""
+    def test_expired_token_returns_410(self):
+        """Expired token (expires_at in past, not yet used) → 410 Gone (spec §18 §7.5).
+
+        Distinguished from 404 (invalid/not-found) so clients know to request a
+        new token rather than assume the document doesn't exist.
+        """
         token = _make_access_token(self.user, self.small_doc, expired=True)
         url = reverse("api-v1:api-token-redeem", args=[token.token])
 
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
         response = self.client.get(url)
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 410)
+        # Response body must carry a meaningful error code
+        self.assertEqual(response.data["error"]["code"], "TOKEN_EXPIRED")
 
     def test_used_token_returns_404(self):
         """Already-consumed token (used_at is set) → 404."""
@@ -896,11 +926,15 @@ class DocumentAttachAPITests(TestCase):
         self.client = APIClient()
 
     def test_a3_201_creates_attachment(self):
-        """A3: Successful attach → 201 with attachment_id; DB record exists."""
+        """A3: Successful attach → 201 with attachment_id AND doc_id; DB record exists."""
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.staff))
         response = self.client.post(self.url, self.valid_payload, format="json")
         self.assertEqual(response.status_code, 201)
         self.assertIn("attachment_id", response.data)
+        # spec §18 §7.7: response must also include doc_id so callers know which
+        # document was linked without a round-trip GET.
+        self.assertIn("doc_id", response.data)
+        self.assertEqual(str(response.data["doc_id"]), str(self.doc.pk))
 
         # Verify the DB record was created (audit trail)
         attachment_id = response.data["attachment_id"]
@@ -1141,3 +1175,370 @@ class DocumentVersionsAPITests(TestCase):
         url = reverse("api-v1:document-versions", args=[self.v1.pk])
         response = self.client.get(url)
         self.assertEqual(response.status_code, 401)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7.6  GET /api/v1/documents/  (general document list)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@override_settings(CIVICOS=_CIVICOS)
+class DocumentListAPITests(TestCase):
+    """
+    Tests for DocumentListView (spec §18 endpoint 7.6 — general list).
+
+    GET /api/v1/documents/
+      Citizens: returns own non-deleted documents.
+      Staff with view_all_documents: returns all non-deleted documents.
+
+    Moved from "" to a proper general list; the old attachment-list is now
+    at GET /api/v1/documents/attachments/.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.other_user = _make_user()
+        self.cat = _make_category()
+        self.doc1 = _make_document(self.user, self.cat)
+        self.doc2 = _make_document(self.user, self.cat)
+        self.other_doc = _make_document(self.other_user, self.cat)
+        self.url = reverse("api-v1:document-list")
+        self.client = APIClient()
+
+    def test_200_citizen_sees_own_documents(self):
+        """Citizen GET / → 200 list containing only own documents."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+        self.assertIn(str(self.doc1.pk), doc_ids)
+        self.assertIn(str(self.doc2.pk), doc_ids)
+        # Must NOT see the other user's document
+        self.assertNotIn(str(self.other_doc.pk), doc_ids)
+
+    def test_200_citizen_count(self):
+        """Citizen sees exactly their 2 documents, not the 3rd (other owner)."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        self.assertEqual(len(data), 2)
+
+    def test_200_coordinator_sees_all_documents(self):
+        """Staff with view_all_documents → sees documents from all users."""
+        coordinator = _make_staff()
+        coordinator = _grant_perm(coordinator, "view_all_documents")
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(coordinator))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+        self.assertIn(str(self.doc1.pk), doc_ids)
+        self.assertIn(str(self.other_doc.pk), doc_ids)
+
+    def test_200_excludes_deleted_documents(self):
+        """Soft-deleted documents must not appear in the list."""
+        self.doc1.deleted_at = timezone.now()
+        self.doc1.scan_status = Document.ScanStatus.DELETED
+        self.doc1.save(update_fields=["deleted_at", "scan_status", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+        self.assertNotIn(str(self.doc1.pk), doc_ids)
+        self.assertIn(str(self.doc2.pk), doc_ids)  # doc2 still there
+
+    def test_200_scan_status_filter(self):
+        """?scan_status= filters by scan status."""
+        scanning_doc = _make_document(
+            self.user, self.cat, scan_status=Document.ScanStatus.SCANNING
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url, {"scan_status": "scanning"})
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+        self.assertIn(str(scanning_doc.pk), doc_ids)
+        # doc1 and doc2 are ACTIVE — should NOT appear in scanning filter
+        self.assertNotIn(str(self.doc1.pk), doc_ids)
+
+    def test_200_category_filter(self):
+        """?category= filters by category slug."""
+        other_cat = _make_category()
+        other_cat_doc = _make_document(self.user, other_cat)
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url, {"category": other_cat.slug})
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+        self.assertIn(str(other_cat_doc.pk), doc_ids)
+        self.assertNotIn(str(self.doc1.pk), doc_ids)
+
+    def test_s1_storage_key_absent_from_list(self):
+        """S1: storage_key / _storage_key must NEVER appear in list response."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertNotIn('"storage_key"', body)
+        self.assertNotIn('"_storage_key"', body)
+
+    def test_a5_401_unauthenticated(self):
+        """A5: No credentials → 401."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7.10  GET /api/v1/documents/quarantined/
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@override_settings(CIVICOS=_CIVICOS)
+class DocumentQuarantinedListAPITests(TestCase):
+    """
+    Tests for DocumentQuarantinedListView (spec §18 endpoint 7.10).
+
+    GET /api/v1/documents/quarantined/
+    Requires is_staff=True (IsStaff) AND documents.view_quarantined permission.
+    Returns all documents with scan_status=QUARANTINED.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+
+        # Quarantined document (should appear in list)
+        self.q_doc = _make_document(
+            self.user, self.cat,
+            scan_status=Document.ScanStatus.QUARANTINED,
+            scan_engine_result="Eicar-Test-Signature",
+        )
+        # Active document (should NOT appear in list)
+        self.active_doc = _make_document(self.user, self.cat, scan_status=Document.ScanStatus.ACTIVE)
+
+        # Staff with correct permission
+        self.inspector = _make_staff()
+        self.inspector = _grant_perm(self.inspector, "view_quarantined")
+
+        self.url = reverse("api-v1:document-quarantined-list")
+        self.client = APIClient()
+
+    def test_200_returns_quarantined_documents(self):
+        """Staff with view_quarantined → 200 list containing quarantined doc."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.inspector))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+        self.assertIn(str(self.q_doc.pk), doc_ids)
+
+    def test_200_excludes_active_documents(self):
+        """Only QUARANTINED documents appear; active docs are excluded."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.inspector))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+        self.assertNotIn(str(self.active_doc.pk), doc_ids)
+
+    def test_200_scan_engine_result_visible(self):
+        """scan_engine_result is exposed to view_quarantined staff (not null)."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.inspector))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        q_entry = next(d for d in data if str(d["doc_id"]) == str(self.q_doc.pk))
+        self.assertIsNotNone(q_entry["scan_engine_result"])
+        self.assertEqual(q_entry["scan_engine_result"], "Eicar-Test-Signature")
+
+    def test_403_staff_without_view_quarantined_perm(self):
+        """Staff without view_quarantined perm → 403."""
+        unprivileged_staff = _make_staff()  # is_staff=True but no view_quarantined
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(unprivileged_staff))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_403_citizen_is_blocked(self):
+        """Citizen (is_staff=False) → 403 from IsStaff permission."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_s1_storage_key_absent_from_quarantined_list(self):
+        """S1: storage_key / _storage_key must NEVER appear in quarantined list."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.inspector))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertNotIn('"storage_key"', body)
+        self.assertNotIn('"_storage_key"', body)
+
+    def test_a5_401_unauthenticated(self):
+        """A5: No credentials → 401."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7.5 expired-token 410 — standalone test class
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@override_settings(CIVICOS=_CIVICOS)
+class DocumentTokenRedeemExpiredAPITests(TestCase):
+    """
+    Targeted tests for the expired-token → HTTP 410 Gone behaviour.
+
+    These complement DocumentTokenRedeemAPITests which now uses test_expired_token_returns_410.
+    This class pins the exact error shape and differentiates expired from already-used.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+        self.doc = _make_document(self.user, self.cat, scan_status=Document.ScanStatus.ACTIVE)
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+
+    def test_expired_token_is_410_not_404(self):
+        """Expired token → 410, not 404 (distinct per spec §18 §7.5)."""
+        token = _make_access_token(self.user, self.doc, expired=True)
+        url = reverse("api-v1:api-token-redeem", args=[token.token])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 410)
+        self.assertNotEqual(response.status_code, 404)
+
+    def test_expired_token_response_has_error_code(self):
+        """410 response body contains {error: {code: TOKEN_EXPIRED, message: ...}}."""
+        token = _make_access_token(self.user, self.doc, expired=True)
+        url = reverse("api-v1:api-token-redeem", args=[token.token])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 410)
+        self.assertIn("error", response.data)
+        self.assertEqual(response.data["error"]["code"], "TOKEN_EXPIRED")
+        self.assertIn("message", response.data["error"])
+
+    def test_already_used_token_is_404_not_410(self):
+        """Already-used token (used_at set) → 404, not 410 (IDOR distinction)."""
+        token = _make_access_token(self.user, self.doc, used=True)
+        url = reverse("api-v1:api-token-redeem", args=[token.token])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_expired_and_used_token_is_404(self):
+        """Token that is both expired AND used → 404 (used_at check wins for IDOR)."""
+        token = _make_access_token(self.user, self.doc, expired=True, used=True)
+        url = reverse("api-v1:api-token-redeem", args=[token.token])
+        response = self.client.get(url)
+        # used_at is checked first; 404 is correct (IDOR-safe, not TokenExpiredError)
+        self.assertEqual(response.status_code, 404)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Encrypted / password-protected PDF rejection tests (Layer 5b)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SERVICE = "apps.documents.services.upload"
+
+
+@override_settings(CIVICOS=_CIVICOS)
+class EncryptedPdfRejectionTests(TestCase):
+    """
+    Tests for _check_pdf_encryption() in apps/documents/services/upload.py (Layer 5b).
+
+    confirm_upload() must reject password-protected PDFs because ClamAV cannot
+    scan ciphertext.  The storage layer (_verify_file_exists, _read_first_bytes,
+    _read_full_file) is patched at the service module level so no filesystem or
+    S3 access is needed.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+
+    def _make_pending_doc(self):
+        """Create a Document in PENDING_UPLOAD state ready for confirm_upload()."""
+        doc_uuid = uuid.uuid4()
+        return Document.objects.create(
+            id=doc_uuid,
+            uploaded_by=self.user,
+            category=self.cat,
+            original_filename="test.pdf",
+            _storage_key=f"documents/quarantine/{doc_uuid}/{uuid.uuid4().hex}.bin",
+            mime_type="application/pdf",
+            size_bytes=1024,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+        )
+
+    def test_encrypted_pdf_rejected_with_400(self):
+        """
+        pikepdf raises PasswordError → _check_pdf_encryption raises ValidationError
+        → confirm_upload → view catches and returns HTTP 400.
+        """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        doc = self._make_pending_doc()
+        url = reverse("api-v1:document-confirm-upload", args=[doc.pk])
+
+        with patch(f"{_SERVICE}._verify_file_exists"), \
+             patch(f"{_SERVICE}._read_first_bytes", return_value=b"%PDF-1.4 dummy"), \
+             patch(f"{_SERVICE}._check_pdf_encryption",
+                   side_effect=DjangoValidationError(
+                       "Password-protected PDFs are not accepted."
+                   )):
+            response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_clean_pdf_accepted(self):
+        """
+        _check_pdf_encryption does NOT raise → confirm_upload advances to SCANNING.
+
+        Patches all storage-layer helpers (_verify_file_exists, _read_first_bytes,
+        _read_full_file, _check_pdf_encryption) and the Celery task so no filesystem
+        or S3 access is needed.
+
+        Note: _read_full_file MUST be patched because Layer 5b calls it before
+        _check_pdf_encryption; without the patch the local-file fallback raises
+        ValidationError (FileNotFoundError → 400) before the encryption check runs.
+        """
+        doc = self._make_pending_doc()
+        url = reverse("api-v1:document-confirm-upload", args=[doc.pk])
+
+        with patch(f"{_SERVICE}._verify_file_exists"), \
+             patch(f"{_SERVICE}._read_first_bytes", return_value=b"%PDF-1.4 dummy"), \
+             patch(f"{_SERVICE}._read_full_file", return_value=b"%PDF-1.4 dummy"), \
+             patch(f"{_SERVICE}._check_pdf_encryption"), \
+             patch("apps.documents.tasks.scan_document.apply_async"), \
+             patch("apps.audit.services.record_event"):
+            response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["scan_status"], "scanning")
+
+    def test_encrypted_pdf_fallback_raw_byte_check(self):
+        """
+        Without pikepdf (_pikepdf=None), the raw /Encrypt byte heuristic in
+        _check_pdf_encryption() catches encrypted PDFs.
+
+        Patches _pikepdf at module level to None and _read_full_file to return
+        bytes containing /Encrypt so the heuristic fires.
+        """
+        doc = self._make_pending_doc()
+        url = reverse("api-v1:document-confirm-upload", args=[doc.pk])
+
+        encrypted_pdf_bytes = b"%PDF-1.6\n/Encrypt <</Filter /Standard>>"
+
+        with patch(f"{_SERVICE}._verify_file_exists"), \
+             patch(f"{_SERVICE}._read_first_bytes", return_value=encrypted_pdf_bytes), \
+             patch(f"{_SERVICE}._read_full_file", return_value=encrypted_pdf_bytes), \
+             patch(f"{_SERVICE}._pikepdf", None):
+            response = self.client.post(url)
+
+        self.assertEqual(response.status_code, 400)

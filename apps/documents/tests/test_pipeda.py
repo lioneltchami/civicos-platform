@@ -33,7 +33,12 @@ from rest_framework.test import APIClient
 
 from apps.audit.models import AuditEventType, AuditLogEntry
 from apps.documents.models import Document, DocumentAccessToken, DocumentCategory
-from apps.documents.services.download import _mask_ip, consume_access_token, issue_access_token
+from apps.documents.services.download import (
+    TokenExpiredError,
+    _mask_ip,
+    consume_access_token,
+    issue_access_token,
+)
 from apps.documents.services.retention import apply_legal_hold, hard_delete, soft_delete
 
 User = get_user_model()
@@ -240,21 +245,23 @@ class ScanGateTests(TestCase):
 
     def test_scan_pending_blocks_download_via_api(self):
         """
-        Scan gate via DRF API: GET /api/v1/documents/{doc}/download/ for a
+        Scan gate via DRF API: POST /api/v1/documents/{doc}/request-download/ for a
         SCANNING document must return 404.
 
         The download-init view checks scan_status == ACTIVE before issuing a
         token. Any other status must produce 404 (not 403, to avoid leaking
         document state to unauthenticated / IDOR attackers).
+
+        Note: renamed GET /download/ → POST /request-download/ per GovStack spec §18 §7.4.
         """
         scanning_doc = self._make_doc_with_status(Document.ScanStatus.SCANNING)
-        url = reverse("api-v1:document-download", args=[scanning_doc.pk])
+        url = reverse("api-v1:document-request-download", args=[scanning_doc.pk])
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
-        response = client.get(url)
+        response = client.post(url)
         self.assertEqual(
             response.status_code, 404,
-            "Scan gate: SCANNING document must return 404 via the download-init API endpoint",
+            "Scan gate: SCANNING document must return 404 via the request-download API endpoint",
         )
 
 
@@ -667,15 +674,18 @@ class AccessTokenSecurityTests(TestCase):
         with self.assertRaises(Http404):
             consume_access_token(token_value=token.token, user=self.user)
 
-    def test_expired_token_raises_404(self):
-        """Expired tokens (expires_at in past) cannot be consumed."""
+    def test_expired_token_raises_token_expired_error(self):
+        """
+        Expired (never-used) tokens raise TokenExpiredError.
+        The view maps this to HTTP 410 Gone (GovStack spec §18 §7.5).
+        """
         token = DocumentAccessToken.objects.create(
             document=self.doc,
             issued_to=self.user,
             token="a" * 64,
             expires_at=timezone.now() - timedelta(seconds=1),
         )
-        with self.assertRaises(Http404):
+        with self.assertRaises(TokenExpiredError):
             consume_access_token(token_value=token.token, user=self.user)
 
     def test_nonexistent_token_raises_404(self):

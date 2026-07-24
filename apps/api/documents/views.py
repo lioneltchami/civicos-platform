@@ -84,6 +84,7 @@ from apps.api.documents.serializers import (
 )
 from apps.documents.models import Document, DocumentAttachment
 from apps.documents.services.download import (
+    TokenExpiredError,
     consume_access_token,
     generate_presigned_download_url,
     issue_access_token,
@@ -408,7 +409,7 @@ class DocumentDetailDeleteView(APIView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7.4  GET /api/v1/documents/{doc_id}/download/
+# 7.4  POST /api/v1/documents/{doc_id}/request-download/
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -416,25 +417,31 @@ class DocumentDownloadInitView(APIView):
     """
     Issue a single-use download token for an ACTIVE document.
 
-    The client uses the returned ``token_url`` to stream the file (or receive
+    Spec §18 endpoint 7.4: POST /api/v1/documents/{doc_id}/request-download/
+
+    The client uses the returned ``download_url`` to stream the file (or receive
     a presigned S3 redirect).  The token expires in 5 minutes by default.
 
     Response body (HTTP 200):
         {
-            "token_url": "https://…/api/v1/documents/dl/<token>/",
-            "expires_at": "<ISO 8601>"
+            "download_url": "https://…/api/v1/documents/dl/<token>/",
+            "expires_at":   "<ISO 8601>"
         }
 
     Gates:
     - Document must be owned by request.user (IDOR: 404 for non-owned docs).
     - Document scan_status must be ACTIVE (404 otherwise — scan gate).
     - Document must not be soft-deleted.
+
+    Note: POST (not GET) because issuing a token is a state-changing
+    operation (it creates a DocumentAccessToken record and writes an audit
+    entry). GET requests must be idempotent; this one is not.
     """
 
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, doc_id):
+    def post(self, request, doc_id):
         doc = _get_document_for_user(
             request,
             doc_id,
@@ -456,13 +463,13 @@ class DocumentDownloadInitView(APIView):
         )
 
         # Build the absolute redemption URL using the api-v1 namespace.
-        token_url = request.build_absolute_uri(
+        download_url = request.build_absolute_uri(
             reverse("api-v1:api-token-redeem", args=[token.token])
         )
 
         return Response(
             {
-                "token_url": token_url,
+                "download_url": download_url,
                 "expires_at": token.expires_at.isoformat(),
             },
             status=status.HTTP_200_OK,
@@ -505,12 +512,27 @@ class DocumentTokenRedeemView(APIView):
         ip = _get_client_ip(request)
 
         # consume_access_token uses SELECT FOR UPDATE + transaction.atomic() to
-        # enforce single-use. Raises Http404 for any failure (IDOR-safe).
-        doc = consume_access_token(
-            token_value=token,
-            user=request.user,
-            ip_address=ip,
-        )
+        # enforce single-use.
+        # Raises:
+        #   Http404          — token not found, wrong user, or already used (IDOR-safe).
+        #   TokenExpiredError — token found and owned by user but past expires_at;
+        #                       spec §18 endpoint 7.5 requires HTTP 410 Gone.
+        try:
+            doc = consume_access_token(
+                token_value=token,
+                user=request.user,
+                ip_address=ip,
+            )
+        except TokenExpiredError:
+            return Response(
+                {
+                    "error": {
+                        "code": "TOKEN_EXPIRED",
+                        "message": "The download token has expired. Please request a new one.",
+                    }
+                },
+                status=status.HTTP_410_GONE,
+            )
 
         civicos = getattr(settings, "CIVICOS", {})
         proxy_max_bytes = civicos.get("DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024)
@@ -733,7 +755,10 @@ class DocumentAttachView(APIView):
         )
 
         return Response(
-            {"attachment_id": str(attachment.pk)},
+            {
+                "doc_id": str(doc.pk),
+                "attachment_id": str(attachment.pk),
+            },
             status=status.HTTP_201_CREATED,
         )
 
@@ -795,3 +820,109 @@ class DocumentVersionsView(APIView):
             context={"request": request},
         )
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW  GET /api/v1/documents/
+# General document list (replaces old attachment-list root)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class DocumentListView(generics.ListAPIView):
+    """
+    List documents accessible to the requesting user.
+
+    Spec §18 endpoint 7.6 (general list):
+      GET /api/v1/documents/
+
+    Citizen: returns documents uploaded by ``request.user`` (not soft-deleted).
+    Staff with ``documents.view_all_documents``: returns all non-deleted documents.
+
+    Supports optional query parameters for filtering:
+        scan_status  — filter by scan status value (e.g. ``?scan_status=active``).
+        category     — filter by category slug (e.g. ``?category=service-request-evidence``).
+
+    Response: paginated list of DocumentSerializer objects.
+
+    Error responses:
+        401 — not authenticated.
+    """
+
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [CitizenRateThrottle]
+    serializer_class = DocumentSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        user = self.request.user
+        base_qs = Document.objects.filter(deleted_at__isnull=True)
+
+        # Staff coordinator sees all documents; citizens see only their own.
+        if not user.has_perm("documents.view_all_documents"):
+            base_qs = base_qs.filter(uploaded_by=user)
+
+        # Optional scan_status filter.
+        scan_status = self.request.query_params.get("scan_status", "").strip()
+        if scan_status:
+            base_qs = base_qs.filter(scan_status=scan_status)
+
+        # Optional category slug filter.
+        category = self.request.query_params.get("category", "").strip()
+        if category:
+            base_qs = base_qs.filter(category__slug=category)
+
+        # select_related prevents N+1 on category and uploaded_by fields in
+        # DocumentSerializer (category.slug/name_*; uploaded_by.pk).
+        return (
+            base_qs
+            .select_related("category", "uploaded_by")
+            .order_by("-created_at")
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW  GET /api/v1/documents/quarantined/
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class DocumentQuarantinedListView(generics.ListAPIView):
+    """
+    List all quarantined documents (staff only).
+
+    Spec §18 endpoint 7.10 (missing from original implementation):
+      GET /api/v1/documents/quarantined/
+
+    Returns all documents with ``scan_status=QUARANTINED``, ordered by most
+    recently updated first.  Only users holding the
+    ``documents.view_quarantined`` permission may access this endpoint.
+
+    ``scan_engine_result`` is included for all returned documents (the
+    ``view_quarantined`` permission gate in DocumentSerializer already
+    exposes this field to these users).
+
+    Response: paginated list of DocumentSerializer objects.
+
+    Error responses:
+        401 — not authenticated.
+        403 — authenticated but missing ``documents.view_quarantined``.
+    """
+
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsStaff]
+    throttle_classes = [StaffRateThrottle]
+    serializer_class = DocumentSerializer
+    pagination_class = StandardPagination
+
+    def get_queryset(self):
+        if not self.request.user.has_perm("documents.view_quarantined"):
+            raise PermissionDenied(
+                "You do not have permission to view quarantined documents."
+            )
+
+        return (
+            Document.objects
+            .filter(scan_status=Document.ScanStatus.QUARANTINED)
+            .select_related("category", "uploaded_by")
+            .order_by("-updated_at")
+        )
