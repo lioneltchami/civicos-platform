@@ -1810,7 +1810,9 @@ Before submitting to `testing.govstack.global`:
 
 ---
 
-### GAP-1 — BLOCKER: `seed_govstack_vouchers` management command is missing
+### GAP-1 ✅ RESOLVED — `seed_govstack_vouchers` management command is missing
+
+**Resolved:** 2026-07-23 — `apps/payments/management/commands/seed_govstack_vouchers.py` created; seeds 14 vouchers (serials 5550–5560, 6004, 60000–60001) in `STATUS_PREACTIVATED` state and `GovStackRegisteredBB(bb_id="GS-HARNESS")`.
 
 **File to create:** `apps/payments/management/commands/seed_govstack_vouchers.py`
 
@@ -1931,7 +1933,9 @@ F36: seeded issuing_bb is "GS-HARNESS" (allows downstream tests to identify seed
 
 ---
 
-### GAP-2 — HIGH: Celery tasks for async batch processing and callback delivery
+### GAP-2 ✅ RESOLVED — Celery tasks for async batch processing and callback delivery
+
+**Resolved:** 2026-07-23 — `apps/payments/govstack_tasks.py` created with `process_bulk_payment_batch` and `validate_prepayment_async`; both dispatch `_post_callback()` to `X-Callback-URL` after `transaction.on_commit`; wired into views via `transaction.on_commit(lambda: task.delay(...))`.
 
 **File to create:** `apps/payments/govstack_tasks.py`
 
@@ -2139,7 +2143,9 @@ G16: validate_prepayment_async is idempotent (second call is a no-op)
 
 ---
 
-### GAP-3 — PRE-PRODUCTION BLOCKER: `GOVSTACK_VOUCHER_REQUIRE_JWT` not enforced in production settings
+### GAP-3 ✅ RESOLVED — `GOVSTACK_VOUCHER_REQUIRE_JWT` not enforced in production settings
+
+**Resolved:** 2026-07-23 — `GOVSTACK_VOUCHER_REQUIRE_JWT = True` added to `config/settings/production.py`.
 
 **File to modify:** `config/settings/production.py`
 
@@ -2167,7 +2173,9 @@ F40: GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode) → no auth required → 
 
 ---
 
-### GAP-4 — POST-CERTIFICATION: `IsTrustedSourceBB` has no registered BB whitelist table
+### GAP-4 ✅ RESOLVED — `IsTrustedSourceBB` has no registered BB whitelist table
+
+**Resolved:** 2026-07-23 — `GovStackRegisteredBB` model added to `govstack_models.py`; `IsTrustedSourceBB` updated to perform DB whitelist lookup when `GOVSTACK_REQUIRE_REGISTERED_BB=True`; migration `0021_govstack_registered_bb.py` written; `GOVSTACK_REQUIRE_REGISTERED_BB = True` added to `production.py`; admin registered.
 
 **File to modify:** `apps/payments/govstack_auth.py`, `apps/payments/govstack_models.py`
 
@@ -2239,7 +2247,9 @@ AUTH-5: IsTrustedSourceBB denies access when institution_id > 20 chars
 
 ---
 
-### GAP-5 — SPEC AUDIT: Test file names do not match spec §18 convention
+### GAP-5 ✅ RESOLVED — Test file names do not match spec §18 convention
+
+**Resolved:** 2026-07-23 — All test files renamed to match spec §18 convention; `test_govstack_tasks.py` extracted as a standalone file.
 
 **Current files vs spec §18 requirement:**
 
@@ -2311,13 +2321,14 @@ This supersedes the checklist in §21.
 | GAP-9 | `process_bulk_payment_batch` omits ID Mapper beneficiary lookup | P2 | Unlikely — harness tests HTTP response not task outcome | `govstack_tasks.py` | 2–3 hrs |
 | GAP-10 | Voucher `value` field serialized as JSON string, spec requires JSON number | P1 | Maybe — depends on harness JSON schema strictness | `govstack_views.py` | 15 min |
 
-**Minimum work to reach harness-ready:** GAP-1, GAP-6, GAP-7, GAP-10 (2–4 hours total), assuming the harness does not assert callback delivery. Read the harness Gherkin files first to confirm GAP-2 scope. GAP-6 and GAP-7 are newly identified by the fresh audit and were not in the original certifiability review — address these before the first harness submission attempt.
+**Status as of 2026-07-24: ALL GAPS RESOLVED.** GAP-1 through GAP-10, GAP-C1, and GAP-C2 are all implemented and committed. The GovStack Payments BB implementation is harness-ready. See the complete summary table at the end of this document.
 
 ---
 
-### GAP-6 — BLOCKER: `voucherStatus` field returns raw DB value (lowercase), harness expects title-cased label
+### GAP-6 ✅ RESOLVED — `voucherStatus` field returns raw DB value (lowercase), harness expects title-cased label
 
 **Added:** 2026-07-23, fresh gap audit following GAP-1–5 implementation.
+**Resolved:** 2026-07-23 — commit `1b9455f` (`govstack_views.py`: use `get_status_display()` in `VoucherActivationView` and `VoucherStatusCheckView.patch`).
 
 **Files to modify:** `apps/payments/govstack_views.py`
 
@@ -2379,9 +2390,10 @@ E4-fix: voucherStatus is "Cancelled" (title-case) in cancellation success respon
 
 ---
 
-### GAP-7 — BLOCKER: GET /voucherstatuscheck for invalid serial returns wrong HTTP code and wrong response body shape
+### GAP-7 ✅ RESOLVED — GET /voucherstatuscheck for invalid serial returns wrong HTTP code and wrong response body shape
 
 **Added:** 2026-07-23, fresh gap audit.
+**Resolved:** 2026-07-23 — commit `c367d7b` (`govstack_views.py`: catch `InvalidVoucherSerial` in `VoucherStatusCheckView.get()`, return HTTP 400 with `{status: 9, message: "Voucher not found.", serialNumber: ..., value: 0.0}`).
 
 **File to modify:** `apps/payments/govstack_views.py`
 
@@ -2457,9 +2469,10 @@ D11: GET /voucherstatuscheck with unknown serial → body contains "value": 0.0
 
 ---
 
-### GAP-8 — SPEC AUDIT: Missing `test_govstack_models.py` and `test_govstack_services.py`
+### GAP-8 ✅ RESOLVED — Missing `test_govstack_models.py` and `test_govstack_services.py`
 
 **Added:** 2026-07-23, fresh gap audit.
+**Resolved:** 2026-07-23 — commit `9ecbb15` (created `apps/payments/tests/test_govstack_models.py` with 22 tests and `apps/payments/tests/test_govstack_services.py` with 37 tests).
 
 **Files to create:**
 - `apps/payments/tests/test_govstack_models.py` (min 10 tests)
@@ -2516,9 +2529,10 @@ Running this command currently fails with `ModuleNotFoundError`.
 
 ---
 
-### GAP-9 — SPEC COMPLIANCE: `process_bulk_payment_batch` marks all instructions COMPLETED without ID Mapper lookup
+### GAP-9 ✅ RESOLVED — `process_bulk_payment_batch` marks all instructions COMPLETED without ID Mapper lookup
 
 **Added:** 2026-07-23, fresh gap audit.
+**Resolved:** 2026-07-23 — commits `b4e9da8` + `077c2fa` (`govstack_tasks.py`: per-instruction `GovStackBeneficiary` lookup; batch status set to `COMPLETED`/`PARTIAL`/`FAILED` based on ID Mapper result; `completed_amount` and `failed_amount` correctly tallied).
 
 **File:** `apps/payments/govstack_tasks.py`
 
@@ -2607,9 +2621,10 @@ G-new-3:   process_bulk_payment_batch sets batch.failed_amount correctly for fai
 
 ---
 
-### GAP-10 — SPEC COMPLIANCE: Voucher `value` field serialized as JSON string, spec requires JSON number
+### GAP-10 ✅ RESOLVED — Voucher `value` / bill `amount` fields serialized as JSON string, spec requires JSON number
 
 **Added:** 2026-07-23, fresh gap audit.
+**Resolved:** 2026-07-23 — commits `9b1ac36`, `08b7cb2`, `5b1b2ef` (`govstack_views.py`: `float(voucher.amount)` in `VoucherRedemptionView` and `VoucherStatusCheckView.get()`; `float(bill.amount)` and `float(payment.amount)` in all P2G views; test assertions updated to check `assertIsInstance(value, (int, float))`).
 
 **Files to modify:** `apps/payments/govstack_views.py` (2 occurrences)
 
@@ -2651,19 +2666,51 @@ self.assertAlmostEqual(resp.data["value"], float(AMOUNT))
 
 ---
 
-### Updated Work Item Summary (GAP-6 through GAP-10 added)
+### GAP-C1 ✅ RESOLVED — `voucher_preactivation` returns HTTP 400 instead of HTTP 453 for invalid ISO 4217 currency format
 
-| # | Gap | Priority | Blocks Harness | File(s) | Est. Effort |
-|---|-----|----------|----------------|---------|-------------|
+**Added:** 2026-07-24, post-review certifiability audit.
+
+**Root cause:** `validate_voucher_currency()` in `VoucherPreactivationRequestSerializer` called `_validate_iso4217()` which raised `serializers.ValidationError` (HTTP 400) for any currency code that was not exactly 3 uppercase letters (e.g. `"US"`, `"USDD"`). The GovStack Payments spec mandates HTTP 453 (`InvalidVoucherCurrency`) for this error. `InvalidVoucherCurrency` existed in `govstack_exceptions.py` but was never raised anywhere.
+
+**Fix:** Remove ISO 4217 format check from serializer; serializer now only enforces non-empty + `.upper()`. Move format validation into `GovStackVoucherService.preactivate()` using a module-level `_ISO4217_RE = re.compile(r"^[A-Z]{3}$")`, raising `InvalidVoucherCurrency()` (→ HTTP 453) when format is invalid.
+
+Note: `_validate_iso4217()` at lines 253 and 334 (bulk-payment `CreditInstruction.Currency` fields) was deliberately NOT changed — HTTP 400 is correct for those paths.
+
+**Resolved:** 2026-07-24 — commit `b919b34` (`govstack_serializers.py`, `govstack_services.py`; regression guard `test_a8_invalid_currency_format_returns_453` added to `test_govstack_vouchers.py`).
+
+---
+
+### GAP-C2 ✅ RESOLVED — `register-beneficiary` and `update-beneficiary-details` used `AllowAnyBB` — PII-handling endpoints unauthenticated
+
+**Added:** 2026-07-24, post-review certifiability audit.
+
+**Root cause:** `RegisterBeneficiaryView` and `UpdateBeneficiaryView` inherited `permission_classes = [AllowAnyBB]` from `GovStackG2PView`. `AllowAnyBB.has_permission()` is an unconditional `return True`. These endpoints process `PayeeFunctionalID` and `FinancialAddress` (PII). Any caller — without providing any identifying header — could register or update beneficiaries.
+
+**Fix:** Both views now declare `permission_classes = [IsTrustedSourceBB]` explicitly, overriding the base class. `IsTrustedSourceBB` requires a non-empty `X-Registering-Institution-ID` header in all environments. When `GOVSTACK_REQUIRE_REGISTERED_BB=True` (production), it additionally performs a DB lookup against `GovStackRegisteredBB`.
+
+**Resolved:** 2026-07-24 — commit `b919b34` (`govstack_views.py`; four test setUp methods updated to send `HTTP_X_REGISTERING_INSTITUTION_ID='GS-TEST'`; regression guards `test_a13_no_institution_header_returns_401` and `test_a14_no_institution_header_returns_401` added to `test_govstack_beneficiary.py`).
+
+---
+
+### Complete Work Item Summary — All GAPs Resolved (updated 2026-07-24)
+
+| # | Gap | Priority | Blocks Harness | File(s) | Status |
+|---|-----|----------|----------------|---------|--------|
 | GAP-1 | `seed_govstack_vouchers` management command | **P0** | **YES — all 5 Wave 4 features** | `management/commands/seed_govstack_vouchers.py` | **DONE** |
-| GAP-2 | Celery tasks + callback delivery | **P1** | **DONE** | `govstack_tasks.py`, `govstack_views.py` | **DONE** |
+| GAP-2 | Celery tasks + callback delivery | **P1** | **YES — async callback verification** | `govstack_tasks.py`, `govstack_views.py` | **DONE** |
 | GAP-3 | `GOVSTACK_VOUCHER_REQUIRE_JWT` in production settings | P2 | No | `config/settings/production.py` | **DONE** |
 | GAP-4 | `GovStackRegisteredBB` model + `IsTrustedSourceBB` hardening | P3 | No | multiple files | **DONE** |
 | GAP-5 | Test file naming to match spec §18 | P4 | No | `apps/payments/tests/` | **DONE** |
-| GAP-6 | `voucherStatus` lowercase vs title-case | **P0** | **YES — activation + cancellation** | `govstack_views.py` | 30 min |
-| GAP-7 | GET /voucherstatuscheck invalid serial: wrong HTTP + body shape | **P0** | **YES — status check negative** | `govstack_views.py` | 1 hr |
-| GAP-8 | Missing `test_govstack_models.py` and `test_govstack_services.py` | P3 | No | `apps/payments/tests/` | 3–4 hrs |
-| GAP-9 | `process_bulk_payment_batch` omits ID Mapper beneficiary lookup | P2 | Unlikely | `govstack_tasks.py` | 2–3 hrs |
-| GAP-10 | Voucher `value` field is JSON string, spec needs JSON number | **P1** | Maybe | `govstack_views.py` | 15 min |
+| GAP-6 | `voucherStatus` lowercase vs title-case (activation + cancellation responses) | **P0** | **YES — activation + cancellation** | `govstack_views.py` | **DONE** (commit `1b9455f`) |
+| GAP-7 | GET /voucherstatuscheck invalid serial: wrong HTTP status + body shape | **P0** | **YES — status check negative** | `govstack_views.py` | **DONE** (commit `c367d7b`) |
+| GAP-8 | Missing `test_govstack_models.py` and `test_govstack_services.py` | P3 | No | `apps/payments/tests/` | **DONE** (commit `9ecbb15` — 22 + 37 tests) |
+| GAP-9 | `process_bulk_payment_batch` omits ID Mapper beneficiary lookup | P2 | Unlikely | `govstack_tasks.py` | **DONE** (commits `b4e9da8`, `077c2fa`) |
+| GAP-10 | Voucher `value` / bill `amount` fields serialized as JSON string, spec requires JSON number | **P1** | Maybe | `govstack_views.py` | **DONE** (commits `9b1ac36`, `08b7cb2`, `5b1b2ef`) |
+| GAP-C1 | `voucher_preactivation` returns HTTP 400 instead of 453 for invalid ISO 4217 currency format | **P0** | **YES — preactivation negative scenario** | `govstack_services.py`, `govstack_serializers.py` | **DONE** (commit `b919b34`) |
+| GAP-C2 | `register-beneficiary` and `update-beneficiary-details` used `AllowAnyBB` instead of `IsTrustedSourceBB` — PII endpoints unauthenticated | **P0** | **YES — beneficiary auth** | `govstack_views.py` | **DONE** (commit `b919b34`) |
 
-**Updated minimum to reach harness-ready:** GAP-6 + GAP-7 + GAP-10 (< 2 hours total), since GAP-1–5 are already done. These are the newly found issues from the fresh audit. Implement in order: GAP-10 → GAP-7 → GAP-6 (smallest to largest change).
+**All 12 GAPs are resolved as of 2026-07-24. The GovStack Payments BB implementation is harness-ready.**
+
+**Test suite: 1,572 passed, 0 failures** (full `apps/payments/` suite, verified 2026-07-24).
+
+**Conditional risk (P1):** `IsTrustedSourceBB` on register/update-beneficiary requires the GovStack harness to send `X-Registering-Institution-ID` header (non-empty). The GovStack Payments spec mandates this header for these endpoints so the harness is expected to send it. In `GOVSTACK_REQUIRE_REGISTERED_BB=False` mode (default for testing) any non-empty value passes; in `True` mode (production) a DB lookup against `GovStackRegisteredBB` is performed. Not a code issue — cannot be verified until the harness is actually run.
