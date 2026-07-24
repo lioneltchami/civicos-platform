@@ -120,6 +120,12 @@ def _write_audit_log(
     actor_id is stored as str(actor.pk) or "system" — NOT the User object.
     """
     from apps.appointments.models import BookingAuditLog
+    if actor is None:
+        _actor_role = "system"
+    elif actor.is_staff:
+        _actor_role = "organizer"
+    else:
+        _actor_role = "subscriber"
     BookingAuditLog.objects.create(
         booking=booking,
         action=action,
@@ -128,6 +134,7 @@ def _write_audit_log(
         previous_status=previous_status,
         new_status=new_status,
         detail=detail or {},
+        actor_role=_actor_role,
     )
 
 

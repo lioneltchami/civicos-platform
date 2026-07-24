@@ -109,6 +109,11 @@ class Organization(TimestampedModel):
     )
     is_active = models.BooleanField(default=True, db_index=True, verbose_name=_("Active"))
 
+    # GovStack Scheduler BB — Entity contact fields
+    phone = models.CharField(max_length=30, blank=True, verbose_name=_("Phone"))
+    email = models.EmailField(blank=True, verbose_name=_("Email"))
+    website = models.URLField(blank=True, verbose_name=_("Website"))
+
     class Meta:
         ordering = ["name_en"]
         verbose_name = _("Organization")
@@ -908,6 +913,32 @@ class Resource(TimestampedModel):
     )
 
     is_active = models.BooleanField(default=True, db_index=True, verbose_name=_("Active"))
+
+    # GovStack Scheduler BB — Resource callback fields
+    phone = models.CharField(max_length=30, blank=True, verbose_name=_("Phone"))
+    email = models.EmailField(blank=True, verbose_name=_("Email"))
+    alert_url = models.URLField(
+        blank=True,
+        verbose_name=_("Alert URL"),
+        help_text=_("GovStack Scheduler BB: URL where this resource receives push alerts."),
+    )
+    alert_preference = models.CharField(
+        max_length=10,
+        blank=True,
+        choices=[
+            ("push", _("Push (HTTP callback)")),
+            ("poll", _("Poll (status_poll_url)")),
+            ("email", _("Email")),
+            ("sms", _("SMS")),
+            ("none", _("None")),
+        ],
+        verbose_name=_("Alert preference"),
+    )
+    status_poll_url = models.URLField(
+        blank=True,
+        verbose_name=_("Status poll URL"),
+        help_text=_("GovStack Scheduler BB: URL that the scheduler polls for this resource's availability status."),
+    )
 
     class Meta:
         ordering = ["name_en"]
@@ -2067,6 +2098,20 @@ class BookingAuditLog(models.Model):
         verbose_name=_("Detail"),
         help_text=_("Additional context. MUST NOT contain PII — slugs and UUIDs only."),
     )
+    # GovStack Scheduler BB — Log actor role
+    actor_role = models.CharField(
+        max_length=20,
+        blank=True,
+        choices=[
+            ("admin", _("Admin")),
+            ("organizer", _("Organizer")),
+            ("resource", _("Resource")),
+            ("subscriber", _("Subscriber / Citizen")),
+            ("system", _("System")),
+        ],
+        verbose_name=_("Actor role"),
+        help_text=_("GovStack Scheduler BB log field: role of the actor who triggered this audit event."),
+    )
 
     class Meta:
         ordering = ["-timestamp"]
@@ -2336,3 +2381,203 @@ class ClientNoShowRecord(TimestampedModel):
         if self.total_appointments == 0:
             return 0.0
         return round(self.no_show_count / self.total_appointments * 100, 1)
+
+
+# ---------------------------------------------------------------------------
+# GovStack Scheduler BB — supplementary models
+# ---------------------------------------------------------------------------
+
+class GovStackSubscriberProfile(TimestampedModel):
+    """
+    GovStack Scheduler BB Subscriber extension.
+
+    Extends the Django User model with the fields required by the GovStack
+    Scheduler BB Subscriber entity: alert_url, alert_preference, status_poll_url,
+    and subscriber category.
+
+    One-to-one with AUTH_USER_MODEL. Optional — citizens without a profile
+    are treated as having blank alert preferences.
+    """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="govstack_subscriber_profile",
+        verbose_name=_("User"),
+    )
+    category = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Subscriber category"),
+        help_text=_("GovStack subscriber category, e.g. 'individual', 'group', 'organization'."),
+    )
+    alert_url = models.URLField(
+        blank=True,
+        verbose_name=_("Alert URL"),
+        help_text=_("URL where this subscriber receives push alerts from the scheduler."),
+    )
+    alert_preference = models.CharField(
+        max_length=10,
+        blank=True,
+        choices=[
+            ("push", _("Push (HTTP callback)")),
+            ("poll", _("Poll")),
+            ("email", _("Email")),
+            ("sms", _("SMS")),
+            ("none", _("None")),
+        ],
+        verbose_name=_("Alert preference"),
+    )
+    status_poll_url = models.URLField(
+        blank=True,
+        verbose_name=_("Status poll URL"),
+        help_text=_("URL the scheduler polls to determine subscriber availability."),
+    )
+
+    class Meta:
+        verbose_name = _("GovStack Subscriber Profile")
+        verbose_name_plural = _("GovStack Subscriber Profiles")
+
+    def __str__(self) -> str:
+        return f"SubscriberProfile(user_id={self.user_id})"
+
+
+class GovStackMessage(TimestampedModel):
+    """
+    GovStack Scheduler BB Message entity.
+
+    Reusable notification template owned by an Organization (Entity).
+    Used by GovStackAlertSchedule to specify what to send.
+    """
+    entity = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="govstack_messages",
+        verbose_name=_("Entity (Organization)"),
+    )
+    category = models.CharField(
+        max_length=50,
+        db_index=True,
+        verbose_name=_("Category"),
+        help_text=_("Message category, e.g. 'reminder', 'confirmation', 'cancellation'."),
+    )
+    message_body = models.TextField(
+        verbose_name=_("Message body"),
+        help_text=_("Plain text or HTML notification body. May include template variables."),
+    )
+
+    class Meta:
+        ordering = ["entity", "category"]
+        verbose_name = _("GovStack Message")
+        verbose_name_plural = _("GovStack Messages")
+        indexes = [
+            models.Index(fields=["entity", "category"], name="appt_gs_msg_entity_cat"),
+        ]
+
+    def __str__(self) -> str:
+        return f"GovStackMessage({self.category}, entity={self.entity_id})"
+
+
+class GovStackAffiliation(TimestampedModel):
+    """
+    GovStack Scheduler BB Affiliation entity.
+
+    Records that a Resource is affiliated with an Entity (Organization),
+    optionally with a work schedule (work_days_hours).
+
+    Replaces the implicit StaffProfile → Location → Organization chain for
+    GovStack API purposes; does not modify the underlying scheduling logic.
+    """
+    resource = models.ForeignKey(
+        Resource,
+        on_delete=models.CASCADE,
+        related_name="govstack_affiliations",
+        verbose_name=_("Resource"),
+    )
+    entity = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="govstack_affiliations",
+        verbose_name=_("Entity (Organization)"),
+    )
+    resource_category = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Resource category"),
+    )
+    work_days_hours = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Work days/hours"),
+        help_text=_(
+            "GovStack days_hours structure: e.g. "
+            '{"monday": {"from": "09:00", "to": "17:00"}, "tuesday": {...}, ...}'
+        ),
+    )
+
+    class Meta:
+        ordering = ["entity", "resource"]
+        verbose_name = _("GovStack Affiliation")
+        verbose_name_plural = _("GovStack Affiliations")
+        unique_together = [("resource", "entity")]
+        indexes = [
+            models.Index(fields=["entity", "resource_category"], name="appt_gs_aff_entity_cat"),
+        ]
+
+    def __str__(self) -> str:
+        return f"GovStackAffiliation(resource={self.resource_id}, entity={self.entity_id})"
+
+
+class GovStackAlertSchedule(TimestampedModel):
+    """
+    GovStack Scheduler BB AlertSchedule entity.
+
+    Schedules a push notification to be sent to participants of an Event (Slot)
+    at a specific datetime. The Celery task ID is stored so the alert can be
+    revoked on DELETE.
+    """
+    slot = models.ForeignKey(
+        "Slot",
+        on_delete=models.CASCADE,
+        related_name="govstack_alert_schedules",
+        verbose_name=_("Event (Slot)"),
+    )
+    message = models.ForeignKey(
+        GovStackMessage,
+        on_delete=models.PROTECT,
+        related_name="alert_schedules",
+        verbose_name=_("Message template"),
+    )
+    target_category = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Target category"),
+        help_text=_("Which participant category to notify: 'subscriber', 'resource', or blank for all."),
+    )
+    alert_datetime = models.DateTimeField(
+        db_index=True,
+        verbose_name=_("Alert datetime"),
+        help_text=_("When to dispatch the alert. Must be in the future at creation time."),
+    )
+    celery_task_id = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name=_("Celery task ID"),
+        help_text=_("ID of the scheduled Celery ETA task. Used to revoke the alert on DELETE."),
+    )
+    dispatched = models.BooleanField(
+        default=False,
+        verbose_name=_("Dispatched"),
+        help_text=_("True once the Celery task has fired and delivered the alert."),
+    )
+
+    class Meta:
+        ordering = ["alert_datetime"]
+        verbose_name = _("GovStack Alert Schedule")
+        verbose_name_plural = _("GovStack Alert Schedules")
+        indexes = [
+            models.Index(fields=["slot", "alert_datetime"], name="appt_gs_alert_slot_dt"),
+            models.Index(fields=["alert_datetime", "dispatched"], name="appt_gs_alert_dt_disp"),
+        ]
+
+    def __str__(self) -> str:
+        return f"GovStackAlertSchedule(slot={self.slot_id}, at={self.alert_datetime})"
