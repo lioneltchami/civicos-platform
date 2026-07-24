@@ -1260,14 +1260,25 @@ def _check_pdf_encryption(pdf_bytes: bytes) -> None:
     """
     if _pikepdf is not None:
         # Primary: pikepdf is reliable regardless of PDF version or structure.
+        # H-3 fix: Check _pdf.encryption AFTER opening, not just on PasswordError.
+        # pikepdf opens PDFs encrypted with an EMPTY user-password without raising
+        # PasswordError (the empty password is the default). Such PDFs are still
+        # encrypted — ClamAV cannot scan the ciphertext — so they must be rejected.
+        # _pdf.encryption is not None for ANY encrypted PDF, including empty-password.
         try:
             with _pikepdf.open(io.BytesIO(pdf_bytes)) as _pdf:
-                pass  # Successfully opened → not encrypted.
+                if _pdf.encryption:
+                    raise ValidationError(
+                        _("Password-protected PDFs are not accepted. "
+                          "Please remove the password protection before uploading.")
+                    )
         except _pikepdf.PasswordError:
             raise ValidationError(
                 _("Password-protected PDFs are not accepted. "
                   "Please remove the password protection before uploading.")
             )
+        except ValidationError:
+            raise  # Re-raise the encryption ValidationError from the with-block.
         except Exception as exc:  # noqa: BLE001
             # Corrupt or malformed PDF — pikepdf could not parse it at all.
             # Treat as invalid file rather than a security bypass.

@@ -1291,6 +1291,54 @@ class DocumentListAPITests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 401)
 
+    def test_200_paginated_response_structure(self):
+        """Gap 6.1: General list response is paginated — count/results/next/previous present."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        # Standard DRF pagination keys must all be present
+        self.assertIn("count", response.data)
+        self.assertIn("results", response.data)
+        self.assertIn("next", response.data)
+        self.assertIn("previous", response.data)
+        self.assertGreaterEqual(response.data["count"], 1)
+
+    def test_200_staff_without_view_all_sees_only_own_docs(self):
+        """Gap 6.2: Staff user WITHOUT view_all_documents sees only own documents.
+
+        is_staff=True does not automatically grant cross-user visibility — that
+        requires the explicit view_all_documents permission.  This is a scoping
+        regression guard: a new staff hire must not see other users' documents.
+        """
+        plain_staff = _make_staff()  # is_staff=True but NO view_all_documents perm
+        own_doc = _make_document(plain_staff, self.cat)
+
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(plain_staff))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+
+        # Must see their own document
+        self.assertIn(str(own_doc.pk), doc_ids)
+        # Must NOT see other users' documents (doc1, doc2, other_doc are from other users)
+        self.assertNotIn(str(self.doc1.pk), doc_ids)
+        self.assertNotIn(str(self.other_doc.pk), doc_ids)
+
+    def test_403_quarantined_filter_not_accessible_via_general_list(self):
+        """H-1 regression: ?scan_status=quarantined via general list → 403 PermissionDenied.
+
+        The quarantined list is a privileged endpoint at /quarantined/.
+        Passing scan_status=quarantined to the general list must be rejected
+        unconditionally, even by staff with view_all_documents.
+        """
+        coordinator = _make_staff()
+        coordinator = _grant_perm(coordinator, "view_all_documents")
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(coordinator))
+        response = self.client.get(self.url, {"scan_status": "quarantined"})
+        # Must be 403 — not 200 (H-1 security fix)
+        self.assertEqual(response.status_code, 403)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7.10  GET /api/v1/documents/quarantined/
@@ -1367,6 +1415,52 @@ class DocumentQuarantinedListAPITests(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 403)
+
+    def test_403_citizen_with_view_quarantined_perm_still_blocked(self):
+        """Gap 1.3: Non-staff citizen with view_quarantined perm → 403 (IsStaff blocks first).
+
+        view_quarantined is a necessary but not sufficient condition — the user
+        must ALSO be is_staff=True.  A citizen who somehow receives the DB perm
+        must still be denied access.
+        """
+        citizen_with_perm = _make_user()  # is_staff=False
+        citizen_with_perm = _grant_perm(citizen_with_perm, "view_quarantined")
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(citizen_with_perm))
+        response = self.client.get(self.url)
+        # IsStaff permission class denies before view_quarantined is ever checked
+        self.assertEqual(response.status_code, 403)
+
+    def test_200_paginated_response_structure(self):
+        """Gap 1.1: Response is paginated — contains count, results, next, previous."""
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.inspector))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        # Standard DRF pagination keys must all be present
+        self.assertIn("count", response.data)
+        self.assertIn("results", response.data)
+        self.assertIn("next", response.data)
+        self.assertIn("previous", response.data)
+        self.assertGreaterEqual(response.data["count"], 1)
+
+    def test_200_excludes_deleted_quarantined_documents(self):
+        """L-1 regression: soft-deleted quarantined docs must NOT appear in list.
+
+        A document with scan_status=QUARANTINED AND deleted_at set should be
+        invisible — the defensive deleted_at__isnull=True filter is required.
+        """
+        # Soft-delete the quarantined doc
+        self.q_doc.deleted_at = timezone.now()
+        self.q_doc.save(update_fields=["deleted_at", "updated_at"])
+
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.inspector))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.data.get("results", response.data)
+        doc_ids = [str(d["doc_id"]) for d in data]
+        self.assertNotIn(
+            str(self.q_doc.pk), doc_ids,
+            "Deleted quarantined document must not appear in quarantined list",
+        )
 
     def test_s1_storage_key_absent_from_quarantined_list(self):
         """S1: storage_key / _storage_key must NEVER appear in quarantined list."""
@@ -1542,3 +1636,59 @@ class EncryptedPdfRejectionTests(TestCase):
             response = self.client.post(url)
 
         self.assertEqual(response.status_code, 400)
+
+    def test_non_pdf_skips_encryption_check(self):
+        """Gap 7.1: Non-PDF uploads skip _check_pdf_encryption entirely.
+
+        Only files with a .pdf extension are passed through _check_pdf_encryption.
+        A JPEG confirm_upload must reach SCANNING state without _check_pdf_encryption
+        ever being invoked.
+
+        Verifies that the guard in confirm_upload — which gates the encryption
+        check on Path(original_filename).suffix == '.pdf' — is in place.
+
+        Both _validate_magic_bytes and _check_pdf_encryption are patched because:
+          - _validate_magic_bytes would reject the JPEG bytes against the PDF-only
+            category MIME list if python-magic is installed in the test environment.
+          - _check_pdf_encryption is the actual subject of this test (must not be called).
+        """
+        # Create a category that explicitly allows image/jpeg
+        jpeg_cat = DocumentCategory.objects.create(
+            name_en="JPEG Test Category",
+            name_fr="Catégorie test JPEG",
+            slug=f"jpeg-cat-{_uid()}",
+            allowed_mime_types=["image/jpeg"],
+            min_retention_days=730,
+            max_retention_days=2555,
+        )
+        # Create a pending JPEG document (not a PDF)
+        doc_uuid = uuid.uuid4()
+        jpeg_doc = Document.objects.create(
+            id=doc_uuid,
+            uploaded_by=self.user,
+            category=jpeg_cat,
+            original_filename="photo.jpg",
+            _storage_key=f"documents/quarantine/{doc_uuid}/{uuid.uuid4().hex}.bin",
+            mime_type="image/jpeg",
+            size_bytes=2048,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+        )
+        url = reverse("api-v1:document-confirm-upload", args=[jpeg_doc.pk])
+
+        # _check_pdf_encryption must NOT be called for a JPEG.
+        # We use a side_effect sentinel so if it IS called, the test will fail.
+        _sentinel = Exception("_check_pdf_encryption must NOT be called for non-PDF")
+
+        with patch(f"{_SERVICE}._verify_file_exists"), \
+             patch(f"{_SERVICE}._read_first_bytes", return_value=b"\xff\xd8\xff jpeg"), \
+             patch(f"{_SERVICE}._read_full_file", return_value=b"\xff\xd8\xff jpeg"), \
+             patch(f"{_SERVICE}._validate_magic_bytes", return_value="image/jpeg"), \
+             patch(f"{_SERVICE}._check_pdf_encryption", side_effect=_sentinel) as mock_enc, \
+             patch("apps.documents.tasks.scan_document.apply_async"), \
+             patch("apps.audit.services.record_event"):
+            response = self.client.post(url)
+
+        # Confirm_upload should succeed without calling the encryption check
+        mock_enc.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["scan_status"], "scanning")

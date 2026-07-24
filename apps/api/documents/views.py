@@ -534,6 +534,13 @@ class DocumentTokenRedeemView(APIView):
                 status=status.HTTP_410_GONE,
             )
 
+        # H-2: Re-verify scan status at redemption time.
+        # A document may be quarantined (or soft-deleted) after the token was
+        # issued but before it is redeemed (within the 5-minute TTL window).
+        # PIPEDA: return 404 (not 403) to avoid leaking document state.
+        if doc.scan_status != Document.ScanStatus.ACTIVE or doc.deleted_at is not None:
+            raise Http404("Document is no longer available for download.")
+
         civicos = getattr(settings, "CIVICOS", {})
         proxy_max_bytes = civicos.get("DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024)
 
@@ -691,8 +698,16 @@ class DocumentAttachView(APIView):
                 "You do not have permission to attach documents to records."
             )
 
-        # Staff coordinators can attach any document (no uploaded_by filter).
-        doc = get_object_or_404(Document, pk=doc_id)
+        # M-3: Only ACTIVE non-deleted documents may be attached to records.
+        # Attaching a QUARANTINED, SCANNING, or soft-deleted document to an
+        # official record would create an association with an unsafe or incomplete
+        # file.
+        doc = get_object_or_404(
+            Document,
+            pk=doc_id,
+            scan_status=Document.ScanStatus.ACTIVE,
+            deleted_at__isnull=True,
+        )
 
         # ── Inline body validation ────────────────────────────────────────────
         data = request.data or {}
@@ -854,17 +869,39 @@ class DocumentListView(generics.ListAPIView):
     serializer_class = DocumentSerializer
     pagination_class = StandardPagination
 
+    def get_throttles(self):
+        """Staff coordinators use StaffRateThrottle; all others use CitizenRateThrottle."""
+        if self.request.user.is_authenticated and self.request.user.is_staff:
+            return [StaffRateThrottle()]
+        return [CitizenRateThrottle()]
+
     def get_queryset(self):
         user = self.request.user
-        base_qs = Document.objects.filter(deleted_at__isnull=True)
+        # H-1: The general list NEVER exposes QUARANTINED documents regardless of
+        # which permissions the caller holds. Quarantined documents are only accessible
+        # via GET /quarantined/ (DocumentQuarantinedListView) which requires the
+        # explicit view_quarantined permission. This separation prevents a staff user
+        # holding view_all_documents from enumerating the quarantine queue via
+        # ?scan_status=quarantined on this endpoint.
+        base_qs = Document.objects.filter(
+            deleted_at__isnull=True,
+        ).exclude(
+            scan_status=Document.ScanStatus.QUARANTINED,
+        )
 
-        # Staff coordinator sees all documents; citizens see only their own.
+        # Staff coordinator sees all non-quarantined documents; citizens see only their own.
         if not user.has_perm("documents.view_all_documents"):
             base_qs = base_qs.filter(uploaded_by=user)
 
         # Optional scan_status filter.
+        # Explicitly reject ?scan_status=quarantined — use GET /quarantined/ instead.
         scan_status = self.request.query_params.get("scan_status", "").strip()
         if scan_status:
+            if scan_status == Document.ScanStatus.QUARANTINED:
+                raise PermissionDenied(
+                    "Quarantined documents are not accessible via this endpoint. "
+                    "Use GET /quarantined/ with the view_quarantined permission."
+                )
             base_qs = base_qs.filter(scan_status=scan_status)
 
         # Optional category slug filter.
@@ -922,7 +959,13 @@ class DocumentQuarantinedListView(generics.ListAPIView):
 
         return (
             Document.objects
-            .filter(scan_status=Document.ScanStatus.QUARANTINED)
+            .filter(
+                scan_status=Document.ScanStatus.QUARANTINED,
+                # L-1: Defensive filter — the state machine makes QUARANTINED and
+                # deleted_at IS NOT NULL mutually exclusive (soft-delete sets
+                # scan_status=DELETED), but guard against data integrity edge cases.
+                deleted_at__isnull=True,
+            )
             .select_related("category", "uploaded_by")
             .order_by("-updated_at")
         )

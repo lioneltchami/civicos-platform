@@ -497,6 +497,58 @@ class QuarantineSignalPIITests(TestCase):
         self.assertEqual(received["document_pk"], str(doc.pk))
         self.assertIn("Eicar-Test-Signature", received["scan_engine_result"])
 
+    def test_quarantine_signal_excludes_original_filename(self):
+        """
+        Gap 1.2 — PIPEDA data minimisation: original_filename MUST NOT appear in
+        the document_quarantined signal kwargs.
+
+        original_filename can directly identify a citizen (e.g. "John_Smith_SIN.pdf").
+        Admin notifications fired from the signal receive only document_pk and
+        scan_engine_result — never any filename or identity-revealing field.
+
+        This is a focused companion to test_quarantine_signal_kwargs_contain_no_uploader_pii
+        that pinpoints the original_filename constraint by name, ensuring a future
+        developer who adds ``original_filename=doc.original_filename`` to the
+        signal send() is caught immediately.
+        """
+        from apps.documents import signals as doc_signals
+        from apps.documents.tasks import _mark_document_quarantined_clamav
+
+        user = _make_user()
+        cat = _make_category()
+        # Give the document a detectably PII filename
+        doc = _make_document(user, cat, scan_status=Document.ScanStatus.SCANNING)
+        doc.original_filename = f"SensitivePII_{uuid.uuid4().hex}.pdf"
+        doc.save(update_fields=["original_filename"])
+
+        received: dict = {}
+
+        def capture(sender, **kwargs):
+            received.update(kwargs)
+
+        doc_signals.document_quarantined.connect(capture, weak=False)
+        try:
+            with patch("django.core.files.storage.default_storage") as mock_storage:
+                mock_storage.delete.return_value = None
+                _mark_document_quarantined_clamav(
+                    doc_pk=str(doc.pk),
+                    virus_name="Eicar-Test-Signature",
+                )
+        finally:
+            doc_signals.document_quarantined.disconnect(capture)
+
+        # Explicit named assertion for original_filename (PIPEDA §4.5 minimisation)
+        self.assertNotIn(
+            "original_filename", received,
+            "PIPEDA violation: original_filename must NOT be in document_quarantined signal kwargs",
+        )
+        # Also assert the raw filename value does not appear anywhere in the signal
+        for key, value in received.items():
+            self.assertNotIn(
+                doc.original_filename, str(value),
+                f"PIPEDA violation: filename value leaked in signal kwarg '{key}'",
+            )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. original_filename NEVER in audit event_detail
