@@ -51,7 +51,7 @@ Coverage matrix:
      D2:  GET response shape: {status (int), serialNumber, value}
      D3:  status is an integer (not a string)
      D4:  GET unknown serial → HTTP 400 (GAP-7: was 456, spec §13.5 requires 400)
-     D5:  value matches amount (string representation)
+     D5:  value matches amount (JSON number — float, spec §13.5)
      D8:  GET unknown serial → HTTP 400 (harness negative path)
      D9:  GET unknown serial → body["status"] == 9 (STATUS_ERROR_INT)
      D10: GET unknown serial → body["serialNumber"] echoes the submitted serial

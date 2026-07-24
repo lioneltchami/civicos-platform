@@ -7,7 +7,7 @@ Coverage matrix:
   A. BillInquiry view (GET /bills/{bill_id})
      A1:  Known bill → HTTP 200
      A2:  Response shape: {billId, amount, currency, description, status, dueDate}
-     A3:  amount is a string in the response (decimal serialisation)
+     A3:  amount is a JSON number (float) in the response — spec §14.2
      A4:  dueDate is an ISO date string when set
      A5:  dueDate is null when not set
      A6:  Unknown bill_id → HTTP 404, {"message": "Bill not found."}
@@ -19,6 +19,7 @@ Coverage matrix:
   B. BillTransferRequest view (POST /billTransferRequests)
      B1:  Valid body → HTTP 200
      B2:  Response shape: {requestId, billId, amount, currency, status, message}
+     B2b: amount is a JSON number (float) in the response
      B3:  status in response is "completed"
      B4:  Bill is marked PAID after successful transfer request
      B5:  GovStackBillPayment record is created
@@ -50,7 +51,7 @@ Coverage matrix:
   D. TransferRequestStatus view (GET /transferRequests/{transfer_request_id})
      D1:  Known request_id → HTTP 200
      D2:  Response shape: {requestId, billId, amount, currency, status}
-     D3:  amount is a string in the response
+     D3:  amount is a JSON number (float) in the response
      D4:  status is "completed"
      D5:  Unknown request_id → HTTP 404, {"message": "Transfer request not found."}
      D6:  transfer_request_id with whitespace is stripped
