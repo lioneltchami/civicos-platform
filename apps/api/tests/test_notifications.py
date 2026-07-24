@@ -396,4 +396,4 @@ class MarkNotificationReadTests(TestCase):
         self.assertIn("error", resp.data, "404 must use civicos error envelope, not flat {'detail': ...}")
         error = resp.data["error"]
         self.assertEqual(error["code"], "not_found")
-        self.assertEqual(error["status"], 404)
+        self.assertIn("message", error)

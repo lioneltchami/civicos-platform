@@ -87,7 +87,7 @@ class ServiceRequestListCreateView(generics.ListCreateAPIView):
                 exc,
             )
             return Response(
-                {"error": {"code": "validation_error", "detail": str(exc), "status": 400}},
+                {"error": {"code": "validation_error", "message": str(exc), "details": {}}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -157,7 +157,7 @@ class CancelServiceRequestView(APIView):
             )
         except ServiceRequest.DoesNotExist:
             return Response(
-                {"error": {"code": "not_found", "detail": "Service request not found.", "status": 404}},
+                {"error": {"code": "not_found", "message": "Service request not found.", "details": {}}},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -174,7 +174,7 @@ class CancelServiceRequestView(APIView):
                 request.user.pk,
             )
             return Response(
-                {"error": {"code": "permission_denied", "detail": str(exc), "status": 403}},
+                {"error": {"code": "permission_denied", "message": str(exc), "details": {}}},
                 status=status.HTTP_403_FORBIDDEN,
             )
         except ValueError as exc:
@@ -185,7 +185,7 @@ class CancelServiceRequestView(APIView):
                 type(exc).__name__,
             )
             return Response(
-                {"error": {"code": "validation_error", "detail": str(exc), "status": 400}},
+                {"error": {"code": "validation_error", "message": str(exc), "details": {}}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

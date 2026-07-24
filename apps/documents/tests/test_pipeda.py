@@ -25,7 +25,11 @@ from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.http import Http404
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
+
+from rest_framework.authtoken.models import Token
+from rest_framework.test import APIClient
 
 from apps.audit.models import AuditEventType, AuditLogEntry
 from apps.documents.models import Document, DocumentAccessToken, DocumentCategory
@@ -35,6 +39,12 @@ from apps.documents.services.retention import apply_legal_hold, hard_delete, sof
 User = get_user_model()
 
 _CTR = 0
+
+
+def _token_auth(user) -> str:
+    """Return a DRF Token auth header value for the given user."""
+    token, _ = Token.objects.get_or_create(user=user)
+    return f"Token {token.key}"
 
 
 def _make_user(**kwargs):
@@ -144,6 +154,23 @@ class IDORPreventionTests(TestCase):
         self.assertIsNotNone(token)
         self.assertTrue(token.is_valid)
 
+    def test_idor_returns_404_not_403_via_api(self):
+        """
+        IDOR via DRF API: GET /api/v1/documents/{other_doc.pk}/ as attacker
+        must return 404, not 403.
+
+        A 403 would confirm to the attacker that a document with that UUID
+        exists, enabling IDOR enumeration (OWASP A01:2021).
+        """
+        url = reverse("api-v1:document-detail", args=[self.doc.pk])
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=_token_auth(self.attacker))
+        response = client.get(url)
+        self.assertEqual(
+            response.status_code, 404,
+            "IDOR: attacker must receive 404 (not 403) for a non-owned document UUID",
+        )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Scan gate — only ACTIVE documents downloadable by citizens
@@ -211,6 +238,25 @@ class ScanGateTests(TestCase):
         with self.assertRaises(Http404):
             issue_access_token(user=self.user, document=doc)
 
+    def test_scan_pending_blocks_download_via_api(self):
+        """
+        Scan gate via DRF API: GET /api/v1/documents/{doc}/download/ for a
+        SCANNING document must return 404.
+
+        The download-init view checks scan_status == ACTIVE before issuing a
+        token. Any other status must produce 404 (not 403, to avoid leaking
+        document state to unauthenticated / IDOR attackers).
+        """
+        scanning_doc = self._make_doc_with_status(Document.ScanStatus.SCANNING)
+        url = reverse("api-v1:document-download", args=[scanning_doc.pk])
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = client.get(url)
+        self.assertEqual(
+            response.status_code, 404,
+            "Scan gate: SCANNING document must return 404 via the download-init API endpoint",
+        )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. storage_key leakage prevention
@@ -276,6 +322,35 @@ class StorageKeyLeakageTests(TestCase):
         for entry in entries:
             self.assertNotIn("storage_key", entry.event_detail)
             self.assertNotIn(storage_key_value, str(entry.event_detail))
+
+    def test_storage_key_never_in_api_response(self):
+        """
+        S1 via DRF API: GET /api/v1/documents/{doc}/ must never leak storage_key
+        or _storage_key in the JSON response.
+
+        Checks both the parsed response dict (catches extra serializer fields)
+        and the raw response bytes (catches accidental nested serialisation).
+        The actual _storage_key path value must also not appear verbatim.
+        """
+        url = reverse("api-v1:document-detail", args=[self.doc.pk])
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+
+        # Check parsed response dict (field-name leakage)
+        self.assertNotIn("storage_key", response.data)
+        self.assertNotIn("_storage_key", response.data)
+
+        # Check raw response bytes (value leakage or nested serialisation)
+        body = response.content.decode()
+        self.assertNotIn('"storage_key"', body,
+                         "storage_key field name must not appear in JSON response")
+        self.assertNotIn('"_storage_key"', body,
+                         "_storage_key field name must not appear in JSON response")
+        self.assertNotIn(self.doc._storage_key, body,
+                         "Raw storage key path value must not appear in JSON response")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

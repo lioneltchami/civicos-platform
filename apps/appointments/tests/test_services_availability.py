@@ -64,6 +64,26 @@ UTC = ZoneInfo("UTC")
 TORONTO = ZoneInfo("America/Toronto")
 VANCOUVER = ZoneInfo("America/Vancouver")
 
+# ---------------------------------------------------------------------------
+# Dynamic date helpers — prevent tests from using stale hardcoded dates.
+# The slot availability service filters out past slots via min_lead_time, so
+# any date already in the past produces 0 results and breaks count assertions.
+# ---------------------------------------------------------------------------
+
+def _next_weekday(iso_weekday: int) -> date:
+    """Return the next upcoming date with the given ISO weekday (1=Mon…7=Sun)."""
+    today = date.today()
+    days_ahead = iso_weekday - today.isoweekday()
+    if days_ahead <= 0:
+        days_ahead += 7
+    return today + timedelta(days=days_ahead)
+
+# Module-level computed dates — always point to the next upcoming weekday so
+# tests never pass a date that the lead-time filter would drop entirely.
+_NEXT_MON = _next_weekday(1)   # isoweekday 1 = Monday
+_NEXT_TUE = _next_weekday(2)   # isoweekday 2 = Tuesday
+
+
 
 # ---------------------------------------------------------------------------
 # Shared factories
@@ -459,8 +479,8 @@ class SlotGenerationTests(TestCase):
         staff = make_staff(self.location, suffix="-basic")
         appt_type.staff_members.add(staff)
 
-        # Tuesday 2026-07-07 (isoweekday=2)
-        target_date = date(2026, 7, 7)
+        # Next Tuesday — always a future date so the lead-time filter keeps all slots.
+        target_date = _NEXT_TUE
         make_template(staff, day_of_week=2, start_time=time(9, 0), end_time=time(11, 0))
 
         result = self.svc.get_available_slots(
@@ -496,7 +516,7 @@ class SlotGenerationTests(TestCase):
         )
         staff = make_staff(self.location, suffix="-dur")
         appt_type.staff_members.add(staff)
-        target_date = date(2026, 7, 7)
+        target_date = _NEXT_TUE
         make_template(staff, day_of_week=2, start_time=time(9, 0), end_time=time(11, 0))
 
         result = self.svc.get_available_slots(
@@ -531,7 +551,7 @@ class SlotGenerationTests(TestCase):
         )
         staff = make_staff(self.location, suffix="-buf")
         appt_type.staff_members.add(staff)
-        target_date = date(2026, 7, 7)
+        target_date = _NEXT_TUE
         make_template(staff, day_of_week=2, start_time=time(9, 0), end_time=time(11, 0))
 
         result = self.svc.get_available_slots(
@@ -654,8 +674,8 @@ class SlotGenerationTests(TestCase):
 
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=_NEXT_TUE,
+            date_to=_NEXT_TUE,
             staff=staff,
         )
         # Template: Tuesday 09:00–10:00, slot_interval=30min, duration=30min
@@ -720,8 +740,8 @@ class SlotGenerationTests(TestCase):
         staff_b = make_staff(location_b, suffix="-cr2b")
         appt_type.staff_members.add(staff_a, staff_b)
 
-        # Tuesday 2026-07-07 templates for both staff
-        target_date = date(2026, 7, 7)
+        # Next Tuesday templates for both staff
+        target_date = _NEXT_TUE
         make_template(staff_a, day_of_week=2, start_time=time(9, 0), end_time=time(13, 0))
         make_template(staff_b, day_of_week=2, start_time=time(9, 0), end_time=time(13, 0))
 
@@ -797,16 +817,16 @@ class SlotGenerationTests(TestCase):
         appt_type.staff_members.add(staff)
         make_template(staff, day_of_week=2, start_time=time(9, 0), end_time=time(11, 0))
 
-        # Pre-populate the 09:00 UTC slot (Toronto is UTC-4 in summer, so 09:00 local = 13:00 UTC)
+        # Pre-populate the 09:00 slot for _NEXT_TUE (future date keeps lead-time filter happy)
         tz_toronto = ZoneInfo("America/Toronto")
-        nine_am_local = datetime(2026, 7, 7, 9, 0, tzinfo=tz_toronto)
+        nine_am_local = datetime(_NEXT_TUE.year, _NEXT_TUE.month, _NEXT_TUE.day, 9, 0, tzinfo=tz_toronto)
         nine_am_utc = nine_am_local.astimezone(UTC)
         make_slot(appt_type, staff, self.location, nine_am_utc, duration_minutes=30)
 
         result_with_existing = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=_NEXT_TUE,
+            date_to=_NEXT_TUE,
             staff=staff,
         )
         # Before collision there would be 4 slots; now 9:00 is occupied → 3
@@ -862,13 +882,13 @@ class StaffExceptionTests(TestCase):
         appt_type, staff = self._setup_staff_with_tuesday_template("-holiday")
         StaffException.objects.create(
             staff=staff,
-            exception_date=date(2026, 7, 7),
+            exception_date=_NEXT_TUE,
             exception_type="holiday",
         )
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=_NEXT_TUE,
+            date_to=_NEXT_TUE,
             staff=staff,
         )
         self.assertEqual(result, [])
@@ -877,13 +897,13 @@ class StaffExceptionTests(TestCase):
         appt_type, staff = self._setup_staff_with_tuesday_template("-leave")
         StaffException.objects.create(
             staff=staff,
-            exception_date=date(2026, 7, 7),
+            exception_date=_NEXT_TUE,
             exception_type="leave",
         )
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=_NEXT_TUE,
+            date_to=_NEXT_TUE,
             staff=staff,
         )
         self.assertEqual(result, [])
@@ -892,13 +912,13 @@ class StaffExceptionTests(TestCase):
         appt_type, staff = self._setup_staff_with_tuesday_template("-training")
         StaffException.objects.create(
             staff=staff,
-            exception_date=date(2026, 7, 7),
+            exception_date=_NEXT_TUE,
             exception_type="training",
         )
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=_NEXT_TUE,
+            date_to=_NEXT_TUE,
             staff=staff,
         )
         self.assertEqual(result, [])
@@ -908,15 +928,15 @@ class StaffExceptionTests(TestCase):
         appt_type, staff = self._setup_staff_with_tuesday_template("-override")
         StaffException.objects.create(
             staff=staff,
-            exception_date=date(2026, 7, 7),
+            exception_date=_NEXT_TUE,
             exception_type="override",
             override_start_time=time(13, 0),
             override_end_time=time(15, 0),
         )
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=_NEXT_TUE,
+            date_to=_NEXT_TUE,
             staff=staff,
         )
         # 13:00–15:00 window with 30-min duration and 30-min stride = 4 slots
@@ -940,16 +960,16 @@ class StaffExceptionTests(TestCase):
         appt_type_a.staff_members.add(staff_b)
         make_template(staff_b, day_of_week=2, start_time=time(9, 0), end_time=time(10, 0))
 
-        # Holiday only for staff_a
+        # Holiday only for staff_a — on _NEXT_TUE (future, so lead-time filter keeps slots)
         StaffException.objects.create(
             staff=staff_a,
-            exception_date=date(2026, 7, 7),
+            exception_date=_NEXT_TUE,
             exception_type="holiday",
         )
         result = self.svc.get_available_slots(
             appointment_type=appt_type_a,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=_NEXT_TUE,
+            date_to=_NEXT_TUE,
         )
         # Only staff_b's slots should appear
         staff_ids = {s["staff_id"] for s in result}
@@ -1114,8 +1134,8 @@ class FrequencyControlTests(TestCase):
 
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 6),
-            date_to=date(2026, 7, 6),
+            date_from=_NEXT_MON,
+            date_to=_NEXT_MON,
             staff=staff,
             citizen=None,  # No citizen
         )
@@ -1153,8 +1173,8 @@ class FrequencyControlTests(TestCase):
         ):
             result = self.svc.get_available_slots(
                 appointment_type=appt_type,
-                date_from=date(2026, 7, 6),
-                date_to=date(2026, 7, 6),
+                date_from=_NEXT_MON,
+                date_to=_NEXT_MON,
                 staff=staff,
                 citizen=citizen,
             )
@@ -1276,11 +1296,11 @@ class DSTHandlingTests(TestCase):
         # Monday (1) template
         make_template(staff, day_of_week=1, start_time=time(9, 0), end_time=time(10, 0))
 
-        # Monday 2026-07-06 (summer EDT)
+        # Monday 2027-07-05 — pinned future summer Monday (EDT=UTC-4; 09:00→13:00 UTC)
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 6),
-            date_to=date(2026, 7, 6),
+            date_from=date(2027, 7, 5),
+            date_to=date(2027, 7, 5),
             staff=staff,
         )
         self.assertEqual(len(result), 1)
@@ -1385,20 +1405,22 @@ class MultiTimezoneTests(TestCase):
         appt_type.staff_members.add(staff)
         make_template(staff, day_of_week=2, start_time=time(9, 0), end_time=time(10, 0))
 
+        # 2027-07-06 = Tuesday in July (BC permanent UTC-7 / PDT; 09:00→16:00 UTC)
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=date(2027, 7, 6),
+            date_to=date(2027, 7, 6),
             staff=staff,
         )
         self.assertEqual(len(result), 1)
-        # PDT = UTC-7; 09:00 local = 16:00 UTC
+        # BC permanently adopted UTC-7 (no fall-back since 2025); 09:00 = 16:00 UTC
         self.assertEqual(result[0]["start_datetime"].hour, 16)
         self.assertEqual(result[0]["timezone"], "America/Vancouver")
 
-    def test_vancouver_winter_nine_am_is_utc_seventeen(self):
+    def test_vancouver_winter_nine_am_is_utc_sixteen(self):
         """
-        In November (PST, UTC-8), 09:00 Vancouver = 17:00 UTC.
+        BC permanently adopted UTC-7 (PDT) with no fall-back (effective 2025).
+        09:00 Vancouver = 16:00 UTC year-round, including November.
         """
         org = make_org("tz-van-win-org")
         location = make_location(org, "tz-van-win-loc", tz="America/Vancouver")
@@ -1417,8 +1439,8 @@ class MultiTimezoneTests(TestCase):
             staff=staff,
         )
         self.assertEqual(len(result), 1)
-        # PST = UTC-8; 09:00 local = 17:00 UTC
-        self.assertEqual(result[0]["start_datetime"].hour, 17)
+        # BC permanent PDT = UTC-7; 09:00 local = 16:00 UTC (no seasonal fall-back)
+        self.assertEqual(result[0]["start_datetime"].hour, 16)
 
     def test_start_local_is_in_location_timezone(self):
         """start_local datetime in the result should be in the location's timezone."""
@@ -1441,8 +1463,8 @@ class MultiTimezoneTests(TestCase):
 
         result = self.svc.get_available_slots(
             appointment_type=appt_type,
-            date_from=date(2026, 7, 7),
-            date_to=date(2026, 7, 7),
+            date_from=_NEXT_TUE,
+            date_to=_NEXT_TUE,
             staff=staff,
         )
         self.assertEqual(len(result), 1)
@@ -1491,8 +1513,8 @@ class GenerateSlotsForRangeTests(TestCase):
         count = generate_slots_for_range(
             appointment_type=appt_type,
             staff=staff,
-            date_from=date(2026, 7, 6),
-            date_to=date(2026, 7, 6),
+            date_from=_NEXT_MON,
+            date_to=_NEXT_MON,
         )
         self.assertEqual(count, 2)
         self.assertEqual(Slot.objects.filter(staff=staff, appointment_type=appt_type).count(), 2)
@@ -1510,14 +1532,14 @@ class GenerateSlotsForRangeTests(TestCase):
         first = generate_slots_for_range(
             appointment_type=appt_type,
             staff=staff,
-            date_from=date(2026, 7, 6),
-            date_to=date(2026, 7, 6),
+            date_from=_NEXT_MON,
+            date_to=_NEXT_MON,
         )
         second = generate_slots_for_range(
             appointment_type=appt_type,
             staff=staff,
-            date_from=date(2026, 7, 6),
-            date_to=date(2026, 7, 6),
+            date_from=_NEXT_MON,
+            date_to=_NEXT_MON,
         )
         self.assertEqual(first, 2)
         # generate_slots_for_range() returns 0 on the second run because
@@ -1705,8 +1727,8 @@ class GenerateSlotsForRangeTests(TestCase):
         staff = make_staff(self.location, suffix="-mt")
         appt_type.staff_members.add(staff)
 
-        # Use a fixed Monday that is well within max_advance_days (365)
-        target_monday = date(2026, 7, 6)  # Known Monday
+        # Always use a future Monday so the lead-time filter keeps all slots.
+        target_monday = _NEXT_MON
 
         # Template A: 09:00–12:00 Monday → 6 slots (09:00, 09:30, 10:00, 10:30, 11:00, 11:30)
         # Template B: 14:00–17:00 Monday → 6 slots (14:00, 14:30, 15:00, 15:30, 16:00, 16:30)

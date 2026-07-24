@@ -456,9 +456,7 @@ class CancelServiceRequestTests(TestCase):
         self.assertIn("error", resp.data)
         error = resp.data["error"]
         self.assertIn("code", error)
-        self.assertIn("detail", error)
-        self.assertIn("status", error)
-        self.assertEqual(error["status"], 400)
+        self.assertIn("message", error)
 
     def test_cancel_rejected_request_returns_400(self):
         # A rejected (terminal) request cannot be cancelled.
@@ -522,7 +520,8 @@ class ErrorEnvelopeTests(TestCase):
     Verifies the civicos error envelope shape on representative error responses.
 
     All error responses from the API must follow:
-    {"error": {"code": str, "detail": str|dict, "status": int}}
+    {"error": {"code": str, "message": str, "details": dict}}
+    (civicos_exception_handler — no "detail" or "status" keys)
     """
 
     def setUp(self):
@@ -537,9 +536,7 @@ class ErrorEnvelopeTests(TestCase):
         self.assertIn("error", resp.data)
         error = resp.data["error"]
         self.assertIn("code", error)
-        self.assertIn("detail", error)
-        self.assertIn("status", error)
-        self.assertEqual(error["status"], 401)
+        self.assertIn("message", error)
         self.assertEqual(error["code"], "unauthorized")
 
     def test_400_validation_error_has_error_envelope(self):
@@ -555,9 +552,7 @@ class ErrorEnvelopeTests(TestCase):
         self.assertIn("error", resp.data)
         error = resp.data["error"]
         self.assertIn("code", error)
-        self.assertIn("detail", error)
-        self.assertIn("status", error)
-        self.assertEqual(error["status"], 400)
+        self.assertIn("message", error)
 
     def test_404_response_has_error_envelope(self):
         # A missing reference number must return the civicos error envelope.
@@ -570,4 +565,4 @@ class ErrorEnvelopeTests(TestCase):
         self.assertIn("error", resp.data)
         error = resp.data["error"]
         self.assertEqual(error["code"], "not_found")
-        self.assertEqual(error["status"], 404)
+        self.assertIn("message", error)

@@ -74,13 +74,16 @@ urlpatterns = [
         name="consent-docs",
     ),
     # ------------------------------------------------------------------
-    # Building blocks
+    # Building blocks (alphabetical: consent, documents, notifications,
+    #                  portal, volunteers, workflows)
     # ------------------------------------------------------------------
-    path("portal/", include("apps.api.portal.urls")),
-    path("notifications/", include("apps.api.notifications.urls")),
-    path("workflows/", include("apps.api.workflows.urls")),
     path("consent/", include("apps.consent.api_urls", namespace="consent")),
     # GovStack Consent BB v1.3.0 — /config/, /service/, /audit/ namespaces
     path("consent/", include("apps.consent.govstack_urls")),
+    # Document Management BB — DRF REST API (spec §18, Wave 8)
+    path("documents/", include("apps.api.documents.urls")),
+    path("notifications/", include("apps.api.notifications.urls")),
+    path("portal/", include("apps.api.portal.urls")),
     path("volunteers/", include("apps.api.volunteers.urls", namespace="volunteers")),
+    path("workflows/", include("apps.api.workflows.urls")),
 ]
