@@ -298,8 +298,15 @@ class DocumentConfirmUploadView(APIView):
         #   Http404           — IDOR (doc not found or wrong owner)
         #   Django ValidationError — quarantine miss, magic byte, ZIP bomb
         # Http404 propagates transparently; ValidationError must be converted.
+        #
+        # IMPORTANT: Django's <uuid:doc_id> URL converter yields a uuid.UUID
+        # object, not a string. confirm_upload() calls uuid.UUID(doc_id)
+        # internally for format validation; passing a UUID object causes
+        # AttributeError (no .replace() method) which is caught and re-raised
+        # as Http404 — making every confirm-upload call return 404 in
+        # production. str() conversion must happen here at the view boundary.
         try:
-            doc = confirm_upload(user=request.user, doc_id=doc_id)
+            doc = confirm_upload(user=request.user, doc_id=str(doc_id))
         except (DjangoPermissionDenied, DjangoValidationError, ValueError) as exc:
             _convert_django_exceptions(exc)
 

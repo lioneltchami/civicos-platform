@@ -361,12 +361,22 @@ class DocumentConfirmUploadAPITests(TestCase):
         with patch(
             "apps.api.documents.views.confirm_upload",
             return_value=mock_doc,
-        ):
+        ) as mock_confirm:
             response = self.client.post(self.url, format="json")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["doc_id"], str(self.doc_id))
         self.assertEqual(response.data["scan_status"], Document.ScanStatus.SCANNING)
+        # Regression guard: confirm_upload must receive a str, not a uuid.UUID.
+        # Django's <uuid:doc_id> converter yields a uuid.UUID object; the service
+        # calls uuid.UUID(doc_id) internally which raises AttributeError on a
+        # UUID object, caught as Http404. The view must convert via str(doc_id).
+        _call_kwargs = mock_confirm.call_args.kwargs
+        self.assertIsInstance(
+            _call_kwargs["doc_id"],
+            str,
+            "confirm_upload must be called with doc_id as str, not uuid.UUID",
+        )
 
     def test_400_service_validation_error(self):
         """confirm_upload raises Django ValidationError → 400."""
