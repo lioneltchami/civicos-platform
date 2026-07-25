@@ -683,7 +683,28 @@ class AppointmentFilterSerializer(serializers.Serializer):
 
 
 class AppointmentDetailsRequiredSerializer(serializers.Serializer):
-    """Boolean flags controlling which Appointment fields appear in list responses."""
+    """
+    Boolean flags controlling which Appointment fields appear in list responses.
+
+    FIX 5 (Wave E adversarial review): the real GovStack OpenAPI spec's
+    appointment_details_required schema uses the key "status" — NOT
+    "status_id" — verified directly against the spec JSON. This field
+    controls whether the response's "status_id" field (the real field name
+    on appointment_details itself — that one is NOT renamed) is included;
+    only the REQUIRED-flags lookup key changes here. Previously this
+    serializer declared "status_id", so a spec-compliant caller sending
+    {"appointment_details_required": {"status": false}} had that key
+    silently dropped by DRF (unknown keys are ignored, not rejected) — the
+    caller's explicit suppression request was silently ignored and the
+    response included status_id anyway (same bug class the Wave D review
+    found for a different field on the Event API).
+
+    ``event_id`` is NOT part of the real spec's appointment_details_required
+    schema (only ``event_details``, which nests the full per-slot
+    projection, is) — kept here as an explicitly-documented CivicOS
+    convenience so callers can suppress the flat event_id string
+    independently of the nested event_details object.
+    """
 
     appointment_id = serializers.BooleanField(required=False, default=True)
     exclusive = serializers.BooleanField(required=False, default=False)
@@ -691,7 +712,7 @@ class AppointmentDetailsRequiredSerializer(serializers.Serializer):
     event_details = serializers.BooleanField(required=False, default=True)
     participant_type = serializers.BooleanField(required=False, default=True)
     participant_id = serializers.BooleanField(required=False, default=True)
-    status_id = serializers.BooleanField(required=False, default=True)
+    status = serializers.BooleanField(required=False, default=True)
     participant_entity_id = serializers.BooleanField(required=False, default=True)
 
 

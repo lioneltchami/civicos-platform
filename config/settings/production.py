@@ -228,3 +228,21 @@ GOVSTACK_REQUIRE_REGISTERED_BB = env.bool("GOVSTACK_REQUIRE_REGISTERED_BB", defa
 #
 # Handled by apps/payments/govstack_auth.HasVoucherJWT.has_permission().
 GOVSTACK_VOUCHER_REQUIRE_JWT = env.bool("GOVSTACK_VOUCHER_REQUIRE_JWT", default=True)
+
+# ---------------------------------------------------------------------------
+# GovStack Scheduler BB — requestor token enforcement
+# ---------------------------------------------------------------------------
+
+# Controls whether GovStackSchedulerAuth validates request_token against the
+# GovStackRegisteredBB whitelist (production mode) or accepts any non-empty
+# requestor_id/request_token pair without a DB lookup (harness/dev mode).
+#
+# Production deployments MUST set this to True (the default here).
+# GovStack harness environments set GOVSTACK_SCHEDULER_REQUIRE_TOKEN=False via
+# environment variable because the harness cannot supply a whitelisted token
+# before seed_govstack_vouchers has run. Mirrors GOVSTACK_REQUIRE_REGISTERED_BB
+# above for the Payments BB.
+# Never hardcode False in this file — use the env var for per-environment control.
+#
+# Handled by apps/appointments/govstack_auth.GovStackSchedulerAuth.authenticate().
+GOVSTACK_SCHEDULER_REQUIRE_TOKEN = env.bool("GOVSTACK_SCHEDULER_REQUIRE_TOKEN", default=True)

@@ -75,7 +75,7 @@ from __future__ import annotations
 import logging
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_naive
 
@@ -122,14 +122,30 @@ def _get_or_create_govstack_organizer_actor():
     gap noted in the Wave D review — this is the same class of problem,
     solved locally the same way Wave D solved it for Slot.staff).
 
+    Concurrency (FIX 6, Wave E adversarial review): this is called inside
+    the outer transaction.atomic() block in appointment_modify(). On the
+    very first concurrent confirmed/rejected calls — before this system
+    User row exists — two transactions can both pass get_or_create()'s
+    SELECT and then race on the INSERT, and the loser hits IntegrityError
+    on the unique email constraint. Caught below and resolved with a plain
+    re-fetch, in the same defensive try/except IntegrityError style already
+    used by this service layer's other system-seed/creation helpers (see
+    services.govstack_event._create_appointment_type's slug-collision
+    retry for the identical try/except IntegrityError shape).
+
     PIPEDA: email is an internal system identifier, never returned in
     any API response.
     """
     User = get_user_model()
-    user, created = User.objects.get_or_create(
-        email=_GOVSTACK_ORGANIZER_EMAIL,
-        defaults={"is_staff": True, "is_active": True},
-    )
+    try:
+        user, created = User.objects.get_or_create(
+            email=_GOVSTACK_ORGANIZER_EMAIL,
+            defaults={"is_staff": True, "is_active": True},
+        )
+    except IntegrityError:
+        # Lost the create race — the row now exists, re-fetch it.
+        user = User.objects.get(email=_GOVSTACK_ORGANIZER_EMAIL)
+        created = False
     if created:
         user.set_unusable_password()
         user.save(update_fields=["password"])
@@ -280,8 +296,20 @@ def _booking_to_dict(booking: Booking, details_req: dict) -> dict:
 
     Only fields explicitly flagged True in ``details_req`` are included,
     except appointment_id, event_id, participant_type, participant_id,
-    status_id, participant_entity_id, and event_details, which default to
+    status, participant_entity_id, and event_details, which default to
     True when absent from ``details_req`` (exclusive defaults to False).
+
+    NOTE (FIX 5, Wave E adversarial review): the REQUIRED-flags lookup key
+    for the response's ``status_id`` field is ``"status"`` — NOT
+    ``"status_id"`` — matching the real GovStack OpenAPI spec's
+    appointment_details_required schema (verified directly against the
+    spec JSON). The *output* dict key stays "status_id" (that IS the real
+    response field name per appointment_details); only the flag used to
+    decide whether to include it is called "status". Getting this wrong
+    previously meant a spec-compliant caller sending
+    {"appointment_details_required": {"status": false}} had that key
+    silently dropped by DRF (unknown keys ignored, not rejected) — the
+    caller's explicit suppression request was silently ignored.
     """
     from apps.appointments.services.govstack_event import get_event_summary
 
@@ -305,7 +333,7 @@ def _booking_to_dict(booking: Booking, details_req: dict) -> dict:
     if details_req.get("participant_id", True):
         result["participant_id"] = str(booking.citizen_id)
 
-    if details_req.get("status_id", True):
+    if details_req.get("status", True):
         result["status_id"] = booking.status
 
     if details_req.get("participant_entity_id", True):
@@ -330,7 +358,7 @@ def appointment_create(
     """
     Create one or more Bookings (one per event_id) as a single atomic
     GovStack Appointment. Returns the list of created Booking instances
-    (len == len(event_ids), in the same order as event_ids).
+    (len == len(event_ids)).
 
     Actor resolution: the resolved citizen is used as ``actor`` for each
     create_booking() call — the citizen booking their own appointment is the
@@ -341,6 +369,18 @@ def appointment_create(
     block. create_booking() opens its own internal atomic() block per call;
     nesting is fine (savepoints). If ANY event_id fails for any reason, the
     whole batch rolls back — no partial appointment creation.
+
+    Lock ordering (FIX 4, Wave E adversarial review): event_ids are processed
+    in ascending string-sorted order, NOT the caller-supplied order — so the
+    returned list is in sorted-pk order rather than strictly mirroring the
+    input array's order. create_booking() locks each Slot internally via
+    select_for_update(); two concurrent multi-event appointment_create()
+    calls targeting an overlapping set of slots in different orders could
+    otherwise deadlock (classic lock-ordering problem). Sorting first
+    guarantees a globally consistent acquisition order, mirroring the
+    identical precedent in booking.py's reschedule_booking(), which
+    explicitly sorts slot PKs before locking (see its "Dual-slot lock
+    ordering" comment).
 
     Raises:
         ValueError: invalid participant_type, bad participant_id format,
@@ -360,9 +400,13 @@ def appointment_create(
     citizen = _resolve_subscriber(participant_type, participant_id)
     entity_id_to_store = _validate_participant_entity_id(participant_entity_id)
 
+    # FIX 4: sort by string value before locking — see the lock-ordering note
+    # in this function's docstring.
+    sorted_event_ids = sorted(event_ids, key=str)
+
     created_bookings: list[Booking] = []
     with transaction.atomic():
-        for event_id in event_ids:
+        for event_id in sorted_event_ids:
             slot = Slot.objects.select_related("appointment_type").get(pk=event_id)
             appointment_mode = _derive_appointment_mode(slot)
 
@@ -418,6 +462,33 @@ def appointment_modify(
       onto the NEW booking (reschedule_booking() has no knowledge of
       GovStack-specific fields), then overridden by any exclusive/
       participant_entity_id values also supplied in this same call.
+
+      FIX 1 (Wave E adversarial review): reschedule_booking() only knows
+      about CivicOS Slot capacity/status — it has no concept of GovStack's
+      "exclusive" lock. If the OLD booking was exclusive, its slot was
+      previously blocked via _lock_slot(); reschedule_booking() correctly
+      frees that old slot on its own (it recomputes old_slot.status via its
+      internal _update_slot_status() after decrementing spaces_used — see
+      booking.py's reschedule_booking(), which never knows or needs to know
+      the slot was GovStack-"blocked" in the first place). But the NEW slot
+      is never automatically re-locked — without an explicit _lock_slot()
+      call here, a rescheduled appointment would report
+      exclusive=True in every API response while its actual underlying slot
+      remained open to other bookings. This function re-establishes the
+      lock on the new slot immediately after the carry-forward when
+      carried_exclusive is True. Any `exclusive` value ALSO supplied in
+      this same call is applied afterwards by step 3 below, which
+      independently locks/unlocks as needed — so this is safe even when the
+      caller overrides exclusive in the same PUT.
+
+      FIX 3 (Wave E adversarial review): the OLD (now-cancelled) booking
+      also has its own govstack_exclusive flag explicitly reset to False —
+      its slot is no longer actually locked (see above), so leaving
+      govstack_exclusive=True on the old row would misrepresent
+      history/audit views (a cancelled booking claiming to still be
+      "exclusive"). govstack_participant_entity_id on the old booking is
+      left untouched — it is metadata about who the appointment was for,
+      not lock state.
     - status_id supplied -> mapped to the appropriate booking.py transition,
       applied to whichever Booking is now "current" (i.e. after any
       reschedule from the same call):
@@ -434,6 +505,18 @@ def appointment_modify(
     - exclusive supplied (independent of the above) -> lock/unlock the
       CURRENT slot (Slot.status = "blocked" / recomputed), and persists the
       new govstack_exclusive value on the current Booking.
+
+      FIX 2 (Wave E adversarial review): if THIS SAME call also transitions
+      the booking to a terminal status (cancelled/rejected/completed) via
+      status_id above, locking the slot for `exclusive=True` is silently
+      skipped — the status transition's own cancel_booking()/etc. already
+      freed the slot via its internal _update_slot_status(), and locking it
+      again here would forcibly re-block a slot with no active booking
+      behind it (orphaned, with no automatic path back to "available").
+      Silently skipping (rather than raising) was chosen because it is less
+      likely to break legitimate callers who send `exclusive` as an
+      unrelated/leftover field alongside a status change unrelated to it;
+      it is also the only outcome that leaves no orphaned "blocked" slot.
     - participant_entity_id supplied (independent of the above; None means
       "not supplied", "" means "clear") -> updates
       govstack_participant_entity_id on the current Booking, validated via
@@ -473,6 +556,10 @@ def appointment_modify(
         # -- 1. Reschedule (event_id changed) --
         if event_id and str(event_id) != str(booking.slot_id):
             new_slot = Slot.objects.get(pk=event_id)
+            # FIX 3: keep a reference to the OLD booking row before `booking`
+            # is reassigned to reschedule_booking()'s return value (the NEW
+            # row) below.
+            old_booking = booking
             booking = reschedule_booking(
                 booking=booking, new_slot=new_slot, actor=booking.citizen,
             )
@@ -484,6 +571,23 @@ def appointment_modify(
                     "govstack_exclusive", "govstack_participant_entity_id", "updated_at",
                 ]
             )
+
+            # FIX 1: re-establish the exclusive lock on the NEW slot —
+            # reschedule_booking() has no knowledge of GovStack's exclusive
+            # concept, so carrying the boolean forward onto the new row (above)
+            # is not enough on its own; the slot itself must also be blocked.
+            # A same-call `exclusive` override (if supplied) is re-applied by
+            # step 3 below, so acting on carried_exclusive here is safe.
+            if carried_exclusive:
+                _lock_slot(booking.slot_id)
+
+            # FIX 3: the OLD booking's own slot is no longer locked (freed by
+            # reschedule_booking()'s internal _update_slot_status() call) —
+            # clear its stale govstack_exclusive flag so audit/history views
+            # don't show a cancelled booking as still "exclusive".
+            if old_booking.govstack_exclusive:
+                old_booking.govstack_exclusive = False
+                old_booking.save(update_fields=["govstack_exclusive", "updated_at"])
 
         # -- 2. Status transition (applied to whichever Booking is current) --
         if normalised_status == "confirmed":
@@ -502,7 +606,20 @@ def appointment_modify(
             booking.govstack_exclusive = exclusive
             booking.save(update_fields=["govstack_exclusive", "updated_at"])
             if exclusive:
-                _lock_slot(booking.slot_id)
+                # FIX 2: if step 2 above just transitioned this booking to a
+                # terminal status in this SAME call, the booking is no longer
+                # active — its slot was already freed by that transition's own
+                # cancel_booking()/reject_booking()/complete_booking() call.
+                # Locking it now would orphan it (blocked, with nothing
+                # keeping it that way and no automatic path back to
+                # "available"). Silently skip the lock in that case — see the
+                # docstring above for why "skip" was chosen over raising.
+                if booking.status not in (
+                    Booking.STATUS_CANCELLED,
+                    Booking.STATUS_REJECTED,
+                    Booking.STATUS_COMPLETED,
+                ):
+                    _lock_slot(booking.slot_id)
             else:
                 _unlock_slot(booking.slot_id)
 
@@ -565,9 +682,12 @@ def appointment_list(
     appointment_details_required keys (all booleans; defaults noted)
     ──────────────────────────────────────────────────────────────────
     appointment_id (True), exclusive (False), event_id (True),
-    participant_type (True), participant_id (True), status_id (True),
-    participant_entity_id (True), event_details (True — nests a compact
-    per-slot projection via govstack_event.get_event_summary()).
+    participant_type (True), participant_id (True), status (True —
+    controls whether the response's status_id field is included; see FIX 5,
+    Wave E adversarial review — this flag's own key is "status", matching
+    the real GovStack spec, even though the response field it controls is
+    named "status_id"), participant_entity_id (True), event_details (True —
+    nests a compact per-slot projection via govstack_event.get_event_summary()).
     """
     appointment_filter = appointment_filter or {}
     appointment_details_required = appointment_details_required or {}

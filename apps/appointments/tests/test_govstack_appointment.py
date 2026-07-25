@@ -519,7 +519,9 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
 
     # AP24
     def test_ap24_reschedule_carries_forward_exclusive_and_entity_id(self):
-        """AP24: reschedule carries forward govstack_exclusive/govstack_participant_entity_id onto the new booking."""
+        """AP24: reschedule carries forward govstack_exclusive/govstack_participant_entity_id onto the
+        new booking, actually re-locks the new slot (FIX 1), and clears the stale flag on the old,
+        now-cancelled booking (FIX 3)."""
         self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
         org = _create_org()
         appointment_modify(
@@ -534,6 +536,43 @@ class AppointmentModificationsTests(AppointmentBaseTestCase):
         new_booking = Booking.objects.get(pk=resp.json()["appointment_id"])
         self.assertTrue(new_booking.govstack_exclusive)
         self.assertEqual(new_booking.govstack_participant_entity_id, str(org.pk))
+
+        # FIX 1: the new slot must actually be locked, not just flagged exclusive=True.
+        new_slot.refresh_from_db()
+        self.assertEqual(new_slot.status, "blocked")
+
+        # FIX 3: the OLD (now-cancelled) booking's stale exclusive flag is cleared.
+        self.booking.refresh_from_db()
+        self.assertFalse(self.booking.govstack_exclusive)
+
+    # AP50
+    def test_ap50_reschedule_non_exclusive_does_not_block_new_slot(self):
+        """AP50: rescheduling a NON-exclusive appointment does not leave the new slot 'blocked'."""
+        self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
+        new_slots = _create_event(name="Reschedule Target Non-Exclusive", slots=[_SLOT_2])
+        new_slot = new_slots[0]
+        resp = self._put({"details": {"event_id": str(new_slot.pk)}}, appointment_id=self.appointment_id)
+        self.assertEqual(resp.status_code, 200)
+        new_booking = Booking.objects.get(pk=resp.json()["appointment_id"])
+        self.assertFalse(new_booking.govstack_exclusive)
+        new_slot.refresh_from_db()
+        self.assertNotEqual(new_slot.status, "blocked")
+
+    # AP51
+    def test_ap51_cancel_and_exclusive_in_same_call_does_not_orphan_blocked_slot(self):
+        """AP51: status_id='cancelled' + exclusive=true in ONE call returns 200; the cancellation
+        frees the slot and the exclusive lock is silently skipped — no orphaned 'blocked' slot."""
+        self._put({"details": {"status_id": "confirmed"}}, appointment_id=self.appointment_id)
+        resp = self._put(
+            {"details": {"status_id": "cancelled", "exclusive": True}},
+            appointment_id=self.appointment_id,
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, "cancelled")
+        self.assertTrue(self.booking.govstack_exclusive)
+        self.slot.refresh_from_db()
+        self.assertNotEqual(self.slot.status, "blocked")
 
     # AP25
     def test_ap25_exclusive_true_blocks_slot(self):
@@ -757,6 +796,20 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
         ids = [r["appointment_id"] for r in resp.json()["data"]]
         self.assertIn(self.appointment_id, ids)
         self.assertNotIn(str(far_bookings[0].pk), ids)
+
+    # AP52
+    def test_ap52_details_required_status_false_suppresses_status_id(self):
+        """AP52 (FIX 5 regression): appointment_details_required={"status": False} suppresses
+        'status_id' from the response — the real spec's required-flag key is "status", not
+        "status_id"; previously this key was silently dropped by DRF and status_id always appeared."""
+        qry = {
+            "appointment_filter": {"appointment_id": self.appointment_id},
+            "appointment_details_required": {"status": False},
+        }
+        resp = self._get(qry)
+        data = resp.json()["data"]
+        self.assertEqual(len(data), 1)
+        self.assertNotIn("status_id", data[0])
 
     # AP42
     def test_ap42_exclusive_filter_returns_only_exclusive(self):
