@@ -32,9 +32,9 @@ issuing outbound HTTP calls to these URLs.
 from __future__ import annotations
 
 import logging
-import random
-import string
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email as _django_validate_email
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
@@ -64,11 +64,20 @@ def _validate_alert_preference(alert_preference: str) -> None:
 
 
 def _validate_url(url: str, field_name: str) -> None:
-    """Raise ValueError if url is non-empty and does not start with http:// or https://."""
-    if url and not (url.startswith("http://") or url.startswith("https://")):
+    """Raise ValueError if url is non-empty and does not start with https://."""
+    if url and not url.startswith("https://"):
         raise ValueError(
-            f"{field_name} must begin with 'http://' or 'https://' (got {url!r})."
+            f"{field_name} must use HTTPS (got {url!r}). "
+            f"Plain HTTP callbacks are not permitted for government data."
         )
+
+
+def _validate_email_format(email: str) -> None:
+    """Raise ValueError if email does not look like a valid email address."""
+    try:
+        _django_validate_email(email)
+    except DjangoValidationError:
+        raise ValueError("Invalid email address format.")
 
 
 def _split_name(name: str) -> tuple[str, str]:
@@ -115,26 +124,31 @@ def subscriber_create(
     Args:
         name:             Full name, e.g. "Jane Doe". Splits on first space.
         category:         GovStack subscriber category, e.g. "individual".
-        phone:            Phone number string; truncated to 20 chars.
+        phone:            Phone number string (max 20 characters).
         email:            Required. Becomes User.email (unique).
-        alert_url:        HTTP/HTTPS URL for push alert delivery.
+        alert_url:        HTTPS URL for push alert delivery.
         alert_preference: One of push / poll / email / sms / none / "".
-        status_poll_url:  HTTP/HTTPS URL the scheduler polls for availability.
+        status_poll_url:  HTTPS URL the scheduler polls for availability.
 
     Returns:
         The newly created GovStackSubscriberProfile instance.
 
     Raises:
-        ValueError: email is blank, alert_preference is invalid, a subscriber
-                    with this email already exists, or a unique username cannot
-                    be generated (extremely unlikely).
+        ValueError: email is blank, email format invalid, alert_preference is
+                    invalid, a subscriber with this email already exists, or
+                    phone exceeds 20 characters.
     """
     if not email or not email.strip():
         raise ValueError("email is required to create a subscriber.")
+    email = User.objects.normalize_email(email.strip())
+    _validate_email_format(email)
 
     _validate_alert_preference(alert_preference)
     _validate_url(alert_url, "alert_url")
     _validate_url(status_poll_url, "status_poll_url")
+
+    if phone and len(phone) > 20:
+        raise ValueError("phone must not exceed 20 characters.")
 
     first_name, last_name = _split_name(name)
 
@@ -144,7 +158,7 @@ def subscriber_create(
                 email=email,
                 first_name=first_name,
                 last_name=last_name,
-                phone_number=(phone[:20] if phone else ""),
+                phone_number=phone or "",
                 is_active=True,
             )
             user.set_unusable_password()
@@ -194,7 +208,7 @@ def subscriber_modify(
         subscriber_id:    User PK of the subscriber to modify.
         name:             If supplied, sets User.first_name + User.last_name.
         category:         If supplied, sets GovStackSubscriberProfile.category.
-        phone:            If supplied, sets User.phone_number (truncated to 20).
+        phone:            If supplied, sets User.phone_number (max 20 characters).
         email:            If supplied (and non-blank), sets User.email.
         alert_url:        If supplied, sets GovStackSubscriberProfile.alert_url.
         alert_preference: If supplied, validates and sets alert_preference.
@@ -227,17 +241,24 @@ def subscriber_modify(
             user_update_fields.extend(["first_name", "last_name"])
 
         if phone is not None:
-            user.phone_number = phone[:20]
+            if len(phone) > 20:
+                raise ValueError("phone must not exceed 20 characters.")
+            user.phone_number = phone
             user_update_fields.append("phone_number")
 
         if email is not None:
             if not email.strip():
                 raise ValueError("email must not be blank.")
+            email = User.objects.normalize_email(email.strip())
+            _validate_email_format(email)
             user.email = email
             user_update_fields.append("email")
 
         if user_update_fields:
-            user.save(update_fields=user_update_fields)
+            try:
+                user.save(update_fields=user_update_fields)
+            except IntegrityError:
+                raise ValueError("A subscriber with this email already exists.")
             logger.debug(
                 "subscriber_modify: updated user pk=%d fields=%r",
                 user.pk,
@@ -264,18 +285,18 @@ def subscriber_modify(
             profile.category = category
             profile_update_fields.append("category")
 
-        if profile_update_fields:
-            profile_update_fields.append("updated_at")
-            profile.save(update_fields=profile_update_fields)
+        if user_update_fields or profile_update_fields:
+            if profile_update_fields:
+                profile_update_fields.append("updated_at")
+                profile.save(update_fields=profile_update_fields)
+            else:
+                # User fields changed — advance profile timestamp for audit trail completeness.
+                profile.save(update_fields=["updated_at"])
             logger.debug(
-                "subscriber_modify: updated profile pk=%d fields=%r",
+                "subscriber_modify: updated profile pk=%d user_fields=%r profile_fields=%r",
                 profile.pk,
+                user_update_fields,
                 profile_update_fields,
-            )
-        else:
-            logger.debug(
-                "subscriber_modify: no profile fields changed for profile pk=%d",
-                profile.pk,
             )
 
     return profile
@@ -295,12 +316,15 @@ def subscriber_delete(subscriber_id: int) -> None:
     Raises:
         GovStackSubscriberProfile.DoesNotExist: subscriber_id not found or already inactive.
     """
-    profile = GovStackSubscriberProfile.objects.select_related("user").get(
-        user_id=subscriber_id,
-        user__is_active=True,
-    )
-    profile.user.is_active = False
-    profile.user.save(update_fields=["is_active"])
+    with transaction.atomic():
+        profile = (
+            GovStackSubscriberProfile.objects
+            .select_for_update()
+            .select_related("user")
+            .get(user_id=subscriber_id, user__is_active=True)
+        )
+        profile.user.is_active = False
+        profile.user.save(update_fields=["is_active"])
     logger.debug("subscriber_delete: soft-deleted subscriber user_pk=%d", subscriber_id)
 
 
@@ -349,7 +373,11 @@ def subscriber_list(
 
     subscriber_id_filter = filter_data.get("subscriber_id", "")
     if subscriber_id_filter:
-        qs = qs.filter(user_id=subscriber_id_filter)
+        try:
+            subscriber_id_int = int(subscriber_id_filter)
+        except (ValueError, TypeError):
+            raise ValueError("subscriber_id filter must be an integer.")
+        qs = qs.filter(user_id=subscriber_id_int)
 
     name_filter = filter_data.get("name", "")
     if name_filter:
@@ -374,6 +402,9 @@ def subscriber_list(
     if alert_preference_filter:
         qs = qs.filter(alert_preference__icontains=alert_preference_filter)
 
+    MAX_RESULTS = 500
+    qs = qs.order_by("pk")[:MAX_RESULTS]
+
     # --- shape results ---
     required = subscriber_details_required or {}
     results: list[dict] = []
@@ -381,7 +412,7 @@ def subscriber_list(
     for profile in qs:
         record: dict = {"subscriber_id": str(profile.user_id)}  # always included
 
-        if required.get("name", True):
+        if required.get("name", False):
             record["name"] = profile.user.get_full_name()
 
         if required.get("category", False):
@@ -404,5 +435,10 @@ def subscriber_list(
 
         results.append(record)
 
+    if len(results) == MAX_RESULTS:
+        logger.warning(
+            "subscriber_list: result capped at %d rows. Use subscriber_id or other filters to narrow.",
+            MAX_RESULTS,
+        )
     logger.debug("subscriber_list: returned %d results", len(results))
     return results

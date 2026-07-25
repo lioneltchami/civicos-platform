@@ -1142,13 +1142,13 @@ class SubscriberNewView(APIView):
                 alert_preference=details.get("alert_preference", ""),
                 status_poll_url=details.get("status_poll_url", ""),
             )
-        except ValueError as exc:
-            # Service-layer validation error (e.g. invalid alert_preference, duplicate email).
+        except ValueError:
+            # Do not log or surface the exception message — it may contain PII (email).
             return Response(
                 {
                     "status": "error",
                     "code": "SUBSCRIBER_CREATE_FAILED",
-                    "message": str(exc),
+                    "message": "Subscriber creation failed. Please check the supplied details.",
                 },
                 status=400,
             )
@@ -1235,12 +1235,13 @@ class SubscriberModificationsView(APIView):
                 },
                 status=404,
             )
-        except ValueError as exc:
+        except ValueError:
+            # Do not log or surface the exception message — it may contain PII (email).
             return Response(
                 {
                     "status": "error",
-                    "code": "MODIFY_FAILED",
-                    "message": str(exc),
+                    "code": "SUBSCRIBER_MODIFY_FAILED",
+                    "message": "Subscriber update failed. Please check the supplied details.",
                 },
                 status=400,
             )
@@ -1362,10 +1363,20 @@ class SubscriberListDetailsView(APIView):
             return _validation_error(ser)
 
         subscriber_filter = ser.validated_data.get("subscriber_filter", {})
-        subscriber_details_required = ser.validated_data.get("subscriber_details_required", {})
+        # Use serializer defaults when caller omits subscriber_details_required entirely.
+        subscriber_details_required = ser.validated_data.get("subscriber_details_required") or {}
 
         try:
             results = subscriber_list(subscriber_filter, subscriber_details_required)
+        except ValueError as exc:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LIST_FAILED",
+                    "message": str(exc),
+                },
+                status=400,
+            )
         except Exception:
             logger.exception("subscriber_list failed")
             return Response(

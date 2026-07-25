@@ -312,7 +312,7 @@ class SubscriberDetailsRequiredSerializer(serializers.Serializer):
     """Boolean flags controlling which Subscriber fields appear in list responses."""
 
     subscriber_id = serializers.BooleanField(required=False, default=True)
-    name = serializers.BooleanField(required=False, default=True)
+    name = serializers.BooleanField(required=False, default=False)
     category = serializers.BooleanField(required=False, default=False)
     phone = serializers.BooleanField(required=False, default=False)
     email = serializers.BooleanField(required=False, default=False)

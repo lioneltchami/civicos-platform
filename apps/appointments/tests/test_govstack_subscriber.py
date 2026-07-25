@@ -190,6 +190,48 @@ class SubscriberNewTests(SubscriberBaseTestCase):
         data = resp.json()
         self.assertEqual(data["code"], "INVALID_QRY")
 
+    # S31
+    def test_s31_post_new_invalid_email_format_returns_400(self):
+        """S31: Non-email string in email field returns 400."""
+        resp = self._post({"qry": {"details": {"name": "Alice", "email": "not-an-email"}}})
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertEqual(data["status"], "error")
+
+    # S32
+    def test_s32_post_new_phone_too_long_returns_400(self):
+        """S32: Phone number exceeding 20 chars returns 400 instead of silent truncation."""
+        resp = self._post({"qry": {"details": {"email": "phone_test@example.com", "phone": "1" * 21}}})
+        self.assertEqual(resp.status_code, 400)
+
+    # S33
+    def test_s33_post_new_http_alert_url_returns_400(self):
+        """S33: http:// alert_url (not https) returns 400."""
+        resp = self._post({"qry": {"details": {"email": "httptest@example.com", "alert_url": "http://example.com/callback"}}})
+        self.assertEqual(resp.status_code, 400)
+
+    # S34
+    def test_s34_post_new_error_message_does_not_contain_email(self):
+        """S34: PIPEDA — duplicate-email 400 response does not echo the email back."""
+        _create_subscriber(email="existing@example.com")
+        resp = self._post({"qry": {"details": {"email": "existing@example.com"}}})
+        self.assertEqual(resp.status_code, 400)
+        self.assertNotIn("existing@example.com", resp.content.decode())
+
+    # S35
+    def test_s35_post_new_user_has_unusable_password(self):
+        """S35: Subscribers are created with unusable Django passwords."""
+        profile = subscriber_create(
+            email="nopwd@example.com",
+            name="No Password",
+            category="",
+            phone="",
+            alert_url="",
+            alert_preference="",
+            status_poll_url="",
+        )
+        self.assertFalse(profile.user.has_usable_password())
+
 
 # ===========================================================================
 # S8–S13: PUT /subscriber/modifications
@@ -259,6 +301,21 @@ class SubscriberModificationsTests(SubscriberBaseTestCase):
         qry = {"details": {"name": "Should Fail"}}
         resp = self._put(qry, subscriber_id=self.subscriber_id)
         self.assertEqual(resp.status_code, 404)
+
+    # S30
+    def test_s30_modify_duplicate_email_returns_400(self):
+        """S30: Changing to an already-registered email returns 400, not 500."""
+        sub1 = _create_subscriber(email="first@example.com")
+        sub2 = _create_subscriber(email="second@example.com")
+        resp = self._put(
+            {"details": {"email": "first@example.com"}},
+            subscriber_id=sub2.user_id,
+        )
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertEqual(data["status"], "error")
+        # Must not contain the email in the response body
+        self.assertNotIn("first@example.com", str(data))
 
 
 # ===========================================================================
@@ -421,6 +478,23 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         self.assertNotIn("email", resp_data)
         self.assertNotIn("name", resp_data)
         self.assertNotIn("phone", resp_data)
+
+    # S36 — PIPEDA
+    def test_s36_list_default_response_excludes_pii(self):
+        """S36: PIPEDA — default list (no qry) excludes name, email, and phone."""
+        _create_subscriber(email="pii_test@example.com", name="PII Test User")
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+        for record in resp.json()["data"]:
+            self.assertNotIn("email", record)
+            self.assertNotIn("phone", record)
+            self.assertNotIn("name", record)
+
+    # S37
+    def test_s37_list_noninteger_subscriber_id_filter_returns_400(self):
+        """S37: Non-integer subscriber_id filter in subscriber_filter returns 400 not 500."""
+        resp = self._get({"subscriber_filter": {"subscriber_id": "abc"}})
+        self.assertEqual(resp.status_code, 400)
 
 
 # ===========================================================================
