@@ -18,7 +18,7 @@ import uuid
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils.dateparse import parse_datetime
 
 from apps.appointments.models import (
@@ -35,6 +35,7 @@ from apps.appointments.services.govstack_event import (
     event_list,
     event_modify,
 )
+from apps.payments.govstack_models import GovStackRegisteredBB
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -860,3 +861,96 @@ class EventServiceTests(TestCase):
         slots = _create_event(name="Open Status Service Test", status="open")
         slot = slots[0]
         self.assertEqual(slot.status, "available")
+
+
+# ===========================================================================
+# EV47–EV58: Auth / role enforcement (final certifiability review FIX 5c)
+# ===========================================================================
+#
+# Before this fix, test_govstack_event.py had zero 401/403/unauthenticated
+# tests despite 46+ tests total and all 4 Event endpoints declaring
+# gs_actor_role="organizer" (see EventNewView / EventModificationsView /
+# EventDeleteView / EventListDetailsView in govstack_views.py). Matches the
+# exact pattern used in test_govstack_log.py (LogRoleEnforcementTests /
+# LOG31-42), which the final certifiability review calls out as the
+# strongest auth coverage of any group: a role="resource" BB (below
+# organizer in the role hierarchy — subscriber < resource < organizer <
+# admin) must be denied (403) on every endpoint; a role="organizer" BB must
+# be allowed through; and a caller supplying NO requestor_id/request_token
+# at all must be rejected with 401/403 before ever reaching the handler.
+
+@override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
+class EventRoleEnforcementTests(EventBaseTestCase):
+    """EV47–EV58: role / auth enforcement on all 4 Event endpoints."""
+
+    def _valid_new_qry(self):
+        return {"qry": {"details": {"name": "Auth Test Event", "slots": [_SLOT_1], "status": "available"}}}
+
+    # -- POST /event/new --
+
+    def test_ev47_resource_role_denied_on_event_new(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        resp = self._post(self._valid_new_qry())
+        self.assertEqual(resp.status_code, 403)
+
+    def test_ev48_organizer_role_allowed_on_event_new(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        resp = self._post(self._valid_new_qry())
+        self.assertEqual(resp.status_code, 201)
+
+    def test_ev49_missing_auth_params_returns_401_or_403_on_event_new(self):
+        qry = json.dumps(self._valid_new_qry())
+        resp = self.client.post(NEW_URL + f"?qry={qry}")
+        self.assertIn(resp.status_code, (401, 403))
+
+    # -- PUT /event/modifications --
+
+    def test_ev50_resource_role_denied_on_event_modifications(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        slots = _create_event(name="Modify Auth Test")
+        resp = self._put({"details": {"name": "Renamed"}}, event_id=str(slots[0].pk))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_ev51_organizer_role_allowed_on_event_modifications(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        slots = _create_event(name="Modify Auth Test 2")
+        resp = self._put({"details": {"name": "Renamed"}}, event_id=str(slots[0].pk))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_ev52_missing_auth_params_returns_401_or_403_on_event_modifications(self):
+        resp = self.client.put(MODIFICATIONS_URL)
+        self.assertIn(resp.status_code, (401, 403))
+
+    # -- DELETE /event --
+
+    def test_ev53_resource_role_denied_on_event_delete(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        slots = _create_event(name="Delete Auth Test")
+        resp = self._delete(event_id=str(slots[0].pk))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_ev54_organizer_role_allowed_on_event_delete(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        slots = _create_event(name="Delete Auth Test 2")
+        resp = self._delete(event_id=str(slots[0].pk))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_ev55_missing_auth_params_returns_401_or_403_on_event_delete(self):
+        resp = self.client.delete(DELETE_URL)
+        self.assertIn(resp.status_code, (401, 403))
+
+    # -- GET /event/list_details --
+
+    def test_ev56_resource_role_denied_on_event_list(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        resp = self._get()
+        self.assertEqual(resp.status_code, 403)
+
+    def test_ev57_organizer_role_allowed_on_event_list(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+
+    def test_ev58_missing_auth_params_returns_401_or_403_on_event_list(self):
+        resp = self.client.get(LIST_URL)
+        self.assertIn(resp.status_code, (401, 403))

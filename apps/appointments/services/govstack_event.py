@@ -579,7 +579,16 @@ def _slot_to_event_dict(slot: Slot, details_req: dict) -> dict:
         org = slot.location.organization if slot.location_id else None
         result["host_entity_id"] = str(org.pk) if org else ""
 
-    if details_req.get("slots", False):
+    # FIX 4 (final certifiability review): the real spec's
+    # event_details_required flag that gates this field is literally named
+    # "period" — NOT "slots" (which does not exist in the real
+    # event_details_required schema at all; see
+    # govstack_serializers.EventDetailsRequiredSerializer's docstring for the
+    # full rationale). Only the REQUIRED-flags lookup key changed here — the
+    # response's own field name stays "slots" (unchanged, matching the
+    # established CivicOS response shape and the flag-name-vs-response-
+    # field-name precedent set by Log's Spec Quirk #2).
+    if details_req.get("period", False):
         result["slots"] = [
             {
                 "from": slot.start_datetime.isoformat(),
@@ -1027,6 +1036,16 @@ def event_list(
                        deadline has no CivicOS field)
     deadline_to      — legacy best-effort approximation: maps to
                        start_datetime ≤ value
+    description      — case-insensitive substring on
+                       AppointmentType.description_en (best-effort — see
+                       inline comment above for the shared-column caveat
+                       with ``terms``)
+    subscriber_limit — exact match on AppointmentType.capacity_per_slot
+                       (parsed to int; non-integer values match nothing)
+    terms            — case-insensitive substring on
+                       AppointmentType.description_en (see ``description``)
+    venue            — NOT filterable (nested object in the real spec; see
+                       EventFilterSerializer's docstring)
 
     Ordering: start_datetime ASC. Hard cap: 500 rows.
 
@@ -1072,6 +1091,40 @@ def event_list(
     else:
         # Default: exclude cancelled slots so stale events don't pollute results.
         qs = qs.exclude(status="cancelled")
+
+    # FIX (final certifiability review): description/subscriber_limit/terms
+    # are real event_filter fields (verified directly against the fetched
+    # OpenAPI spec) that were previously entirely unimplemented.
+    #
+    # description/terms both search AppointmentType.description_en, which is
+    # the single column both are stored in on write — terms are appended to
+    # description_en as "[Terms: ...]" (see _create_appointment_type /
+    # event_modify). This is a best-effort, documented limitation: a
+    # "description" filter can incidentally match text that only appears in
+    # an appended terms blob (and vice versa) since both live in one column.
+    # Splitting the two for independent filtering would require a DB-level
+    # expression over _split_description_terms()'s parsing logic, which is
+    # out of scope for this fix.
+    if event_filter.get("description"):
+        qs = qs.filter(appointment_type__description_en__icontains=event_filter["description"])
+
+    if event_filter.get("terms"):
+        qs = qs.filter(appointment_type__description_en__icontains=event_filter["terms"])
+
+    # subscriber_limit maps to AppointmentType.capacity_per_slot (an
+    # IntegerField) — exact match once parsed to int, mirroring the
+    # host_entity_id int-filter pattern above. A non-integer filter value
+    # matches nothing rather than raising.
+    if event_filter.get("subscriber_limit"):
+        try:
+            limit = int(event_filter["subscriber_limit"])
+            qs = qs.filter(appointment_type__capacity_per_slot=limit)
+        except (ValueError, TypeError):
+            qs = qs.none()
+
+    # NOTE: event_filter.venue is a nested object in the real spec and is
+    # deliberately NOT filterable here — see EventFilterSerializer's
+    # docstring for the documented rationale.
 
     # FIX 8: spec-compliant from/to date-range window (primary path).
     if event_filter.get("from_"):

@@ -108,7 +108,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S1
     def test_s1_post_new_returns_201_with_subscriber_id(self):
         """S1: POST /subscriber/new returns 201 with subscriber_id."""
-        qry = {"qry": {"details": {"name": "Bob Jones", "email": "bob@example.com",
+        qry = {"qry": {"subscriber_details": {"name": "Bob Jones", "email": "bob@example.com",
                                     "category": "individual", "phone": "+15005550002",
                                     "alert_preference": "email"}}}
         resp = self._post(qry)
@@ -121,7 +121,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S2
     def test_s2_post_new_missing_email_returns_400(self):
         """S2: POST /subscriber/new with missing email returns 400."""
-        qry = {"qry": {"details": {"name": "No Email", "category": "individual"}}}
+        qry = {"qry": {"subscriber_details": {"name": "No Email", "category": "individual"}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
@@ -133,7 +133,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
         """S3: POST /subscriber/new with duplicate email returns 400."""
         email = "dupe@example.com"
         subscriber_create(email=email, name="First User")
-        qry = {"qry": {"details": {"name": "Second User", "email": email}}}
+        qry = {"qry": {"subscriber_details": {"name": "Second User", "email": email}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
@@ -144,7 +144,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S4
     def test_s4_post_new_invalid_alert_preference_returns_400(self):
         """S4: POST /subscriber/new with invalid alert_preference returns 400."""
-        qry = {"qry": {"details": {"email": "ap@example.com",
+        qry = {"qry": {"subscriber_details": {"email": "ap@example.com",
                                     "alert_preference": "carrier_pigeon"}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
@@ -155,7 +155,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S5
     def test_s5_post_new_creates_user_and_profile(self):
         """S5: POST /subscriber/new creates both User and GovStackSubscriberProfile."""
-        qry = {"qry": {"details": {"name": "Carol Doe", "email": "carol@example.com",
+        qry = {"qry": {"subscriber_details": {"name": "Carol Doe", "email": "carol@example.com",
                                     "category": "individual", "alert_preference": "sms"}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
@@ -179,7 +179,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
         than PermissionDenied (403). Either code is a valid "not allowed"
         response — the test accepts both.
         """
-        qry = json.dumps({"qry": {"details": {"email": "noauth@example.com"}}})
+        qry = json.dumps({"qry": {"subscriber_details": {"email": "noauth@example.com"}}})
         resp = self.client.post(NEW_URL + f"?qry={qry}")
         self.assertIn(resp.status_code, (401, 403))
 
@@ -195,7 +195,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S31
     def test_s31_post_new_invalid_email_format_returns_400(self):
         """S31: Non-email string in email field returns 400."""
-        resp = self._post({"qry": {"details": {"name": "Alice", "email": "not-an-email"}}})
+        resp = self._post({"qry": {"subscriber_details": {"name": "Alice", "email": "not-an-email"}}})
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
         self.assertEqual(data["status"], "error")
@@ -203,20 +203,20 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S32
     def test_s32_post_new_phone_too_long_returns_400(self):
         """S32: Phone number exceeding 20 chars returns 400 instead of silent truncation."""
-        resp = self._post({"qry": {"details": {"email": "phone_test@example.com", "phone": "1" * 21}}})
+        resp = self._post({"qry": {"subscriber_details": {"email": "phone_test@example.com", "phone": "1" * 21}}})
         self.assertEqual(resp.status_code, 400)
 
     # S33
     def test_s33_post_new_http_alert_url_returns_400(self):
         """S33: http:// alert_url (not https) returns 400."""
-        resp = self._post({"qry": {"details": {"email": "httptest@example.com", "alert_url": "http://example.com/callback"}}})
+        resp = self._post({"qry": {"subscriber_details": {"email": "httptest@example.com", "alert_url": "http://example.com/callback"}}})
         self.assertEqual(resp.status_code, 400)
 
     # S34
     def test_s34_post_new_error_message_does_not_contain_email(self):
         """S34: PIPEDA — duplicate-email 400 response does not echo the email back."""
         _create_subscriber(email="existing@example.com")
-        resp = self._post({"qry": {"details": {"email": "existing@example.com"}}})
+        resp = self._post({"qry": {"subscriber_details": {"email": "existing@example.com"}}})
         self.assertEqual(resp.status_code, 400)
         self.assertNotIn("existing@example.com", resp.content.decode())
 
@@ -238,14 +238,14 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     def test_s38_post_new_name_too_long_returns_400(self):
         """S38 — name field exceeding 150 chars per part returns 400."""
         long_name = "A" * 151 + " B"
-        qry = {"qry": {"details": {"email": "longname@example.com", "name": long_name}}}
+        qry = {"qry": {"subscriber_details": {"email": "longname@example.com", "name": long_name}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
 
     # S39
     def test_s39_post_new_category_too_long_returns_400(self):
         """S39 — category exceeding 50 chars returns 400."""
-        qry = {"qry": {"details": {"email": "longcat@example.com", "category": "X" * 51}}}
+        qry = {"qry": {"subscriber_details": {"email": "longcat@example.com", "category": "X" * 51}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
 
@@ -266,10 +266,55 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     # S41
     def test_s41_post_new_status_poll_url_http_returns_400(self):
         """S41 — http:// status_poll_url returns 400."""
-        qry = {"qry": {"details": {"email": "spoll@example.com",
+        qry = {"qry": {"subscriber_details": {"email": "spoll@example.com",
                                     "status_poll_url": "http://example.com/poll"}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
+
+
+# ===========================================================================
+# S47: spec-literal wire format (locks in FIX 1 — wrong qry wrapper key)
+# ===========================================================================
+
+class SubscriberSpecWireFormatTests(SubscriberBaseTestCase):
+    """
+    S47: a POST /subscriber/new body built EXACTLY per the real GovStack
+    OpenAPI spec's subscriber_new_qry schema — i.e.
+    {"qry": {"subscriber_details": {...}}}, with no other wrapper key — must
+    succeed.
+
+    Before the final certifiability review's FIX 1, this codebase wrapped
+    the create payload under the generic "details" key instead of the
+    spec-mandated "subscriber_details" key — every other test in this file
+    happened to match that wrong implementation rather than pinning the real
+    spec's contract. This test intentionally does NOT reuse any shared
+    payload-building helper: it hardcodes the wire-format dict inline so a
+    future accidental revert of the qry wrapper key fails loudly here,
+    independent of any other test in this module (matching the identical
+    precedent established by MessageSpecWireFormatTests /
+    test_msg34_spec_literal_message_new_payload_succeeds in
+    test_govstack_message.py).
+    """
+
+    def test_subscriber_new_uses_real_spec_wrapper_key(self):
+        spec_literal_qry = {
+            "qry": {
+                "subscriber_details": {
+                    "name": "Spec Compliant Subscriber",
+                    "category": "individual",
+                    "phone": "+15005550123",
+                    "email": "spec-literal@example.com",
+                    "alert_preference": "email",
+                }
+            }
+        }
+        resp = self._post(spec_literal_qry)
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertTrue(
+            GovStackSubscriberProfile.objects.filter(user_id=data["subscriber_id"]).exists()
+        )
 
 
 # ===========================================================================
@@ -509,7 +554,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
     # S26 — PIPEDA
     def test_s26_pipeda_post_new_does_not_return_email_in_response(self):
         """S26: PIPEDA — POST /subscriber/new response body does not contain email."""
-        qry = {"qry": {"details": {"email": "pipeda@example.com", "name": "Privacy User"}}}
+        qry = {"qry": {"subscriber_details": {"email": "pipeda@example.com", "name": "Privacy User"}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
         resp_data = resp.json()

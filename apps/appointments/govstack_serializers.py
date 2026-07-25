@@ -209,13 +209,24 @@ class ResourceDetailsRequiredSerializer(serializers.Serializer):
 
 
 class _ResourceQryDetailsSerializer(serializers.Serializer):
-    """Inner { "details": ... } wrapper used by ResourceCreateQrySerializer."""
+    """
+    Inner wrapper used by ResourceCreateQrySerializer.
 
-    details = ResourceDetailsSerializer(required=True)
+    The real GovStack resource_new_qry schema wraps the create payload under
+    the entity-specific key "resource_details" (verified directly against
+    the fetched OpenAPI spec's components.schemas.resource_new_qry) — NOT
+    the generic "details" key. This mirrors the exact bug class Wave F's
+    review found and fixed for Message/AlertSchedule's create wrapper keys;
+    Resource (a Wave B group, never revisited until this final certifiability
+    pass) had the same bug from initial implementation. See
+    _MessageQryDetailsSerializer's docstring for the precedent.
+    """
+
+    resource_details = ResourceDetailsSerializer(required=True)
 
 
 class ResourceCreateQrySerializer(serializers.Serializer):
-    """POST /resource/new request body: { "qry": { "details": <resource_details> } }"""
+    """POST /resource/new request body: { "qry": { "resource_details": <resource_details> } }"""
 
     qry = _ResourceQryDetailsSerializer(required=True)
 
@@ -322,13 +333,24 @@ class SubscriberDetailsRequiredSerializer(serializers.Serializer):
 
 
 class _SubscriberQryDetailsSerializer(serializers.Serializer):
-    """Inner { "details": ... } wrapper used by SubscriberCreateQrySerializer."""
+    """
+    Inner wrapper used by SubscriberCreateQrySerializer.
 
-    details = SubscriberDetailsSerializer(required=True)
+    The real GovStack subscriber_new_qry schema wraps the create payload
+    under the entity-specific key "subscriber_details" (verified directly
+    against the fetched OpenAPI spec's components.schemas.subscriber_new_qry)
+    — NOT the generic "details" key. This mirrors the exact bug class Wave
+    F's review found and fixed for Message/AlertSchedule's create wrapper
+    keys; Subscriber (a Wave C group, never revisited until this final
+    certifiability pass) had the same bug from initial implementation. See
+    _MessageQryDetailsSerializer's docstring for the precedent.
+    """
+
+    subscriber_details = SubscriberDetailsSerializer(required=True)
 
 
 class SubscriberCreateQrySerializer(serializers.Serializer):
-    """POST /subscriber/new request body: { "qry": { "details": <subscriber_details> } }"""
+    """POST /subscriber/new request body: { "qry": { "subscriber_details": <subscriber_details> } }"""
 
     qry = _SubscriberQryDetailsSerializer(required=True)
 
@@ -374,32 +396,91 @@ class AffiliationDetailsSerializer(serializers.Serializer):
 
 
 class AffiliationFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /affiliation/list_details."""
+    """
+    Filter parameters for GET /affiliation/list_details.
+
+    BUG FIX (verified directly against the fetched real GovStack OpenAPI
+    spec's components.schemas.affiliation_filter): the filter field is
+    literally named "category" — NOT "resource_category" (that name is only
+    used on the separate affiliation_details create/response schema, which
+    is unaffected and unchanged — see AffiliationDetailsSerializer above).
+    Unlike Log's two documented Spec Quirks (a real inconsistency *within*
+    the upstream spec itself, deliberately preserved), this is a
+    straightforward field-name bug in this codebase with no such
+    counter-indication in the spec, so it is renamed here rather than kept.
+    The renamed "category" flag/filter still reads from and gates the
+    model's/response's "resource_category" value — see
+    AffiliationDetailsRequiredSerializer below and
+    services.govstack_affiliation.affiliation_list for the read side.
+
+    from_/to are the real spec's affiliation_filter.from/affiliation_filter.to
+    date-range window fields — entirely absent before this fix. "from" is a
+    Python reserved word and cannot be a class attribute; it is remapped to
+    "from_" in to_internal_value() — identical technique to
+    EventFilterSerializer/AppointmentFilterSerializer/LogFilterSerializer
+    above (see those docstrings for the precedent this replicates). The
+    range filters GovStackAffiliation.created_at — see
+    services.govstack_affiliation.affiliation_list's docstring for why
+    created_at (not updated_at) was chosen as the filtered timestamp field.
+    """
 
     affiliation_id = serializers.CharField(required=False, allow_blank=True)
     resource_id = serializers.CharField(required=False, allow_blank=True)
     entity_id = serializers.CharField(required=False, allow_blank=True)
-    resource_category = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True)
+    from_ = serializers.CharField(required=False, allow_blank=True)
+    to = serializers.CharField(required=False, allow_blank=True)
+
+    def to_internal_value(self, data):
+        data = dict(data)
+        if "from" in data and "from_" not in data:
+            data["from_"] = data.pop("from")
+        return super().to_internal_value(data)
 
 
 class AffiliationDetailsRequiredSerializer(serializers.Serializer):
-    """Boolean flags controlling which Affiliation fields appear in list responses."""
+    """
+    Boolean flags controlling which Affiliation fields appear in list responses.
+
+    BUG FIX (verified directly against the fetched real GovStack OpenAPI
+    spec's components.schemas.affiliation_details_required): the flag is
+    literally named "category" — NOT "resource_category". As with
+    AffiliationFilterSerializer above, this is a genuine field-name bug (not
+    a spec quirk to preserve), so it is renamed here. The flag still gates
+    the response's "resource_category" field (the real field name on
+    affiliation_details itself, which is unchanged) — only the
+    REQUIRED-flags lookup key changes, matching the flag-name-vs-
+    response-field-name distinction established by Log's Spec Quirk #2
+    (services.govstack_log.log_list / LogDetailsRequiredSerializer's
+    "logger_category" flag gating the response's "logger_role" field).
+    """
 
     affiliation_id = serializers.BooleanField(required=False, default=True)
     resource_id = serializers.BooleanField(required=False, default=True)
     entity_id = serializers.BooleanField(required=False, default=True)
-    resource_category = serializers.BooleanField(required=False, default=True)
+    category = serializers.BooleanField(required=False, default=True)
     work_days_hours = serializers.BooleanField(required=False, default=False)
 
 
 class _AffiliationQryDetailsSerializer(serializers.Serializer):
-    """Inner { "details": ... } wrapper used by AffiliationCreateQrySerializer."""
+    """
+    Inner wrapper used by AffiliationCreateQrySerializer.
 
-    details = AffiliationDetailsSerializer(required=True)
+    The real GovStack affiliation_new_qry schema wraps the create payload
+    under the entity-specific key "affiliation_details" (verified directly
+    against the fetched OpenAPI spec's components.schemas.affiliation_new_qry)
+    — NOT the generic "details" key. This mirrors the exact bug class Wave
+    F's review found and fixed for Message/AlertSchedule's create wrapper
+    keys; Affiliation (a Wave B group, never revisited until this final
+    certifiability pass) had the same bug from initial implementation. See
+    _MessageQryDetailsSerializer's docstring for the precedent.
+    """
+
+    affiliation_details = AffiliationDetailsSerializer(required=True)
 
 
 class AffiliationCreateQrySerializer(serializers.Serializer):
-    """POST /affiliation/new request body: { "qry": { "details": <affiliation_details> } }"""
+    """POST /affiliation/new request body: { "qry": { "affiliation_details": <affiliation_details> } }"""
 
     qry = _AffiliationQryDetailsSerializer(required=True)
 
@@ -525,6 +606,20 @@ class EventFilterSerializer(serializers.Serializer):
     remapped from the wire-format key to the Python-safe attribute name
     "from_" in to_internal_value(). deadline_from/deadline_to are kept as a
     non-spec CivicOS extension for backward compatibility.
+
+    description/subscriber_limit/terms (verified directly against the
+    fetched real GovStack OpenAPI spec's components.schemas.event_filter):
+    these three filterable string fields were entirely missing before this
+    fix. See services.govstack_event.event_list for how each is applied.
+
+    venue GAP (deliberate, documented — not fixed here): the real spec's
+    event_filter.venue field is a nested object (building/street/area/city/
+    state/country/lat/long), not a flat filterable value. Query-string-based
+    filtering on a nested object is out of scope/impractical for this
+    endpoint's filter model (there is no established convention in this
+    codebase for nested-object query filters), so venue filtering remains
+    unimplemented. Flagged here for certification-review visibility rather
+    than silently omitted.
     """
 
     event_id = serializers.CharField(required=False, allow_blank=True)
@@ -532,6 +627,9 @@ class EventFilterSerializer(serializers.Serializer):
     category = serializers.CharField(required=False, allow_blank=True)
     host_entity_id = serializers.CharField(required=False, allow_blank=True)
     status = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    subscriber_limit = serializers.CharField(required=False, allow_blank=True)
+    terms = serializers.CharField(required=False, allow_blank=True)
     deadline_from = serializers.CharField(required=False, allow_blank=True)
     deadline_to = serializers.CharField(required=False, allow_blank=True)
     from_ = serializers.CharField(required=False, allow_blank=True)
@@ -545,14 +643,33 @@ class EventFilterSerializer(serializers.Serializer):
 
 
 class EventDetailsRequiredSerializer(serializers.Serializer):
-    """Boolean flags controlling which Event fields appear in list responses."""
+    """
+    Boolean flags controlling which Event fields appear in list responses.
+
+    BUG FIX (verified directly against the fetched real GovStack OpenAPI
+    spec's components.schemas.event_details_required): the real flag is
+    literally named "period" — a boolean gate that does not exist in this
+    serializer before this fix. The serializer previously declared an
+    undocumented "slots" flag instead, which is not present anywhere in the
+    real spec's event_details_required schema. Renamed here to "period" to
+    match the spec.
+
+    The renamed "period" flag still gates the response's "slots" field (the
+    established CivicOS response key for the per-event from/to occurrence
+    window) — only the REQUIRED-flags lookup key changes, matching the
+    flag-name-vs-response-field-name distinction established by Log's Spec
+    Quirk #2 (services.govstack_log.log_list / LogDetailsRequiredSerializer's
+    "logger_category" flag gating the response's "logger_role" field). See
+    services.govstack_event.event_list's _slot_to_event_dict for the read
+    side of this gate.
+    """
 
     event_id = serializers.BooleanField(required=False, default=True)
     name = serializers.BooleanField(required=False, default=True)
     description = serializers.BooleanField(required=False, default=False)
     category = serializers.BooleanField(required=False, default=True)
     host_entity_id = serializers.BooleanField(required=False, default=True)
-    slots = serializers.BooleanField(required=False, default=False)
+    period = serializers.BooleanField(required=False, default=False)
     deadline = serializers.BooleanField(required=False, default=False)
     subscriber_limit = serializers.BooleanField(required=False, default=False)
     terms = serializers.BooleanField(required=False, default=False)

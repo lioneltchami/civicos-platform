@@ -7,10 +7,9 @@ Namespace:  govstack_scheduler
 All 37 endpoints implement the GovStack Scheduler BB OpenAPI path convention:
   /<entity>/<operation>
 
-Wave A stubs: every endpoint returns HTTP 501 Not Implemented via the
-govstack_not_implemented view defined below. This avoids importing from the
-not-yet-existing govstack_views module. Concrete implementations replace these
-stubs in Waves B–G.
+Status: FINISHED — all 37 endpoints across all 9 API groups are live,
+concrete APIView classes (Waves B–G). There are no remaining stub/placeholder
+routes in this module.
 
 Entity groups and endpoint counts:
   event          → 4 endpoints  (Wave D)
@@ -31,10 +30,7 @@ Ordering note for resource paths:
   is purely for human readability and to make intent explicit.
 """
 from django.urls import path
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.response import Response
 
-from apps.appointments.govstack_auth import GovStackSchedulerAuth, GovStackSchedulerPermission
 from apps.appointments.govstack_views import (
     # Wave B — Entity
     EntityNewView,
@@ -85,31 +81,6 @@ from apps.appointments.govstack_views import (
 )
 
 app_name = "govstack_scheduler"
-
-
-@api_view(["GET", "POST", "PUT", "DELETE"])
-@authentication_classes([GovStackSchedulerAuth])
-@permission_classes([GovStackSchedulerPermission])
-def govstack_not_implemented(request, *args, **kwargs):
-    """
-    Wave A stub view — returns HTTP 501 Not Implemented for all endpoints.
-
-    GovStackSchedulerAuth and GovStackSchedulerPermission are applied explicitly
-    so that requestor_id + request_token validation is exercised even before the
-    real Wave B–G views exist. Unauthenticated callers receive 403, not 501.
-    Authenticated GovStack BB callers receive 501 — the expected harness response
-    for unimplemented-but-reachable endpoints.
-
-    This stub will be replaced with real APIView classes in Waves B–G.
-    """
-    return Response(
-        {
-            "status": "error",
-            "code": "NOT_IMPLEMENTED",
-            "message": "This endpoint is scheduled for a future implementation wave.",
-        },
-        status=501,
-    )
 
 
 urlpatterns = [

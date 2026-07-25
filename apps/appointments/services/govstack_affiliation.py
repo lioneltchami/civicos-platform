@@ -9,16 +9,55 @@ CRUD operations:
   affiliation_modify  → update resource_category and/or work_days_hours
   affiliation_delete  → hard delete (no downstream FKs on Affiliation; soft-delete not needed)
   affiliation_list    → filter + return as GovStack dicts
+
+Filter field naming (final certifiability review FIX 2): the real GovStack
+OpenAPI spec's affiliation_filter/affiliation_details_required schemas name
+this field "category" — NOT "resource_category" (that name is only used on
+the affiliation_details create/response schema itself, which is unaffected).
+affiliation_list() below reads the "category" key from affiliation_filter
+and affiliation_details_required accordingly; see
+govstack_serializers.AffiliationFilterSerializer /
+AffiliationDetailsRequiredSerializer for the serializer-side fix and full
+rationale.
 """
 from __future__ import annotations
 
 import logging
 
 from django.db import IntegrityError, transaction
+from django.utils.dateparse import parse_datetime
+from django.utils.timezone import is_naive
 
 from apps.appointments.models import GovStackAffiliation, Organization, Resource
 
 logger = logging.getLogger("civicos.appointments.services.govstack_affiliation")
+
+# Hard cap on /affiliation/list_details result size — matches the identical
+# convention/value already established in govstack_appointment.py,
+# govstack_alert_schedule.py, govstack_message.py, and govstack_log.py.
+_LIST_PAGE_CAP = 500
+
+# Duplicated (rather than imported) from the near-identical helper in
+# services.govstack_event / services.govstack_log — matches this codebase's
+# established convention of keeping small private helpers local to each
+# service module (see services.govstack_log._parse_datetime_str's docstring
+# for the precedent/rationale).
+def _parse_datetime_str(value: str):
+    """
+    Parse an ISO 8601 datetime string, requiring timezone awareness.
+
+    Raises ValueError for unparseable or naive (no tz) strings.
+    """
+    if not value:
+        raise ValueError("Datetime string must not be empty.")
+    dt = parse_datetime(value)
+    if dt is None:
+        raise ValueError(f"Cannot parse datetime string: {value!r}")
+    if is_naive(dt):
+        raise ValueError(
+            f"Datetime must include a timezone offset (e.g. '2026-08-01T09:00:00Z'): {value!r}"
+        )
+    return dt
 
 
 # ---------------------------------------------------------------------------
@@ -133,15 +172,42 @@ def affiliation_list(
     Return list of affiliations filtered and shaped by the request params.
 
     Applies optional filter parameters from affiliation_filter:
-      affiliation_id    — exact match on PK
-      resource_id       — exact match on resource FK
-      entity_id         — exact match on entity FK
-      resource_category — case-insensitive contains
+      affiliation_id — exact match on PK
+      resource_id    — exact match on resource FK
+      entity_id      — exact match on entity FK
+      category       — case-insensitive contains on resource_category (FIX 2:
+                       the real spec's affiliation_filter field is literally
+                       named "category" — NOT "resource_category"; see this
+                       module's docstring and
+                       govstack_serializers.AffiliationFilterSerializer for
+                       the full rationale)
+      from_ / to     — real spec's affiliation_filter.from/to date-range
+                       window, filtered on GovStackAffiliation.created_at
+                       (the only timestamp field on this model — chosen over
+                       updated_at because "from"/"to" reads most naturally as
+                       "when was this affiliation established", matching
+                       created_at's semantics; there is no field on
+                       GovStackAffiliation representing an occurrence window
+                       the way Slot.start_datetime/end_datetime does for
+                       Event/Log, so created_at is the most sensible
+                       approximation. Documented here explicitly per the
+                       final certifiability review's instruction to call out
+                       this choice rather than silently pick a field).
+                       NOTE: the wire-format key is literally "from" —
+                       AffiliationFilterSerializer remaps it to the
+                       Python-safe attribute name "from_"; the view layer
+                       remaps it back to "from" before calling this function
+                       (identical pattern to LogListDetailsView — see
+                       govstack_views.py).
 
     Shapes each result using affiliation_details_required boolean flags.
     affiliation_id is always included in the output regardless of the flag.
+    The "category" flag (FIX 2 — same rename as the filter field above)
+    gates the response's "resource_category" field, which is unchanged (the
+    real field name on affiliation_details itself).
 
-    Returns a list of dicts ready for JSON serialisation.
+    Returns a list of dicts ready for JSON serialisation, capped at
+    _LIST_PAGE_CAP (500) results.
     """
     qs = GovStackAffiliation.objects.all()
 
@@ -160,15 +226,25 @@ def affiliation_list(
     if entity_id_filter:
         qs = qs.filter(entity_id=entity_id_filter)
 
-    resource_category_filter = filter_data.get("resource_category", "")
-    if resource_category_filter:
-        qs = qs.filter(resource_category__icontains=resource_category_filter)
+    category_filter = filter_data.get("category", "")
+    if category_filter:
+        qs = qs.filter(resource_category__icontains=category_filter)
+
+    from_str = filter_data.get("from", "")
+    if from_str:
+        dt = _parse_datetime_str(from_str)
+        qs = qs.filter(created_at__gte=dt)
+
+    to_str = filter_data.get("to", "")
+    if to_str:
+        dt = _parse_datetime_str(to_str)
+        qs = qs.filter(created_at__lte=dt)
 
     # --- shape results ---
     required = affiliation_details_required or {}
     results: list[dict] = []
 
-    for aff in qs:
+    for aff in qs.order_by("-created_at")[:_LIST_PAGE_CAP]:
         record: dict = {"affiliation_id": str(aff.pk)}  # always included
 
         if required.get("resource_id", True):
@@ -177,7 +253,7 @@ def affiliation_list(
         if required.get("entity_id", True):
             record["entity_id"] = str(aff.entity_id)
 
-        if required.get("resource_category", True):
+        if required.get("category", True):
             record["resource_category"] = aff.resource_category
 
         if required.get("work_days_hours", False):

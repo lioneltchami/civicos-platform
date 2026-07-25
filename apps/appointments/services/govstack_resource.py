@@ -42,6 +42,13 @@ from apps.appointments.models import (
 
 logger = logging.getLogger("civicos.appointments.services.govstack_resource")
 
+# Hard cap on /resource/list_details and /resource/availability result size
+# — matches the identical convention/value already established in
+# govstack_appointment.py, govstack_alert_schedule.py, govstack_message.py,
+# and govstack_log.py. Applied independently to the Resource and StaffProfile
+# querysets in resource_list() (a chained union of the two).
+_LIST_PAGE_CAP = 500
+
 # ---------------------------------------------------------------------------
 # Alert preference validation
 # ---------------------------------------------------------------------------
@@ -336,7 +343,7 @@ def resource_list(
         if email_filter:
             qs = qs.filter(email__icontains=email_filter)
 
-        for resource in qs:
+        for resource in qs[:_LIST_PAGE_CAP]:
             record: dict = {"resource_id": f"R-{resource.pk}"}
 
             if dr.get("name", True):
@@ -384,7 +391,7 @@ def resource_list(
             # email_filter: PIPEDA — StaffProfile.user.email must NEVER be
             # exposed via the GovStack API. Skip email filtering for StaffProfiles.
 
-            for staff in sqs:
+            for staff in sqs[:_LIST_PAGE_CAP]:
                 record = {"resource_id": f"S-{staff.pk}"}
 
                 if dr.get("name", True):
@@ -421,7 +428,8 @@ def resource_get_availability(resource_filter: dict) -> list[dict]:
       - category    (optional, free-form string)
 
     Queries Slot model for status in ["available", "partial"] and applies all
-    supplied filters. Returns list of slot dicts.
+    supplied filters. Returns list of slot dicts, ordered by start_datetime
+    and capped at _LIST_PAGE_CAP (500) results.
 
     Raises ValueError for invalid datetime strings in from/to — callers should
     convert this to a 400 response.
@@ -524,7 +532,7 @@ def resource_get_availability(resource_filter: dict) -> list[dict]:
     # If the caller queried R-N (resource room), emit R-N.
     # If no filter, use whichever field is set on the slot (resource first, then staff).
     results: list[dict] = []
-    for slot in qs.select_related("resource", "staff"):
+    for slot in qs.select_related("resource", "staff").order_by("start_datetime")[:_LIST_PAGE_CAP]:
         if staff_targeted:
             resource_id_out = f"S-{slot.staff_id}"
         elif resource_targeted:

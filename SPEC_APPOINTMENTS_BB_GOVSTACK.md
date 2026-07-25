@@ -902,24 +902,129 @@ config/settings/base.py          # Add GOVSTACK_SCHEDULER_* settings if needed
 
 To reach GovStack Scheduler BB certification:
 
-- [ ] All 37 endpoints implemented and returning correct response shapes
+- [x] All 37 endpoints implemented and returning correct response shapes (verified against the
+      real fetched OpenAPI spec endpoint-by-endpoint in the final certifiability pass, §13)
 - [x] `requestor_id` + `request_token` auth validated on every endpoint
 - [x] `requestor_id` resolves to an actor with the correct role for the requested operation
       (see §8.1 — `GovStackRegisteredBB.role` in production mode; `GovStackCitizenAuth` binds
       subscriber-tier Appointment calls to a real CivicOS citizen JWT identity)
 - [x] `HTTP 403` returned when actor role is insufficient (not 401) — enforced by
-      `GovStackSchedulerRolePermission` (wired into all 25 views) and `AppointmentOwnershipError`
+      `GovStackSchedulerRolePermission` (wired into all 37 views) and `AppointmentOwnershipError`
       for citizen-vs-participant_id mismatches
-- [ ] `HTTP 404` returned when a queried entity does not exist
-- [ ] `HTTP 400` with meaningful error code returned for missing required parameters
-- [ ] `exclusive` flag on `/appointment/new` enforces single-booking on that slot
-- [ ] `/resource/availability` returns correct free slots filtered by entity and date range
-- [ ] `/log/list_details` returns all audit events filterable by entity, category, date range
-- [ ] `PUT /log/modifications` and `DELETE /log` return 405 (preserve audit immutability)
-- [ ] All PII (citizen name, email) excluded from log_data in audit records
-- [ ] `alert_url` callbacks dispatched via Celery (not synchronous in request cycle)
-- [ ] GovStack harness integration tests pass end-to-end
+- [x] `HTTP 404` returned when a queried entity does not exist
+- [x] `HTTP 400` with meaningful error code returned for missing required parameters
+- [x] `exclusive` flag on `/appointment/new` enforces single-booking on that slot
+- [x] `/resource/availability` returns correct free slots filtered by entity and date range
+- [x] `/log/list_details` returns all audit events filterable by entity, category, date range
+- [x] `PUT /log/modifications` and `DELETE /log` return 405 (preserve audit immutability)
+- [ ] All PII (citizen name, email) excluded from log_data in audit records — **partial**: this is
+      an explicit, documented ASSUMPTION about GovStack caller behaviour (BB-to-BB/admin-tier
+      callers, operational correlation data only), not a guarantee enforced by code — see
+      `services/govstack_log.py`'s module docstring and the Wave G review finding that corrected
+      an earlier inaccurate "never echoed verbatim" claim. Left unchecked deliberately.
+- [x] `alert_url` callbacks dispatched via Celery (not synchronous in request cycle)
+- [ ] GovStack harness integration tests pass end-to-end — **not verified**: this implementation
+      has been checked for literal conformance against the real fetched OpenAPI spec (schemas,
+      paths, wrapper keys, status codes) across every wave and the final certifiability pass, but
+      no actual GovStack conformance harness run has been performed against a live instance of
+      this codebase. Left unchecked deliberately — this is the one item that can only be closed
+      by an actual harness run, not by further code review.
 
 ---
 
-*This document was generated from the GovStack Scheduler BB OpenAPI JSON (`api/Govstack_scheduler_BB_APIs.json`, 103KB, 37 endpoints) and the CivicOS `apps/appointments/` source tree. Build order: Wave A → B → C → D → E → F → G.*
+## 13. Final End-to-End Certifiability Review (post Wave G)
+
+**Status: complete.** After all 9 API groups (37 endpoints) were implemented and each wave
+individually deep-reviewed (Waves A–G), a final cross-cutting pass was run across the *entire*
+finished BB using two independent agents — one focused on architecture/security/cross-group
+consistency, one on literal endpoint-by-endpoint spec conformance and test coverage — each
+fetching the real GovStack OpenAPI spec fresh rather than relying on any prior wave's
+self-reported "verified against spec" claims.
+
+**Critical finding, confirmed by both agents independently and personally re-verified against
+the raw fetched spec before any fix was applied:** the exact `qry` wrapper-key bug class Wave F's
+own review found and fixed for Message/AlertSchedule was still present, unfixed, in 3 of 9
+groups — Resource, Subscriber, and Affiliation (all Wave B/C groups, never revisited by any
+later wave's review, since each wave's review only self-audited its own group). The real spec's
+`resource_new_qry`/`subscriber_new_qry`/`affiliation_new_qry` schemas wrap the create payload
+under `resource_details`/`subscriber_details`/`affiliation_details` respectively; the
+implementation used the generic `details` key for all three, meaning `POST /resource/new`,
+`POST /subscriber/new`, and `POST /affiliation/new` would reject every literal-spec-compliant
+GovStack harness payload with 400 — despite passing 100% of CivicOS's own tests, because (for
+Resource and Affiliation) no dedicated test file existed at all, and (for Subscriber) the
+existing 46 tests were written against the bug's shape rather than the spec's. This is precisely
+the failure mode a per-wave review structurally cannot catch — it only becomes visible when the
+whole finished BB is checked as a single surface.
+
+**All confirmed findings fixed in this final pass:**
+
+1. **(Critical)** Wrapper-key fix for Resource/Subscriber/Affiliation `*_new_qry`, matching the
+   Wave F precedent exactly — `_ResourceQryDetailsSerializer`/`_SubscriberQryDetailsSerializer`/
+   `_AffiliationQryDetailsSerializer` now use `resource_details`/`subscriber_details`/
+   `affiliation_details`; the three views' `qry` read sites updated to match.
+2. **(High)** `AffiliationFilterSerializer`/`AffiliationDetailsRequiredSerializer` used
+   `resource_category` where the real spec's `affiliation_filter`/`affiliation_details_required`
+   schemas literally use `category` (a genuine field-name bug in this codebase, not a spec-side
+   inconsistency like Log's two documented quirks — verified directly, so renamed rather than
+   preserved) — the flag now gates the response's `resource_category` field, matching the
+   flag-name-vs-response-field-name pattern already established by Log's Spec Quirk #2. Added the
+   spec's `from`/`to` date-range filter fields, previously entirely absent, filtering on
+   `GovStackAffiliation.created_at`.
+3. **(Medium-High)** Entity/Resource/Affiliation list endpoints (`entity_list`, `resource_list`,
+   `resource_get_availability`, `affiliation_list`) had no result cap at all, unlike every other
+   group's established `_LIST_PAGE_CAP = 500` convention — added, plus the matching `"truncated"`
+   response field these three groups' list views were missing.
+4. **(Medium)** `EventFilterSerializer` was missing the spec's `description`/`subscriber_limit`/
+   `terms` filter fields (added, wired into `event_list()`; the spec's nested-object `venue`
+   filter remains a documented, deliberate gap — impractical for a query-string filter).
+   `EventDetailsRequiredSerializer` had an undocumented `slots` flag where the real spec's
+   `event_details_required` uses `period` — renamed the gating flag to `period` while leaving the
+   response's own field name unchanged, again matching the Log Spec-Quirk-#2 pattern.
+5. **(Test coverage)** Built `test_govstack_entity.py`, `test_govstack_resource.py`,
+   `test_govstack_affiliation.py` from scratch (previously zero dedicated tests existed for these
+   3 groups — 13 of 37 endpoints had no automated coverage at all). Fixed all of
+   `test_govstack_subscriber.py`'s create tests, which built payloads against the old, incorrect
+   wrapper key. Added auth-enforcement (403 / zero-credential 401-403) tests to
+   `test_govstack_event.py`, which previously had none despite 55 tests overall.
+6. **(Cosmetic)** Removed the dead Wave-A `govstack_not_implemented` 501 stub view and its
+   now-unused imports from `govstack_urls.py` — no longer referenced by any route now that all 37
+   endpoints are real views.
+
+**Findings deliberately documented rather than code-changed in this pass** (design/policy
+judgment calls, not conformance defects — changing them carries real blast radius against a
+codebase this mature, so they are flagged here for a human maintainer's decision rather than
+silently altered):
+- `SubscriberListDetailsView` (exposes citizen PII — name/email/phone/alert_url) is gated at
+  `organizer` tier, while non-PII `EntityListDetailsView`/`AffiliationListDetailsView` are gated
+  at the higher `admin` tier — backwards from a data-sensitivity standpoint. No documented
+  rationale for the asymmetry was found.
+- `GovStackRegisteredBB.role` defaults to `"organizer"` (shared model with the Payments BB) rather
+  than the lowest tier (`"resource"`) — a newly-registered BB an admin forgets to explicitly
+  downgrade inherits broader capabilities than least-privilege would suggest. Registration is
+  admin-controlled, so this is not a remote-attacker vector, but worth revisiting.
+- `BookingAuditLog.booking` and `GovStackAlertSchedule.slot` are both `on_delete=CASCADE`, while
+  their models' own `.delete()` overrides encode compliance-critical invariants (7-year ATIA
+  audit retention; Celery task revocation) that Django's bulk cascade collector bypasses on a
+  cascaded hard-delete. Not currently exploitable — no code path in the app hard-deletes a
+  `Booking`, and `BookingAdmin.has_delete_permission()` returns `False` — but relying on "nobody
+  calls `.delete()`" rather than `on_delete=PROTECT` is fragile defense-in-depth for a
+  compliance-critical invariant.
+
+**Verified independently before committing:** `manage.py check` (0 issues), full
+`apps.appointments` suite (799/799 passing, up from 668 at the end of Wave G's own review —
++131 tests: 3 new files plus Subscriber/Event additions), `makemigrations --check --dry-run
+appointments` (only the pre-existing, already-documented `govstacksubscriberprofile
+.alert_preference` drift, unrelated to this pass). Spot-checked the new Resource test file
+directly to confirm its "real spec wire format" tests genuinely exercise `resource_details`, not
+a restatement of the old bug.
+
+**Overall verdict:** all 37 GovStack Scheduler BB endpoints are now implemented, individually
+deep-reviewed, and checked as a complete cross-cutting surface against the real fetched OpenAPI
+spec — including catching and closing a certification-blocking regression that no single wave's
+isolated review could have found. The BB is code-complete and spec-conformant to the depth this
+process can verify without an actual GovStack conformance harness run, which remains the one
+open item (§12).
+
+---
+
+*This document was generated from the GovStack Scheduler BB OpenAPI JSON (`api/Govstack_scheduler_BB_APIs.json`, 103KB, 37 endpoints) and the CivicOS `apps/appointments/` source tree. Build order: Wave A → B → C → D → E → F → G, followed by a final end-to-end certifiability pass (§13).*

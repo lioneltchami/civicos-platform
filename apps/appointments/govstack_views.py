@@ -478,7 +478,7 @@ class EntityListDetailsView(APIView):
       }
 
     Returns:
-      200 {"status": "success", "data": [...]}
+      200 {"status": "success", "data": [...], "truncated": <bool>}
       400 on missing/invalid params
     """
 
@@ -515,7 +515,14 @@ class EntityListDetailsView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "data": data}, status=200)
+        return Response(
+            {
+                "status": "success",
+                "data": data,
+                "truncated": len(data) == 500,
+            },
+            status=200,
+        )
 
 
 # ===========================================================================
@@ -529,8 +536,11 @@ class ResourceNewView(APIView):
     Creates a new GovStack Resource backed by a CivicOS Resource model instance.
     All request data arrives via query parameters:
       - requestor_id, request_token (auth)
-      - qry: JSON-encoded { "qry": { "details": { name, category, phone, email,
-              alert_url, alert_preference, status_poll_url } } }
+      - qry: JSON-encoded { "qry": { "resource_details": { name, category, phone,
+              email, alert_url, alert_preference, status_poll_url } } }
+              (real spec key is "resource_details", NOT "details" — verified
+              against the fetched GovStack OpenAPI spec; see
+              govstack_serializers._ResourceQryDetailsSerializer)
 
     Resource.location is satisfied by a lazily-seeded "GovStack System Location"
     placeholder (the GovStack spec has no location concept at resource creation;
@@ -558,7 +568,7 @@ class ResourceNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["details"]
+        details = ser.validated_data["qry"]["resource_details"]
         try:
             resource = resource_create(**details)
         except ValueError as exc:
@@ -750,7 +760,7 @@ class ResourceListDetailsView(APIView):
     set by staff for GovStack callbacks) is exposed.
 
     Returns:
-      200 {"status": "success", "data": [...]}
+      200 {"status": "success", "data": [...], "truncated": <bool>}
       400 on invalid params
     """
 
@@ -790,7 +800,20 @@ class ResourceListDetailsView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "data": data}, status=200)
+        # resource_list() is a union of two independently-capped querysets
+        # (Resource + StaffProfile, each capped at 500 — see
+        # services.govstack_resource._LIST_PAGE_CAP), so "truncated" here
+        # means "at least one of the two underlying querysets may have been
+        # cut off", signalled conservatively by the combined length reaching
+        # the theoretical max of 1000.
+        return Response(
+            {
+                "status": "success",
+                "data": data,
+                "truncated": len(data) >= 1000,
+            },
+            status=200,
+        )
 
 
 class ResourceAvailabilityView(APIView):
@@ -812,7 +835,7 @@ class ResourceAvailabilityView(APIView):
     invalid strings return 400.
 
     Returns:
-      200 {"status": "success", "data": [...]}
+      200 {"status": "success", "data": [...], "truncated": <bool>}
       400 on invalid params or datetime format error
     """
 
@@ -860,7 +883,14 @@ class ResourceAvailabilityView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "data": slots}, status=200)
+        return Response(
+            {
+                "status": "success",
+                "data": slots,
+                "truncated": len(slots) == 500,
+            },
+            status=200,
+        )
 
 
 # ===========================================================================
@@ -874,8 +904,10 @@ class AffiliationNewView(APIView):
     Create a new Affiliation linking a Resource to an Entity. All request data
     arrives as query parameters; affiliation details are embedded in `qry`.
 
-    Expected qry shape:
-      {"qry": {"details": {"resource_id": "...", "entity_id": "...",
+    Expected qry shape (real spec key is "affiliation_details", NOT
+    "details" — verified against the fetched GovStack OpenAPI spec; see
+    govstack_serializers._AffiliationQryDetailsSerializer):
+      {"qry": {"affiliation_details": {"resource_id": "...", "entity_id": "...",
                            "resource_category": "...", "work_days_hours": {...}}}}
 
     Returns:
@@ -902,7 +934,7 @@ class AffiliationNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["details"]
+        details = ser.validated_data["qry"]["affiliation_details"]
         resource_id = details.get("resource_id", "")
         entity_id = details.get("entity_id", "")
 
@@ -1134,14 +1166,22 @@ class AffiliationListDetailsView(APIView):
 
     Expected qry shape:
       {
-        "affiliation_filter": {"entity_id": "5", "resource_category": "nurse"},
+        "affiliation_filter": {"entity_id": "5", "category": "nurse",
+                               "from": "...", "to": "..."},
         "affiliation_details_required": {"affiliation_id": true, "resource_id": true,
                                          "entity_id": true, "work_days_hours": false}
       }
 
+    NOTE: affiliation_filter and affiliation_details_required use "category"
+    — NOT "resource_category" (a bug fixed in the final certifiability
+    review; see govstack_serializers.AffiliationFilterSerializer /
+    AffiliationDetailsRequiredSerializer's docstrings for the full
+    rationale). The response's own "resource_category" field name is
+    unchanged.
+
     Returns:
-      200 {"status": "success", "data": [...]}
-      400 on missing/invalid params
+      200 {"status": "success", "data": [...], "truncated": <bool>}
+      400 on missing/invalid params (e.g. malformed from/to datetimes)
     """
 
     gs_actor_role = "admin"
@@ -1164,8 +1204,26 @@ class AffiliationListDetailsView(APIView):
         affiliation_filter = ser.validated_data.get("affiliation_filter", {})
         affiliation_details_required = ser.validated_data.get("affiliation_details_required", {})
 
+        # AffiliationFilterSerializer's to_internal_value() remaps the
+        # wire-format "from" key to "from_" (Python reserved word
+        # workaround — see EventListDetailsView / EventFilterSerializer and
+        # LogListDetailsView / LogFilterSerializer for the identical
+        # pattern). affiliation_list() expects the raw "from" key, so remap
+        # back here.
+        if "from_" in affiliation_filter:
+            affiliation_filter["from"] = affiliation_filter.pop("from_")
+
         try:
             data = affiliation_list(affiliation_filter, affiliation_details_required)
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "AFFILIATION_LIST_FILTER_INVALID",
+                    "message": "Invalid filter parameters. Please check affiliation_filter values.",
+                },
+                status=400,
+            )
         except Exception:
             logger.exception("affiliation_list failed")
             return Response(
@@ -1177,7 +1235,14 @@ class AffiliationListDetailsView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "data": data}, status=200)
+        return Response(
+            {
+                "status": "success",
+                "data": data,
+                "truncated": len(data) == 500,
+            },
+            status=200,
+        )
 
 
 # ===========================================================================
@@ -1191,8 +1256,10 @@ class SubscriberNewView(APIView):
     Create a new Subscriber (User + GovStackSubscriberProfile). All request data
     arrives as query parameters; subscriber details are embedded in `qry`.
 
-    Expected qry shape:
-      {"qry": {"details": {"name": "...", "category": "...", "phone": "...",
+    Expected qry shape (real spec key is "subscriber_details", NOT
+    "details" — verified against the fetched GovStack OpenAPI spec; see
+    govstack_serializers._SubscriberQryDetailsSerializer):
+      {"qry": {"subscriber_details": {"name": "...", "category": "...", "phone": "...",
                            "email": "...", "alert_url": "...",
                            "alert_preference": "...", "status_poll_url": "..."}}}
 
@@ -1220,7 +1287,7 @@ class SubscriberNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["details"]
+        details = ser.validated_data["qry"]["subscriber_details"]
         try:
             profile = subscriber_create(
                 name=details.get("name", ""),

@@ -31,6 +31,11 @@ from apps.appointments.models import Organization
 
 logger = logging.getLogger("civicos.appointments.services.govstack_entity")
 
+# Hard cap on /entity/list_details result size — matches the identical
+# convention/value already established in govstack_appointment.py,
+# govstack_alert_schedule.py, govstack_message.py, and govstack_log.py.
+_LIST_PAGE_CAP = 500
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -244,7 +249,7 @@ def entity_list(
     required = entity_details_required or {}
     results: list[dict] = []
 
-    for org in qs:
+    for org in qs[:_LIST_PAGE_CAP]:
         record: dict = {"entity_id": str(org.pk)}  # always included
 
         if required.get("name", True):
