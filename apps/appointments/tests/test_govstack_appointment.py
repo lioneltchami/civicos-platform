@@ -24,8 +24,9 @@ import uuid
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils.dateparse import parse_datetime
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.appointments.models import (
     AppointmentType,
@@ -37,12 +38,14 @@ from apps.appointments.models import (
     StaffProfile,
 )
 from apps.appointments.services.govstack_appointment import (
+    AppointmentOwnershipError,
     appointment_create,
     appointment_delete,
     appointment_list,
     appointment_modify,
 )
 from apps.appointments.services.govstack_event import event_create
+from apps.payments.govstack_models import GovStackRegisteredBB
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -894,3 +897,252 @@ class AppointmentServiceTests(TestCase):
             participant_id=str(citizen.pk),
         )
         self.assertEqual(bookings[0].appointment_mode, "in_person")
+
+
+# ===========================================================================
+# AP53-AP59: Citizen JWT self-service ownership enforcement (IDOR fix)
+# ===========================================================================
+
+def _jwt_header(user) -> dict:
+    """Build a Django test-client kwargs dict carrying a Bearer JWT for `user`."""
+    token = str(RefreshToken.for_user(user).access_token)
+    return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+
+class AppointmentCitizenOwnershipTests(TestCase):
+    """
+    AP53-AP59: a citizen JWT-authenticated caller may only act on their OWN
+    appointments — GovStackCitizenAuth + GovStackSchedulerRolePermission +
+    the service-layer caller_citizen_id enforcement added to
+    appointment_create/appointment_delete/appointment_list.
+
+    GOVSTACK_SCHEDULER_REQUIRE_TOKEN is left at its test-settings default
+    (False) — the citizen JWT path does not depend on BB whitelist mode.
+    """
+
+    def setUp(self):
+        self.citizen = _create_citizen()
+        self.other_citizen = _create_citizen()
+        slots = _create_event(name="Ownership Event", slots=[_SLOT_1])
+        self.slot = slots[0]
+
+    # AP53
+    def test_ap53_citizen_jwt_create_without_participant_id_defaults_to_self(self):
+        """AP53: omitting participant_id on a citizen JWT call books for the caller themselves."""
+        details = {"event_ids": [str(self.slot.pk)]}
+        qry = {"qry": {"appointment_details": details}}
+        resp = self.client.post(
+            NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
+        )
+        self.assertEqual(resp.status_code, 201)
+        booking = Booking.objects.get(pk=resp.json()["appointment_id"])
+        self.assertEqual(booking.citizen_id, self.citizen.pk)
+
+    # AP54
+    def test_ap54_citizen_jwt_create_with_own_participant_id_allowed(self):
+        """AP54: explicitly setting participant_id to the caller's own pk is allowed."""
+        details = {
+            "event_ids": [str(self.slot.pk)],
+            "participant_type": "subscriber",
+            "participant_id": str(self.citizen.pk),
+        }
+        qry = {"qry": {"appointment_details": details}}
+        resp = self.client.post(
+            NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
+        )
+        self.assertEqual(resp.status_code, 201)
+
+    # AP55
+    def test_ap55_citizen_jwt_create_with_other_participant_id_returns_403(self):
+        """AP55: setting participant_id to a DIFFERENT citizen returns 403 and creates no Booking."""
+        details = {
+            "event_ids": [str(self.slot.pk)],
+            "participant_type": "subscriber",
+            "participant_id": str(self.other_citizen.pk),
+        }
+        qry = {"qry": {"appointment_details": details}}
+        resp = self.client.post(
+            NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(Booking.objects.filter(slot=self.slot).exists())
+
+    # AP56
+    def test_ap56_citizen_jwt_delete_own_appointment_allowed(self):
+        """AP56: a citizen can cancel their own appointment via a JWT call."""
+        bookings = appointment_create(
+            event_ids=[str(self.slot.pk)],
+            participant_type="subscriber",
+            participant_id=str(self.citizen.pk),
+        )
+        appointment_id = str(bookings[0].pk)
+        resp = self.client.delete(
+            DELETE_URL + _qs(appointment_id=appointment_id), **_jwt_header(self.citizen)
+        )
+        self.assertEqual(resp.status_code, 200)
+        bookings[0].refresh_from_db()
+        self.assertEqual(bookings[0].status, "cancelled")
+
+    # AP57
+    def test_ap57_citizen_jwt_delete_other_citizens_appointment_returns_403(self):
+        """AP57: a citizen cannot cancel another citizen's appointment — 403, DB state unchanged."""
+        bookings = appointment_create(
+            event_ids=[str(self.slot.pk)],
+            participant_type="subscriber",
+            participant_id=str(self.other_citizen.pk),
+        )
+        appointment_id = str(bookings[0].pk)
+        resp = self.client.delete(
+            DELETE_URL + _qs(appointment_id=appointment_id), **_jwt_header(self.citizen)
+        )
+        self.assertEqual(resp.status_code, 403)
+        bookings[0].refresh_from_db()
+        self.assertNotEqual(bookings[0].status, "cancelled")
+
+    # AP58
+    def test_ap58_citizen_jwt_list_only_returns_own_appointments(self):
+        """AP58: listing with no participant_id filter still only returns the caller's own appointments."""
+        appointment_create(
+            event_ids=[str(self.slot.pk)],
+            participant_type="subscriber",
+            participant_id=str(self.citizen.pk),
+        )
+        other_slots = _create_event(name="Other Ownership Event", slots=[_SLOT_2])
+        appointment_create(
+            event_ids=[str(other_slots[0].pk)],
+            participant_type="subscriber",
+            participant_id=str(self.other_citizen.pk),
+        )
+        resp = self.client.get(LIST_URL + _qs(), **_jwt_header(self.citizen))
+        self.assertEqual(resp.status_code, 200)
+        participant_ids = {r["participant_id"] for r in resp.json()["data"]}
+        self.assertEqual(participant_ids, {str(self.citizen.pk)})
+
+    # AP59
+    def test_ap59_citizen_jwt_list_ignores_other_participant_id_filter(self):
+        """AP59: passing someone else's participant_id as a filter does not widen the result set."""
+        appointment_create(
+            event_ids=[str(self.slot.pk)],
+            participant_type="subscriber",
+            participant_id=str(self.citizen.pk),
+        )
+        other_slots = _create_event(name="Other Ownership Event 2", slots=[_SLOT_2])
+        appointment_create(
+            event_ids=[str(other_slots[0].pk)],
+            participant_type="subscriber",
+            participant_id=str(self.other_citizen.pk),
+        )
+        qry = {"appointment_filter": {"participant_id": str(self.other_citizen.pk)}}
+        resp = self.client.get(LIST_URL + _qry_qs(qry), **_jwt_header(self.citizen))
+        self.assertEqual(resp.status_code, 200)
+        participant_ids = {r["participant_id"] for r in resp.json()["data"]}
+        self.assertEqual(participant_ids, {str(self.citizen.pk)})
+
+    # AP66 (service-level)
+    def test_ap66_service_appointment_create_ownership_mismatch_raises(self):
+        """AP66: appointment_create() itself raises AppointmentOwnershipError on a mismatched caller."""
+        with self.assertRaises(AppointmentOwnershipError):
+            appointment_create(
+                event_ids=[str(self.slot.pk)],
+                participant_type="subscriber",
+                participant_id=str(self.other_citizen.pk),
+                caller_citizen_id=self.citizen.pk,
+            )
+
+
+# ===========================================================================
+# AP60-AP65: BB-to-BB role gating on the citizen-capable endpoints
+# ===========================================================================
+
+@override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
+class AppointmentBBRoleGatingTests(TestCase):
+    """
+    AP60-AP65: a bare BB-to-BB caller (no citizen JWT) must have a resolved
+    role of "organizer" or higher to act on an arbitrary citizen's
+    appointment via AppointmentNewView / AppointmentDeleteView /
+    AppointmentListDetailsView — the existing staff/case-worker workflow,
+    preserved but now gated by GovStackRegisteredBB.role instead of being
+    unconditionally allowed.
+
+    request_token in _AUTH is "test-token" — the GovStackRegisteredBB row
+    created in each test uses that same bb_id.
+    """
+
+    def setUp(self):
+        self.citizen = _create_citizen()
+        slots = _create_event(name="BB Role Event", slots=[_SLOT_1])
+        self.slot = slots[0]
+
+    # AP60
+    def test_ap60_organizer_role_bb_can_create_for_arbitrary_participant(self):
+        """AP60: role='organizer' BB may create an appointment for any participant_id."""
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        details = {
+            "event_ids": [str(self.slot.pk)],
+            "participant_type": "subscriber",
+            "participant_id": str(self.citizen.pk),
+        }
+        qry = {"qry": {"appointment_details": details}}
+        resp = self.client.post(NEW_URL + _qry_qs(qry))
+        self.assertEqual(resp.status_code, 201)
+
+    # AP61
+    def test_ap61_organizer_role_bb_can_delete_arbitrary_appointment(self):
+        """AP61: role='organizer' BB may cancel any citizen's appointment."""
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        bookings = appointment_create(
+            event_ids=[str(self.slot.pk)],
+            participant_type="subscriber",
+            participant_id=str(self.citizen.pk),
+        )
+        resp = self.client.delete(DELETE_URL + _qs(appointment_id=str(bookings[0].pk)))
+        self.assertEqual(resp.status_code, 200)
+
+    # AP62
+    def test_ap62_organizer_role_bb_can_list_arbitrary_participant(self):
+        """AP62: role='organizer' BB may list appointments filtered to any participant_id."""
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        appointment_create(
+            event_ids=[str(self.slot.pk)],
+            participant_type="subscriber",
+            participant_id=str(self.citizen.pk),
+        )
+        qry = {"appointment_filter": {"participant_id": str(self.citizen.pk)}}
+        resp = self.client.get(LIST_URL + _qry_qs(qry))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()["data"]), 1)
+
+    # AP63
+    def test_ap63_resource_role_bb_denied_create(self):
+        """AP63: role='resource' (below 'organizer') is denied (403) on create."""
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        details = {
+            "event_ids": [str(self.slot.pk)],
+            "participant_type": "subscriber",
+            "participant_id": str(self.citizen.pk),
+        }
+        qry = {"qry": {"appointment_details": details}}
+        resp = self.client.post(NEW_URL + _qry_qs(qry))
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(Booking.objects.filter(slot=self.slot).exists())
+
+    # AP64
+    def test_ap64_resource_role_bb_denied_delete(self):
+        """AP64: role='resource' is denied (403) on delete; the booking is left untouched."""
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        bookings = appointment_create(
+            event_ids=[str(self.slot.pk)],
+            participant_type="subscriber",
+            participant_id=str(self.citizen.pk),
+        )
+        resp = self.client.delete(DELETE_URL + _qs(appointment_id=str(bookings[0].pk)))
+        self.assertEqual(resp.status_code, 403)
+        bookings[0].refresh_from_db()
+        self.assertNotEqual(bookings[0].status, "cancelled")
+
+    # AP65
+    def test_ap65_resource_role_bb_denied_list(self):
+        """AP65: role='resource' is denied (403) on list_details."""
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        resp = self.client.get(LIST_URL + _qs())
+        self.assertEqual(resp.status_code, 403)

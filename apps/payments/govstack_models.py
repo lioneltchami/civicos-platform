@@ -1228,6 +1228,24 @@ class GovStackRegisteredBB(TimestampedModel):
             "is present in the table. Use this to suspend access without deleting records."
         ),
     )
+    role = models.CharField(
+        max_length=20,
+        choices=[
+            ("resource", _("Resource")),
+            ("organizer", _("Organizer")),
+            ("admin", _("Admin")),
+        ],
+        default="organizer",
+        db_index=True,
+        verbose_name=_("Scheduler Role"),
+        help_text=_(
+            "Maximum GovStack Scheduler BB actor role this registered BB may act as "
+            "(subscriber → resource → organizer → admin). Consulted only by the "
+            "Scheduler BB's GovStackSchedulerAuth when GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True. "
+            "Does not apply to citizen/subscriber-tier calls, which require a CivicOS "
+            "citizen access token (JWT) instead of a bb_id role."
+        ),
+    )
 
     class Meta:
         verbose_name = _("GovStack Registered BB")

@@ -674,6 +674,48 @@ Map GovStack actor roles to Django groups/permissions:
 The `GovStackSchedulerAuth` class must derive the actor role from the resolved identity and
 enforce it per endpoint.
 
+### 8.1 Architecture Decision — Actor Identity & Role Resolution (post Wave E)
+
+**Status: implemented.** The Wave E deep review found that `GovStackSchedulerRolePermission`
+existed but was never wired into any view, and its `has_permission()` compared a view's own
+self-declared `gs_actor_role` against itself rather than against any real resolved caller
+identity — role enforcement was a no-op even where the class was used. Separately, no
+mechanism tied a `requestor_id` to a specific citizen, so any caller that passed the outer
+GovStack BB-to-BB auth gate could pass an arbitrary `participant_id` to Appointment endpoints
+and act on any citizen's booking data (a PIPEDA-relevant IDOR).
+
+This was closed with a two-tier resolution model:
+
+**Tier 1 — BB/organizer/admin/resource role.** `GovStackRegisteredBB` (the existing BB
+whitelist model, shared with the Payments BB, in `apps/payments/govstack_models.py`) gained a
+`role` field (`resource` / `organizer` / `admin`, default `organizer`). When
+`GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True` (production), `GovStackSchedulerAuth.authenticate()`
+resolves the calling BB's row and stores its `role` on `request.META["_gs_resolved_role"]`. In
+harness/dev mode (`=False`) this resolves to `"admin"` unconditionally — that mode is a
+bootstrapping convenience, not a security boundary, exactly as it already was for BB-to-BB
+trust itself. `GovStackSchedulerRolePermission` was rewritten to compare this resolved role
+against the endpoint's declared minimum (`view.gs_actor_role`), never against the view's own
+attribute compared to itself.
+
+**Tier 2 — citizen/subscriber identity.** A new composite authentication class,
+`GovStackCitizenAuth`, layers CivicOS's existing citizen JWT stack
+(`rest_framework_simplejwt`) on top of the BB-to-BB gate for the three citizen-facing
+Appointment endpoints (`/appointment/new`, `DELETE /appointment`,
+`/appointment/list_details`). If the request carries a valid `Authorization: Bearer <JWT>`
+citizen access token (rejected outright, fail-closed, if invalid/expired/staff), the resolved
+citizen's own primary key becomes the *only* identity the request may act on — a supplied
+`participant_id` that doesn't match is rejected with `403` via a new `AppointmentOwnershipError`,
+a blank one defaults to the caller's own pk, and `list_details` results are unconditionally
+filtered to that citizen regardless of any caller-supplied filter. If no JWT is presented, the
+request falls back to BB-only trust, and these three endpoints now require a resolved BB role
+of `organizer` or higher (raised from the previous unenforced `subscriber` minimum) to act on
+an arbitrary citizen — preserving the staff/case-worker use case while closing the anonymous-BB
+IDOR. `AppointmentModificationsView` (confirm/reject/reschedule) remains organizer-only
+BB-to-BB, consistent with those being inherently staff-initiated transitions.
+
+`GovStackSchedulerRolePermission` is now applied on all 25 Scheduler BB view classes (was
+applied on none before this change).
+
 ---
 
 ## 9. URL Prefix Decision
@@ -780,9 +822,13 @@ config/settings/base.py          # Add GOVSTACK_SCHEDULER_* settings if needed
 To reach GovStack Scheduler BB certification:
 
 - [ ] All 37 endpoints implemented and returning correct response shapes
-- [ ] `requestor_id` + `request_token` auth validated on every endpoint
-- [ ] `requestor_id` resolves to an actor with the correct role for the requested operation
-- [ ] `HTTP 403` returned when actor role is insufficient (not 401)
+- [x] `requestor_id` + `request_token` auth validated on every endpoint
+- [x] `requestor_id` resolves to an actor with the correct role for the requested operation
+      (see §8.1 — `GovStackRegisteredBB.role` in production mode; `GovStackCitizenAuth` binds
+      subscriber-tier Appointment calls to a real CivicOS citizen JWT identity)
+- [x] `HTTP 403` returned when actor role is insufficient (not 401) — enforced by
+      `GovStackSchedulerRolePermission` (wired into all 25 views) and `AppointmentOwnershipError`
+      for citizen-vs-participant_id mismatches
 - [ ] `HTTP 404` returned when a queried entity does not exist
 - [ ] `HTTP 400` with meaningful error code returned for missing required parameters
 - [ ] `exclusive` flag on `/appointment/new` enforces single-booking on that slot

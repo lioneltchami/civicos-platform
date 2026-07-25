@@ -91,6 +91,16 @@ from apps.appointments.services.booking import (
 
 logger = logging.getLogger("civicos.appointments.services.govstack_appointment")
 
+
+class AppointmentOwnershipError(Exception):
+    """
+    Raised when a citizen-authenticated (JWT-bound) GovStack caller attempts to
+    act on a participant_id / appointment that is not their own. Maps to HTTP 403
+    at the view layer. Never include the mismatched IDs in the exception message
+    or logs (PIPEDA — no cross-citizen identifier correlation in logs).
+    """
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -354,11 +364,23 @@ def appointment_create(
     participant_id: str = "",
     participant_entity_id: str = "",
     exclusive: bool = False,
+    caller_citizen_id: int | None = None,
 ) -> list[Booking]:
     """
     Create one or more Bookings (one per event_id) as a single atomic
     GovStack Appointment. Returns the list of created Booking instances
     (len == len(event_ids)).
+
+    Ownership enforcement (caller_citizen_id): when the caller is a
+    JWT-authenticated citizen (caller_citizen_id is not None):
+      - a blank participant_id defaults to the caller's own pk (a citizen
+        booking for themselves shouldn't have to pass their own ID);
+      - an explicitly-supplied participant_id that resolves to a DIFFERENT
+        citizen raises AppointmentOwnershipError (mapped to HTTP 403 by the
+        view layer) — a citizen may never book an appointment on behalf of
+        someone else.
+    When caller_citizen_id is None (BB-to-BB organizer+ call), behaviour is
+    unchanged — participant_id may reference any citizen.
 
     Actor resolution: the resolved citizen is used as ``actor`` for each
     create_booking() call — the citizen booking their own appointment is the
@@ -393,11 +415,26 @@ def appointment_create(
         BookingError (and subclasses SlotFullError, CitizenSuspendedError,
             FrequencyWindowError, MaxActiveBookingsError): propagated as-is
             from booking.py.
+        AppointmentOwnershipError: caller_citizen_id is set (JWT-authenticated
+            citizen) and an explicitly-supplied participant_id resolves to a
+            different citizen.
     """
     if not event_ids:
         raise ValueError("At least one event_id is required.")
 
+    # Ownership enforcement (Tier 2 / citizen JWT callers only — see docstring).
+    # A citizen with no participant_id supplied books for themselves by default;
+    # an explicit participant_id must match their own pk.
+    if caller_citizen_id is not None and not participant_id:
+        participant_id = str(caller_citizen_id)
+
     citizen = _resolve_subscriber(participant_type, participant_id)
+
+    if caller_citizen_id is not None and citizen.pk != caller_citizen_id:
+        raise AppointmentOwnershipError(
+            "Caller may not create an appointment for a different citizen."
+        )
+
     entity_id_to_store = _validate_participant_entity_id(participant_entity_id)
 
     # FIX 4: sort by string value before locking — see the lock-ordering note
@@ -635,7 +672,7 @@ def appointment_modify(
     return booking
 
 
-def appointment_delete(*, appointment_id: str) -> Booking:
+def appointment_delete(*, appointment_id: str, caller_citizen_id: int | None = None) -> Booking:
     """
     Cancel an Appointment (Booking) — soft cancel via
     booking.py:cancel_booking(), actor=booking.citizen (citizen-initiated
@@ -643,14 +680,26 @@ def appointment_delete(*, appointment_id: str) -> Booking:
     internal spec's permission model — subscribers cancel their own
     appointments; cancel_booking() is also None-safe if that ever changes).
 
+    Ownership enforcement (caller_citizen_id): when the caller is a
+    JWT-authenticated citizen (caller_citizen_id is not None), the booking
+    must belong to that citizen — otherwise AppointmentOwnershipError is
+    raised. When caller_citizen_id is None (BB-to-BB organizer+ call),
+    behaviour is unchanged — any appointment may be cancelled.
+
     Returns the now-cancelled Booking.
 
     Raises:
         Booking.DoesNotExist / django.core.exceptions.ValidationError:
             appointment_id not found or malformed.
         InvalidStatusTransitionError: booking already in a terminal status.
+        AppointmentOwnershipError: caller_citizen_id is set and does not
+            match the booking's citizen.
     """
     booking = Booking.objects.get(pk=appointment_id)
+
+    if caller_citizen_id is not None and booking.citizen_id != caller_citizen_id:
+        raise AppointmentOwnershipError("Caller does not own this appointment.")
+
     booking = cancel_booking(booking=booking, actor=booking.citizen)
     logger.info("appointment_delete: appointment_id=%s cancelled", appointment_id)
     return booking
@@ -659,10 +708,19 @@ def appointment_delete(*, appointment_id: str) -> Booking:
 def appointment_list(
     appointment_filter: dict | None = None,
     appointment_details_required: dict | None = None,
+    caller_citizen_id: int | None = None,
 ) -> list[dict]:
     """
     Return a GovStack Appointment list from Booking, capped at 500 results,
     ordered by -created_at (matches Booking's own Meta.ordering).
+
+    Ownership enforcement (caller_citizen_id): when the caller is a
+    JWT-authenticated citizen (caller_citizen_id is not None), the result
+    set is unconditionally restricted to that citizen's own appointments —
+    this OVERRIDES any participant_id supplied in appointment_filter (a
+    citizen can never use the filter to see another citizen's appointments).
+    When caller_citizen_id is None (BB-to-BB organizer+ call), behaviour is
+    unchanged — appointment_filter.participant_id (if any) applies as-is.
 
     appointment_filter keys
     ────────────────────────
@@ -704,6 +762,15 @@ def appointment_list(
         "slot__location__organization",
         "citizen",
     )
+
+    # Ownership enforcement (Tier 2 / citizen JWT callers only — see docstring).
+    # Applied unconditionally and BEFORE the caller-supplied participant_id
+    # filter below is consulted, so a citizen can never widen or redirect
+    # their own result set via the filter — any conflicting participant_id
+    # they supply is simply ignored.
+    if caller_citizen_id is not None:
+        qs = qs.filter(citizen_id=caller_citizen_id)
+        appointment_filter = {k: v for k, v in appointment_filter.items() if k != "participant_id"}
 
     if appointment_filter.get("appointment_id"):
         qs = qs.filter(pk=appointment_filter["appointment_id"])

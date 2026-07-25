@@ -1253,11 +1253,12 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
     list_display = [
         "bb_id",
         "is_active",
+        "role",
         "description_short",
         "created_at",
         "updated_at",
     ]
-    list_filter = ["is_active"]
+    list_filter = ["is_active", "role"]
     search_fields = ["bb_id", "description"]
     ordering = ["bb_id"]
 
@@ -1278,7 +1279,7 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ["bb_id", "description", "is_active"],
+                "fields": ["bb_id", "description", "is_active", "role"],
             },
         ),
         (

@@ -59,8 +59,10 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.appointments.govstack_auth import (
+    GovStackCitizenAuth,
     GovStackSchedulerAuth,
     GovStackSchedulerPermission,
+    GovStackSchedulerRolePermission,
 )
 from apps.appointments.govstack_serializers import (
     AffiliationCreateQrySerializer,
@@ -98,6 +100,7 @@ from apps.appointments.services.govstack_affiliation import (
     affiliation_modify,
 )
 from apps.appointments.services.govstack_appointment import (
+    AppointmentOwnershipError,
     appointment_create,
     appointment_delete,
     appointment_list,
@@ -222,7 +225,7 @@ class EntityNewView(APIView):
 
     gs_actor_role = "admin"                           # visible during check_permissions()
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -290,7 +293,7 @@ class EntityModificationsView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -367,7 +370,7 @@ class EntityDeleteView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -433,7 +436,7 @@ class EntityListDetailsView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -492,7 +495,7 @@ class ResourceNewView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -553,7 +556,7 @@ class ResourceModificationsView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -637,7 +640,7 @@ class ResourceDeleteView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -705,7 +708,7 @@ class ResourceListDetailsView(APIView):
 
     gs_actor_role = "organizer"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -767,7 +770,7 @@ class ResourceAvailabilityView(APIView):
 
     gs_actor_role = "resource"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -836,7 +839,7 @@ class AffiliationNewView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -946,7 +949,7 @@ class AffiliationModificationsView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1025,7 +1028,7 @@ class AffiliationDeleteView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1095,7 +1098,7 @@ class AffiliationListDetailsView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1154,7 +1157,7 @@ class SubscriberNewView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1223,7 +1226,7 @@ class SubscriberModificationsView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1316,7 +1319,7 @@ class SubscriberDeleteView(APIView):
 
     gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1385,7 +1388,7 @@ class SubscriberListDetailsView(APIView):
 
     gs_actor_role = "organizer"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1470,7 +1473,7 @@ class EventNewView(APIView):
 
     gs_actor_role = "organizer"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1545,7 +1548,7 @@ class EventModificationsView(APIView):
 
     gs_actor_role = "organizer"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1634,7 +1637,7 @@ class EventDeleteView(APIView):
 
     gs_actor_role = "organizer"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1697,7 +1700,7 @@ class EventListDetailsView(APIView):
 
     gs_actor_role = "organizer"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -1782,16 +1785,25 @@ class AppointmentNewView(APIView):
     (singular) is the spec-compliant primary field, set to the FIRST created
     Booking's PK. "appointment_ids" (plural) is an additional CivicOS
     extension field listing every Booking created in the batch.
+
+    Dual-path access (GAP: appointment ownership / IDOR fix): this endpoint
+    accepts EITHER a citizen JWT (Authorization: Bearer <token>) — in which
+    case participant_id defaults to the caller's own pk and is rejected with
+    403 if explicitly set to anyone else's — OR a bare BB-to-BB call, which
+    now requires the caller's resolved role to be "organizer" or higher to
+    create an appointment on behalf of an arbitrary participant_id. See
+    GovStackCitizenAuth and services.govstack_appointment.appointment_create's
+    caller_citizen_id parameter.
     """
 
-    gs_actor_role = "subscriber"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackCitizenAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
     def post(self, request):
-        request.META["_gs_actor_role"] = "subscriber"
+        request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
         if err:
@@ -1801,6 +1813,10 @@ class AppointmentNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
+        caller_citizen_id = (
+            request.user.pk if request.auth == "govstack_scheduler_subscriber" else None
+        )
+
         details = ser.validated_data["qry"]["appointment_details"]
         try:
             bookings = appointment_create(
@@ -1809,6 +1825,16 @@ class AppointmentNewView(APIView):
                 participant_id=details.get("participant_id", ""),
                 participant_entity_id=details.get("participant_entity_id", ""),
                 exclusive=details.get("exclusive", False),
+                caller_citizen_id=caller_citizen_id,
+            )
+        except AppointmentOwnershipError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "FORBIDDEN",
+                    "message": "You do not have permission to act on this appointment.",
+                },
+                status=403,
             )
         except get_user_model().DoesNotExist:
             return Response(
@@ -1937,7 +1963,7 @@ class AppointmentModificationsView(APIView):
 
     gs_actor_role = "organizer"
     authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
@@ -2074,16 +2100,23 @@ class AppointmentDeleteView(APIView):
       400 if appointment_id is missing, or the booking cannot be cancelled
           from its current status
       404 if no appointment with the given appointment_id exists
+
+    Dual-path access (GAP: appointment ownership / IDOR fix): a citizen JWT
+    caller may only cancel their OWN appointment (403 otherwise); a bare
+    BB-to-BB caller must have a resolved role of "organizer" or higher to
+    cancel an arbitrary citizen's appointment. See GovStackCitizenAuth and
+    services.govstack_appointment.appointment_delete's caller_citizen_id
+    parameter.
     """
 
-    gs_actor_role = "subscriber"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackCitizenAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
     def delete(self, request):
-        request.META["_gs_actor_role"] = "subscriber"
+        request.META["_gs_actor_role"] = "organizer"
 
         appointment_id_str = request.query_params.get("appointment_id", "").strip()
         if not appointment_id_str:
@@ -2096,8 +2129,21 @@ class AppointmentDeleteView(APIView):
                 status=400,
             )
 
+        caller_citizen_id = (
+            request.user.pk if request.auth == "govstack_scheduler_subscriber" else None
+        )
+
         try:
-            appointment_delete(appointment_id=appointment_id_str)
+            appointment_delete(appointment_id=appointment_id_str, caller_citizen_id=caller_citizen_id)
+        except AppointmentOwnershipError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "FORBIDDEN",
+                    "message": "You do not have permission to act on this appointment.",
+                },
+                status=403,
+            )
         except (Booking.DoesNotExist, DjangoValidationError):
             return Response(
                 {
@@ -2150,16 +2196,24 @@ class AppointmentListDetailsView(APIView):
     Returns:
       200 {"status": "success", "data": [...], "truncated": <bool>}
       400 on invalid filter parameters (e.g. malformed from/to datetimes)
+
+    Dual-path access (GAP: appointment ownership / IDOR fix): a citizen JWT
+    caller only ever sees their OWN appointments — any participant_id filter
+    they supply is overridden by their own identity. A bare BB-to-BB caller
+    must have a resolved role of "organizer" or higher to list an arbitrary
+    citizen's appointments. See GovStackCitizenAuth and
+    services.govstack_appointment.appointment_list's caller_citizen_id
+    parameter.
     """
 
-    gs_actor_role = "subscriber"
-    authentication_classes = [GovStackSchedulerAuth]
-    permission_classes = [GovStackSchedulerPermission]
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackCitizenAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
     def get(self, request):
-        request.META["_gs_actor_role"] = "subscriber"
+        request.META["_gs_actor_role"] = "organizer"
 
         qry_data, err = _parse_qry(request)
         if err:
@@ -2179,10 +2233,15 @@ class AppointmentListDetailsView(APIView):
         if "from_" in appointment_filter:
             appointment_filter["from"] = appointment_filter.pop("from_")
 
+        caller_citizen_id = (
+            request.user.pk if request.auth == "govstack_scheduler_subscriber" else None
+        )
+
         try:
             results = appointment_list(
                 appointment_filter=appointment_filter,
                 appointment_details_required=appointment_details_required,
+                caller_citizen_id=caller_citizen_id,
             )
         except ValueError:
             return Response(

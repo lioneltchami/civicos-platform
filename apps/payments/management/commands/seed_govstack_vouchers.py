@@ -226,6 +226,10 @@ class Command(BaseCommand):
                         "Created automatically by seed_govstack_vouchers."
                     ),
                     "is_active": True,
+                    # admin: harness BB must be able to exercise every Scheduler
+                    # actor role tier (resource/organizer/admin) during
+                    # certification testing.
+                    "role": "admin",
                 },
             )
 
