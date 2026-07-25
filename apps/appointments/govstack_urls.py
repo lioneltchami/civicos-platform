@@ -35,6 +35,24 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from apps.appointments.govstack_auth import GovStackSchedulerAuth, GovStackSchedulerPermission
+from apps.appointments.govstack_views import (
+    # Wave B — Entity
+    EntityNewView,
+    EntityModificationsView,
+    EntityDeleteView,
+    EntityListDetailsView,
+    # Wave B — Resource
+    ResourceNewView,
+    ResourceModificationsView,
+    ResourceDeleteView,
+    ResourceListDetailsView,
+    ResourceAvailabilityView,
+    # Wave B — Affiliation
+    AffiliationNewView,
+    AffiliationModificationsView,
+    AffiliationDeleteView,
+    AffiliationListDetailsView,
+)
 
 app_name = "govstack_scheduler"
 
@@ -72,10 +90,10 @@ urlpatterns = [
     path("event", govstack_not_implemented, name="event_delete"),
 
     # ── Entity (Wave B) ───────────────────────────────────────────────────────
-    path("entity/new", govstack_not_implemented, name="entity_new"),
-    path("entity/modifications", govstack_not_implemented, name="entity_modifications"),
-    path("entity/list_details", govstack_not_implemented, name="entity_list_details"),
-    path("entity", govstack_not_implemented, name="entity_delete"),
+    path("entity/new", EntityNewView.as_view(), name="entity_new"),
+    path("entity/modifications", EntityModificationsView.as_view(), name="entity_modifications"),
+    path("entity/list_details", EntityListDetailsView.as_view(), name="entity_list_details"),
+    path("entity", EntityDeleteView.as_view(), name="entity_delete"),
 
     # ── AlertSchedule (Wave F) ────────────────────────────────────────────────
     path("alert_schedule/new", govstack_not_implemented, name="alert_schedule_new"),
@@ -90,11 +108,11 @@ urlpatterns = [
     path("message", govstack_not_implemented, name="message_delete"),
 
     # ── Resource (Wave B) — sub-paths listed before bare DELETE path ──────────
-    path("resource/new", govstack_not_implemented, name="resource_new"),
-    path("resource/modifications", govstack_not_implemented, name="resource_modifications"),
-    path("resource/availability", govstack_not_implemented, name="resource_availability"),
-    path("resource/list_details", govstack_not_implemented, name="resource_list_details"),
-    path("resource", govstack_not_implemented, name="resource_delete"),
+    path("resource/new", ResourceNewView.as_view(), name="resource_new"),
+    path("resource/modifications", ResourceModificationsView.as_view(), name="resource_modifications"),
+    path("resource/availability", ResourceAvailabilityView.as_view(), name="resource_availability"),
+    path("resource/list_details", ResourceListDetailsView.as_view(), name="resource_list_details"),
+    path("resource", ResourceDeleteView.as_view(), name="resource_delete"),
 
     # ── Subscriber (Wave C) ───────────────────────────────────────────────────
     path("subscriber/new", govstack_not_implemented, name="subscriber_new"),
@@ -103,10 +121,10 @@ urlpatterns = [
     path("subscriber", govstack_not_implemented, name="subscriber_delete"),
 
     # ── Affiliation (Wave B) ──────────────────────────────────────────────────
-    path("affiliation/new", govstack_not_implemented, name="affiliation_new"),
-    path("affiliation/modifications", govstack_not_implemented, name="affiliation_modifications"),
-    path("affiliation/list_details", govstack_not_implemented, name="affiliation_list_details"),
-    path("affiliation", govstack_not_implemented, name="affiliation_delete"),
+    path("affiliation/new", AffiliationNewView.as_view(), name="affiliation_new"),
+    path("affiliation/modifications", AffiliationModificationsView.as_view(), name="affiliation_modifications"),
+    path("affiliation/list_details", AffiliationListDetailsView.as_view(), name="affiliation_list_details"),
+    path("affiliation", AffiliationDeleteView.as_view(), name="affiliation_delete"),
 
     # ── Appointment (Wave E) ──────────────────────────────────────────────────
     path("appointment/new", govstack_not_implemented, name="appointment_new"),
