@@ -241,17 +241,16 @@ class GovStackSchedulerRolePermission(BasePermission):
         if request.auth != "govstack_scheduler":
             return False
 
-        actor_role = request.META.get("_gs_actor_role", "")
+        # Prefer a class-level gs_actor_role declaration on the view (set at class definition
+        # time, visible during check_permissions()). Fall back to META for backward compat.
+        actor_role = getattr(view, "gs_actor_role", None) or request.META.get("_gs_actor_role", "")
         if not actor_role:
-            # Role not yet resolved. In DEBUG mode, raise ImproperlyConfigured if the
-            # min_role requirement is above "subscriber" — this catches Wave B+ views
-            # that forget to set _gs_actor_role. In production, fall through safely.
             if settings.DEBUG and _role_rank(self.min_role) > _role_rank("subscriber"):
                 from django.core.exceptions import ImproperlyConfigured
                 raise ImproperlyConfigured(
-                    f"{self.__class__.__name__} requires request.META['_gs_actor_role'] "
-                    f"to be set (min_role={self.min_role!r}). Set it in your view before "
-                    "GovStackSchedulerRolePermission is evaluated."
+                    f"{self.__class__.__name__} requires either a 'gs_actor_role' class "
+                    f"attribute on the view or request.META['_gs_actor_role'] to be set "
+                    f"(min_role={self.min_role!r}). Set gs_actor_role on the view class."
                 )
             return True
 

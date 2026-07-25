@@ -29,6 +29,7 @@ import logging
 from datetime import datetime
 
 from django.utils.dateparse import parse_datetime
+from django.utils.timezone import is_naive
 
 from apps.appointments.models import (
     GovStackAffiliation,
@@ -40,6 +41,12 @@ from apps.appointments.models import (
 )
 
 logger = logging.getLogger("civicos.appointments.services.govstack_resource")
+
+# ---------------------------------------------------------------------------
+# Alert preference validation
+# ---------------------------------------------------------------------------
+
+_VALID_ALERT_PREFS: frozenset[str] = frozenset({"push", "poll", "email", "sms", "none", ""})
 
 # ---------------------------------------------------------------------------
 # Category → resource_type mapping
@@ -132,6 +139,12 @@ def resource_create(
     dispatch MUST validate HTTPS-only and block private IP ranges.
     # TODO (Wave F): validate alert_url/status_poll_url: HTTPS-only + private IP block.
     """
+    if alert_preference and alert_preference not in _VALID_ALERT_PREFS:
+        raise ValueError(
+            f"Invalid alert_preference {alert_preference!r}. "
+            f"Must be one of: push, poll, email, sms, none."
+        )
+
     location = _get_or_create_govstack_location()
     resource_type = _map_category_to_resource_type(category)
 
@@ -198,6 +211,11 @@ def resource_modify(
         update_fields.append("alert_url")
 
     if alert_preference is not None:
+        if alert_preference and alert_preference not in _VALID_ALERT_PREFS:
+            raise ValueError(
+                f"Invalid alert_preference {alert_preference!r}. "
+                f"Must be one of: push, poll, email, sms, none."
+            )
         resource.alert_preference = alert_preference
         update_fields.append("alert_preference")
 
@@ -412,9 +430,15 @@ def resource_get_availability(resource_filter: dict) -> list[dict]:
 
     rid_filter = rf.get("resource_id", "")
     entity_id = rf.get("Entity_id", "")
-    from_str = rf.get("from", "")
-    to_str = rf.get("to", "")
+    # Accept both normalised keys (from_dt/to_dt — set by ResourceAvailabilityFilterSerializer)
+    # and the raw spec keys (from/to) for backward-compatibility when calling the service directly.
+    from_str = rf.get("from_dt", "") or rf.get("from", "")
+    to_str = rf.get("to_dt", "") or rf.get("to", "")
     category_filter = rf.get("category", "")
+
+    # Track query intent so the output resource_id label matches what the caller queried.
+    staff_targeted = rid_filter.startswith("S-") if rid_filter else False
+    resource_targeted = rid_filter.startswith("R-") if rid_filter else False
 
     qs = Slot.objects.filter(status__in=["available", "partial"])
 
@@ -424,18 +448,27 @@ def resource_get_availability(resource_filter: dict) -> list[dict]:
             dt_from = parse_datetime(from_str)
             if dt_from is None:
                 dt_from = datetime.fromisoformat(from_str)
-            qs = qs.filter(start_datetime__gte=dt_from)
         except (ValueError, TypeError) as exc:
             raise ValueError(f"Invalid 'from' datetime: {from_str!r}") from exc
+        if dt_from is not None and is_naive(dt_from):
+            raise ValueError(
+                f"'from' datetime must include a timezone offset (e.g. '2026-08-01T09:00:00Z' "
+                f"or '2026-08-01T09:00:00+00:00'): {from_str!r}"
+            )
+        qs = qs.filter(start_datetime__gte=dt_from)
 
     if to_str:
         try:
             dt_to = parse_datetime(to_str)
             if dt_to is None:
                 dt_to = datetime.fromisoformat(to_str)
-            qs = qs.filter(end_datetime__lte=dt_to)
         except (ValueError, TypeError) as exc:
             raise ValueError(f"Invalid 'to' datetime: {to_str!r}") from exc
+        if dt_to is not None and is_naive(dt_to):
+            raise ValueError(
+                f"'to' datetime must include a timezone offset (e.g. '2026-08-02T17:00:00Z'): {to_str!r}"
+            )
+        qs = qs.filter(end_datetime__lte=dt_to)
 
     # -- Resource / staff ID filter --
     if rid_filter:
@@ -486,17 +519,27 @@ def resource_get_availability(resource_filter: dict) -> list[dict]:
             qs = qs.filter(resource__resource_type=resource_type)
 
     # -- Shape results --
+    # Use the query intent to determine the correct resource_id label on each slot.
+    # If the caller queried S-N (staff), emit S-N even if the slot has a room attached.
+    # If the caller queried R-N (resource room), emit R-N.
+    # If no filter, use whichever field is set on the slot (resource first, then staff).
     results: list[dict] = []
     for slot in qs.select_related("resource", "staff"):
-        if slot.resource_id is not None:
-            resource_id = f"R-{slot.resource_id}"
+        if staff_targeted:
+            resource_id_out = f"S-{slot.staff_id}"
+        elif resource_targeted:
+            resource_id_out = f"R-{slot.resource_id}"
         else:
-            resource_id = f"S-{slot.staff_id}"
+            # No prefix filter — use resource if set, else staff.
+            if slot.resource_id is not None:
+                resource_id_out = f"R-{slot.resource_id}"
+            else:
+                resource_id_out = f"S-{slot.staff_id}"
 
         results.append(
             {
                 "slot_id": str(slot.id),
-                "resource_id": resource_id,
+                "resource_id": resource_id_out,
                 "from": slot.start_datetime.isoformat(),
                 "to": slot.end_datetime.isoformat(),
                 "capacity": slot.capacity,

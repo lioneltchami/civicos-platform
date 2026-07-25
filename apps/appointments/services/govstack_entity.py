@@ -24,6 +24,7 @@ import logging
 import random
 import string
 
+from django.db import IntegrityError
 from django.utils.text import slugify
 
 from apps.appointments.models import Organization
@@ -106,16 +107,21 @@ def entity_create(
     slug = _safe_slug(name or "entity")
     org_type = _map_category_to_org_type(category)
 
-    org = Organization.objects.create(
-        name_en=name,
-        name_fr=name,
-        slug=slug,
-        organization_type=org_type,
-        phone=phone or "",
-        email=email or "",
-        website=website or "",
-        is_active=True,
-    )
+    try:
+        org = Organization.objects.create(
+            name_en=name,
+            name_fr=name,
+            slug=slug,
+            organization_type=org_type,
+            phone=phone or "",
+            email=email or "",
+            website=website or "",
+            is_active=True,
+        )
+    except IntegrityError as exc:
+        raise ValueError(
+            "An entity with this name already exists. Please choose a different name."
+        ) from exc
     logger.debug("entity_create: created org pk=%d slug=%r", org.pk, org.slug)
     return org
 

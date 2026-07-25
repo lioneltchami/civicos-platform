@@ -31,10 +31,15 @@ Response envelope:
   Error                        → {"status": "error", "code": "...", "message": "..."}
 
 Actor roles:
-  All Wave B views set request.META["_gs_actor_role"] = "admin" for entity/resource/
-  affiliation CRUD. ResourceListDetailsView uses "organizer"; ResourceAvailabilityView
-  uses "resource". This allows GovStackSchedulerRolePermission subclasses added in
-  future waves to differentiate access levels correctly.
+  All Wave B views declare a class-level gs_actor_role attribute so the role is
+  visible to GovStackSchedulerRolePermission during DRF's check_permissions() call
+  (which runs BEFORE the handler method). The handler also sets
+  request.META["_gs_actor_role"] for logging middleware and downstream code that
+  reads it from META (belt-and-suspenders).
+
+  Entity / Resource CRUD / Affiliation → "admin"
+  ResourceListDetailsView              → "organizer"
+  ResourceAvailabilityView             → "resource"
 
 PIPEDA:
   - No PII in log messages. Organization names are not PII.
@@ -61,6 +66,7 @@ from apps.appointments.govstack_serializers import (
     EntityCreateQrySerializer,
     EntityListQrySerializer,
     EntityModifySerializer,
+    ResourceAvailabilityFilterSerializer,
     ResourceCreateQrySerializer,
     ResourceListQrySerializer,
     ResourceModifySerializer,
@@ -86,7 +92,7 @@ from apps.appointments.services.govstack_resource import (
     resource_modify,
 )
 
-logger = logging.getLogger("civicos.appointments.govstack.views")
+logger = logging.getLogger("civicos.appointments.services.govstack_views")
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +135,24 @@ def _validation_error(ser) -> Response:
     )
 
 
+def _require_int_id(value: str, param_name: str) -> tuple[int | None, Response | None]:
+    """
+    Coerce a query-param ID string to int.
+    Returns (int_value, None) on success or (None, 400 Response) on failure.
+    """
+    try:
+        return int(value), None
+    except (ValueError, TypeError):
+        return None, Response(
+            {
+                "status": "error",
+                "code": f"INVALID_{param_name.upper()}",
+                "message": f"{param_name} must be a positive integer.",
+            },
+            status=400,
+        )
+
+
 # ===========================================================================
 # Entity views (4 endpoints)
 # ===========================================================================
@@ -149,13 +173,14 @@ class EntityNewView(APIView):
       400 on validation or creation failure
     """
 
+    gs_actor_role = "admin"                           # visible during check_permissions()
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
 
     def post(self, request):
-        request.META["_gs_actor_role"] = "admin"
+        request.META["_gs_actor_role"] = "admin"     # belt-and-suspenders for middleware
 
         qry_data, err = _parse_qry(request)
         if err:
@@ -174,13 +199,26 @@ class EntityNewView(APIView):
                 email=details.get("email", ""),
                 website=details.get("website", ""),
             )
-        except Exception as exc:
+        except RuntimeError:
+            logger.exception("entity_create: slug generation failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "CREATE_FAILED",
+                    "message": (
+                        "Unable to generate a unique identifier for this organization. "
+                        "Please try again."
+                    ),
+                },
+                status=400,
+            )
+        except Exception:
             logger.exception("entity_create failed")
             return Response(
                 {
                     "status": "error",
                     "code": "CREATE_FAILED",
-                    "message": str(exc),
+                    "message": "Entity creation failed. Please check your input and try again.",
                 },
                 status=400,
             )
@@ -203,6 +241,7 @@ class EntityModificationsView(APIView):
       404 if no active entity with the given entity_id exists
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -211,8 +250,8 @@ class EntityModificationsView(APIView):
     def put(self, request):
         request.META["_gs_actor_role"] = "admin"
 
-        entity_id = request.query_params.get("entity_id", "").strip()
-        if not entity_id:
+        entity_id_str = request.query_params.get("entity_id", "").strip()
+        if not entity_id_str:
             return Response(
                 {
                     "status": "error",
@@ -221,6 +260,9 @@ class EntityModificationsView(APIView):
                 },
                 status=400,
             )
+        entity_id, err = _require_int_id(entity_id_str, "entity_id")
+        if err:
+            return err
 
         qry_data, err = _parse_qry(request)
         if err:
@@ -245,17 +287,17 @@ class EntityModificationsView(APIView):
                 {
                     "status": "error",
                     "code": "ENTITY_NOT_FOUND",
-                    "message": f"No active entity with id={entity_id}.",
+                    "message": f"No active entity with id={entity_id_str}.",
                 },
                 status=404,
             )
-        except Exception as exc:
-            logger.exception("entity_modify failed for entity_id=%s", entity_id)
+        except Exception:
+            logger.exception("entity_modify failed for entity_id=%s", entity_id_str)
             return Response(
                 {
                     "status": "error",
                     "code": "MODIFY_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
@@ -276,6 +318,7 @@ class EntityDeleteView(APIView):
       404 if no active entity with the given entity_id exists
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -284,8 +327,8 @@ class EntityDeleteView(APIView):
     def delete(self, request):
         request.META["_gs_actor_role"] = "admin"
 
-        entity_id = request.query_params.get("entity_id", "").strip()
-        if not entity_id:
+        entity_id_str = request.query_params.get("entity_id", "").strip()
+        if not entity_id_str:
             return Response(
                 {
                     "status": "error",
@@ -294,6 +337,9 @@ class EntityDeleteView(APIView):
                 },
                 status=400,
             )
+        entity_id, err = _require_int_id(entity_id_str, "entity_id")
+        if err:
+            return err
 
         try:
             entity_delete(entity_id)
@@ -302,22 +348,22 @@ class EntityDeleteView(APIView):
                 {
                     "status": "error",
                     "code": "ENTITY_NOT_FOUND",
-                    "message": f"No active entity with id={entity_id}.",
+                    "message": f"No active entity with id={entity_id_str}.",
                 },
                 status=404,
             )
-        except Exception as exc:
-            logger.exception("entity_delete failed for entity_id=%s", entity_id)
+        except Exception:
+            logger.exception("entity_delete failed for entity_id=%s", entity_id_str)
             return Response(
                 {
                     "status": "error",
                     "code": "DELETE_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
 
-        return Response({"status": "success", "entity_id": str(entity_id)}, status=200)
+        return Response({"status": "success", "entity_id": str(entity_id_str)}, status=200)
 
 
 class EntityListDetailsView(APIView):
@@ -338,6 +384,7 @@ class EntityListDetailsView(APIView):
       400 on missing/invalid params
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -359,13 +406,13 @@ class EntityListDetailsView(APIView):
 
         try:
             data = entity_list(entity_filter, entity_details_required)
-        except Exception as exc:
+        except Exception:
             logger.exception("entity_list failed")
             return Response(
                 {
                     "status": "error",
                     "code": "LIST_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
@@ -396,6 +443,7 @@ class ResourceNewView(APIView):
       400 on validation or creation failure
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -415,13 +463,23 @@ class ResourceNewView(APIView):
         details = ser.validated_data["qry"]["details"]
         try:
             resource = resource_create(**details)
-        except Exception as exc:
-            logger.exception("resource_create failed")
+        except ValueError as exc:
+            # Service-layer validation error (e.g. invalid alert_preference) — safe to surface.
             return Response(
                 {
                     "status": "error",
                     "code": "CREATE_FAILED",
                     "message": str(exc),
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("resource_create failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "CREATE_FAILED",
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
@@ -446,6 +504,7 @@ class ResourceModificationsView(APIView):
       404 if no active resource with the given resource_id exists
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -454,8 +513,8 @@ class ResourceModificationsView(APIView):
     def put(self, request):
         request.META["_gs_actor_role"] = "admin"
 
-        resource_id = request.query_params.get("resource_id", "").strip()
-        if not resource_id:
+        resource_id_str = request.query_params.get("resource_id", "").strip()
+        if not resource_id_str:
             return Response(
                 {
                     "status": "error",
@@ -464,6 +523,9 @@ class ResourceModificationsView(APIView):
                 },
                 status=400,
             )
+        resource_id, err = _require_int_id(resource_id_str, "resource_id")
+        if err:
+            return err
 
         qry_data, err = _parse_qry(request)
         if err:
@@ -481,17 +543,27 @@ class ResourceModificationsView(APIView):
                 {
                     "status": "error",
                     "code": "RESOURCE_NOT_FOUND",
-                    "message": f"No active resource with id={resource_id}.",
+                    "message": f"No active resource with id={resource_id_str}.",
                 },
                 status=404,
             )
-        except Exception as exc:
-            logger.exception("resource_modify failed for resource_id=%s", resource_id)
+        except ValueError as exc:
+            # Service-layer validation error (e.g. invalid alert_preference) — safe to surface.
             return Response(
                 {
                     "status": "error",
                     "code": "MODIFY_FAILED",
                     "message": str(exc),
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("resource_modify failed for resource_id=%s", resource_id_str)
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MODIFY_FAILED",
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
@@ -516,6 +588,7 @@ class ResourceDeleteView(APIView):
       404 if no active resource with the given resource_id exists
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -524,8 +597,8 @@ class ResourceDeleteView(APIView):
     def delete(self, request):
         request.META["_gs_actor_role"] = "admin"
 
-        resource_id = request.query_params.get("resource_id", "").strip()
-        if not resource_id:
+        resource_id_str = request.query_params.get("resource_id", "").strip()
+        if not resource_id_str:
             return Response(
                 {
                     "status": "error",
@@ -534,6 +607,9 @@ class ResourceDeleteView(APIView):
                 },
                 status=400,
             )
+        resource_id, err = _require_int_id(resource_id_str, "resource_id")
+        if err:
+            return err
 
         try:
             resource_delete(resource_id=resource_id)
@@ -542,22 +618,22 @@ class ResourceDeleteView(APIView):
                 {
                     "status": "error",
                     "code": "RESOURCE_NOT_FOUND",
-                    "message": f"No active resource with id={resource_id}.",
+                    "message": f"No active resource with id={resource_id_str}.",
                 },
                 status=404,
             )
-        except Exception as exc:
-            logger.exception("resource_delete failed for resource_id=%s", resource_id)
+        except Exception:
+            logger.exception("resource_delete failed for resource_id=%s", resource_id_str)
             return Response(
                 {
                     "status": "error",
                     "code": "DELETE_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
 
-        return Response({"status": "success", "resource_id": str(resource_id)}, status=200)
+        return Response({"status": "success", "resource_id": str(resource_id_str)}, status=200)
 
 
 class ResourceListDetailsView(APIView):
@@ -580,6 +656,7 @@ class ResourceListDetailsView(APIView):
       400 on invalid params
     """
 
+    gs_actor_role = "organizer"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -604,13 +681,13 @@ class ResourceListDetailsView(APIView):
                 resource_filter=resource_filter,
                 resource_details_required=resource_details_required,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("resource_list failed")
             return Response(
                 {
                     "status": "error",
                     "code": "LIST_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
@@ -633,13 +710,15 @@ class ResourceAvailabilityView(APIView):
 
     Note: the GovStack spec uses "Entity_id" (capital E) in the availability filter.
 
-    Datetime strings (from/to) must be ISO 8601 — invalid strings return 400.
+    Datetime strings (from/to) must be ISO 8601 with timezone offset — naive or
+    invalid strings return 400.
 
     Returns:
       200 {"status": "success", "data": [...]}
       400 on invalid params or datetime format error
     """
 
+    gs_actor_role = "resource"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -652,12 +731,18 @@ class ResourceAvailabilityView(APIView):
         if err:
             return err
 
-        free_resource_filter = qry_data.get("free_resource_filter", {})
+        # Normalise the filter through the serializer (renames from→from_dt, to→to_dt).
+        raw_filter = qry_data.get("free_resource_filter", {})
+        avail_ser = ResourceAvailabilityFilterSerializer(data=raw_filter)
+        if not avail_ser.is_valid():
+            return _validation_error(avail_ser)
+
+        free_resource_filter = avail_ser.validated_data
 
         try:
             slots = resource_get_availability(free_resource_filter)
         except ValueError as exc:
-            # Invalid datetime in from/to filter — surface as 400 without a stack trace.
+            # Invalid or naive datetime in from/to filter — surface as 400.
             return Response(
                 {
                     "status": "error",
@@ -666,13 +751,13 @@ class ResourceAvailabilityView(APIView):
                 },
                 status=400,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("resource_get_availability failed")
             return Response(
                 {
                     "status": "error",
                     "code": "AVAILABILITY_ERROR",
-                    "message": str(exc),
+                    "message": "Availability query failed. Please check your filter parameters.",
                 },
                 status=400,
             )
@@ -702,6 +787,7 @@ class AffiliationNewView(APIView):
       409 on duplicate (resource, entity) pair
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -776,13 +862,13 @@ class AffiliationNewView(APIView):
                 },
                 status=409,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("affiliation_create failed")
             return Response(
                 {
                     "status": "error",
                     "code": "CREATE_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
@@ -811,6 +897,7 @@ class AffiliationModificationsView(APIView):
       404 if no affiliation with the given affiliation_id exists
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -819,8 +906,8 @@ class AffiliationModificationsView(APIView):
     def put(self, request):
         request.META["_gs_actor_role"] = "admin"
 
-        affiliation_id = request.query_params.get("affiliation_id", "").strip()
-        if not affiliation_id:
+        affiliation_id_str = request.query_params.get("affiliation_id", "").strip()
+        if not affiliation_id_str:
             return Response(
                 {
                     "status": "error",
@@ -829,6 +916,9 @@ class AffiliationModificationsView(APIView):
                 },
                 status=400,
             )
+        affiliation_id, err = _require_int_id(affiliation_id_str, "affiliation_id")
+        if err:
+            return err
 
         qry_data, err = _parse_qry(request)
         if err:
@@ -850,17 +940,17 @@ class AffiliationModificationsView(APIView):
                 {
                     "status": "error",
                     "code": "AFFILIATION_NOT_FOUND",
-                    "message": f"No affiliation with id={affiliation_id}.",
+                    "message": f"No affiliation with id={affiliation_id_str}.",
                 },
                 status=404,
             )
-        except Exception as exc:
-            logger.exception("affiliation_modify failed for affiliation_id=%s", affiliation_id)
+        except Exception:
+            logger.exception("affiliation_modify failed for affiliation_id=%s", affiliation_id_str)
             return Response(
                 {
                     "status": "error",
                     "code": "MODIFY_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
@@ -886,6 +976,7 @@ class AffiliationDeleteView(APIView):
       404 if no affiliation with the given affiliation_id exists
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -894,8 +985,8 @@ class AffiliationDeleteView(APIView):
     def delete(self, request):
         request.META["_gs_actor_role"] = "admin"
 
-        affiliation_id = request.query_params.get("affiliation_id", "").strip()
-        if not affiliation_id:
+        affiliation_id_str = request.query_params.get("affiliation_id", "").strip()
+        if not affiliation_id_str:
             return Response(
                 {
                     "status": "error",
@@ -904,6 +995,9 @@ class AffiliationDeleteView(APIView):
                 },
                 status=400,
             )
+        affiliation_id, err = _require_int_id(affiliation_id_str, "affiliation_id")
+        if err:
+            return err
 
         try:
             affiliation_delete(affiliation_id)
@@ -912,23 +1006,23 @@ class AffiliationDeleteView(APIView):
                 {
                     "status": "error",
                     "code": "AFFILIATION_NOT_FOUND",
-                    "message": f"No affiliation with id={affiliation_id}.",
+                    "message": f"No affiliation with id={affiliation_id_str}.",
                 },
                 status=404,
             )
-        except Exception as exc:
-            logger.exception("affiliation_delete failed for affiliation_id=%s", affiliation_id)
+        except Exception:
+            logger.exception("affiliation_delete failed for affiliation_id=%s", affiliation_id_str)
             return Response(
                 {
                     "status": "error",
                     "code": "DELETE_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )
 
         return Response(
-            {"status": "success", "affiliation_id": str(affiliation_id)},
+            {"status": "success", "affiliation_id": str(affiliation_id_str)},
             status=200,
         )
 
@@ -952,6 +1046,7 @@ class AffiliationListDetailsView(APIView):
       400 on missing/invalid params
     """
 
+    gs_actor_role = "admin"
     authentication_classes = [GovStackSchedulerAuth]
     permission_classes = [GovStackSchedulerPermission]
     throttle_classes = [ScopedRateThrottle]
@@ -973,13 +1068,13 @@ class AffiliationListDetailsView(APIView):
 
         try:
             data = affiliation_list(affiliation_filter, affiliation_details_required)
-        except Exception as exc:
+        except Exception:
             logger.exception("affiliation_list failed")
             return Response(
                 {
                     "status": "error",
                     "code": "LIST_FAILED",
-                    "message": str(exc),
+                    "message": "Operation failed. Please check your input and try again.",
                 },
                 status=400,
             )

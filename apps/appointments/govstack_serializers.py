@@ -235,17 +235,43 @@ class ResourceListQrySerializer(serializers.Serializer):
 
 class ResourceAvailabilityFilterSerializer(serializers.Serializer):
     """
-    Query parameters for GET /resource/availability.
+    Filter parameters for GET /resource/availability.
 
-    The availability endpoint accepts filter params as URL query parameters
-    rather than a request body, per the GovStack Scheduler OpenAPI spec.
+    GovStack spec key mapping:
+      spec "from"       → validated_data key "from_dt"   (Python keyword avoidance)
+      spec "to"         → validated_data key "to_dt"
+      spec "Entity_id"  → field Entity_id (capital E per spec)
+
+    to_internal_value() accepts either the spec keys ("from"/"to") or the safe
+    internal keys ("from_dt"/"to_dt") and normalises them to "from_dt"/"to_dt".
     """
 
     resource_id = serializers.CharField(required=False, allow_blank=True)
-    entity_id = serializers.CharField(required=False, allow_blank=True)
-    date_from = serializers.CharField(required=False, allow_blank=True)
-    date_to = serializers.CharField(required=False, allow_blank=True)
-    category = serializers.CharField(required=False, allow_blank=True)
+    # GovStack spec capitalises: Entity_id
+    Entity_id   = serializers.CharField(required=False, allow_blank=True)
+    from_dt     = serializers.CharField(
+        required=False, allow_blank=True,
+        help_text="ISO 8601 datetime with tz offset (spec key: 'from')",
+    )
+    to_dt       = serializers.CharField(
+        required=False, allow_blank=True,
+        help_text="ISO 8601 datetime with tz offset (spec key: 'to')",
+    )
+    category    = serializers.CharField(required=False, allow_blank=True)
+
+    def to_internal_value(self, data):
+        """Normalise incoming data — accept 'from'/'to' spec keys alongside 'from_dt'/'to_dt'."""
+        data = dict(data)
+        # "from" is a Python keyword; rename to the safe internal key before DRF processes fields.
+        if "from" in data and "from_dt" not in data:
+            data["from_dt"] = data.pop("from")
+        elif "from" in data:
+            data.pop("from")
+        if "to" in data and "to_dt" not in data:
+            data["to_dt"] = data.pop("to")
+        elif "to" in data:
+            data.pop("to")
+        return super().to_internal_value(data)
 
 
 # ---------------------------------------------------------------------------

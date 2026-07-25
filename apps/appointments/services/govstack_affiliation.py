@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 from apps.appointments.models import GovStackAffiliation, Organization, Resource
 
@@ -44,26 +44,25 @@ def affiliation_create(
       Organization.DoesNotExist  — entity_id not found or inactive.
       ValueError                 — duplicate (resource, entity) pair.
     """
-    # Validate FK existence before inserting.
-    Resource.objects.get(pk=resource_id, is_active=True)
-    Organization.objects.get(pk=entity_id, is_active=True)
-
-    try:
-        aff = GovStackAffiliation.objects.create(
-            resource_id=resource_id,
-            entity_id=entity_id,
-            resource_category=resource_category or "",
-            work_days_hours=work_days_hours if work_days_hours is not None else {},
-        )
-    except IntegrityError as exc:
-        logger.debug(
-            "affiliation_create: duplicate affiliation resource_id=%s entity_id=%s",
-            resource_id,
-            entity_id,
-        )
-        raise ValueError(
-            f"An affiliation between resource_id={resource_id} and entity_id={entity_id} already exists."
-        ) from exc
+    with transaction.atomic():
+        resource = Resource.objects.select_for_update().get(pk=resource_id, is_active=True)
+        org = Organization.objects.select_for_update().get(pk=entity_id, is_active=True)
+        try:
+            aff = GovStackAffiliation.objects.create(
+                resource=resource,
+                entity=org,
+                resource_category=resource_category or "",
+                work_days_hours=work_days_hours if work_days_hours is not None else {},
+            )
+        except IntegrityError:
+            logger.debug(
+                "affiliation_create: duplicate affiliation resource_id=%s entity_id=%s",
+                resource_id,
+                entity_id,
+            )
+            raise ValueError(
+                f"An affiliation between resource_id={resource_id} and entity_id={entity_id} already exists."
+            )
 
     logger.debug(
         "affiliation_create: created affiliation pk=%d resource_id=%s entity_id=%s",
