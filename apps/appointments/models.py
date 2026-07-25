@@ -1991,6 +1991,31 @@ class Booking(TimestampedModel):
         verbose_name=_("Service request ID"),
     )
 
+    # GovStack Scheduler BB — Appointment API fields (Wave E).
+    govstack_exclusive = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name=_("GovStack exclusive"),
+        help_text=_(
+            "True if this appointment was created/modified with the GovStack "
+            "'exclusive' flag, which blocks the underlying Slot to further "
+            "bookings (Slot.status set to 'blocked'). Not the same as slot "
+            "capacity — capacity is left untouched so the block can be reversed."
+        ),
+    )
+    govstack_participant_entity_id = models.CharField(
+        max_length=32,
+        blank=True,
+        db_index=True,
+        verbose_name=_("GovStack participant entity ID"),
+        help_text=_(
+            "Optional GovStack Entity (Organization) acting on behalf of the "
+            "participant, e.g. an organization booking for a citizen. Plain "
+            "string reference (str(Organization.pk)) — no FK, matching the "
+            "work_item_id/service_request_id pattern used elsewhere on this model."
+        ),
+    )
+
     # Consent
     consent_recorded_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Consent recorded at"))
     consent_version = models.CharField(max_length=20, blank=True, verbose_name=_("Consent version"))

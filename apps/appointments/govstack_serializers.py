@@ -595,23 +595,59 @@ class EventListQrySerializer(serializers.Serializer):
 # 6. Appointment (→ CivicOS Booking)
 # ---------------------------------------------------------------------------
 
-class AppointmentDetailsSerializer(serializers.Serializer):
+class AppointmentCreateDetailsSerializer(serializers.Serializer):
     """
-    GovStack Appointment core fields — maps to CivicOS Booking.
+    GovStack appointment_creation_details — POST /appointment/new body shape.
 
-    exclusive is explicitly boolean in the GovStack OpenAPI spec.
-    It corresponds to Slot.capacity == 1 in CivicOS (a single-occupancy booking).
-    All other fields are strings per the spec's loose typing.
+    Distinct from AppointmentDetailsSerializer (used for modify/list) because
+    the real GovStack OpenAPI spec uses TWO different schemas: this one has
+    event_ids (plural array — an appointment can span multiple events/slots
+    created atomically as one GovStack Appointment), the other has a singular
+    event_id. Conflating these was a Wave-A-era bug (see the postmortem in
+    govstack_event.py's module docstring for the analogous Event bug found
+    and fixed by the Wave D review) — corrected here before Wave E ships.
+
+    Verified against the real GovStack OpenAPI spec
+    (components.schemas.appointment_creation_details, fetched directly from
+    https://raw.githubusercontent.com/GovStackWorkingGroup/bb-scheduler/main/api/Govstack_scheduler_BB_APIs.json):
+    exclusive, event_ids, participant_type, participant_id, participant_entity_id.
     """
 
     exclusive = serializers.BooleanField(
         required=False,
         default=False,
         help_text=(
-            "True if this appointment reserves the slot exclusively (capacity=1). "
-            "When True, the service layer enforces single-booking on the target slot."
+            "True to block the underlying Slot(s) from further bookings "
+            "after this appointment is created (Slot.status = 'blocked')."
         ),
     )
+    event_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        allow_empty=False,
+        help_text="Array of GovStack event_id strings (Slot UUIDs) this appointment books.",
+    )
+    participant_type = serializers.CharField(required=False, allow_blank=True)
+    participant_id = serializers.CharField(required=False, allow_blank=True)
+    participant_entity_id = serializers.CharField(required=False, allow_blank=True)
+
+
+class AppointmentDetailsSerializer(serializers.Serializer):
+    """
+    GovStack appointment_details — used for PUT /appointment/modifications
+    body AND each item's nested response shape conceptually (this codebase's
+    own convention returns a flat dict, not nested — see govstack_appointment.py).
+
+    event_id is SINGULAR here (unlike creation's event_ids array) — modifying
+    an existing appointment targets one current event/slot at a time
+    (rescheduling replaces it, doesn't add to it).
+
+    Verified against the real GovStack OpenAPI spec
+    (components.schemas.appointment_details): exclusive, event_id,
+    participant_type, participant_id, status_id, participant_entity_id.
+    """
+
+    exclusive = serializers.BooleanField(required=False)
     event_id = serializers.CharField(required=False, allow_blank=True)
     participant_type = serializers.CharField(required=False, allow_blank=True)
     participant_id = serializers.CharField(required=False, allow_blank=True)
@@ -620,15 +656,30 @@ class AppointmentDetailsSerializer(serializers.Serializer):
 
 
 class AppointmentFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /appointment/list_details."""
+    """
+    Filter parameters for GET /appointment/list_details.
+
+    from/to use a to_internal_value() remap to from_/to attribute names
+    because "from" is a Python reserved word and cannot be a class attribute
+    — this mirrors the identical technique already used and tested in
+    EventFilterSerializer (see govstack_serializers.py's Event section and
+    test_govstack_event.py's EV52 for the pattern this replicates).
+    """
 
     appointment_id = serializers.CharField(required=False, allow_blank=True)
-    event_id = serializers.CharField(required=False, allow_blank=True)
     participant_type = serializers.CharField(required=False, allow_blank=True)
     participant_id = serializers.CharField(required=False, allow_blank=True)
-    status_id = serializers.CharField(required=False, allow_blank=True)
     participant_entity_id = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.CharField(required=False, allow_blank=True)
     exclusive = serializers.BooleanField(required=False)
+    from_ = serializers.CharField(required=False, allow_blank=True)
+    to = serializers.CharField(required=False, allow_blank=True)
+
+    def to_internal_value(self, data):
+        data = dict(data)
+        if "from" in data and "from_" not in data:
+            data["from_"] = data.pop("from")
+        return super().to_internal_value(data)
 
 
 class AppointmentDetailsRequiredSerializer(serializers.Serializer):
@@ -637,20 +688,29 @@ class AppointmentDetailsRequiredSerializer(serializers.Serializer):
     appointment_id = serializers.BooleanField(required=False, default=True)
     exclusive = serializers.BooleanField(required=False, default=False)
     event_id = serializers.BooleanField(required=False, default=True)
+    event_details = serializers.BooleanField(required=False, default=True)
     participant_type = serializers.BooleanField(required=False, default=True)
     participant_id = serializers.BooleanField(required=False, default=True)
     status_id = serializers.BooleanField(required=False, default=True)
-    participant_entity_id = serializers.BooleanField(required=False, default=False)
+    participant_entity_id = serializers.BooleanField(required=False, default=True)
 
 
 class _AppointmentQryDetailsSerializer(serializers.Serializer):
-    """Inner { "details": ... } wrapper used by AppointmentCreateQrySerializer."""
+    """
+    Inner { "appointment_details": ... } wrapper used by AppointmentCreateQrySerializer.
 
-    details = AppointmentDetailsSerializer(required=True)
+    NOTE: the real spec's appointment_new_qry wraps the field as
+    "appointment_details", NOT "details" (unlike event_new_qry, which does use
+    "details") — confirmed directly from the OpenAPI schema
+    (components.schemas.appointment_new_qry.properties). Do not copy the Event
+    wrapper key name here.
+    """
+
+    appointment_details = AppointmentCreateDetailsSerializer(required=True)
 
 
 class AppointmentCreateQrySerializer(serializers.Serializer):
-    """POST /appointment/new request body: { "qry": { "details": <appointment_details> } }"""
+    """POST /appointment/new request body: { "qry": { "appointment_details": <appointment_creation_details> } }"""
 
     qry = _AppointmentQryDetailsSerializer(required=True)
 

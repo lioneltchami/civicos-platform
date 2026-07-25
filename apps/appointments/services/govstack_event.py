@@ -609,6 +609,25 @@ def _slot_to_event_dict(slot: Slot, details_req: dict) -> dict:
     return result
 
 
+def get_event_summary(slot: Slot) -> dict:
+    """
+    Public wrapper around the internal Slot -> GovStack-Event projection, for
+    reuse by other GovStack service modules (e.g.
+    govstack_appointment.py's ``event_details=True`` nested projection on
+    Appointment list results) without reaching into the private
+    _slot_to_event_dict() helper across a module boundary.
+
+    Returns a compact projection: event_id, name, status — the fields most
+    useful as nested context on an Appointment, NOT the full Event detail
+    set. Callers needing more (description, terms, venue, slots, ...) should
+    call event_list()/GET /event/list_details directly.
+    """
+    return _slot_to_event_dict(
+        slot,
+        details_req={"event_id": True, "name": True, "status": True},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------

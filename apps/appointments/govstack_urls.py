@@ -62,6 +62,11 @@ from apps.appointments.govstack_views import (
     EventModificationsView,
     EventDeleteView,
     EventListDetailsView,
+    # Wave E — Appointment
+    AppointmentNewView,
+    AppointmentModificationsView,
+    AppointmentDeleteView,
+    AppointmentListDetailsView,
 )
 
 app_name = "govstack_scheduler"
@@ -137,10 +142,10 @@ urlpatterns = [
     path("affiliation", AffiliationDeleteView.as_view(), name="affiliation_delete"),
 
     # ── Appointment (Wave E) ──────────────────────────────────────────────────
-    path("appointment/new", govstack_not_implemented, name="appointment_new"),
-    path("appointment/modifications", govstack_not_implemented, name="appointment_modifications"),
-    path("appointment/list_details", govstack_not_implemented, name="appointment_list_details"),
-    path("appointment", govstack_not_implemented, name="appointment_delete"),
+    path("appointment/new", AppointmentNewView.as_view(), name="appointment_new"),
+    path("appointment/modifications", AppointmentModificationsView.as_view(), name="appointment_modifications"),
+    path("appointment/list_details", AppointmentListDetailsView.as_view(), name="appointment_list_details"),
+    path("appointment", AppointmentDeleteView.as_view(), name="appointment_delete"),
 
     # ── Log (Wave G) — PUT /log/modifications and DELETE /log will return 405 ─
     # in the Wave G implementation to preserve BookingAuditLog immutability.

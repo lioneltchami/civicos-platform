@@ -51,6 +51,7 @@ from __future__ import annotations
 import json
 import logging
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from rest_framework.response import Response
@@ -65,6 +66,9 @@ from apps.appointments.govstack_serializers import (
     AffiliationCreateQrySerializer,
     AffiliationListQrySerializer,
     AffiliationModifySerializer,
+    AppointmentCreateQrySerializer,
+    AppointmentListQrySerializer,
+    AppointmentModifySerializer,
     EntityCreateQrySerializer,
     EntityListQrySerializer,
     EntityModifySerializer,
@@ -79,12 +83,35 @@ from apps.appointments.govstack_serializers import (
     SubscriberListQrySerializer,
     SubscriberModifySerializer,
 )
-from apps.appointments.models import GovStackAffiliation, GovStackSubscriberProfile, Organization, Resource, Slot
+from apps.appointments.models import (
+    Booking,
+    GovStackAffiliation,
+    GovStackSubscriberProfile,
+    Organization,
+    Resource,
+    Slot,
+)
 from apps.appointments.services.govstack_affiliation import (
     affiliation_create,
     affiliation_delete,
     affiliation_list,
     affiliation_modify,
+)
+from apps.appointments.services.govstack_appointment import (
+    appointment_create,
+    appointment_delete,
+    appointment_list,
+    appointment_modify,
+)
+from apps.appointments.services.booking import (
+    BookingError,
+    CitizenSuspendedError,
+    FrequencyWindowError,
+    InvalidStatusTransitionError,
+    MaxActiveBookingsError,
+    RescheduleCountError,
+    RescheduleWindowError,
+    SlotFullError,
 )
 from apps.appointments.services.govstack_entity import (
     entity_create,
@@ -1705,6 +1732,469 @@ class EventListDetailsView(APIView):
             )
         except Exception:
             logger.exception("event_list failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LIST_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {
+                "status": "success",
+                "data": results,
+                "truncated": len(results) == 500,
+            },
+            status=200,
+        )
+
+
+# ===========================================================================
+# Appointment views (4 endpoints) — Wave E
+# ===========================================================================
+
+class AppointmentNewView(APIView):
+    """
+    POST /govstack/scheduler/appointment/new
+
+    Create a new Appointment (one or more CivicOS Bookings — one per
+    event_id) as a single atomic batch. All request data arrives as query
+    parameters; appointment details are embedded in `qry`.
+
+    Expected qry shape (real spec key is "appointment_details", NOT
+    "details" — verified against the GovStack OpenAPI spec; see
+    govstack_serializers._AppointmentQryDetailsSerializer):
+      {"qry": {"appointment_details": {"event_ids": ["..."], "exclusive": false,
+                                        "participant_type": "subscriber",
+                                        "participant_id": "...",
+                                        "participant_entity_id": "..."}}}
+
+    Returns:
+      201 {"status": "success", "appointment_id": "<first-booking-pk>",
+           "appointment_ids": ["<booking_pk>", ...]}
+      400 on validation or creation failure
+      404 if participant_id or any event_id does not resolve
+
+    Response field convention (dual-field, matching EventNewView's
+    event_id/event_ids precedent from the Wave D review): "appointment_id"
+    (singular) is the spec-compliant primary field, set to the FIRST created
+    Booking's PK. "appointment_ids" (plural) is an additional CivicOS
+    extension field listing every Booking created in the batch.
+    """
+
+    gs_actor_role = "subscriber"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def post(self, request):
+        request.META["_gs_actor_role"] = "subscriber"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = AppointmentCreateQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["qry"]["appointment_details"]
+        try:
+            bookings = appointment_create(
+                event_ids=details.get("event_ids"),
+                participant_type=details.get("participant_type", ""),
+                participant_id=details.get("participant_id", ""),
+                participant_entity_id=details.get("participant_entity_id", ""),
+                exclusive=details.get("exclusive", False),
+            )
+        except get_user_model().DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "PARTICIPANT_NOT_FOUND",
+                    "message": "No active subscriber with the given participant_id.",
+                },
+                status=404,
+            )
+        except (Slot.DoesNotExist, DjangoValidationError):
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_NOT_FOUND",
+                    "message": "One or more event_ids were not found.",
+                },
+                status=404,
+            )
+        except SlotFullError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "SLOT_FULL",
+                    "message": "One or more requested slots are full.",
+                },
+                status=400,
+            )
+        except CitizenSuspendedError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "PARTICIPANT_SUSPENDED",
+                    "message": "This subscriber is currently suspended from self-booking.",
+                },
+                status=400,
+            )
+        except FrequencyWindowError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "FREQUENCY_WINDOW",
+                    "message": (
+                        "This subscriber has a recent booking within the service's "
+                        "frequency window."
+                    ),
+                },
+                status=400,
+            )
+        except MaxActiveBookingsError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MAX_ACTIVE_BOOKINGS",
+                    "message": "This subscriber has reached the maximum number of active bookings.",
+                },
+                status=400,
+            )
+        except BookingError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "APPOINTMENT_CREATE_FAILED",
+                    "message": "Appointment creation failed.",
+                },
+                status=400,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "APPOINTMENT_CREATE_FAILED",
+                    "message": "Appointment creation failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("appointment_create failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "CREATE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        appointment_ids = [str(b.pk) for b in bookings]
+        return Response(
+            {
+                "status": "success",
+                "appointment_id": appointment_ids[0],
+                "appointment_ids": appointment_ids,
+            },
+            status=201,
+        )
+
+
+class AppointmentModificationsView(APIView):
+    """
+    PUT /govstack/scheduler/appointment/modifications
+
+    Modify an existing Appointment (Booking) — reschedule (event_id), status
+    transition (status_id), exclusive toggle, and/or participant_entity_id
+    update. Requires `appointment_id` and `qry` query parameters.
+
+    Expected qry shape:
+      {"details": {"event_id": "...", "status_id": "confirmed", "exclusive": true,
+                   "participant_entity_id": "..."}}  (all fields optional)
+
+    Confirm/reject transitions are inherently staff/organizer actions in this
+    domain (see govstack_appointment.py's actor-resolution design), so this
+    endpoint declares gs_actor_role="organizer" — the correct minimum here,
+    unlike create/delete which are subscriber-accessible.
+
+    Returns:
+      200 {"status": "success", "appointment_id": "<booking-pk>"}
+      400 on missing/invalid params or modification failure
+      404 if no appointment or target event_id is found
+
+    NOTE: if a reschedule occurred (event_id differs from the appointment's
+    current slot), the returned appointment_id is a NEW UUID, distinct from
+    the appointment_id passed in the query string — this is correct and
+    expected per appointment_modify()'s documented reschedule semantics.
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def put(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        appointment_id_str = request.query_params.get("appointment_id", "").strip()
+        if not appointment_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_APPOINTMENT_ID",
+                    "message": "appointment_id is required.",
+                },
+                status=400,
+            )
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = AppointmentModifySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["details"]
+        try:
+            booking = appointment_modify(
+                appointment_id=appointment_id_str,
+                event_id=details.get("event_id") or None,
+                status_id=details.get("status_id") or None,
+                exclusive=details.get("exclusive"),
+                participant_entity_id=details.get("participant_entity_id"),
+            )
+        except (Booking.DoesNotExist, DjangoValidationError):
+            return Response(
+                {
+                    "status": "error",
+                    "code": "APPOINTMENT_NOT_FOUND",
+                    "message": f"No appointment with id={appointment_id_str}.",
+                },
+                status=404,
+            )
+        except Slot.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_NOT_FOUND",
+                    "message": "The target event_id was not found.",
+                },
+                status=404,
+            )
+        except RescheduleCountError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "RESCHEDULE_COUNT_EXCEEDED",
+                    "message": "This appointment has reached its maximum reschedule count.",
+                },
+                status=400,
+            )
+        except RescheduleWindowError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "RESCHEDULE_WINDOW_TOO_CLOSE",
+                    "message": "Too close to the appointment start time to reschedule.",
+                },
+                status=400,
+            )
+        except SlotFullError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "SLOT_FULL",
+                    "message": "The target event is full.",
+                },
+                status=400,
+            )
+        except InvalidStatusTransitionError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "INVALID_STATUS_TRANSITION",
+                    "message": (
+                        "This status transition is not allowed from the appointment's "
+                        "current state."
+                    ),
+                },
+                status=400,
+            )
+        except BookingError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "APPOINTMENT_MODIFY_FAILED",
+                    "message": "Appointment modification failed.",
+                },
+                status=400,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "APPOINTMENT_MODIFY_FAILED",
+                    "message": "Appointment modification failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception(
+                "appointment_modify failed for appointment_id=%s", appointment_id_str
+            )
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MODIFY_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response({"status": "success", "appointment_id": str(booking.pk)}, status=200)
+
+
+class AppointmentDeleteView(APIView):
+    """
+    DELETE /govstack/scheduler/appointment
+
+    Cancel an Appointment (Booking). Requires `appointment_id` query parameter.
+
+    Returns:
+      200 {"status": "success", "appointment_id": "<appointment_id>"}
+      400 if appointment_id is missing, or the booking cannot be cancelled
+          from its current status
+      404 if no appointment with the given appointment_id exists
+    """
+
+    gs_actor_role = "subscriber"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def delete(self, request):
+        request.META["_gs_actor_role"] = "subscriber"
+
+        appointment_id_str = request.query_params.get("appointment_id", "").strip()
+        if not appointment_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_APPOINTMENT_ID",
+                    "message": "appointment_id is required.",
+                },
+                status=400,
+            )
+
+        try:
+            appointment_delete(appointment_id=appointment_id_str)
+        except (Booking.DoesNotExist, DjangoValidationError):
+            return Response(
+                {
+                    "status": "error",
+                    "code": "APPOINTMENT_NOT_FOUND",
+                    "message": f"No appointment with id={appointment_id_str}.",
+                },
+                status=404,
+            )
+        except InvalidStatusTransitionError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "INVALID_STATUS_TRANSITION",
+                    "message": "This appointment cannot be cancelled from its current status.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception(
+                "appointment_delete failed for appointment_id=%s", appointment_id_str
+            )
+            return Response(
+                {
+                    "status": "error",
+                    "code": "DELETE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {"status": "success", "appointment_id": appointment_id_str}, status=200
+        )
+
+
+class AppointmentListDetailsView(APIView):
+    """
+    GET /govstack/scheduler/appointment/list_details
+
+    List Appointments matching the supplied filters. All parameters arrive as
+    query params; filter and field-selection objects are embedded in `qry`.
+
+    Expected qry shape:
+      {
+        "appointment_filter": {"participant_id": "5", "status": "confirmed"},
+        "appointment_details_required": {"appointment_id": true, "event_details": true}
+      }
+
+    Returns:
+      200 {"status": "success", "data": [...], "truncated": <bool>}
+      400 on invalid filter parameters (e.g. malformed from/to datetimes)
+    """
+
+    gs_actor_role = "subscriber"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def get(self, request):
+        request.META["_gs_actor_role"] = "subscriber"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = AppointmentListQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        appointment_filter = ser.validated_data.get("appointment_filter", {})
+        appointment_details_required = ser.validated_data.get("appointment_details_required") or {}
+
+        # AppointmentFilterSerializer's to_internal_value() remaps the wire-format
+        # "from" key to "from_" (Python reserved word workaround — see
+        # EventListDetailsView / EventFilterSerializer for the identical pattern).
+        # appointment_list() expects the raw "from" key, so remap back here.
+        if "from_" in appointment_filter:
+            appointment_filter["from"] = appointment_filter.pop("from_")
+
+        try:
+            results = appointment_list(
+                appointment_filter=appointment_filter,
+                appointment_details_required=appointment_details_required,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "APPOINTMENT_LIST_FILTER_INVALID",
+                    "message": "Invalid filter parameters.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("appointment_list failed")
             return Response(
                 {
                     "status": "error",
