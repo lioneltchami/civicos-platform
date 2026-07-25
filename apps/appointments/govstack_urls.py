@@ -31,21 +31,26 @@ Ordering note for resource paths:
   is purely for human readability and to make intent explicit.
 """
 from django.urls import path
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
+
+from apps.appointments.govstack_auth import GovStackSchedulerAuth, GovStackSchedulerPermission
 
 app_name = "govstack_scheduler"
 
 
 @api_view(["GET", "POST", "PUT", "DELETE"])
+@authentication_classes([GovStackSchedulerAuth])
+@permission_classes([GovStackSchedulerPermission])
 def govstack_not_implemented(request, *args, **kwargs):
     """
     Wave A stub view — returns HTTP 501 Not Implemented for all endpoints.
 
-    The @api_view decorator ensures DRF runs its authentication and permission
-    pipeline before the stub responds. This means requestor_id + request_token
-    validation via GovStackSchedulerAuth is exercised even before Wave B views
-    exist, allowing early integration testing with the GovStack harness.
+    GovStackSchedulerAuth and GovStackSchedulerPermission are applied explicitly
+    so that requestor_id + request_token validation is exercised even before the
+    real Wave B–G views exist. Unauthenticated callers receive 403, not 501.
+    Authenticated GovStack BB callers receive 501 — the expected harness response
+    for unimplemented-but-reachable endpoints.
 
     This stub will be replaced with real APIView classes in Waves B–G.
     """

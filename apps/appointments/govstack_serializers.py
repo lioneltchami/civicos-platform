@@ -336,7 +336,8 @@ class AffiliationDetailsSerializer(serializers.Serializer):
     entity_id = serializers.CharField(required=False, allow_blank=True)
     resource_category = serializers.CharField(required=False, allow_blank=True)
     work_days_hours = serializers.DictField(
-        child=serializers.CharField(allow_blank=True),
+        # No child= : values are nested dicts ({"from": "09:00", "to": "17:00"}),
+        # not strings. A bare DictField accepts any JSON-typed values.
         required=False,
         allow_empty=True,
         help_text=(
@@ -431,7 +432,8 @@ class EventDetailsSerializer(serializers.Serializer):
     category = serializers.CharField(required=False, allow_blank=True)
     host_entity_id = serializers.CharField(required=False, allow_blank=True)
     slots = serializers.ListField(
-        child=serializers.DictField(child=serializers.CharField(allow_blank=True)),
+        # child DictField without child= to allow nested dict values (from/to datetimes)
+        child=serializers.DictField(),
         required=False,
         allow_empty=True,
         help_text=(

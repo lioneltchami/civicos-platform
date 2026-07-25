@@ -1095,6 +1095,43 @@ class StaffProfile(TimestampedModel):
         ),
     )
 
+    # GovStack Scheduler BB — Resource callback fields for staff resources.
+    # Staff members are GovStack Resources (just like physical rooms/equipment).
+    # These fields allow the Scheduler BB to push alerts and poll availability
+    # for staff resources via the /resource/ API group (Wave B).
+    #
+    # SSRF note: alert_url and status_poll_url will be called by Celery workers
+    # in Wave F. The Wave F dispatch task MUST validate the URL scheme (https:// only)
+    # and reject private IP ranges before making any outbound request.
+    gs_phone = models.CharField(
+        max_length=30,
+        blank=True,
+        verbose_name=_("GovStack phone"),
+        help_text=_("Phone number exposed via GovStack /resource/ API."),
+    )
+    gs_alert_url = models.URLField(
+        blank=True,
+        verbose_name=_("GovStack alert URL"),
+        help_text=_("URL where this staff resource receives GovStack push alerts. HTTPS only."),
+    )
+    gs_alert_preference = models.CharField(
+        max_length=10,
+        blank=True,
+        choices=[
+            ("push", _("Push (HTTP callback)")),
+            ("poll", _("Poll (status_poll_url)")),
+            ("email", _("Email")),
+            ("sms", _("SMS")),
+            ("none", _("None")),
+        ],
+        verbose_name=_("GovStack alert preference"),
+    )
+    gs_status_poll_url = models.URLField(
+        blank=True,
+        verbose_name=_("GovStack status poll URL"),
+        help_text=_("URL the GovStack Scheduler polls for this staff member's availability. HTTPS only."),
+    )
+
     class Meta:
         ordering = ["user_id"]
         verbose_name = _("Staff profile")
@@ -2100,7 +2137,7 @@ class BookingAuditLog(models.Model):
     )
     # GovStack Scheduler BB — Log actor role
     actor_role = models.CharField(
-        max_length=20,
+        max_length=30,
         blank=True,
         choices=[
             ("admin", _("Admin")),
@@ -2420,7 +2457,7 @@ class GovStackSubscriberProfile(TimestampedModel):
         blank=True,
         choices=[
             ("push", _("Push (HTTP callback)")),
-            ("poll", _("Poll")),
+            ("poll", _("Poll (status_poll_url)")),
             ("email", _("Email")),
             ("sms", _("SMS")),
             ("none", _("None")),
@@ -2434,8 +2471,12 @@ class GovStackSubscriberProfile(TimestampedModel):
     )
 
     class Meta:
+        ordering = ["-created_at"]
         verbose_name = _("GovStack Subscriber Profile")
         verbose_name_plural = _("GovStack Subscriber Profiles")
+        indexes = [
+            models.Index(fields=["created_at"], name="appt_gs_subprofile_created"),
+        ]
 
     def __str__(self) -> str:
         return f"SubscriberProfile(user_id={self.user_id})"
@@ -2447,10 +2488,15 @@ class GovStackMessage(TimestampedModel):
 
     Reusable notification template owned by an Organization (Entity).
     Used by GovStackAlertSchedule to specify what to send.
+
+    on_delete=PROTECT: deleting an Organization that has message templates is
+    blocked at the DB level. Admin must explicitly delete all GovStackMessage
+    rows first. This gives a clear, actionable error rather than a confusing
+    cascade through GovStackAlertSchedule.
     """
     entity = models.ForeignKey(
         Organization,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="govstack_messages",
         verbose_name=_("Entity (Organization)"),
     )
@@ -2518,7 +2564,12 @@ class GovStackAffiliation(TimestampedModel):
         ordering = ["entity", "resource"]
         verbose_name = _("GovStack Affiliation")
         verbose_name_plural = _("GovStack Affiliations")
-        unique_together = [("resource", "entity")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["resource", "entity"],
+                name="appt_gs_aff_resource_entity_uniq",
+            ),
+        ]
         indexes = [
             models.Index(fields=["entity", "resource_category"], name="appt_gs_aff_entity_cat"),
         ]
@@ -2578,6 +2629,29 @@ class GovStackAlertSchedule(TimestampedModel):
             models.Index(fields=["slot", "alert_datetime"], name="appt_gs_alert_slot_dt"),
             models.Index(fields=["alert_datetime", "dispatched"], name="appt_gs_alert_dt_disp"),
         ]
+
+    def delete(self, *args, **kwargs):
+        """
+        Revoke the Celery ETA task before deleting the schedule row.
+
+        Prevents a stale task from firing after the schedule is removed.
+        Celery revoke is best-effort — the task may have already been picked
+        up by a worker. The Wave F dispatch task should guard against
+        GovStackAlertSchedule.DoesNotExist before sending any alert.
+        """
+        from celery import current_app as celery_app
+        import logging as _logging
+        _log = _logging.getLogger("civicos.appointments")
+        if self.celery_task_id:
+            try:
+                celery_app.control.revoke(self.celery_task_id, terminate=False)
+            except Exception as exc:
+                _log.warning(
+                    "GovStackAlertSchedule.delete: could not revoke Celery task %s "
+                    "for schedule pk=%s: %s",
+                    self.celery_task_id, self.pk, type(exc).__name__,
+                )
+        super().delete(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"GovStackAlertSchedule(slot={self.slot_id}, at={self.alert_datetime})"

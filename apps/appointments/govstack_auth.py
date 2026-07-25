@@ -143,9 +143,8 @@ class GovStackSchedulerAuth(BaseAuthentication):
                 is_active=True,
             ).exists():
                 logger.warning(
-                    "govstack_scheduler_auth: request_token=%r not in whitelist or inactive "
-                    "requestor_id=%r path=%s",
-                    request_token,
+                    "govstack_scheduler_auth: request_token=[REDACTED] not in whitelist "
+                    "or inactive requestor_id=%r path=%s",
                     requestor_id,
                     request.path,
                 )
@@ -155,8 +154,9 @@ class GovStackSchedulerAuth(BaseAuthentication):
 
         # Store actor identity on the request for downstream permission checks and logging.
         # Using META avoids mutating the DRF request object's public attributes.
+        # NOTE: request_token is intentionally NOT stored — it is a credential and must
+        # not appear in debug pages, middleware logs, or the DRF request inspector.
         request.META["_gs_requestor_id"] = requestor_id
-        request.META["_gs_request_token"] = request_token
 
         logger.debug(
             "govstack_scheduler_auth: authenticated requestor_id=%r path=%s require_token=%s",
@@ -243,8 +243,16 @@ class GovStackSchedulerRolePermission(BasePermission):
 
         actor_role = request.META.get("_gs_actor_role", "")
         if not actor_role:
-            # Role not yet resolved — Wave A stubs allow through; Wave B+ views
-            # must set _gs_actor_role before this permission is enforced.
+            # Role not yet resolved. In DEBUG mode, raise ImproperlyConfigured if the
+            # min_role requirement is above "subscriber" — this catches Wave B+ views
+            # that forget to set _gs_actor_role. In production, fall through safely.
+            if settings.DEBUG and _role_rank(self.min_role) > _role_rank("subscriber"):
+                from django.core.exceptions import ImproperlyConfigured
+                raise ImproperlyConfigured(
+                    f"{self.__class__.__name__} requires request.META['_gs_actor_role'] "
+                    f"to be set (min_role={self.min_role!r}). Set it in your view before "
+                    "GovStackSchedulerRolePermission is evaluated."
+                )
             return True
 
         return _role_rank(actor_role) >= _role_rank(self.min_role)
