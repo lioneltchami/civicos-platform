@@ -52,6 +52,11 @@ from apps.appointments.govstack_views import (
     AffiliationModificationsView,
     AffiliationDeleteView,
     AffiliationListDetailsView,
+    # Wave C — Subscriber
+    SubscriberNewView,
+    SubscriberModificationsView,
+    SubscriberDeleteView,
+    SubscriberListDetailsView,
 )
 
 app_name = "govstack_scheduler"
@@ -115,10 +120,10 @@ urlpatterns = [
     path("resource", ResourceDeleteView.as_view(), name="resource_delete"),
 
     # ── Subscriber (Wave C) ───────────────────────────────────────────────────
-    path("subscriber/new", govstack_not_implemented, name="subscriber_new"),
-    path("subscriber/modifications", govstack_not_implemented, name="subscriber_modifications"),
-    path("subscriber/list_details", govstack_not_implemented, name="subscriber_list_details"),
-    path("subscriber", govstack_not_implemented, name="subscriber_delete"),
+    path("subscriber/new", SubscriberNewView.as_view(), name="subscriber_new"),
+    path("subscriber/modifications", SubscriberModificationsView.as_view(), name="subscriber_modifications"),
+    path("subscriber/list_details", SubscriberListDetailsView.as_view(), name="subscriber_list_details"),
+    path("subscriber", SubscriberDeleteView.as_view(), name="subscriber_delete"),
 
     # ── Affiliation (Wave B) ──────────────────────────────────────────────────
     path("affiliation/new", AffiliationNewView.as_view(), name="affiliation_new"),

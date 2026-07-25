@@ -70,8 +70,11 @@ from apps.appointments.govstack_serializers import (
     ResourceCreateQrySerializer,
     ResourceListQrySerializer,
     ResourceModifySerializer,
+    SubscriberCreateQrySerializer,
+    SubscriberListQrySerializer,
+    SubscriberModifySerializer,
 )
-from apps.appointments.models import GovStackAffiliation, Organization, Resource
+from apps.appointments.models import GovStackAffiliation, GovStackSubscriberProfile, Organization, Resource
 from apps.appointments.services.govstack_affiliation import (
     affiliation_create,
     affiliation_delete,
@@ -83,6 +86,12 @@ from apps.appointments.services.govstack_entity import (
     entity_delete,
     entity_list,
     entity_modify,
+)
+from apps.appointments.services.govstack_subscriber import (
+    subscriber_create,
+    subscriber_delete,
+    subscriber_list,
+    subscriber_modify,
 )
 from apps.appointments.services.govstack_resource import (
     resource_create,
@@ -1080,3 +1089,292 @@ class AffiliationListDetailsView(APIView):
             )
 
         return Response({"status": "success", "data": data}, status=200)
+
+
+# ===========================================================================
+# Subscriber views (4 endpoints)  — Wave C
+# ===========================================================================
+
+class SubscriberNewView(APIView):
+    """
+    POST /govstack/scheduler/subscriber/new
+
+    Create a new Subscriber (User + GovStackSubscriberProfile). All request data
+    arrives as query parameters; subscriber details are embedded in `qry`.
+
+    Expected qry shape:
+      {"qry": {"details": {"name": "...", "category": "...", "phone": "...",
+                           "email": "...", "alert_url": "...",
+                           "alert_preference": "...", "status_poll_url": "..."}}}
+
+    Returns:
+      201 {"status": "success", "subscriber_id": "<user_pk>"}
+      400 on validation or creation failure
+
+    PIPEDA: subscriber PII (name, email, phone) must NOT appear in log messages.
+    """
+
+    gs_actor_role = "admin"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def post(self, request):
+        request.META["_gs_actor_role"] = "admin"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = SubscriberCreateQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["qry"]["details"]
+        try:
+            profile = subscriber_create(
+                name=details.get("name", ""),
+                category=details.get("category", ""),
+                phone=details.get("phone", ""),
+                email=details.get("email", ""),
+                alert_url=details.get("alert_url", ""),
+                alert_preference=details.get("alert_preference", ""),
+                status_poll_url=details.get("status_poll_url", ""),
+            )
+        except ValueError as exc:
+            # Service-layer validation error (e.g. invalid alert_preference, duplicate email).
+            return Response(
+                {
+                    "status": "error",
+                    "code": "SUBSCRIBER_CREATE_FAILED",
+                    "message": str(exc),
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("subscriber_create failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "SUBSCRIBER_CREATE_FAILED",
+                    "message": "Operation failed. Please check your input and try again.",
+                },
+                status=400,
+            )
+
+        return Response({"status": "success", "subscriber_id": str(profile.user_id)}, status=201)
+
+
+class SubscriberModificationsView(APIView):
+    """
+    PUT /govstack/scheduler/subscriber/modifications
+
+    Modify an existing Subscriber. Requires `subscriber_id` and `qry` query params.
+
+    Expected qry shape:
+      {"details": {"name": "...", "category": "...", ...}}  (all fields optional)
+
+    Returns:
+      200 {"status": "success", "subscriber_id": "<user_pk>"}
+      400 on missing/invalid params or modification failure
+      404 if no subscriber with the given subscriber_id exists
+
+    PIPEDA: subscriber PII must NOT appear in log messages.
+    """
+
+    gs_actor_role = "admin"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def put(self, request):
+        request.META["_gs_actor_role"] = "admin"
+
+        subscriber_id_str = request.query_params.get("subscriber_id", "").strip()
+        if not subscriber_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_SUBSCRIBER_ID",
+                    "message": "subscriber_id query parameter is required.",
+                },
+                status=400,
+            )
+        int_id, err = _require_int_id(subscriber_id_str, "subscriber_id")
+        if err:
+            return err
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = SubscriberModifySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["details"]
+        try:
+            profile = subscriber_modify(
+                subscriber_id=int_id,
+                name=details.get("name"),
+                category=details.get("category"),
+                phone=details.get("phone"),
+                email=details.get("email"),
+                alert_url=details.get("alert_url"),
+                alert_preference=details.get("alert_preference"),
+                status_poll_url=details.get("status_poll_url"),
+            )
+        except GovStackSubscriberProfile.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "SUBSCRIBER_NOT_FOUND",
+                    "message": f"No active subscriber with id={subscriber_id_str}.",
+                },
+                status=404,
+            )
+        except ValueError as exc:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MODIFY_FAILED",
+                    "message": str(exc),
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("subscriber_modify failed for subscriber_id=%s", subscriber_id_str)
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MODIFY_FAILED",
+                    "message": "Operation failed. Please check your input and try again.",
+                },
+                status=400,
+            )
+
+        return Response({"status": "success", "subscriber_id": str(profile.user_id)}, status=200)
+
+
+class SubscriberDeleteView(APIView):
+    """
+    DELETE /govstack/scheduler/subscriber
+
+    Soft-delete a Subscriber (sets User.is_active=False). Requires `subscriber_id`
+    query parameter.
+
+    GovStackSubscriberProfile is retained for audit trail compliance.
+
+    Returns:
+      200 {"status": "success", "subscriber_id": "<subscriber_id>"}
+      400 if subscriber_id is missing
+      404 if no subscriber with the given subscriber_id exists
+
+    PIPEDA: subscriber PII must NOT appear in log messages.
+    """
+
+    gs_actor_role = "admin"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def delete(self, request):
+        request.META["_gs_actor_role"] = "admin"
+
+        subscriber_id_str = request.query_params.get("subscriber_id", "").strip()
+        if not subscriber_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_SUBSCRIBER_ID",
+                    "message": "subscriber_id query parameter is required.",
+                },
+                status=400,
+            )
+        int_id, err = _require_int_id(subscriber_id_str, "subscriber_id")
+        if err:
+            return err
+
+        try:
+            subscriber_delete(subscriber_id=int_id)
+        except GovStackSubscriberProfile.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "SUBSCRIBER_NOT_FOUND",
+                    "message": f"No active subscriber with id={subscriber_id_str}.",
+                },
+                status=404,
+            )
+        except Exception:
+            logger.exception("subscriber_delete failed for subscriber_id=%s", subscriber_id_str)
+            return Response(
+                {
+                    "status": "error",
+                    "code": "DELETE_FAILED",
+                    "message": "Operation failed. Please check your input and try again.",
+                },
+                status=400,
+            )
+
+        return Response({"status": "success", "subscriber_id": str(int_id)}, status=200)
+
+
+class SubscriberListDetailsView(APIView):
+    """
+    GET /govstack/scheduler/subscriber/list_details
+
+    List Subscribers matching the supplied filters. All parameters arrive as
+    query params; filter and field-selection objects are embedded in `qry`.
+
+    Expected qry shape:
+      {
+        "subscriber_filter": {"subscriber_id": "5", "name": "Alice"},
+        "subscriber_details_required": {"subscriber_id": true, "name": true, "email": false}
+      }
+
+    Returns:
+      200 {"status": "success", "data": [...]}
+      400 on invalid params
+
+    PIPEDA: email, phone, and name are only returned when explicitly requested via
+    subscriber_details_required. subscriber_id is always included.
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def get(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = SubscriberListQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        subscriber_filter = ser.validated_data.get("subscriber_filter", {})
+        subscriber_details_required = ser.validated_data.get("subscriber_details_required", {})
+
+        try:
+            results = subscriber_list(subscriber_filter, subscriber_details_required)
+        except Exception:
+            logger.exception("subscriber_list failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LIST_FAILED",
+                    "message": "Operation failed. Please check your input and try again.",
+                },
+                status=400,
+            )
+
+        return Response({"status": "success", "data": results}, status=200)
