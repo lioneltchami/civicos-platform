@@ -9,11 +9,14 @@ Covers:
 - request_export() creation, duplicate guard
 - get_citizen_exports() scoping
 """
+import threading
+import unittest
 import uuid
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.db import connection
+from django.test import TestCase, TransactionTestCase
 
 from apps.consent.models import (
     ConsentAuditEntry,
@@ -368,3 +371,87 @@ class ConsentServiceGetCitizenExportsTests(TestCase):
         new_citizen = _make_citizen()
         exports = ConsentService.get_citizen_exports(new_citizen)
         self.assertEqual(exports.count(), 0)
+
+
+# ===========================================================================
+# Fix 4 — concurrent first-grant race (TransactionTestCase)
+# ===========================================================================
+
+@unittest.skipIf(
+    connection.vendor == "sqlite",
+    "select_for_update()/real row-level locking requires PostgreSQL; SQLite "
+    "cannot serialise concurrent threads the way this test needs.",
+)
+class ConcurrentFirstGrantTests(TransactionTestCase):
+    """
+    Two concurrent ConsentService.grant() calls for the SAME citizen+category
+    where NEITHER has an existing record yet (the "very first grant" race
+    described in the certifiability review): grant()'s select_for_update()
+    only locks EXISTING signed/granted rows, so with nothing to lock, both
+    concurrent requests could otherwise reach ConsentRecord.objects.create()
+    with is_current=True.
+
+    The DB-level unique_current_consent_record_per_citizen_category
+    constraint (models.py) plus grant()'s IntegrityError recovery path
+    (services.py) must together guarantee exactly one is_current=True row
+    survives, and BOTH threads must return successfully (no unhandled
+    exception propagates to the caller) regardless of thread ordering.
+
+    TransactionTestCase is required (mirrors apps/volunteers/tests/
+    test_invariants.py's ConcurrentOverbookingTests pattern) because
+    select_for_update() needs real row-level locking semantics unavailable
+    inside TestCase's wrapping savepoint.
+    """
+
+    def setUp(self):
+        self.citizen = _make_citizen()
+        self.category = _make_category(slug=f"race-{uuid.uuid4().hex[:6]}")
+
+    def test_exactly_one_current_record_survives_concurrent_first_grant(self):
+        results = []
+        errors = []
+        lock = threading.Lock()
+
+        def _grant():
+            try:
+                record = ConsentService.grant(
+                    citizen=self.citizen, category_slug=self.category.slug
+                )
+                with lock:
+                    results.append(record)
+            except Exception as exc:  # pragma: no cover - failure path under test
+                with lock:
+                    errors.append(exc)
+            finally:
+                connection.close()
+
+        t1 = threading.Thread(target=_grant)
+        t2 = threading.Thread(target=_grant)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # Both concurrent calls must complete successfully — the IntegrityError
+        # race must be fully recovered from inside grant(), never surfaced to
+        # the caller.
+        self.assertEqual(
+            len(errors), 0,
+            f"grant() must recover from the is_current race internally; got errors: {errors}",
+        )
+        self.assertEqual(len(results), 2)
+
+        # Exactly one is_current=True row must exist for this citizen/category
+        # — the DB constraint (backstopped by grant()'s recovery path) must
+        # prevent true overwriting/duplication regardless of thread ordering.
+        current_count = ConsentRecord.objects.filter(
+            citizen=self.citizen, category=self.category, is_current=True
+        ).count()
+        self.assertEqual(
+            current_count, 1,
+            f"Expected exactly 1 is_current=True ConsentRecord; got {current_count}.",
+        )
+
+        # Both threads must have observed the SAME winning record (grant() is
+        # idempotent — the loser re-fetches and returns the winner's row).
+        self.assertEqual(results[0].pk, results[1].pk)

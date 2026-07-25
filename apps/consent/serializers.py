@@ -7,6 +7,8 @@ Two layers:
      to match the GovStack Consent BB OpenAPI spec field names (camelCase in JSON
      handled by the DRF settings or by explicit field naming).
 """
+import json
+
 from rest_framework import serializers
 
 from .models import (
@@ -155,7 +157,7 @@ class RevisionSerializer(serializers.ModelSerializer):
 
     schemaName = serializers.CharField(source="schema_name", read_only=True)
     objectId = serializers.CharField(source="object_id", read_only=True)
-    serializedSnapshot = serializers.JSONField(source="serialized_snapshot", read_only=True)
+    serializedSnapshot = serializers.SerializerMethodField()
     serializedHash = serializers.CharField(source="serialized_hash", read_only=True)
     predecessorHash = serializers.CharField(source="predecessor_hash", read_only=True)
     authorizedByIndividual = serializers.SerializerMethodField()
@@ -182,6 +184,16 @@ class RevisionSerializer(serializers.ModelSerializer):
             "predecessorSignature",
         ]
         read_only_fields = fields
+
+    def get_serializedSnapshot(self, obj) -> str:
+        """
+        GovStack spec: Revision.serializedSnapshot is type: string. Serialized
+        with the EXACT same json.dumps(sort_keys=True, default=str) call used by
+        ConsentRevision._compute_hash() (models.py), so a client can
+        independently recompute serializedHash from serializedSnapshot and get a
+        matching value.
+        """
+        return json.dumps(obj.serialized_snapshot, sort_keys=True, default=str)
 
     def get_authorizedByIndividual(self, obj):
         if obj.authorized_by_individual_id:

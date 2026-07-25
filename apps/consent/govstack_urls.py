@@ -29,9 +29,9 @@ urlpatterns = [
     # -----------------------------------------------------------------------
     path("config/policies/",          v.ConfigPolicyCollectionView.as_view(), name="gs-policy-list"),
     path("config/policy/",            v.ConfigPolicyCreateView.as_view(),     name="gs-policy-create"),
-    path("config/policy/<uuid:policy_id>/",
+    path("config/policy/<str:policy_id>/",
                                       v.ConfigPolicyDetailView.as_view(),    name="gs-policy-detail"),
-    path("config/policy/<uuid:policy_id>/revisions/",
+    path("config/policy/<str:policy_id>/revisions/",
                                       v.ConfigPolicyRevisionsView.as_view(), name="gs-policy-revisions"),
 
     # -----------------------------------------------------------------------
@@ -39,7 +39,7 @@ urlpatterns = [
     # -----------------------------------------------------------------------
     path("config/data-agreements/",   v.ConfigDataAgreementCollectionView.as_view(), name="gs-da-list"),
     path("config/data-agreement/",    v.ConfigDataAgreementCreateView.as_view(),     name="gs-da-create"),
-    path("config/data-agreement/<int:data_agreement_id>/",
+    path("config/data-agreement/<str:data_agreement_id>/",
                                       v.ConfigDataAgreementDetailView.as_view(), name="gs-da-detail"),
 
     # -----------------------------------------------------------------------
@@ -47,7 +47,7 @@ urlpatterns = [
     # -----------------------------------------------------------------------
     path("config/individuals/",       v.ConfigIndividualCollectionView.as_view(), name="gs-config-individual-list"),
     path("config/individual/",        v.ConfigIndividualCreateView.as_view(),     name="gs-config-individual-create"),
-    path("config/individual/<uuid:individual_id>/",
+    path("config/individual/<str:individual_id>/",
                                       v.ConfigIndividualDetailView.as_view(), name="gs-config-individual-detail"),
 
     # -----------------------------------------------------------------------
@@ -56,9 +56,9 @@ urlpatterns = [
     path("config/webhooks/",          v.ConfigWebhookCollectionView.as_view(), name="gs-webhook-list"),
     path("config/webhook/",           v.ConfigWebhookCreateView.as_view(),     name="gs-webhook-create"),
     # NOTE: /payload/ must come before the bare {id}/ path to avoid routing ambiguity
-    path("config/webhook/<uuid:webhook_id>/payload/",
+    path("config/webhook/<str:webhook_id>/payload/",
                                       v.ConfigWebhookPayloadView.as_view(), name="gs-webhook-payload"),
-    path("config/webhook/<uuid:webhook_id>/",
+    path("config/webhook/<str:webhook_id>/",
                                       v.ConfigWebhookDetailView.as_view(),  name="gs-webhook-detail"),
 
     # -----------------------------------------------------------------------
@@ -66,15 +66,28 @@ urlpatterns = [
     # -----------------------------------------------------------------------
     path("service/individuals/",      v.ServiceIndividualCollectionView.as_view(), name="gs-service-individual-list"),
     path("service/individual/",       v.ServiceIndividualCreateView.as_view(),     name="gs-service-individual-create"),
-    path("service/individual/<uuid:individual_id>/",
+    # NOTE: Right to Be Forgotten (below) MUST come before the
+    # <str:individual_id> detail route. With the <uuid:>/<int:> converters
+    # previously used here, the literal segment "record" could never match
+    # <uuid:individual_id> so ordering didn't matter — but now that malformed-
+    # ID validation has moved into the view (Fix 2: govstack_views.py's
+    # _parse_uuid_param), this route uses <str:>, which matches ANY
+    # single path segment including the literal "record". Without this
+    # ordering, "service/individual/record/" would be incorrectly captured
+    # by ServiceIndividualDetailView with individual_id="record" instead of
+    # reaching ServiceIndividualRightToBeForgottenView.
+    path("service/individual/record/",
+                                      v.ServiceIndividualRightToBeForgottenView.as_view(),
+                                      name="gs-rtbf"),
+    path("service/individual/<str:individual_id>/",
                                       v.ServiceIndividualDetailView.as_view(), name="gs-service-individual-detail"),
 
     # SERVICE — DataAgreement (read-only for individuals; int PK)
-    path("service/data-agreement/<int:data_agreement_id>/",
+    path("service/data-agreement/<str:data_agreement_id>/",
                                       v.ServiceDataAgreementDetailView.as_view(), name="gs-service-da-detail"),
 
     # SERVICE — Policy (read-only for individuals; uuid)
-    path("service/policy/<uuid:policy_id>/",
+    path("service/policy/<str:policy_id>/",
                                       v.ServicePolicyDetailView.as_view(),   name="gs-service-policy-detail"),
 
     # SERVICE — Verification (data consumer endpoints)
@@ -84,7 +97,7 @@ urlpatterns = [
     path("service/verification/consent-records/",
                                       v.ServiceVerificationConsentRecordsView.as_view(),
                                       name="gs-verification-cr-list"),
-    path("service/verification/consent-record/<uuid:consent_record_id>/",
+    path("service/verification/consent-record/<str:consent_record_id>/",
                                       v.ServiceVerificationConsentRecordDetailView.as_view(),
                                       name="gs-verification-cr-detail"),
 
@@ -97,37 +110,32 @@ urlpatterns = [
     path("service/individual/record/consent-record/",
                                       v.ServiceIndividualConsentRecordListView.as_view(),
                                       name="gs-cr-list-create"),
-    path("service/individual/record/consent-record/<uuid:consent_record_id>/",
+    path("service/individual/record/consent-record/<str:consent_record_id>/",
                                       v.ServiceIndividualConsentRecordDetailView.as_view(),
                                       name="gs-cr-detail"),
 
     # SERVICE — DataAgreement-scoped consent records (int PK for DataAgreement)
     # NOTE: /all/ path MUST come before the bare DA path to avoid routing ambiguity.
-    path("service/individual/record/data-agreement/<int:data_agreement_id>/all/",
+    path("service/individual/record/data-agreement/<str:data_agreement_id>/all/",
                                       v.ServiceIndividualDataAgreementAllConsentRecordsView.as_view(),
                                       name="gs-cr-by-da-all"),
-    path("service/individual/record/data-agreement/<int:data_agreement_id>/",
+    path("service/individual/record/data-agreement/<str:data_agreement_id>/",
                                       v.ServiceIndividualDataAgreementConsentRecordView.as_view(),
                                       name="gs-cr-by-da"),
 
     # SERVICE — ConsentRecord Signature (POST create, PUT update)
-    path("service/individual/record/consent-record/<uuid:consent_record_id>/signature/",
+    path("service/individual/record/consent-record/<str:consent_record_id>/signature/",
                                       v.ServiceConsentRecordSignatureView.as_view(),
                                       name="gs-cr-signature"),
-
-    # SERVICE — Right to Be Forgotten (DELETE all forgettable records)
-    path("service/individual/record/",
-                                      v.ServiceIndividualRightToBeForgottenView.as_view(),
-                                      name="gs-rtbf"),
 
     # -----------------------------------------------------------------------
     # AUDIT
     # -----------------------------------------------------------------------
     path("audit/consent-records/",    v.AuditConsentRecordListView.as_view(),    name="gs-audit-cr-list"),
-    path("audit/consent-record/<uuid:consent_record_id>/",
+    path("audit/consent-record/<str:consent_record_id>/",
                                       v.AuditConsentRecordDetailView.as_view(),  name="gs-audit-cr-detail"),
     path("audit/data-agreements/",    v.AuditDataAgreementListView.as_view(),    name="gs-audit-da-list"),
-    path("audit/data-agreement/<int:data_agreement_id>/",
+    path("audit/data-agreement/<str:data_agreement_id>/",
                                       v.AuditDataAgreementDetailView.as_view(),  name="gs-audit-da-detail"),
     # CivicOS extension: full consent audit log with timestamps
     path("audit/consent-log/",        v.AuditConsentLogView.as_view(),           name="gs-audit-log"),

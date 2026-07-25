@@ -550,6 +550,20 @@ class ConsentRecord(UUIDModel, TimestampedModel):
                 name="consent_record_state_valid",
                 violation_error_message="state must be one of: unsigned, pending, signed, revoked",
             ),
+            # F4/DB-level fix: guarantees at most one is_current=True row per
+            # (citizen, category) at the database level. Python-level logic in
+            # ConsentService.grant() (services.py) already enforces this in the
+            # common case, but its select_for_update() only locks EXISTING
+            # signed/granted rows — a citizen's very first grant to a category
+            # has nothing to lock, so two concurrent first-grant requests could
+            # otherwise both .create() a row with is_current=True. This partial
+            # unique index closes that race at the DB layer; grant() catches the
+            # resulting IntegrityError and re-fetches the winning row.
+            models.UniqueConstraint(
+                fields=["citizen", "category"],
+                condition=models.Q(is_current=True),
+                name="unique_current_consent_record_per_citizen_category",
+            ),
         ]
 
     def __str__(self) -> str:

@@ -5,9 +5,15 @@ process_data_export and cleanup_export_files are tested by calling them
 via .apply() so Celery's TASK_ALWAYS_EAGER setting runs them synchronously
 in-process with a real task instance (no mock self required).
 """
+import hashlib
+import hmac
+import json
 import uuid
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import requests as _requests
+from celery.exceptions import Retry
 
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -16,15 +22,22 @@ from django.utils import timezone
 
 from apps.consent.models import (
     ConsentAuditEntry,
+    ConsentWebhook,
     DataExportRequest,
 )
-from apps.consent.tasks import cleanup_export_files, process_data_export
+from apps.consent.tasks import (
+    cleanup_export_files,
+    dispatch_consent_webhook,
+    process_data_export,
+)
 
 User = get_user_model()
 VALID_PASSWORD = "SecureTest123!"
 
 # Patch at the module where default_storage is imported (tasks module level)
 _STORAGE = "apps.consent.tasks.default_storage"
+# tasks.py does `import requests as _requests` — patch target must match.
+_POST = "apps.consent.tasks._requests.post"
 
 
 def _make_citizen(email=None):
@@ -516,3 +529,242 @@ class CleanupExportFilesTaskTests(TestCase):
             2,
             "expired count must be 2 regardless of mark_purpose_fulfilled failures.",
         )
+
+
+# ===========================================================================
+# dispatch_consent_webhook — Fix 5 (zero coverage before this pass)
+# ===========================================================================
+
+def _make_webhook(**kwargs):
+    defaults = {
+        "payload_url": "https://example.com/hook",
+        "secret_key": "test-secret-key",
+        "content_type": "application/json",
+        "signature_header": "X-GovStack-Signature",
+        "subscribed_events": [ConsentWebhook.EVENT_CONSENT_GRANTED],
+        "is_disabled": False,
+    }
+    defaults.update(kwargs)
+    return ConsentWebhook.objects.create(**defaults)
+
+
+class DispatchConsentWebhookSignatureTests(TestCase):
+    """HMAC-SHA256 signature computation must match tasks.py's own scheme exactly."""
+
+    def setUp(self):
+        self.webhook = _make_webhook()
+
+    def test_hmac_signature_matches_known_payload_and_secret(self):
+        """
+        Independently recompute the HMAC-SHA256 signature the same way a
+        webhook subscriber would, and assert it matches the header the task
+        actually sends — this is the whole point of publishing a signature.
+        """
+        with patch(_POST) as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, ok=True)
+            dispatch_consent_webhook.apply(
+                args=[
+                    str(self.webhook.pk),
+                    "consent.granted",
+                    {"category_slug": "marketing", "individual_id": "abc-123"},
+                    "2026-01-01T00:00:00+00:00",
+                ]
+            )
+
+        mock_post.assert_called_once()
+        _, call_kwargs = mock_post.call_args
+        body = call_kwargs["data"]
+        headers = call_kwargs["headers"]
+
+        # Body must be the exact event/timestamp/payload envelope, unsorted
+        # (insertion order), matching tasks.py's own json.dumps(..., default=str).
+        expected_body = json.dumps(
+            {
+                "event": "consent.granted",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "payload": {"category_slug": "marketing", "individual_id": "abc-123"},
+            },
+            default=str,
+        )
+        self.assertEqual(body, expected_body)
+
+        expected_sig = hmac.new(
+            b"test-secret-key", expected_body.encode(), hashlib.sha256
+        ).hexdigest()
+        self.assertEqual(headers["X-GovStack-Signature"], f"sha256={expected_sig}")
+        self.assertEqual(headers["X-GovStack-Event"], "consent.granted")
+        self.assertEqual(headers["Content-Type"], "application/json")
+
+    def test_signature_header_name_is_configurable(self):
+        """A webhook with a custom signature_header must use that header name."""
+        webhook = _make_webhook(
+            payload_url="https://example.com/hook2",
+            secret_key="another-secret",
+            signature_header="X-Custom-Signature",
+        )
+        with patch(_POST) as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, ok=True)
+            dispatch_consent_webhook.apply(
+                args=[str(webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
+            )
+
+        _, call_kwargs = mock_post.call_args
+        headers = call_kwargs["headers"]
+        self.assertIn("X-Custom-Signature", headers)
+        self.assertNotIn("X-GovStack-Signature", headers)
+        self.assertTrue(headers["X-Custom-Signature"].startswith("sha256="))
+
+
+class DispatchConsentWebhookDeliveryPersistenceTests(TestCase):
+    """last_payload / last_delivery_at / last_delivery_status persistence."""
+
+    def setUp(self):
+        self.webhook = _make_webhook()
+
+    def test_successful_delivery_persists_last_payload_and_status(self):
+        with patch(_POST) as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, ok=True)
+            result = dispatch_consent_webhook.apply(
+                args=[
+                    str(self.webhook.pk),
+                    "consent.granted",
+                    {"category_slug": "marketing"},
+                    "2026-01-01T00:00:00+00:00",
+                ]
+            )
+
+        self.webhook.refresh_from_db()
+        self.assertEqual(self.webhook.last_delivery_status, "success")
+        self.assertIsNotNone(self.webhook.last_delivery_at)
+        self.assertIsNotNone(self.webhook.last_payload)
+        self.assertEqual(self.webhook.last_payload["event"], "consent.granted")
+        self.assertEqual(
+            self.webhook.last_payload["payload"], {"category_slug": "marketing"}
+        )
+        self.assertEqual(result.result, {"status": "delivered", "http_status": 200})
+
+    def test_non_2xx_response_marks_failed_without_overwriting_last_payload(self):
+        # First, a successful delivery populates last_payload.
+        with patch(_POST) as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, ok=True)
+            dispatch_consent_webhook.apply(
+                args=[
+                    str(self.webhook.pk),
+                    "consent.granted",
+                    {"category_slug": "marketing"},
+                    "2026-01-01T00:00:00+00:00",
+                ]
+            )
+        self.webhook.refresh_from_db()
+        first_payload = self.webhook.last_payload
+
+        # A subsequent non-2xx response must mark failed but NOT clobber
+        # last_payload (preserves the last successfully delivered payload).
+        with patch(_POST) as mock_post:
+            mock_post.return_value = MagicMock(status_code=500, ok=False)
+            result = dispatch_consent_webhook.apply(
+                args=[
+                    str(self.webhook.pk),
+                    "consent.withdrawn",
+                    {"category_slug": "marketing"},
+                    "2026-01-02T00:00:00+00:00",
+                ]
+            )
+
+        self.webhook.refresh_from_db()
+        self.assertEqual(self.webhook.last_delivery_status, "failed")
+        self.assertEqual(self.webhook.last_payload, first_payload)
+        self.assertEqual(
+            result.result, {"status": "receiver_error", "http_status": 500}
+        )
+
+    def test_webhook_not_found_is_skipped_gracefully(self):
+        fake_pk = str(uuid.uuid4())
+        with patch(_POST) as mock_post:
+            result = dispatch_consent_webhook.apply(
+                args=[fake_pk, "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
+            )
+        mock_post.assert_not_called()
+        self.assertEqual(
+            result.result, {"status": "skipped", "reason": "webhook_not_found"}
+        )
+
+
+class DispatchConsentWebhookDisabledTests(TestCase):
+    """The task must skip dispatch (no HTTP call) for a disabled webhook."""
+
+    def test_disabled_webhook_is_skipped_no_http_call_made(self):
+        webhook = _make_webhook(is_disabled=True)
+        with patch(_POST) as mock_post:
+            result = dispatch_consent_webhook.apply(
+                args=[str(webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
+            )
+        mock_post.assert_not_called()
+        self.assertEqual(
+            result.result, {"status": "skipped", "reason": "webhook_disabled"}
+        )
+        webhook.refresh_from_db()
+        self.assertIsNone(webhook.last_delivery_status)
+        self.assertIsNone(webhook.last_payload)
+
+    def test_enabled_webhook_is_not_skipped(self):
+        webhook = _make_webhook(is_disabled=False)
+        with patch(_POST) as mock_post:
+            mock_post.return_value = MagicMock(status_code=200, ok=True)
+            dispatch_consent_webhook.apply(
+                args=[str(webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
+            )
+        mock_post.assert_called_once()
+
+
+class DispatchConsentWebhookRetryTests(TestCase):
+    """Retry behaviour on requests.exceptions.RequestException."""
+
+    def setUp(self):
+        self.webhook = _make_webhook()
+
+    def test_network_error_triggers_autoretry(self):
+        """
+        A RequestException from requests.post must be retried per the task's
+        autoretry_for=(requests.exceptions.RequestException,) policy — not
+        swallowed and not allowed to mark the webhook as a permanent failure
+        without at least one retry attempt.
+        """
+        with patch(_POST) as mock_post, patch.object(
+            dispatch_consent_webhook, "retry", side_effect=Retry()
+        ) as mock_retry:
+            mock_post.side_effect = _requests.exceptions.ConnectionError("connection refused")
+            dispatch_consent_webhook.apply(
+                args=[
+                    str(self.webhook.pk),
+                    "consent.granted",
+                    {"category_slug": "marketing"},
+                    "2026-01-01T00:00:00+00:00",
+                ],
+                throw=False,
+            )
+
+        mock_retry.assert_called_once()
+        _, retry_kwargs = mock_retry.call_args
+        self.assertIsInstance(
+            retry_kwargs.get("exc"), _requests.exceptions.RequestException
+        )
+
+    def test_network_error_does_not_mark_delivery_failed_without_retry_exhaustion(self):
+        """
+        A transient network error must not silently persist
+        last_delivery_status="failed" — that write path is reserved for a
+        non-2xx HTTP response from the receiver (a receiver-side logic
+        error), not a network-level exception, which is retried instead.
+        """
+        with patch(_POST) as mock_post, patch.object(
+            dispatch_consent_webhook, "retry", side_effect=Retry()
+        ):
+            mock_post.side_effect = _requests.exceptions.Timeout("timed out")
+            dispatch_consent_webhook.apply(
+                args=[str(self.webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"],
+                throw=False,
+            )
+
+        self.webhook.refresh_from_db()
+        self.assertIsNone(self.webhook.last_delivery_status)

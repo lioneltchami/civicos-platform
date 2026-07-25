@@ -22,6 +22,8 @@ Security invariants verified:
   - DA-all endpoint scoped to request.user (individual scope)
   - Individuals can only modify their own consent records
 """
+import hashlib
+import json
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -881,6 +883,35 @@ class ConsentRevisionTests(GovStackAPIBase):
         )
         self.assertNotIn("_predecessor_hash", rev.serialized_snapshot)
 
+    def test_revision_serialized_snapshot_is_a_string(self):
+        """
+        GovStack spec: Revision.serializedSnapshot is type: string, not a
+        nested JSON object. Also verifies a client can independently
+        recompute serializedHash from serializedSnapshot and get a matching
+        value — the whole point of publishing both fields.
+        """
+        policy, rev = ConsentService.create_policy(
+            {"name": "P", "version": "1.0", "url": "https://example.com"},
+            actor=self.admin,
+        )
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/config/policy/{policy.pk}/revisions/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        rev_data = next(rv for rv in r.data["revisions"] if rv["id"] == str(rev.pk))
+
+        snapshot_str = rev_data["serializedSnapshot"]
+        self.assertIsInstance(snapshot_str, str)
+
+        # Round-trip: json.loads() must reproduce the exact model snapshot.
+        self.assertEqual(json.loads(snapshot_str), rev.serialized_snapshot)
+
+        # Independently recompute serializedHash from serializedSnapshot —
+        # must match the persisted serializedHash exactly (same hashing
+        # scheme as ConsentRevision._compute_hash()).
+        recomputed_hash = hashlib.sha256(snapshot_str.encode()).hexdigest()
+        self.assertEqual(recomputed_hash, rev_data["serializedHash"])
+        self.assertEqual(recomputed_hash, rev.serialized_hash)
+
     def test_policy_list_includes_pagination(self):
         """ConfigPolicyListView must support offset/limit (F7 fix)."""
         ConsentService.create_policy(
@@ -1130,6 +1161,18 @@ class DataAgreementAllConsentRecordsTests(GovStackAPIBase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data["consentRecords"]), 1)
 
+    def test_all_response_includes_total(self):
+        """
+        Pagination envelope standardization: this endpoint must include
+        "total" = the full unfiltered count, not the page count.
+        """
+        self._auth(self.citizen)
+        r = self.client.get(self._all_url(), {"limit": 1, "offset": 0})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("total", r.data)
+        self.assertEqual(r.data["total"], 1)
+        self.assertEqual(len(r.data["consentRecords"]), 1)
+
 
 # ===========================================================================
 # Round 9+ fixes — new regression tests
@@ -1371,3 +1414,153 @@ class AuditEndpointAuthorizationTests(APITestCase):
     def test_unauthenticated_gets_401(self):
         r = self.client.get("/api/v1/consent/audit/consent-records/")
         self.assertEqual(r.status_code, 401)
+
+
+# ===========================================================================
+# Malformed path-ID routing (fix for the 400-vs-raw-404 regression)
+#
+# The live upstream Gherkin harness (bb-consent/test/gherkin/features/
+# data_agreement.feature) expects HTTP 400 with a JSON error body for a
+# malformed path ID. Since govstack_urls.py now routes ALL of these segments
+# with <str:> converters (validation moved into the view via _parse_uuid_param
+# / _parse_int_param), a bad ID must produce a DRF ValidationError → JSON 400,
+# not Django's raw, un-routed, HTML 404.
+# ===========================================================================
+
+class MalformedPathIdRoutingTests(GovStackAPIBase):
+
+    def test_config_policy_detail_malformed_uuid_returns_400(self):
+        """UUID-typed route, config namespace."""
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/policy/not-a-uuid/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsInstance(r.data, (dict, list))
+
+    def test_service_data_agreement_detail_malformed_int_returns_400(self):
+        """Integer-typed route, service namespace."""
+        self._auth(self.citizen)
+        r = self.client.get("/api/v1/consent/service/data-agreement/abc/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsInstance(r.data, (dict, list))
+
+    def test_audit_consent_record_detail_malformed_uuid_returns_400(self):
+        """UUID-typed route, audit namespace."""
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/audit/consent-record/not-a-uuid/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsInstance(r.data, (dict, list))
+
+    def test_audit_data_agreement_detail_malformed_int_returns_400(self):
+        """Integer-typed route, audit namespace."""
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/audit/data-agreement/xyz/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_config_webhook_detail_malformed_uuid_returns_400(self):
+        """UUID-typed route, config namespace (webhook)."""
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/webhook/not-a-uuid/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_service_individual_record_consent_record_malformed_uuid_returns_400(self):
+        """UUID-typed route, service namespace (ConsentRecord)."""
+        self._auth(self.citizen)
+        r = self.client.get(
+            "/api/v1/consent/service/individual/record/consent-record/not-a-uuid/"
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_config_data_agreement_detail_valid_but_nonexistent_id_still_404s(self):
+        """
+        Sanity check: a well-formed but nonexistent int ID must still 404
+        (NOT 400) — only malformed IDs get the 400 treatment.
+        """
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/data-agreement/999999/")
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+
+# ===========================================================================
+# Pagination envelope standardization — "total" must be present on every
+# list endpoint (the full unfiltered count, not the page count).
+# ===========================================================================
+
+class PaginationTotalFieldTests(GovStackAPIBase):
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.models import Group
+        self.category = _make_category(slug="total-field-test")
+        self.consumer = _make_citizen(email="total-consumer@example.com")
+        group, _ = Group.objects.get_or_create(name="data_consumers")
+        self.consumer.groups.add(group)
+
+    def test_config_individuals_list_includes_total(self):
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/individuals/", {"limit": 1})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("total", r.data)
+        self.assertGreaterEqual(r.data["total"], 2)  # at least admin + citizen
+        self.assertEqual(len(r.data["individuals"]), 1)
+
+    def test_config_webhooks_list_includes_total(self):
+        ConsentWebhook.objects.create(
+            payload_url="https://example.com/hook1",
+            secret_key="s1",
+        )
+        ConsentWebhook.objects.create(
+            payload_url="https://example.com/hook2",
+            secret_key="s2",
+        )
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/webhooks/", {"limit": 1})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("total", r.data)
+        self.assertEqual(r.data["total"], 2)
+        self.assertEqual(len(r.data["webhooks"]), 1)
+
+    def test_service_individuals_list_includes_total(self):
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/service/individuals/", {"limit": 1})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("total", r.data)
+        self.assertGreaterEqual(r.data["total"], 2)
+        self.assertEqual(len(r.data["individuals"]), 1)
+
+    def test_verification_data_agreements_list_includes_total(self):
+        _make_category(slug="total-field-test-2")
+        self._auth(self.consumer)
+        r = self.client.get(
+            "/api/v1/consent/service/verification/data-agreements/", {"limit": 1}
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("total", r.data)
+        self.assertGreaterEqual(r.data["total"], 2)
+        self.assertEqual(len(r.data["dataAgreements"]), 1)
+
+    def test_verification_consent_records_list_includes_total(self):
+        ConsentService.grant(self.citizen, self.category.slug)
+        other = _make_citizen()
+        other_category = _make_category(slug="total-field-test-cr2")
+        ConsentService.grant(other, other_category.slug)
+        self._auth(self.consumer)
+        r = self.client.get(
+            "/api/v1/consent/service/verification/consent-records/", {"limit": 1}
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("total", r.data)
+        self.assertGreaterEqual(r.data["total"], 2)
+        self.assertEqual(len(r.data["consentRecords"]), 1)
+
+    def test_service_individual_consent_record_list_includes_total(self):
+        cat2 = _make_category(slug="total-field-test-cr3")
+        ConsentService.grant(self.citizen, self.category.slug)
+        ConsentService.grant(self.citizen, cat2.slug)
+        self._auth(self.citizen)
+        r = self.client.get(
+            "/api/v1/consent/service/individual/record/consent-record/", {"limit": 1}
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("total", r.data)
+        self.assertEqual(r.data["total"], 2)
+        self.assertEqual(len(r.data["consentRecords"]), 1)

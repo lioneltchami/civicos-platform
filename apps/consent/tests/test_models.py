@@ -133,11 +133,18 @@ class ConsentRecordModelTests(TestCase):
         F4 fix: unique_together removed — multiple ConsentRecord rows per
         citizen/category are now allowed to preserve full consent history.
         The is_current BooleanField identifies the authoritative current row.
+
+        Fix 4 (DB-level uniqueness): only one row may have is_current=True at
+        a time per (citizen, category) — r1 must be explicitly archived
+        (is_current=False) before r2 is created, matching what
+        ConsentService.grant() itself does before creating a new "current"
+        row (see the archive-then-create sequence in services.py).
         """
         r1 = ConsentRecord.objects.create(
             citizen=self.citizen,
             category=self.category,
             status=ConsentRecord.STATUS_PENDING,
+            is_current=False,
         )
         r2 = ConsentRecord.objects.create(
             citizen=self.citizen,
@@ -157,6 +164,52 @@ class ConsentRecordModelTests(TestCase):
         ConsentRecord.objects.create(citizen=self.citizen, category=self.category)
         record2 = ConsentRecord.objects.create(citizen=citizen2, category=self.category)
         self.assertIsNotNone(record2.pk)
+
+    def test_second_is_current_row_same_citizen_category_raises_integrity_error(self):
+        """
+        Fix 4: unique_current_consent_record_per_citizen_category (a DB-level
+        partial UniqueConstraint on (citizen, category) WHERE is_current=True)
+        must reject a second is_current=True row for the same citizen/category
+        pair, even outside of ConsentService.grant()'s own archive-then-create
+        sequence.
+
+        This is the non-concurrency-dependent guard called for in the
+        certifiability review: it validates the constraint exists and works
+        even without simulating true concurrent requests (which requires a
+        real transaction-capable DB — see ConcurrentFirstGrantTests below).
+        """
+        ConsentRecord.objects.create(
+            citizen=self.citizen,
+            category=self.category,
+            status=ConsentRecord.STATUS_PENDING,
+            is_current=True,
+        )
+        with self.assertRaises(IntegrityError):
+            ConsentRecord.objects.create(
+                citizen=self.citizen,
+                category=self.category,
+                status=ConsentRecord.STATUS_PENDING,
+                is_current=True,
+            )
+
+    def test_is_current_false_rows_do_not_collide(self):
+        """Any number of is_current=False (historical) rows may coexist."""
+        ConsentRecord.objects.create(
+            citizen=self.citizen, category=self.category, is_current=False,
+        )
+        ConsentRecord.objects.create(
+            citizen=self.citizen, category=self.category, is_current=False,
+        )
+        third = ConsentRecord.objects.create(
+            citizen=self.citizen, category=self.category, is_current=True,
+        )
+        self.assertIsNotNone(third.pk)
+        self.assertEqual(
+            ConsentRecord.objects.filter(
+                citizen=self.citizen, category=self.category
+            ).count(),
+            3,
+        )
 
     def test_default_source_is_web(self):
         record = ConsentRecord.objects.create(citizen=self.citizen, category=self.category)

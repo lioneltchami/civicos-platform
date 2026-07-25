@@ -19,6 +19,7 @@ GovStack OpenAPI spec:
 from __future__ import annotations
 
 import logging
+import uuid as uuid_module
 
 from django.contrib.auth import get_user_model
 from rest_framework import status
@@ -69,6 +70,29 @@ def _safe_int(value, default: int, min_val: int = 0, max_val: int = 10_000) -> i
         return max(min_val, min(max_val, int(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _parse_uuid_param(value: str, field_name: str) -> str:
+    """
+    Validate a path-supplied UUID string, raising DRF ValidationError (→ HTTP
+    400 via the global exception handler) for a malformed value instead of
+    letting Django's URL resolver silently 404 on it. Matches the real
+    upstream harness's expectation (bb-consent/test/gherkin/features/
+    data_agreement.feature's malformed-ID negative scenario) that a bad path
+    ID returns 400, not a raw un-routed 404.
+    """
+    try:
+        return str(uuid_module.UUID(str(value)))
+    except (ValueError, AttributeError, TypeError):
+        raise ValidationError(f"{field_name} must be a valid UUID.")
+
+
+def _parse_int_param(value: str, field_name: str) -> int:
+    """Same rationale as _parse_uuid_param, for integer-PK path segments (e.g. DataAgreement)."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        raise ValidationError(f"{field_name} must be a valid integer.")
 
 
 class IsAuditorUser(BasePermission):
@@ -191,6 +215,7 @@ class ConfigPolicyDetailView(APIView):
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
     def _get_policy(self, pk):
+        pk = _parse_uuid_param(pk, "policyId")
         try:
             return ConsentPolicy.objects.get(pk=pk)
         except ConsentPolicy.DoesNotExist:
@@ -259,6 +284,7 @@ class ConfigPolicyRevisionsView(APIView):
 
     def get(self, request, policy_id):
         """LIST — GovStack configPolicyRevisionsList"""
+        policy_id = _parse_uuid_param(policy_id, "policyId")
         try:
             policy = ConsentPolicy.objects.get(pk=policy_id)
         except ConsentPolicy.DoesNotExist:
@@ -345,6 +371,7 @@ class ConfigDataAgreementDetailView(APIView):
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
     def _get_category(self, pk):
+        pk = _parse_int_param(pk, "dataAgreementId")
         try:
             return ConsentCategory.objects.get(pk=pk)
         except ConsentCategory.DoesNotExist:
@@ -401,8 +428,12 @@ class ConfigIndividualListView(APIView):
         """LIST — GovStack configIndividualList"""
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        qs = User.objects.filter(is_active=True).order_by("date_joined")[offset: offset + limit]
-        return Response({"individuals": IndividualSerializer(qs, many=True).data})
+        base_qs = User.objects.filter(is_active=True).order_by("date_joined")
+        qs = base_qs[offset: offset + limit]
+        return Response({
+            "individuals": IndividualSerializer(qs, many=True).data,
+            "total": base_qs.count(),
+        })
 
     def post(self, request):
         """CREATE — GovStack configIndividualCreate (creates a Django User)"""
@@ -436,6 +467,7 @@ class ConfigIndividualDetailView(APIView):
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
     def _get_user(self, individual_id):
+        individual_id = _parse_uuid_param(individual_id, "individualId")
         try:
             return User.objects.get(pk=individual_id)
         except (User.DoesNotExist, ValueError):
@@ -480,7 +512,10 @@ class ConfigWebhookListView(APIView):
         qs = ConsentWebhook.objects.all()
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        return Response({"webhooks": WebhookSerializer(qs[offset: offset + limit], many=True).data})
+        return Response({
+            "webhooks": WebhookSerializer(qs[offset: offset + limit], many=True).data,
+            "total": qs.count(),
+        })
 
     def post(self, request):
         """CREATE — GovStack configWebhookCreate"""
@@ -524,6 +559,7 @@ class ConfigWebhookDetailView(APIView):
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
     def _get_webhook(self, pk):
+        pk = _parse_uuid_param(pk, "webhookId")
         try:
             return ConsentWebhook.objects.get(pk=pk)
         except ConsentWebhook.DoesNotExist:
@@ -562,6 +598,7 @@ class ConfigWebhookPayloadView(APIView):
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
     def get(self, request, webhook_id):
+        webhook_id = _parse_uuid_param(webhook_id, "webhookId")
         try:
             webhook = ConsentWebhook.objects.get(pk=webhook_id)
         except ConsentWebhook.DoesNotExist:
@@ -599,6 +636,7 @@ class ServiceIndividualView(APIView):
     def get(self, request, individual_id=None):
         """READ — GovStack serviceIndividualRead / serviceIndividualList"""
         if individual_id:
+            individual_id = _parse_uuid_param(individual_id, "individualId")
             # Detail view — admin can read any, citizen can only read own
             if request.user.is_staff or str(request.user.pk) == str(individual_id):
                 try:
@@ -616,7 +654,10 @@ class ServiceIndividualView(APIView):
             qs = User.objects.filter(pk=request.user.pk)
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        return Response({"individuals": IndividualSerializer(qs[offset: offset + limit], many=True).data})
+        return Response({
+            "individuals": IndividualSerializer(qs[offset: offset + limit], many=True).data,
+            "total": qs.count(),
+        })
 
     def post(self, request, individual_id=None):
         """CREATE/register — GovStack serviceIndividualCreate"""
@@ -637,6 +678,8 @@ class ServiceIndividualView(APIView):
     def put(self, request, individual_id=None):
         """UPDATE own individual — limited field set"""
         user = request.user
+        if individual_id:
+            individual_id = _parse_uuid_param(individual_id, "individualId")
         if individual_id and str(user.pk) != str(individual_id):
             if not request.user.is_staff:
                 raise PermissionDenied("You may only update your own record.")
@@ -683,6 +726,7 @@ class ServiceDataAgreementDetailView(APIView):
 
     def get(self, request, data_agreement_id):
         """READ — GovStack serviceDataAgreementRead"""
+        data_agreement_id = _parse_int_param(data_agreement_id, "dataAgreementId")
         try:
             category = ConsentCategory.objects.get(pk=data_agreement_id, is_active=True)
         except ConsentCategory.DoesNotExist:
@@ -706,6 +750,7 @@ class ServicePolicyDetailView(APIView):
 
     def get(self, request, policy_id):
         """READ — GovStack servicePolicyRead"""
+        policy_id = _parse_uuid_param(policy_id, "policyId")
         try:
             policy = ConsentPolicy.objects.get(pk=policy_id, is_active=True)
         except ConsentPolicy.DoesNotExist:
@@ -758,6 +803,7 @@ class ServiceVerificationDataAgreementsView(APIView):
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
         return Response({
             "dataAgreements": DataAgreementSerializer(qs[offset: offset + limit], many=True).data,
+            "total": qs.count(),
         })
 
 
@@ -792,6 +838,7 @@ class ServiceVerificationConsentRecordsView(APIView):
 
         return Response({
             "consentRecords": ConsentRecordGovStackSerializer(qs[offset: offset + limit], many=True).data,
+            "total": qs.count(),
         })
 
 
@@ -806,6 +853,7 @@ class ServiceVerificationConsentRecordDetailView(APIView):
 
     def get(self, request, consent_record_id):
         """READ — GovStack serviceVerificationConsentRecordRead"""
+        consent_record_id = _parse_uuid_param(consent_record_id, "consentRecordId")
         try:
             record = ConsentRecord.objects.select_related("category", "citizen").get(
                 pk=consent_record_id
@@ -850,6 +898,7 @@ class ServiceIndividualConsentRecordListView(APIView):
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
         return Response({
             "consentRecords": ConsentRecordGovStackSerializer(qs[offset: offset + limit], many=True).data,
+            "total": qs.count(),
         })
 
     def post(self, request):
@@ -919,6 +968,7 @@ class ServiceIndividualConsentRecordDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _get_record(self, request, pk):
+        pk = _parse_uuid_param(pk, "consentRecordId")
         try:
             return ConsentRecord.objects.select_related("category").get(
                 pk=pk, citizen=request.user
@@ -974,6 +1024,7 @@ class ServiceIndividualDataAgreementConsentRecordView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _get_category(self, data_agreement_id):
+        data_agreement_id = _parse_int_param(data_agreement_id, "dataAgreementId")
         try:
             return ConsentCategory.objects.get(pk=data_agreement_id)
         except ConsentCategory.DoesNotExist:
@@ -1196,6 +1247,7 @@ class AuditConsentRecordDetailView(APIView):
 
     def get(self, request, consent_record_id):
         """READ — GovStack auditConsentRecordRead"""
+        consent_record_id = _parse_uuid_param(consent_record_id, "consentRecordId")
         try:
             record = ConsentRecord.objects.select_related("category", "citizen").get(
                 pk=consent_record_id
@@ -1228,6 +1280,7 @@ class AuditDataAgreementDetailView(APIView):
 
     def get(self, request, data_agreement_id):
         """READ — GovStack auditDataAgreementRead"""
+        data_agreement_id = _parse_int_param(data_agreement_id, "dataAgreementId")
         try:
             category = ConsentCategory.objects.get(pk=data_agreement_id)
         except ConsentCategory.DoesNotExist:
@@ -1278,6 +1331,7 @@ class ServiceConsentRecordSignatureView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _get_record(self, request, pk):
+        pk = _parse_uuid_param(pk, "consentRecordId")
         try:
             return ConsentRecord.objects.get(pk=pk, citizen=request.user)
         except ConsentRecord.DoesNotExist:
@@ -1341,6 +1395,7 @@ class ServiceIndividualDataAgreementAllConsentRecordsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, data_agreement_id):
+        data_agreement_id = _parse_int_param(data_agreement_id, "dataAgreementId")
         try:
             category = ConsentCategory.objects.get(pk=data_agreement_id)
         except ConsentCategory.DoesNotExist:
@@ -1359,6 +1414,7 @@ class ServiceIndividualDataAgreementAllConsentRecordsView(APIView):
             "consentRecords": ConsentRecordGovStackSerializer(
                 qs[offset: offset + limit], many=True
             ).data,
+            "total": qs.count(),
         })
 
 

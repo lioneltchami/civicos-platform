@@ -134,19 +134,49 @@ class ConsentService:
             # ----------------------------------------------------------------
             # STEP 1 (F2): Create the new record in STATE_UNSIGNED.
             #              This is the "consent form presented" moment.
+            #
+            # DB-level race guard: unique_current_consent_record_per_citizen_
+            # category (models.py) guarantees at most one is_current=True row
+            # per (citizen, category). The select_for_update() above only
+            # locks EXISTING signed/granted rows, so a citizen's very first
+            # grant to a category has nothing to lock — two concurrent
+            # first-grant requests could otherwise both reach this .create()
+            # call. Wrapped in a savepoint (nested atomic()) so a constraint
+            # violation here rolls back only this INSERT, not the whole
+            # outer transaction, letting us recover by re-fetching the
+            # winning concurrent request's row below.
             # ----------------------------------------------------------------
-            record = ConsentRecord.objects.create(
-                citizen=citizen,
-                category=category,
-                status=ConsentRecord.STATUS_PENDING,
-                state=ConsentRecord.STATE_UNSIGNED,
-                is_current=True,
-                actor_ip=ip,
-                source=_get_source(request),
-                consent_version=consent_version,
-                data_agreement_revision=revision,
-                data_agreement_revision_hash=revision.serialized_hash if revision else "",
-            )
+            try:
+                with transaction.atomic():
+                    record = ConsentRecord.objects.create(
+                        citizen=citizen,
+                        category=category,
+                        status=ConsentRecord.STATUS_PENDING,
+                        state=ConsentRecord.STATE_UNSIGNED,
+                        is_current=True,
+                        actor_ip=ip,
+                        source=_get_source(request),
+                        consent_version=consent_version,
+                        data_agreement_revision=revision,
+                        data_agreement_revision_hash=revision.serialized_hash if revision else "",
+                    )
+            except IntegrityError:
+                # Lost the race: a concurrent grant() call already committed
+                # the current record for this citizen/category. select_for_
+                # update() blocks until that transaction commits, then reads
+                # its final (fully-granted) state — matching the same
+                # "already granted, return existing" idempotency contract as
+                # the existing_qs check above.
+                winner = ConsentRecord.objects.select_for_update().filter(
+                    citizen=citizen,
+                    category=category,
+                    is_current=True,
+                ).first()
+                if winner is None:
+                    # Should be unreachable — the constraint violation implies
+                    # a current row exists. Re-raise rather than mask a bug.
+                    raise
+                return winner
 
             # ----------------------------------------------------------------
             # STEP 2 (F3): Create ConsentRevision for the unsigned state.
