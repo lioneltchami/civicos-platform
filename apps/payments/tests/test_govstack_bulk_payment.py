@@ -102,7 +102,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from rest_framework.test import APIClient
 
@@ -111,6 +111,7 @@ from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
     GovStackPaymentAuditEntry,
+    GovStackRegisteredBB,
     PrepaymentValidationRequest,
 )
 from apps.payments.govstack_serializers import (
@@ -1255,4 +1256,115 @@ class PrepaymentSerializerTest(TestCase):
         self.assertTrue(ser.is_valid(), ser.errors)
         # But Source_BatchID defaults to "" because the key didn't match
         self.assertEqual(ser.validated_data.get("Source_BatchID", ""), "")
+
+
+# ============================================================================
+# G.  Auth — IsTrustedSourceBB now applies to bulk-payment, prepayment-validation,
+#     and prepayment-validation-response (P0 fix: previously AllowAnyBB, i.e.
+#     completely unauthenticated).
+# ============================================================================
+
+PREPAY_RESPONSE_BODY = {
+    "RequestID": PV_REQUEST_ID_1,
+    "Source_BatchID": PV_BATCH_ID_1,
+}
+
+
+class BulkPaymentAndPrepaymentAuthTest(TestCase):
+    """
+    G1-G12: BulkPaymentView, PrepaymentValidationView, and
+    PrepaymentValidationResponseView now use IsTrustedSourceBB instead of
+    AllowAnyBB (P0 fix — these endpoints move money / read back sensitive
+    validation results and were previously wide open with zero auth check).
+
+    Because IsTrustedSourceBB degrades to AllowAnyBB-equivalent behaviour when
+    the header is absent and GOVSTACK_REQUIRE_REGISTERED_BB=False (the
+    harness/test default — see govstack_auth.IsTrustedSourceBB), this change
+    does not break the real harness, which never sends
+    X-Registering-Institution-ID on any of the 4 G2P endpoints (confirmed
+    against the live g2p_bulk_payment.js / g2p_prepayment_validation.js step
+    definitions).
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+    # ── bulk-payment ────────────────────────────────────────────────────────
+
+    def test_g1_bulk_payment_no_header_harness_mode_returns_200(self):
+        """Regression guard: replays the real (headerless) harness smoke-test body."""
+        resp = self.client.post(BULK_PAYMENT_URL, data=_bulk_body(), format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ResponseCode"], "00")
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g2_bulk_payment_no_header_production_mode_returns_401(self):
+        resp = self.client.post(BULK_PAYMENT_URL, data=_bulk_body(), format="json")
+        self.assertIn(resp.status_code, (401, 403))
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g3_bulk_payment_unregistered_header_production_mode_returns_401(self):
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "NOT-REGISTERED"
+        resp = self.client.post(BULK_PAYMENT_URL, data=_bulk_body(), format="json")
+        self.assertIn(resp.status_code, (401, 403))
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g4_bulk_payment_registered_header_production_mode_returns_200(self):
+        GovStackRegisteredBB.objects.create(bb_id="REGISTERED-BB", is_active=True)
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "REGISTERED-BB"
+        resp = self.client.post(BULK_PAYMENT_URL, data=_bulk_body(), format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ResponseCode"], "00")
+
+    # ── prepayment-validation ───────────────────────────────────────────────
+
+    def test_g5_prepayment_validation_no_header_harness_mode_returns_200(self):
+        """Regression guard: replays the real (headerless) harness smoke-test body."""
+        resp = self.client.post(PREPAY_VALIDATION_URL, data=_prepay_body(), format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ResponseCode"], "00")
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g6_prepayment_validation_no_header_production_mode_returns_401(self):
+        resp = self.client.post(PREPAY_VALIDATION_URL, data=_prepay_body(), format="json")
+        self.assertIn(resp.status_code, (401, 403))
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g7_prepayment_validation_unregistered_header_production_mode_returns_401(self):
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "NOT-REGISTERED"
+        resp = self.client.post(PREPAY_VALIDATION_URL, data=_prepay_body(), format="json")
+        self.assertIn(resp.status_code, (401, 403))
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g8_prepayment_validation_registered_header_production_mode_returns_200(self):
+        GovStackRegisteredBB.objects.create(bb_id="REGISTERED-BB", is_active=True)
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "REGISTERED-BB"
+        resp = self.client.post(PREPAY_VALIDATION_URL, data=_prepay_body(), format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ResponseCode"], "00")
+
+    # ── prepayment-validation-response ──────────────────────────────────────
+
+    def test_g9_prepayment_validation_response_no_header_harness_mode_returns_200(self):
+        """Regression guard: replays the real (headerless) chained harness call."""
+        resp = self.client.post(PREPAY_RESPONSE_URL, data=PREPAY_RESPONSE_BODY, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g10_prepayment_validation_response_no_header_production_mode_returns_401(self):
+        resp = self.client.post(PREPAY_RESPONSE_URL, data=PREPAY_RESPONSE_BODY, format="json")
+        self.assertIn(resp.status_code, (401, 403))
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g11_prepayment_validation_response_unregistered_header_production_mode_returns_401(self):
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "NOT-REGISTERED"
+        resp = self.client.post(PREPAY_RESPONSE_URL, data=PREPAY_RESPONSE_BODY, format="json")
+        self.assertIn(resp.status_code, (401, 403))
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_g12_prepayment_validation_response_registered_header_production_mode_returns_200(self):
+        GovStackRegisteredBB.objects.create(bb_id="REGISTERED-BB", is_active=True)
+        self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "REGISTERED-BB"
+        resp = self.client.post(PREPAY_RESPONSE_URL, data=PREPAY_RESPONSE_BODY, format="json")
+        self.assertEqual(resp.status_code, 200)
 

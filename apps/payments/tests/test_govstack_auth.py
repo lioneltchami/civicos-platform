@@ -11,9 +11,16 @@ Coverage matrix:
   AUTH-1: GOVSTACK_REQUIRE_REGISTERED_BB=True + active row + matching ID → grant
   AUTH-2: GOVSTACK_REQUIRE_REGISTERED_BB=True + no row in table → deny
   AUTH-3: GOVSTACK_REQUIRE_REGISTERED_BB=True + inactive row + matching ID → deny
-  AUTH-4: missing header → deny (applies in both modes)
-  AUTH-5: institution_id > 20 chars → deny (applies in both modes)
-  AUTH-6: GOVSTACK_REQUIRE_REGISTERED_BB=False (harness mode) → any valid header passes
+  AUTH-4: missing header + GOVSTACK_REQUIRE_REGISTERED_BB=True (production mode) → deny
+  AUTH-4b: missing header + GOVSTACK_REQUIRE_REGISTERED_BB=False (harness mode) → GRANT
+           (P0 fix: the real harness never sends this header on any G2P endpoint —
+           confirmed against the live g2p_*.js step definitions — so a missing
+           header must degrade to AllowAnyBB-equivalent behaviour in harness mode,
+           NOT deny as a stale prior version of this suite asserted.)
+  AUTH-5: institution_id > 20 chars → deny (applies in both modes; only relevant
+          when a header IS present — see AUTH-5b)
+  AUTH-6: GOVSTACK_REQUIRE_REGISTERED_BB=False (harness mode) + header present →
+          any valid (≤20-char) header value passes without a DB lookup
   AUTH-7: GOVSTACK_REQUIRE_REGISTERED_BB=True + active row + WRONG ID → deny
   AUTH-8: seed_govstack_vouchers creates GovStackRegisteredBB(bb_id="GS-HARNESS")
 
@@ -143,17 +150,19 @@ class IsTrustedSourceBBTest(TestCase):
     # ── AUTH-4 ────────────────────────────────────────────────────────────────
 
     @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
-    def test_auth4_missing_header_denies_access(self) -> None:
+    def test_auth4_missing_header_denies_access_in_production_mode(self) -> None:
         """
-        Missing X-Registering-Institution-ID header must always deny access,
-        regardless of GOVSTACK_REQUIRE_REGISTERED_BB mode.
+        Missing X-Registering-Institution-ID header must deny access when
+        GOVSTACK_REQUIRE_REGISTERED_BB=True (production mode) — production must
+        not allow anonymous callers.
 
-        Tested here under mode=True; the header check runs before the DB lookup.
+        Contrast with AUTH-4b: in harness mode (=False), a missing header is
+        tolerated — see that test for the real, verified harness contract.
         """
         request = _make_request(institution_id=None)
         self.assertFalse(
             self.perm.has_permission(request, None),
-            "Expected False: missing header must deny access.",
+            "Expected False: missing header must deny access in production mode.",
         )
 
     # ── AUTH-5 ────────────────────────────────────────────────────────────────
@@ -210,17 +219,30 @@ class IsTrustedSourceBBTest(TestCase):
             "Expected False: non-matching bb_id must be denied even when table is non-empty.",
         )
 
-    # ── AUTH-4b — harness mode ─────────────────────────────────────────────
+    # ── AUTH-4b — harness mode (P0 regression test) ─────────────────────────
 
-    def test_auth4b_missing_header_denies_in_harness_mode(self) -> None:
+    def test_auth4b_missing_header_grants_access_in_harness_mode(self) -> None:
         """
-        Missing header denies access in harness mode (GOVSTACK_REQUIRE_REGISTERED_BB=False)
-        as well — the header check is mandatory in both modes.
+        P0 regression test: missing header must GRANT access in harness mode
+        (GOVSTACK_REQUIRE_REGISTERED_BB=False, the test/harness default).
+
+        This is the exact scenario the real GovStack Cucumber harness sends on
+        every one of the 4 G2P endpoints (confirmed directly against the live
+        g2p_register_beneficiary.js / g2p_update_beneficiary_details.js /
+        g2p_bulk_payment.js / g2p_prepayment_validation.js step-definition
+        files — none of them ever set X-Registering-Institution-ID).
+
+        Before the fix, IsTrustedSourceBB.has_permission() denied this
+        unconditionally ("Header presence ... is ALWAYS applied regardless of
+        mode"), which meant RegisterBeneficiaryView / UpdateBeneficiaryView
+        would have rejected every real harness scenario, including the smoke
+        tests. This test is the direct regression guard for that bug.
         """
         request = _make_request(institution_id=None)
-        self.assertFalse(
+        self.assertTrue(
             self.perm.has_permission(request, None),
-            "Expected False: missing header must deny access even in harness mode.",
+            "Expected True: missing header must be tolerated in harness mode, "
+            "matching real (headerless) harness behaviour.",
         )
 
     # ── AUTH-5b — harness mode ─────────────────────────────────────────────

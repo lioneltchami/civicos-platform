@@ -130,9 +130,15 @@ class RegisterBeneficiaryHarnessTest(TestCase):
     def setUp(self):
         self.client = APIClient()
         # RegisterBeneficiaryView uses IsTrustedSourceBB.
-        # The harness always sends X-Registering-Institution-ID on G2P endpoints.
-        # With GOVSTACK_REQUIRE_REGISTERED_BB=False (test default) IsTrustedSourceBB
-        # only checks header presence — any non-empty ≤20-char value is accepted.
+        # NOTE: the real GovStack harness NEVER sends X-Registering-Institution-ID
+        # on this endpoint (confirmed against the live g2p_register_beneficiary.js
+        # step definitions) — a prior comment here claimed the opposite, which was
+        # false. This client supplies the header anyway purely so this test class
+        # exercises the "header present" path; see RegisterBeneficiaryNoHeaderTest
+        # below for coverage of the real (headerless) harness behaviour.
+        # With GOVSTACK_REQUIRE_REGISTERED_BB=False (test default), a present
+        # header is still validated for length (≤20 chars) but not looked up
+        # against the whitelist.
         self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "GS-TEST"
 
     # A1 — smoke: minimal valid body → HTTP 200, ResponseCode "00"
@@ -205,20 +211,77 @@ class RegisterBeneficiaryHarnessTest(TestCase):
         self.assertEqual(body["ResponseCode"], "01")
         self.assertEqual(body["RequestID"], REQUEST_ID)
 
-    # A13 — missing X-Registering-Institution-ID header → HTTP 401 (GAP-C2 guard)
-    def test_a13_no_institution_header_returns_401(self):
+    # A13 — missing header + GOVSTACK_REQUIRE_REGISTERED_BB=True → HTTP 401
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_a13_no_institution_header_returns_401_in_production_mode(self):
         """
-        RegisterBeneficiaryView now uses IsTrustedSourceBB.
-        A caller that omits X-Registering-Institution-ID is rejected with HTTP 401.
+        RegisterBeneficiaryView uses IsTrustedSourceBB. In PRODUCTION mode
+        (GOVSTACK_REQUIRE_REGISTERED_BB=True) a caller that omits
+        X-Registering-Institution-ID is rejected with HTTP 401.
 
-        GAP-C2 regression guard: without this check, the view had AllowAnyBB
-        (return True unconditionally) — any caller could register beneficiaries
-        even without identifying itself as a registered GovStack BB.
+        This is the production-enforcement guard: without it, any caller could
+        register beneficiaries without identifying itself as a registered
+        GovStack BB. It must NOT run in harness mode (GOVSTACK_REQUIRE_REGISTERED_BB
+        =False, the default) — see test_a13b below for that (opposite) behaviour,
+        which is the actual harness contract.
         """
         client = APIClient()  # no HTTP_X_REGISTERING_INSTITUTION_ID default
         resp = client.post(REGISTER_URL, _VALID_BODY, format="json")
         self.assertNotEqual(resp.status_code, 200)
         self.assertIn(resp.status_code, (401, 403))
+
+    # A13b — missing header + harness mode (default) → HTTP 200 (regression guard)
+    def test_a13b_no_institution_header_returns_200_in_harness_mode(self):
+        """
+        Regression test for the original P0 bug: the real GovStack harness NEVER
+        sends X-Registering-Institution-ID on register-beneficiary (confirmed
+        against g2p_register_beneficiary.js), including the smoke-test scenario.
+
+        Before the fix, IsTrustedSourceBB.has_permission() required the header
+        unconditionally regardless of GOVSTACK_REQUIRE_REGISTERED_BB, so this
+        exact scenario (which is what the real harness actually sends) would have
+        returned 401 and failed every harness scenario on this endpoint. With
+        GOVSTACK_REQUIRE_REGISTERED_BB=False (the test/harness default), a missing
+        header must now be treated exactly like AllowAnyBB — HTTP 200.
+        """
+        client = APIClient()  # no HTTP_X_REGISTERING_INSTITUTION_ID header at all
+        resp = client.post(REGISTER_URL, _VALID_BODY, format="json")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["ResponseCode"], "00")
+
+    # A13c — header present but unregistered + GOVSTACK_REQUIRE_REGISTERED_BB=True
+    # → HTTP 401 (production whitelist enforcement)
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_a13c_unregistered_header_returns_401_in_production_mode(self):
+        """
+        A header IS supplied but does not match any active GovStackRegisteredBB
+        row. In production mode this must be rejected with HTTP 401 — proves
+        the whitelist check still runs when a caller explicitly supplies a header,
+        even though a MISSING header is now tolerated in harness mode.
+        """
+        client = APIClient()
+        client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "NOT-REGISTERED-BB"
+        resp = client.post(REGISTER_URL, _VALID_BODY, format="json")
+        self.assertNotEqual(resp.status_code, 200)
+        self.assertIn(resp.status_code, (401, 403))
+
+    # A13d — header present, registered + GOVSTACK_REQUIRE_REGISTERED_BB=True
+    # → HTTP 200 (production positive path)
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_a13d_registered_header_returns_200_in_production_mode(self):
+        """
+        Positive path for production mode: a header that DOES match an active
+        GovStackRegisteredBB row must be granted access and succeed normally.
+        """
+        from apps.payments.govstack_models import GovStackRegisteredBB
+
+        GovStackRegisteredBB.objects.create(bb_id="REGISTERED-BB", is_active=True)
+        client = APIClient()
+        client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "REGISTERED-BB"
+        resp = client.post(REGISTER_URL, _VALID_BODY, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ResponseCode"], "00")
 
 
 @_NO_THROTTLE
@@ -231,8 +294,11 @@ class UpdateBeneficiaryHarnessTest(TestCase):
     def setUp(self):
         self.client = APIClient()
         # UpdateBeneficiaryView uses IsTrustedSourceBB — send the institution header.
-        # GOVSTACK_REQUIRE_REGISTERED_BB=False (test default) means only header
-        # presence is checked; no DB lookup needed.
+        # NOTE: the real harness never sends this header on this endpoint either
+        # (confirmed against g2p_update_beneficiary_details.js); it is supplied
+        # here only to exercise the "header present" path.
+        # GOVSTACK_REQUIRE_REGISTERED_BB=False (test default) means a present
+        # header is validated for length only; no whitelist DB lookup.
         self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "GS-TEST"
 
     # A7 — smoke → HTTP 200, ResponseCode "00"
@@ -299,18 +365,53 @@ class UpdateBeneficiaryHarnessTest(TestCase):
         body = resp.json()
         self.assertEqual(body["ResponseCode"], "01")
 
-    # A14 — missing X-Registering-Institution-ID header → HTTP 401 (GAP-C2 guard)
-    def test_a14_no_institution_header_returns_401(self):
+    # A14 — missing header + GOVSTACK_REQUIRE_REGISTERED_BB=True → HTTP 401
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_a14_no_institution_header_returns_401_in_production_mode(self):
         """
-        UpdateBeneficiaryView now uses IsTrustedSourceBB.
-        A caller that omits X-Registering-Institution-ID is rejected with HTTP 401.
-
-        GAP-C2 regression guard: mirrors test_a13 for the update endpoint.
+        UpdateBeneficiaryView uses IsTrustedSourceBB. Mirrors test_a13 for the
+        update endpoint: production mode enforcement of the missing header.
         """
         client = APIClient()  # no HTTP_X_REGISTERING_INSTITUTION_ID default
         resp = client.post(UPDATE_URL, _VALID_BODY, format="json")
         self.assertNotEqual(resp.status_code, 200)
         self.assertIn(resp.status_code, (401, 403))
+
+    # A14b — missing header + harness mode (default) → HTTP 200 (regression guard)
+    def test_a14b_no_institution_header_returns_200_in_harness_mode(self):
+        """
+        Regression test mirroring test_a13b: the real harness never sends
+        X-Registering-Institution-ID on update-beneficiary-details either
+        (confirmed against g2p_update_beneficiary_details.js). With
+        GOVSTACK_REQUIRE_REGISTERED_BB=False (default), this must return 200.
+        """
+        client = APIClient()
+        resp = client.post(UPDATE_URL, _VALID_BODY, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ResponseCode"], "00")
+
+    # A14c — header present but unregistered + production mode → HTTP 401
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_a14c_unregistered_header_returns_401_in_production_mode(self):
+        """Mirrors test_a13c for the update endpoint."""
+        client = APIClient()
+        client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "NOT-REGISTERED-BB"
+        resp = client.post(UPDATE_URL, _VALID_BODY, format="json")
+        self.assertNotEqual(resp.status_code, 200)
+        self.assertIn(resp.status_code, (401, 403))
+
+    # A14d — header present, registered + production mode → HTTP 200
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
+    def test_a14d_registered_header_returns_200_in_production_mode(self):
+        """Mirrors test_a13d for the update endpoint."""
+        from apps.payments.govstack_models import GovStackRegisteredBB
+
+        GovStackRegisteredBB.objects.create(bb_id="REGISTERED-BB", is_active=True)
+        client = APIClient()
+        client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "REGISTERED-BB"
+        resp = client.post(UPDATE_URL, _VALID_BODY, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ResponseCode"], "00")
 
 
 # ============================================================================

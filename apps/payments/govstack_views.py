@@ -186,10 +186,19 @@ class GovStackG2PView(GovStackAPIView):
         Failure  → HTTP 400  {ResponseCode: "01", RequestID: ..., ResponseDescription: ...}
 
     Key differences from GovStackAPIView:
-    - permission_classes defaults to [AllowAnyBB].  Individual G2P views that process
-      PII (RegisterBeneficiaryView, UpdateBeneficiaryView) override this with
-      [IsTrustedSourceBB] to enforce X-Registering-Institution-ID authentication.
-      Other G2P views keep AllowAnyBB (harness may omit the header for those).
+    - permission_classes defaults to [AllowAnyBB] (kept only as a base-class
+      fallback for any future subclass — no concrete G2P view relies on it).
+      All 4 concrete G2P endpoint views (RegisterBeneficiaryView,
+      UpdateBeneficiaryView, BulkPaymentView, PrepaymentValidationView,
+      PrepaymentValidationResponseView) override this with
+      [IsTrustedSourceBB] to enforce X-Registering-Institution-ID
+      authentication. This is safe uniformly because IsTrustedSourceBB, when
+      GOVSTACK_REQUIRE_REGISTERED_BB=False (the harness/test default), grants
+      access when the header is absent — exactly like AllowAnyBB would —
+      which matches the real, verified harness behaviour: the live
+      g2p_*.js step definitions never send this header on ANY of the 4
+      endpoints. See apps.payments.govstack_auth.IsTrustedSourceBB's
+      docstring for the full mode breakdown.
     - get_exception_handler() returns govstack_g2p_exception_handler which wraps ALL
       exceptions (throttle, auth, unexpected errors) in the G2P envelope so the harness
       g2pResponseSchema check is never violated.
@@ -286,9 +295,13 @@ class RegisterBeneficiaryView(GovStackG2PView):
 
     # Override base class AllowAnyBB: these endpoints process PII (PayeeFunctionalID,
     # FinancialAddress) and MUST authenticate the calling BB via
-    # X-Registering-Institution-ID.  IsTrustedSourceBB header-presence check
-    # runs in all environments; DB whitelist lookup only when
-    # GOVSTACK_REQUIRE_REGISTERED_BB=True (production default).
+    # X-Registering-Institution-ID in production. The real harness never sends
+    # this header (confirmed against g2p_register_beneficiary.js), so
+    # IsTrustedSourceBB degrades to AllowAnyBB-equivalent behaviour when the
+    # header is absent and GOVSTACK_REQUIRE_REGISTERED_BB=False (harness/test
+    # default) — this endpoint's smoke tests still pass. DB whitelist lookup
+    # only runs when a header IS present and GOVSTACK_REQUIRE_REGISTERED_BB=True
+    # (production default).
     permission_classes = [IsTrustedSourceBB]
 
     def post(self, request: Request) -> Response:
@@ -331,7 +344,9 @@ class UpdateBeneficiaryView(GovStackG2PView):
     """
 
     # Same reasoning as RegisterBeneficiaryView: PII-handling endpoint must
-    # authenticate the calling BB.
+    # authenticate the calling BB, and IsTrustedSourceBB's harness-mode
+    # fallback (absent header → allow, when GOVSTACK_REQUIRE_REGISTERED_BB=False)
+    # keeps this compatible with the real harness, which never sends the header.
     permission_classes = [IsTrustedSourceBB]
 
     def post(self, request: Request) -> Response:
@@ -385,8 +400,20 @@ class BulkPaymentView(GovStackG2PView):
     Extends GovStackG2PView (not GovStackAPIView) to inherit:
       - G2P envelope helpers (_g2p_ok, _g2p_bad, _flatten_errors)
       - govstack_g2p_exception_handler (wraps unexpected errors in G2P envelope)
-      - AllowAnyBB permission (harness does not send X-Registering-Institution-ID)
+
+    Auth: overrides the base class's AllowAnyBB with IsTrustedSourceBB.  Bulk
+    payment moves money, so it is no longer safe to leave it unauthenticated
+    now that IsTrustedSourceBB correctly degrades to AllowAnyBB-equivalent
+    behaviour when the header is absent in harness mode
+    (GOVSTACK_REQUIRE_REGISTERED_BB=False) — the real harness never sends
+    X-Registering-Institution-ID on this endpoint (confirmed against
+    g2p_bulk_payment.js), so this override does not affect harness pass rates,
+    while requiring the header in production (GOVSTACK_REQUIRE_REGISTERED_BB=True).
     """
+
+    # See auth note in the class docstring above — closes the under-authentication
+    # gap flagged against AllowAnyBB without breaking harness compatibility.
+    permission_classes = [IsTrustedSourceBB]
 
     def post(self, request: Request) -> Response:
         ser = BulkPaymentRequestSerializer(data=request.data)
@@ -454,7 +481,18 @@ class PrepaymentValidationView(GovStackG2PView):
       3. Celery task (Wave 3+ Async) validates PayeeFunctionalID against ID Mapper
          and POSTs result to X-Callback-URL.
       4. /prepayment-validation-response returns the result.
+
+    Auth: overrides the base class's AllowAnyBB with IsTrustedSourceBB, for the
+    same reason as BulkPaymentView — this endpoint also moves money and should
+    not be left unauthenticated. The real harness never sends
+    X-Registering-Institution-ID here either (confirmed against
+    g2p_prepayment_validation.js), so IsTrustedSourceBB's harness-mode fallback
+    (absent header → allow, when GOVSTACK_REQUIRE_REGISTERED_BB=False) keeps
+    every scenario above passing.
     """
+
+    # See auth note in the class docstring above.
+    permission_classes = [IsTrustedSourceBB]
 
     def post(self, request: Request) -> Response:
         ser = PrepaymentValidationRequestSerializer(data=request.data)
@@ -552,7 +590,17 @@ class PrepaymentValidationResponseView(GovStackG2PView):
     NumberFailedCases=0, FailedAccounts=[].  This satisfies the harness schema check.
 
     Always returns HTTP 200.
+
+    Auth: overrides the base class's AllowAnyBB with IsTrustedSourceBB for
+    consistency with the other 3 G2P endpoints (this endpoint reads back
+    validation results, which is sensitive enough to authenticate). The real
+    harness does not send X-Registering-Institution-ID on the chained call
+    either, so IsTrustedSourceBB's harness-mode fallback keeps this endpoint
+    passing.
     """
+
+    # See auth note in the class docstring above.
+    permission_classes = [IsTrustedSourceBB]
 
     def post(self, request: Request) -> Response:
         ser = PrepaymentValidationResponseAckSerializer(data=request.data)
