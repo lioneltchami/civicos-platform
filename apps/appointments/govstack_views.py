@@ -23,8 +23,14 @@ Wave F (this module):
   — see the dedicated helpers _enqueue_alert_dispatch / _reschedule_alert_dispatch
   below the AlertSchedule view classes for the commit-then-enqueue sequencing.
 
+Wave G (this module) — FINAL wave:
+  Log (4 endpoints) → LogNewView, LogModificationsView, LogDeleteView,
+                       LogListDetailsView. PUT/DELETE return HTTP 405
+                       unconditionally (audit log immutability — see the Log
+                       views section docstring and services.govstack_log's
+                       module docstring for the full rationale).
+
 Waves C, D, E: Subscriber, Event, Appointment (implemented in earlier waves)
-Wave G: Log (stub remains in govstack_urls.py until implemented)
 
 Request data convention (GovStack Scheduler BB):
   ALL parameters arrive as query parameters — not request body.
@@ -93,6 +99,8 @@ from apps.appointments.govstack_serializers import (
     EventCreateQrySerializer,
     EventListQrySerializer,
     EventModifySerializer,
+    LogCreateQrySerializer,
+    LogListQrySerializer,
     MessageCreateQrySerializer,
     MessageListQrySerializer,
     MessageModifySerializer,
@@ -148,6 +156,12 @@ from apps.appointments.services.govstack_entity import (
     entity_delete,
     entity_list,
     entity_modify,
+)
+from apps.appointments.services.govstack_log import (
+    LogDataParseError,
+    LogEntityMismatchError,
+    log_create,
+    log_list,
 )
 from apps.appointments.services.govstack_event import (
     event_create,
@@ -3048,6 +3062,295 @@ class MessageListDetailsView(APIView):
             )
         except Exception:
             logger.exception("message_list failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LIST_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {
+                "status": "success",
+                "data": results,
+                "truncated": len(results) == 500,
+            },
+            status=200,
+        )
+
+
+# ===========================================================================
+# Log views (4 endpoints) — Wave G
+# ===========================================================================
+#
+# All four Log endpoints require gs_actor_role="admin" — per
+# SPEC_APPOINTMENTS_BB_GOVSTACK.md's actor capability table ("Admin: ...
+# View logs") and govstack_auth.py's module docstring role table
+# ('"admin" — entities, resources, affiliations, all logs'). Authentication
+# is GovStackSchedulerAuth only (BB-to-BB) — audit log access is not a
+# citizen-facing operation, so GovStackCitizenAuth is never used here.
+#
+# PUT /log/modifications and DELETE /log return HTTP 405 unconditionally to
+# any caller who passes authentication/role checks — see
+# services.govstack_log's module docstring and
+# SPEC_APPOINTMENTS_BB_GOVSTACK.md §5.9 for the audit-immutability rationale
+# (BookingAuditLog.save()/delete() already raise ValueError unconditionally
+# for modify/delete — this is a hard model invariant, not merely a view-layer
+# policy choice). Neither view calls into the service layer at all.
+
+class LogNewView(APIView):
+    """
+    POST /govstack/scheduler/log/new
+
+    Create a new (immutable) BookingAuditLog entry. All request data arrives
+    as query parameters; log details are embedded in `qry`.
+
+    Expected qry shape:
+      {"qry": {"log_details": {
+          "logger_role": "organizer", "logger_id": "42", "entity_id": "7",
+          "log_category": "attendance", "datetime": "2026-07-25T09:00:00Z",
+          "log_data": "event_id:<slot-uuid>,subscriber_id:<citizen-pk>,token:abc,status:attended"
+      }}}
+
+    The target Booking is resolved from event_id/subscriber_id parsed out of
+    log_data — see services.govstack_log module docstring for the full
+    architecture rationale (BookingAuditLog.booking is a required FK with no
+    direct GovStack field naming a specific booking).
+
+    Returns:
+      201 {"status": "success", "log_id": "<pk>"}
+      400 on invalid logger_role, missing/blank log_category, unparseable
+          log_data (missing event_id/subscriber_id), non-integer
+          subscriber_id, or a supplied entity_id that does not match the
+          resolved booking's organization
+      404 if event_id/subscriber_id (parsed from log_data) do not resolve to
+          an existing Booking
+
+    The caller-supplied `datetime` value is intentionally never stored —
+    BookingAuditLog.timestamp has auto_now_add=True (see services.govstack_log
+    module docstring's "datetime" entry for the security rationale).
+    """
+
+    gs_actor_role = "admin"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def post(self, request):
+        request.META["_gs_actor_role"] = "admin"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = LogCreateQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["qry"]["log_details"]
+        try:
+            entry = log_create(
+                logger_role=details.get("logger_role", ""),
+                logger_id=details.get("logger_id", ""),
+                log_category=details.get("log_category", ""),
+                log_data=details.get("log_data", ""),
+                entity_id=details.get("entity_id", ""),
+                datetime_value=details.get("datetime", ""),
+            )
+        except LogDataParseError as exc:
+            # Fully static, non-PII message — safe to surface verbatim.
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LOG_DATA_INVALID",
+                    "message": str(exc),
+                },
+                status=400,
+            )
+        except LogEntityMismatchError as exc:
+            # Fully static, non-PII message — safe to surface verbatim.
+            return Response(
+                {
+                    "status": "error",
+                    "code": "ENTITY_MISMATCH",
+                    "message": str(exc),
+                },
+                status=400,
+            )
+        except (Booking.DoesNotExist, DjangoValidationError):
+            return Response(
+                {
+                    "status": "error",
+                    "code": "BOOKING_NOT_FOUND",
+                    "message": (
+                        "No booking matches the event_id/subscriber_id given in log_data."
+                    ),
+                },
+                status=404,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LOG_CREATE_FAILED",
+                    "message": "Log creation failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("log_create failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "CREATE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response({"status": "success", "log_id": str(entry.pk)}, status=201)
+
+
+class LogModificationsView(APIView):
+    """
+    PUT /govstack/scheduler/log/modifications
+
+    ALWAYS returns HTTP 405 Method Not Allowed — this is a deliberate,
+    already-decided CivicOS deviation from the literal GovStack spec (which
+    defines this as a normal 200-success operation). BookingAuditLog.save()
+    already raises ValueError unconditionally if the PK exists (see
+    models.py) — audit records are append-only by hard model invariant, so
+    there is no modify operation to perform. See
+    SPEC_APPOINTMENTS_BB_GOVSTACK.md §5.9.
+
+    Auth/role checks still run BEFORE this method body (via the class-level
+    authentication_classes/permission_classes below) — an unauthenticated or
+    insufficiently-privileged caller receives 401/403, never 405.
+    """
+
+    gs_actor_role = "admin"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def put(self, request):
+        request.META["_gs_actor_role"] = "admin"
+
+        return Response(
+            {
+                "status": "error",
+                "code": "METHOD_NOT_ALLOWED",
+                "message": "Audit log entries are immutable and cannot be modified or deleted.",
+            },
+            status=405,
+        )
+
+
+class LogDeleteView(APIView):
+    """
+    DELETE /govstack/scheduler/log
+
+    ALWAYS returns HTTP 405 Method Not Allowed — same rationale as
+    LogModificationsView. BookingAuditLog.delete() already raises ValueError
+    unconditionally (see models.py: "Audit records are retained for 7 years
+    per ATIA requirements"). See SPEC_APPOINTMENTS_BB_GOVSTACK.md §5.9.
+
+    Auth/role checks still run BEFORE this method body — an unauthenticated
+    or insufficiently-privileged caller receives 401/403, never 405.
+    """
+
+    gs_actor_role = "admin"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def delete(self, request):
+        request.META["_gs_actor_role"] = "admin"
+
+        return Response(
+            {
+                "status": "error",
+                "code": "METHOD_NOT_ALLOWED",
+                "message": "Audit log entries are immutable and cannot be modified or deleted.",
+            },
+            status=405,
+        )
+
+
+class LogListDetailsView(APIView):
+    """
+    GET /govstack/scheduler/log/list_details
+
+    List BookingAuditLog entries matching the supplied filters. All
+    parameters arrive as query params; filter and field-selection objects
+    are embedded in `qry`.
+
+    Expected qry shape:
+      {
+        "log_filter": {"category": "attendance", "entity_id": "7", "from": "...", "to": "..."},
+        "log_details_required": {"log_id": true, "logger_category": true, "log_data": false}
+      }
+
+    NOTE: log_filter uses "category" (not "log_category") and
+    log_details_required uses "logger_category" (not "logger_role") — both
+    are real spec quirks, preserved exactly. See
+    services.govstack_log.log_list's docstring and
+    govstack_serializers.LogFilterSerializer/LogDetailsRequiredSerializer's
+    docstrings for the full rationale.
+
+    Returns:
+      200 {"status": "success", "data": [...], "truncated": <bool>}
+      400 on invalid filter parameters (e.g. malformed from/to datetimes)
+    """
+
+    gs_actor_role = "admin"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def get(self, request):
+        request.META["_gs_actor_role"] = "admin"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = LogListQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        log_filter = ser.validated_data.get("log_filter", {})
+        log_details_required = ser.validated_data.get("log_details_required") or {}
+
+        # LogFilterSerializer's to_internal_value() remaps the wire-format
+        # "from" key to "from_" (Python reserved word workaround — see
+        # EventListDetailsView / EventFilterSerializer for the identical
+        # pattern). log_list() expects the raw "from" key, so remap back here.
+        if "from_" in log_filter:
+            log_filter["from"] = log_filter.pop("from_")
+
+        try:
+            results = log_list(
+                log_filter=log_filter,
+                log_details_required=log_details_required,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LOG_LIST_FILTER_INVALID",
+                    "message": "Invalid filter parameters.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("log_list failed")
             return Response(
                 {
                     "status": "error",

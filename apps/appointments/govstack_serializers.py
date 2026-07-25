@@ -939,17 +939,28 @@ class MessageListQrySerializer(serializers.Serializer):
 
 class LogDetailsSerializer(serializers.Serializer):
     """
-    GovStack Log core fields — maps to CivicOS BookingAuditLog.
+    GovStack Log core fields — maps to CivicOS BookingAuditLog via
+    services.govstack_log.log_create(). See that module's docstring for the
+    full field-mapping rationale (booking resolution via log_data parsing,
+    datetime accepted-but-ignored due to auto_now_add, logger_role validated
+    against a real enum while log_category is deliberately unconstrained,
+    etc).
 
-    IMPORTANT: The GovStack spec defines PUT and DELETE operations on logs, but
-    CivicOS intentionally returns HTTP 405 (Method Not Allowed) for both to
-    preserve audit log immutability. See Wave G notes in the spec document.
+    All fields are DRF-optional (required=False, allow_blank=True) — the
+    SERVICE layer enforces which fields are effectively required
+    (logger_role, log_category, log_data), matching the established
+    DRF-vs-service required-ness split used throughout this module (e.g.
+    MessageDetailsSerializer / AlertScheduleDetailsSerializer above).
 
-    datetime is a string per GovStack spec; the service layer parses it.
-    log_data is a free-form string (plain text or serialised JSON).
+    IMPORTANT: The GovStack spec defines PUT and DELETE operations on logs,
+    but CivicOS intentionally returns HTTP 405 (Method Not Allowed) for both
+    to preserve audit log immutability (BookingAuditLog.save()/delete() are
+    hard model invariants — see models.py). See SPEC_APPOINTMENTS_BB_GOVSTACK.md
+    §5.9.
 
-    PII handling: log_data must NEVER contain citizen name, email, or other PII.
-    Log only booking identifiers (UUID), slot IDs, and actor roles.
+    PII handling: log_data must NEVER contain citizen name, email, or other
+    PII — see services.govstack_log module docstring's "log_data" entry for
+    the full documented assumption behind storing it in BookingAuditLog.detail.
     """
 
     logger_role = serializers.CharField(required=False, allow_blank=True)
@@ -961,22 +972,55 @@ class LogDetailsSerializer(serializers.Serializer):
 
 
 class LogFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /log/list_details."""
+    """
+    Filter parameters for GET /log/list_details.
+
+    SPEC QUIRK #1 (verified directly against the real GovStack OpenAPI spec
+    JSON, not a typo to "fix"): the filter field is literally named
+    "category" — NOT "log_category" (which is what log_details /
+    log_details_required use for the same concept). See
+    services.govstack_log's module docstring for the full rationale;
+    implemented here exactly as the real spec defines it.
+
+    from/to use the identical to_internal_value() remap technique as
+    EventFilterSerializer / AppointmentFilterSerializer /
+    AlertScheduleFilterSerializer above — "from" is a Python reserved word
+    and cannot be a class attribute.
+    """
 
     log_id = serializers.CharField(required=False, allow_blank=True)
-    logger_role = serializers.CharField(required=False, allow_blank=True)
-    logger_id = serializers.CharField(required=False, allow_blank=True)
     entity_id = serializers.CharField(required=False, allow_blank=True)
-    log_category = serializers.CharField(required=False, allow_blank=True)
-    datetime_from = serializers.CharField(required=False, allow_blank=True)
-    datetime_to = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True)
+    from_ = serializers.CharField(required=False, allow_blank=True)
+    to = serializers.CharField(required=False, allow_blank=True)
+
+    def to_internal_value(self, data):
+        data = dict(data)
+        if "from" in data and "from_" not in data:
+            data["from_"] = data.pop("from")
+        return super().to_internal_value(data)
 
 
 class LogDetailsRequiredSerializer(serializers.Serializer):
-    """Boolean flags controlling which Log fields appear in list responses."""
+    """
+    Boolean flags controlling which Log fields appear in list responses.
+
+    SPEC QUIRK #2 (verified directly against the real GovStack OpenAPI spec
+    JSON, not a typo to "fix"): this object's field is literally named
+    "logger_category" — NOT "logger_role" (which is what log_details itself
+    uses for the same concept). The flag gates inclusion of the response's
+    "logger_role" field — this is a real spec inconsistency (the flag is
+    spelled differently from the value it controls), preserved here exactly
+    rather than renamed for consistency. See services.govstack_log.log_list's
+    docstring for the full rationale.
+
+    log_data defaults to False (the "heaviest"/most-detail field) — matches
+    MessageDetailsRequiredSerializer.message_body's identical default-False
+    precedent above.
+    """
 
     log_id = serializers.BooleanField(required=False, default=True)
-    logger_role = serializers.BooleanField(required=False, default=True)
+    logger_category = serializers.BooleanField(required=False, default=True)
     logger_id = serializers.BooleanField(required=False, default=True)
     entity_id = serializers.BooleanField(required=False, default=True)
     log_category = serializers.BooleanField(required=False, default=True)
@@ -985,23 +1029,39 @@ class LogDetailsRequiredSerializer(serializers.Serializer):
 
 
 class _LogQryDetailsSerializer(serializers.Serializer):
-    """Inner { "details": ... } wrapper used by LogCreateQrySerializer."""
+    """
+    Inner { "log_details": ... } wrapper used by LogCreateQrySerializer.
 
-    details = LogDetailsSerializer(required=True)
+    NOTE: the real spec's log_new_qry wraps the field as "log_details" — NOT
+    "details" (unlike event_new_qry, which does use "details") — confirmed
+    directly from the OpenAPI schema (components.schemas.log_new_qry.properties).
+    Do not copy the Event wrapper key name here. This is the SAME bug class
+    that shipped in Wave F and was caught and fixed in Wave F's deep review
+    (MessageCreateQrySerializer / AlertScheduleCreateQrySerializer initially
+    wrapped under "details" instead of "message_details" /
+    "alert_schedule_details" — see those classes' docstrings above for the
+    precedent this bug class was already caught and fixed for).
+    """
+
+    log_details = LogDetailsSerializer(required=True)
 
 
 class LogCreateQrySerializer(serializers.Serializer):
-    """POST /log/new request body: { "qry": { "details": <log_details> } }"""
+    """POST /log/new request body: { "qry": { "log_details": <log_details> } }"""
 
     qry = _LogQryDetailsSerializer(required=True)
 
 
 class LogModifySerializer(serializers.Serializer):
     """
-    PUT /log/modifications request body.
+    PUT /log/modifications request body: { "details": <log_details> }
 
-    Defined for completeness. The view intentionally returns HTTP 405
-    (Method Not Allowed) to preserve audit log immutability.
+    Per the real spec's log_modify_qry schema, modify DOES use the generic
+    "details" wrapper key (unlike log_new_qry, which uses "log_details" —
+    see _LogQryDetailsSerializer's docstring above). Defined here for
+    completeness/reference only — LogModificationsView intentionally returns
+    HTTP 405 (Method Not Allowed) unconditionally to preserve audit log
+    immutability, so this serializer is never actually invoked.
     """
 
     details = LogDetailsSerializer(required=True)

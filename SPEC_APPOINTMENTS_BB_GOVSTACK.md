@@ -686,6 +686,33 @@ so it can be cancelled on DELETE.
 
 ### Wave G — Log Endpoints
 
+**Status: implemented — final wave, all 37 GovStack Scheduler BB endpoints
+now shipped.** `services/govstack_log.py` (`log_create`/`log_list` only —
+no modify/delete service functions exist, matching the 405 decision below),
+4 views in `govstack_views.py`, tests in `test_govstack_log.py` (40 tests).
+`gs_actor_role="admin"` on all 4 endpoints per §2.2 ("Admin: ... View logs").
+
+Key architecture decision: `BookingAuditLog.booking` is a required FK, but
+the real GovStack `log_details` schema has no field naming a specific
+booking directly — only `entity_id` (organization-level). Resolved by
+parsing `event_id`/`subscriber_id` out of `log_data` itself, using the exact
+comma-separated `key:value` format the real spec's own example already uses
+(`"event_id:12345,subscriber_id:1,token:...,status:..."`), then resolving
+`Booking.objects.get(slot_id=event_id, citizen_id=subscriber_id)`. A
+supplied `entity_id` is validation-only against the resolved booking's
+organization, never used for resolution.
+
+`BookingAuditLog.timestamp` (`auto_now_add=True`) means the GovStack
+`datetime` field is accepted on create but always ignored — framed as a
+deliberate, security-positive choice (an audit log should not let a caller
+claim an arbitrary/backdated timestamp), not a limitation.
+
+Two real spec quirks (verified against the fetched OpenAPI JSON directly,
+preserved exactly rather than "fixed"): `log_filter`'s field is literally
+`category`, not `log_category` (which `log_details` itself uses); and
+`log_details_required`'s field is literally `logger_category`, gating the
+response's `logger_role` value — a real inconsistency in the upstream spec.
+
 **Goal:** 4 log endpoints, with PUT/DELETE returning 405.
 
 **Endpoints:**

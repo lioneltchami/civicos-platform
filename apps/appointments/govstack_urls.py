@@ -22,7 +22,7 @@ Entity groups and endpoint counts:
   affiliation    → 4 endpoints  (Wave B)
   appointment    → 4 endpoints  (Wave E)
   log            → 4 endpoints  (Wave G — PUT/DELETE return 405 for audit immutability)
-  TOTAL: 37 endpoints
+  TOTAL: 37 endpoints (all implemented as of Wave G)
 
 Ordering note for resource paths:
   resource/availability and resource/list_details are listed before the bare
@@ -77,6 +77,11 @@ from apps.appointments.govstack_views import (
     MessageModificationsView,
     MessageDeleteView,
     MessageListDetailsView,
+    # Wave G — Log
+    LogNewView,
+    LogModificationsView,
+    LogDeleteView,
+    LogListDetailsView,
 )
 
 app_name = "govstack_scheduler"
@@ -165,11 +170,12 @@ urlpatterns = [
     path("appointment/list_details", AppointmentListDetailsView.as_view(), name="appointment_list_details"),
     path("appointment", AppointmentDeleteView.as_view(), name="appointment_delete"),
 
-    # ── Log (Wave G) — PUT /log/modifications and DELETE /log will return 405 ─
-    # in the Wave G implementation to preserve BookingAuditLog immutability.
-    # The stubs return 501 until Wave G replaces them.
-    path("log/new", govstack_not_implemented, name="log_new"),
-    path("log/modifications", govstack_not_implemented, name="log_modifications"),
-    path("log/list_details", govstack_not_implemented, name="log_list_details"),
-    path("log", govstack_not_implemented, name="log_delete"),
+    # ── Log (Wave G) — sub-paths listed before bare DELETE path. PUT
+    # /log/modifications and DELETE /log return 405 unconditionally
+    # (BookingAuditLog immutability — see govstack_views.py's Log views
+    # section docstring and services.govstack_log's module docstring). ─────
+    path("log/new", LogNewView.as_view(), name="log_new"),
+    path("log/modifications", LogModificationsView.as_view(), name="log_modifications"),
+    path("log/list_details", LogListDetailsView.as_view(), name="log_list_details"),
+    path("log", LogDeleteView.as_view(), name="log_delete"),
 ]
