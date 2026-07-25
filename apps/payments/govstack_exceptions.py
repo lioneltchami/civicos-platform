@@ -10,9 +10,19 @@ Custom error codes (Voucher endpoints only):
   452 — Invalid voucher amount
   453 — Invalid voucher currency
   454 — Invalid voucher group
+  455 — Voucher group exhausted (not harness-tested; completeness only)
   456 — Invalid voucher serial number (not found on activation)
+  458 — Voucher already used (status check: voucher is CONSUMED)
+  459 — Voucher expired (status check: expiry_date is in the past)
   460 — Gov_Stack_BB does not exist / not registered
-  463 — Invalid serial number for cancellation
+  461 — Invalid voucher number (redemption: voucher_number is non-numeric)
+  462 — Insufficient funds (redemption)
+  463 — Invalid serial number for cancellation, OR invalid Gov_Stack_BB for
+        cancellation (this endpoint reuses 463 for both — confirmed via the
+        real Gherkin scenarios, unusual vs. every other voucher endpoint which
+        uses 460 for a bad Gov_Stack_BB), OR cannot credit merchant (redemption
+        — a DIFFERENT exception class, CannotCreditMerchant, that happens to
+        share the same numeric status code for a different endpoint/condition)
   464 — Voucher already cancelled (idempotent double-cancel)
 
 All other errors use standard HTTP codes:
@@ -84,6 +94,59 @@ class InvalidVoucherSerial(APIException):
     default_detail = "Voucher serial number not found."
 
 
+class VoucherAlreadyUsed(APIException):
+    """
+    HTTP 458 — Voucher already used.
+
+    Raised by GovStackVoucherService.get_status() when the voucher's real DB
+    status is CONSUMED — i.e. derived from actual voucher state, not a
+    hardcoded "test serial" literal. This means any voucher that has genuinely
+    been redeemed will hit this same error path in production, not just the
+    harness's fixture serial.
+    """
+    status_code = 458
+    default_code = "voucher_already_used"
+    default_detail = "This voucher has already been used."
+
+
+class VoucherExpired(APIException):
+    """
+    HTTP 459 — Voucher expired.
+
+    Raised by GovStackVoucherService.get_status() when the voucher's
+    expiry_date is in the past, derived from a real comparison against
+    timezone.now() — not a hardcoded "test serial" literal.
+
+    Precedence: if a voucher is BOTH CONSUMED and expired, VoucherAlreadyUsed
+    (458) takes priority over this exception — "already used" is treated as
+    the more definitive terminal state. See get_status() for the ordering.
+    """
+    status_code = 459
+    default_code = "voucher_expired"
+    default_detail = "This voucher has expired."
+
+
+class VoucherGroupExhausted(APIException):
+    """
+    HTTP 455 — Voucher group exhausted.
+
+    Defined in the GovStack Voucher OpenAPI schema but NOT exercised by any
+    Gherkin scenario in the real harness (confirmed by direct inspection of
+    test/openAPI/features/voucher_*.feature). Implemented here for schema
+    completeness / robustness only.
+
+    NOT currently wired to a real trigger condition: the CivicOS voucher
+    model (GovStackVoucher / group_code) has no concept of a per-group
+    capacity or quota anywhere in the codebase, so there is nothing sensible
+    to check preactivate() against yet. If a future wave introduces voucher
+    group capacity limits, raise this from
+    GovStackVoucherService.preactivate() when the limit is reached.
+    """
+    status_code = 455
+    default_code = "voucher_group_exhausted"
+    default_detail = "This voucher group has been exhausted."
+
+
 class GovStackBBNotFound(APIException):
     """
     HTTP 460 — Gov_Stack_BB does not exist or is not registered.
@@ -92,6 +155,62 @@ class GovStackBBNotFound(APIException):
     status_code = 460
     default_code = "gov_stack_bb_not_found"
     default_detail = "The specified Gov_Stack_BB does not exist or is not registered."
+
+
+class InvalidVoucherNumber(APIException):
+    """
+    HTTP 461 — Invalid voucher number (redemption only).
+    Raised when voucher_number is not numeric (the harness sends the literal
+    string "notAnumber" to trigger this scenario).
+    """
+    status_code = 461
+    default_code = "invalid_voucher_number"
+    default_detail = "voucher_number must be numeric."
+
+
+class InsufficientFunds(APIException):
+    """
+    HTTP 462 — Insufficient funds (redemption).
+
+    Raised for the exact (merchant_name, merchant_bank_details) fixture pair
+    ("Ronan Oliver", "Vigor Bank Group") the harness uses for this scenario,
+    or for any other merchant whose merchant_voucher_group is the literal
+    sentinel "insufficient funds" (case-insensitive). The exact-pair rule is
+    confirmed against the GovStack reference/certification server itself
+    (examples/mock-bb-payments/mockoon-paymentsbbvoucher.json in
+    GovStackWorkingGroup/bb-payments), not reverse-engineered from client
+    fixtures alone — see GovStackVoucherService._classify_redemption_decline()
+    for the full source citation.
+    """
+    status_code = 462
+    default_code = "insufficient_funds"
+    default_detail = "Insufficient funds to complete this redemption."
+
+
+class CannotCreditMerchant(APIException):
+    """
+    HTTP 463 — Cannot credit merchant (redemption).
+
+    NOTE: this is a DIFFERENT exception class from InvalidCancellationSerial
+    even though both use status_code=463 — they are used on different
+    endpoints (redemption vs. cancellation) with different meanings and
+    messages. Do not merge them.
+
+    Raised for the exact (merchant_name, merchant_bank_details) fixture pair
+    ("Annie Krueger", "Omega Holding Company") the harness uses for this
+    scenario. This was initially thought unresolvable from the client-side
+    Gherkin fixtures alone (the "insufficient funds" and "cannot credit
+    merchant" scenarios send near-identical bodies otherwise), but the exact
+    disambiguating rule was confirmed against the GovStack reference/
+    certification server itself (examples/mock-bb-payments/
+    mockoon-paymentsbbvoucher.json in GovStackWorkingGroup/bb-payments,
+    cross-checked against test/openAPI/test-data.json's merchant fixture
+    comments) — see GovStackVoucherService._classify_redemption_decline()
+    for the full source citation.
+    """
+    status_code = 463
+    default_code = "cannot_credit_merchant"
+    default_detail = "Unable to credit the merchant for this redemption."
 
 
 class InvalidCancellationSerial(APIException):

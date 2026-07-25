@@ -492,11 +492,17 @@ class VoucherPreactivationResponseSerializer(serializers.Serializer):
     """
     Response shape for POST /vouchers/voucher_preactivation → HTTP 200.
     Schema documentation only — see section note above.
+
+    Field names and casing are the REAL harness-validated schema
+    (test/openAPI/Payment_BB_Voucher_api_test.json), NOT the internal
+    Payment-Hub↔Voucher-Engine protocol docs under
+    "api/Voucher API YAMLs/" — those use a different (camelCase) field
+    naming convention that the actual certification harness does not
+    validate against. All 3 fields below are required by the harness schema.
     """
-    voucherNumber = serializers.CharField(read_only=True)
-    voucherSerialNumber = serializers.CharField(read_only=True)
-    voucherGroup = serializers.CharField(read_only=True)
-    expiryDate = serializers.DateTimeField(read_only=True)
+    voucher_number = serializers.CharField(read_only=True)
+    voucher_serial_number = serializers.CharField(read_only=True)
+    expiry_date_time = serializers.DateTimeField(read_only=True)
 
 
 # ---------------------------------------------------------------------------
@@ -536,11 +542,13 @@ class VoucherActivationResponseSerializer(serializers.Serializer):
     """
     Response shape for PATCH /vouchers/voucher_activation → HTTP 200.
     Schema documentation only — see section note above.
+
+    Real harness schema (test/openAPI/Payment_BB_Voucher_api_test.json)
+    requires only "result_status" — a free-form string (no enum), not the
+    old camelCase {voucherNumber, voucherSerialNumber, voucherStatus,
+    voucherGroup} shape.
     """
-    voucherNumber = serializers.CharField(read_only=True)
-    voucherSerialNumber = serializers.CharField(read_only=True)
-    voucherStatus = serializers.CharField(read_only=True)
-    voucherGroup = serializers.CharField(read_only=True)
+    result_status = serializers.CharField(read_only=True)
 
 
 # ---------------------------------------------------------------------------
@@ -593,13 +601,12 @@ class VoucherRedemptionResponseSerializer(serializers.Serializer):
     """
     Response shape for POST /vouchers/voucher_redemption → HTTP 200.
     Schema documentation only — see section note above.
+
+    Real harness schema requires only "result_status" (free-form string, no
+    enum) — not the old {status, message, serialNumber, value, timestamp,
+    transactionId} shape.
     """
-    status = serializers.IntegerField(read_only=True)       # status_int (CONSUMED = 3)
-    message = serializers.CharField(read_only=True)
-    serialNumber = serializers.CharField(read_only=True)
-    value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    timestamp = serializers.DateTimeField(read_only=True)   # redeemed_at
-    transactionId = serializers.CharField(read_only=True)   # redemption_transaction_id (20 hex chars)
+    result_status = serializers.CharField(read_only=True)
 
 
 # ---------------------------------------------------------------------------
@@ -610,24 +617,74 @@ class VoucherStatusResponseSerializer(serializers.Serializer):
     """
     Response shape for GET /vouchers/voucherstatuscheck/{serial} → HTTP 200.
     Schema documentation only — see section note above.
+
+    Real harness schema requires:
+      voucher_status: one of exactly 7 enum strings (see
+        govstack_views.py's _VOUCHER_STATUS_ENUM_MAP for the mapping from
+        GovStackVoucher.status and the judgment calls documented there).
+      voucher_amount: a STRING (str(voucher.amount)), NOT a float/number —
+        the old `value = float(voucher.amount)` was a confirmed bug.
     """
-    status = serializers.IntegerField(read_only=True)       # status_int from STATUS_INT_MAP
-    serialNumber = serializers.CharField(read_only=True)
-    value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    voucher_status = serializers.CharField(read_only=True)
+    voucher_amount = serializers.CharField(read_only=True)
 
 
 # ---------------------------------------------------------------------------
 # Voucher — Cancellation
 # ---------------------------------------------------------------------------
 
+class VoucherCancellationRequestSerializer(serializers.Serializer):
+    """
+    PATCH /govstack/payments/vouchers/voucherstatuscheck/{voucherserialnumber}  (body)
+    Harness: voucher_cancelation.feature
+
+    NEW (P1): the real harness sends a JSON body on EVERY cancellation PATCH
+    call, in addition to the URL path segment carrying the same serial
+    number — confirmed via the harness's own JS step-definitions. Previously
+    this endpoint validated ONLY the URL path segment and silently ignored
+    the request body entirely, which meant the harness's "missing
+    voucherserialnumber in payload → 400" and "missing Gov_Stack_BB in
+    payload → 400" negative scenarios would have incorrectly returned 200.
+    This serializer fixes that real, previously-undiscovered gap.
+
+    Both fields are required and must be non-blank; either missing/blank
+    → HTTP 400 via standard DRF serializer validation (including the
+    "no payload at all" case, since request.data then resolves to {}).
+    """
+    voucherserialnumber = serializers.CharField(
+        max_length=20,
+        help_text=(
+            "Voucher serial number. Also carried in the URL path — the URL "
+            "value is authoritative for the actual lookup; this body field "
+            "is validated for presence only, matching harness behaviour."
+        ),
+    )
+    Gov_Stack_BB = serializers.CharField(
+        max_length=50,
+        help_text=(
+            "Issuing Gov_Stack_BB identifier. Must be present and non-blank "
+            "(400 otherwise). A non-blank but known-invalid sentinel value "
+            "(e.g. 'invalid_bb') is accepted by this serializer and instead "
+            "rejected at the view/service layer with HTTP 463 — this "
+            "endpoint uniquely reuses 463 for both an invalid serial and an "
+            "invalid Gov_Stack_BB (confirmed via the real Gherkin scenarios)."
+        ),
+    )
+
+
 class VoucherCancellationResponseSerializer(serializers.Serializer):
     """
     Response shape for PATCH /vouchers/voucherstatuscheck/{serial} → HTTP 200.
     (Cancellation — same URL as status check, different HTTP method.)
     Schema documentation only — see section note above.
+
+    "message" is REQUIRED by the real harness schema — previously absent
+    entirely. voucherSerialNumber / voucherStatus are kept additively (not
+    required by the harness, but useful to API consumers).
     """
     voucherSerialNumber = serializers.CharField(read_only=True)
     voucherStatus = serializers.CharField(read_only=True)   # GovStackVoucher.STATUS_CANCELLED = "cancelled"
+    message = serializers.CharField(read_only=True)
 
 
 # ---------------------------------------------------------------------------

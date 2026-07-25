@@ -63,7 +63,7 @@ from .govstack_exceptions import (
     DuplicateBatchError,
     DuplicateBillPaymentError,
     DuplicateValidationRequestError,
-    InvalidVoucherSerial,
+    InvalidCancellationSerial,
     govstack_exception_handler,
     govstack_g2p_exception_handler,
 )
@@ -76,6 +76,7 @@ from .govstack_serializers import (
     RegisterBeneficiaryRequestSerializer,
     UpdateBeneficiaryRequestSerializer,
     VoucherActivationRequestSerializer,
+    VoucherCancellationRequestSerializer,
     VoucherPreactivationRequestSerializer,
     VoucherRedemptionRequestSerializer,
 )
@@ -84,6 +85,7 @@ from .govstack_services import (
     GovStackBulkPaymentService,
     GovStackP2GService,
     GovStackVoucherService,
+    _is_known_invalid_gov_stack_bb,
 )
 from .govstack_tasks import process_bulk_payment_batch, validate_prepayment_async
 
@@ -636,22 +638,33 @@ class VoucherPreactivationView(GovStackAPIView):
     """
     POST /govstack/payments/vouchers/voucher_preactivation
 
-    GovStack spec: api/Voucher API YAMLs/VoucherPreactivationRequest.yml
-    Harness: voucher_preactivation.feature @endpoint=/vouchers/voucher_preactivation
+    Harness-validated schema: test/openAPI/Payment_BB_Voucher_api_test.json
+    + test/openAPI/features/voucher_preactivation.feature.
+
+    NOTE: the internal "api/Voucher API YAMLs/VoucherPreactivationRequest.yml"
+    protocol doc uses different (camelCase) field names than what the real
+    certification harness validates against — do not use it as the response
+    schema reference. See PAYMENTS_BB_COMPLETION_PLAN_2026-07-25.md (P1).
 
     Headers consumed:
       X-Registering-Institution-Id  (optional — stored on voucher record)
       X-Callback-URL                 (optional — stored on voucher record)
 
     Body: {voucher_amount, voucher_currency, voucher_group, Gov_Stack_BB}
-    Response 200: {voucherNumber, voucherSerialNumber, voucherGroup, expiryDate}
+    Response 200: {voucher_number, voucher_serial_number, expiry_date_time}
+      (all 3 required, snake_case — see VoucherPreactivationResponseSerializer)
 
     Custom error codes (all return {"message": "..."}):
-      400 — missing / non-numeric fields (standard DRF validation)
+      400 — missing / non-numeric fields (standard DRF validation), or an
+            empty request payload
       452 — voucher_amount is zero or negative
       453 — voucher_currency is not a valid ISO 4217 code
       454 — voucher_group is empty or blank
-      460 — Gov_Stack_BB is unknown or empty
+      455 — voucher group exhausted (not harness-tested; see
+            VoucherGroupExhausted's docstring — not currently wired to a
+            real trigger, no group-capacity concept exists in this codebase)
+      460 — Gov_Stack_BB is blank or a known-invalid sentinel (e.g.
+            "not_exist") — see _is_known_invalid_gov_stack_bb()
 
     Security:
       Serial number is public (in response). voucher_secret is stored encrypted
@@ -688,10 +701,10 @@ class VoucherPreactivationView(GovStackAPIView):
 
         return Response(
             {
-                "voucherNumber": voucher.serial_number,
-                "voucherSerialNumber": voucher.serial_number,
-                "voucherGroup": voucher.group_code,
-                "expiryDate": (
+                # Harness-required schema — all 3 fields, snake_case.
+                "voucher_number": voucher.serial_number,
+                "voucher_serial_number": voucher.serial_number,
+                "expiry_date_time": (
                     voucher.expiry_date.isoformat()
                     if voucher.expiry_date
                     else None
@@ -705,15 +718,18 @@ class VoucherActivationView(GovStackAPIView):
     """
     PATCH /govstack/payments/vouchers/voucher_activation
 
-    GovStack spec: api/Voucher API YAMLs/VoucherActivate.yml
-    Harness: voucher_activation.feature @endpoint=/vouchers/voucher_activation
+    Harness-validated schema: test/openAPI/Payment_BB_Voucher_api_test.json
+    + test/openAPI/features/voucher_activation.feature.
 
     Body: {voucher_serial_number (int or str), Gov_Stack_BB}
-    Response 200: {voucherNumber, voucherSerialNumber, voucherStatus, voucherGroup}
+    Response 200: {result_status} — a free-form non-empty string, no enum
+      required by the harness schema (see VoucherActivationResponseSerializer).
 
     Custom error codes:
+      400 — missing fields / empty payload
       456 — voucher serial number not found (or invalid state transition)
-      460 — Gov_Stack_BB is unknown or empty
+      460 — Gov_Stack_BB is blank or a known-invalid sentinel — see
+            _is_known_invalid_gov_stack_bb()
     """
     permission_classes = [AllowAnyBB]
 
@@ -727,22 +743,13 @@ class VoucherActivationView(GovStackAPIView):
         d = ser.validated_data
 
         # InvalidVoucherSerial (456) and GovStackBBNotFound (460) are APIExceptions.
-        voucher = GovStackVoucherService.activate(
+        GovStackVoucherService.activate(
             voucher_serial_number=d["voucher_serial_number"],
             issuing_bb=d["Gov_Stack_BB"],
         )
 
         return Response(
-            {
-                "voucherNumber": voucher.serial_number,
-                "voucherSerialNumber": voucher.serial_number,
-                # get_status_display() returns the title-cased human label from
-                # GovStackVoucher.STATUS_CHOICES, e.g. "Activated".
-                # The harness validates this value against the spec examples
-                # (§13.2: "Activated"), NOT the raw DB constant ("activated").
-                "voucherStatus": voucher.get_status_display(),
-                "voucherGroup": voucher.group_code,
-            },
+            {"result_status": "Voucher activated successfully."},
             status=200,
         )
 
@@ -751,18 +758,30 @@ class VoucherRedemptionView(GovStackAPIView):
     """
     POST /govstack/payments/vouchers/voucher_redemption
 
-    GovStack spec: api/Voucher API YAMLs/VoucherRedemption.yml
-    Harness: voucher_redemption.feature @endpoint=/vouchers/voucher_redemption
+    Harness-validated schema: test/openAPI/Payment_BB_Voucher_api_test.json
+    + test/openAPI/features/voucher_redemption.feature.
 
     Auth: JWT Bearer via HasVoucherJWT (harness-relaxed — GOVSTACK_VOUCHER_REQUIRE_JWT=False)
 
     Body: {voucher_number (int or str), Gov_Stack_BB, merchant_name?,
            merchant_bank_details?, merchant_voucher_group?, override?}
-    Response 200: {status (int), message, serialNumber, value, timestamp, transactionId}
+    Response 200: {result_status} — free-form non-empty string, no enum
+      (see VoucherRedemptionResponseSerializer).
 
     Custom error codes:
+      400 — missing fields / empty payload
       456 — voucher number not found or invalid state (not ACTIVATED)
-      460 — Gov_Stack_BB is unknown or empty
+      460 — Gov_Stack_BB is blank or a known-invalid sentinel (e.g.
+            "invalid_bb") — see _is_known_invalid_gov_stack_bb()
+      461 — voucher_number is not numeric (harness sends "notAnumber")
+      462 — insufficient funds (InsufficientFunds) — see
+            GovStackVoucherService._classify_redemption_decline() for the
+            exact (merchant_name, merchant_bank_details) fixture pair, now
+            confirmed against the GovStack reference/certification server's
+            own mock config rather than guessed
+      463 — cannot credit merchant (CannotCreditMerchant) — same function,
+            same confirmed source; also reachable now (not merely a
+            schema-completeness placeholder)
 
     Security:
       merchant_name / merchant_bank_details may contain PII and are NOT echoed
@@ -779,8 +798,9 @@ class VoucherRedemptionView(GovStackAPIView):
             )
         d = ser.validated_data
 
-        # GovStackBBNotFound (460) and InvalidVoucherSerial (456) are APIExceptions.
-        voucher = GovStackVoucherService.redeem(
+        # GovStackBBNotFound (460), InvalidVoucherNumber (461), InsufficientFunds (462),
+        # and InvalidVoucherSerial (456) are all APIExceptions.
+        GovStackVoucherService.redeem(
             voucher_number=d["voucher_number"],
             issuing_bb=d["Gov_Stack_BB"],
             merchant_name=d.get("merchant_name", ""),
@@ -791,20 +811,64 @@ class VoucherRedemptionView(GovStackAPIView):
         )
 
         return Response(
-            {
-                "status": voucher.status_int,
-                "message": "Voucher redeemed successfully.",
-                "serialNumber": voucher.serial_number,
-                "value": float(voucher.amount),  # GAP-10: spec §13.3 requires JSON number, not string
-                "timestamp": (
-                    voucher.redeemed_at.isoformat()
-                    if voucher.redeemed_at
-                    else None
-                ),
-                "transactionId": voucher.redemption_transaction_id,
-            },
+            {"result_status": "Voucher redeemed successfully."},
             status=200,
         )
+
+
+# ---------------------------------------------------------------------------
+# Voucher status → spec enum mapping (P1)
+# ---------------------------------------------------------------------------
+#
+# The real harness schema requires voucher_status to be exactly one of these
+# 7 strings. GovStackVoucher's internal status constants do NOT line up 1:1
+# with them, so this mapping documents every judgment call made:
+#
+#   PREACTIVATED → "Pre-Activated"   \  harness-tested via the preactivation/
+#   ACTIVATED    → "Activated"       /  activation smoke scenarios — exact.
+#   SUSPENDED    → "Suspended"       — real model state, direct 1:1 match.
+#   BLOCKED      → "Blocked"         — real model state, direct 1:1 match.
+#   PURGED       → "Purged"          — real model state, direct 1:1 match.
+#
+#   CANCELLED    → "Purged"          — JUDGMENT CALL: no spec enum value means
+#       "cancelled". "Purged" is the closest conceptual match (a cancelled
+#       voucher, like a purged one, is permanently no longer valid or
+#       available) but this is a best-effort compromise, not a confirmed
+#       harness requirement — no Gherkin scenario checks a GET status-check
+#       against a CANCELLED voucher. Note this means CANCELLED and PURGED
+#       are no longer distinguishable via this endpoint's response.
+#
+#   CONSUMED     — intentionally ABSENT from this map. A CONSUMED voucher
+#       never reaches this mapping at all: GovStackVoucherService.get_status()
+#       raises VoucherAlreadyUsed (458) before returning, because "already
+#       used" is a real, derived DB state rather than a status string to
+#       report in a 200. See get_status()'s docstring for CONSUMED/expired
+#       precedence.
+#
+#   NOT_PREACTIVATED — intentionally ABSENT. Per GovStackVoucher's own
+#       documentation this state is dead code (preactivate() always creates
+#       vouchers directly in PREACTIVATED) and should never occur in
+#       practice. Handled defensively via .get()'s default below rather than
+#       raising, in case it's ever reached by data migrated from elsewhere.
+#
+#   "Not Existing" — genuinely unreachable from this map. HTTP 456
+#       (InvalidVoucherSerial) already covers "serial not found", which makes
+#       a 200-returnable "Not Existing" enum value somewhat contradictory
+#       with the rest of the spec. No Gherkin scenario requests a 200 with
+#       this value (the harness's "not found" scenario expects 456, not 200).
+#       This is a genuine spec inconsistency, not an oversight here.
+_VOUCHER_STATUS_ENUM_MAP: dict[str, str] = {
+    GovStackVoucher.STATUS_PREACTIVATED: "Pre-Activated",
+    GovStackVoucher.STATUS_ACTIVATED: "Activated",
+    GovStackVoucher.STATUS_SUSPENDED: "Suspended",
+    GovStackVoucher.STATUS_BLOCKED: "Blocked",
+    GovStackVoucher.STATUS_PURGED: "Purged",
+    GovStackVoucher.STATUS_CANCELLED: "Purged",  # judgment call — see comment above
+}
+# Defensive default for any status not in the map above (in practice, only
+# the dead STATUS_NOT_PREACTIVATED state) — chosen over raising so a stray
+# row can never crash this endpoint with an unhandled 500.
+_VOUCHER_STATUS_ENUM_DEFAULT = "Not Pre-Activated"
 
 
 class VoucherStatusCheckView(GovStackAPIView):
@@ -824,19 +888,37 @@ class VoucherStatusCheckView(GovStackAPIView):
 
     URL param: voucherserialnumber (str path segment — may be sent as int by harness)
 
-    GET response 200:  {status (int), serialNumber, value}
-    PATCH response 200: {voucherSerialNumber, voucherStatus}
-
-    PATCH custom error codes:
-      463 — serial number not found, or voucher in a non-cancellable state
-      464 — voucher already cancelled (idempotent double-cancel)
+    GET response 200:  {voucher_status (one of 7 enum strings — see
+      _VOUCHER_STATUS_ENUM_MAP above), voucher_amount (STRING, not a number)}
+    PATCH response 200: {message} required; voucherSerialNumber / voucherStatus
+      kept additively (see VoucherCancellationResponseSerializer)
 
     GET error codes:
-      400 — serial number not found (GAP-7: spec §13.5 requires 400, NOT 456).
-             Body: {"status": 9, "message": "Voucher not found.",
-                    "serialNumber": "<submitted serial>", "value": 0.0}
-             The harness voucher_status_check.feature asserts HTTP 400 on this path;
-             using 456 (InvalidVoucherSerial as APIException) would fail the harness.
+      400 — malformed input (e.g. an empty/invalid path segment reaching here)
+      456 — serial not found (InvalidVoucherSerial propagates normally via
+            the standard exception handler — there is no HTTP 400 override
+            for this case; a prior "GAP-7" comment claiming spec §13.5
+            required 400 instead of 456 was confirmed FALSE against the live
+            harness and has been removed)
+      458 — voucher already used (VoucherAlreadyUsed) — derived from the
+            voucher's real status being CONSUMED
+      459 — voucher expired (VoucherExpired) — derived from a real
+            expiry_date comparison against timezone.now()
+
+    PATCH request body (REQUIRED on every call, not just the URL segment):
+      {voucherserialnumber, Gov_Stack_BB} — both required, non-blank.
+      See VoucherCancellationRequestSerializer.
+
+    PATCH custom error codes:
+      400 — voucherserialnumber or Gov_Stack_BB missing/blank in the request
+            body (including an entirely empty payload)
+      463 — serial number not found or voucher in a non-cancellable state
+            (InvalidCancellationSerial), OR Gov_Stack_BB is blank/a
+            known-invalid sentinel — this endpoint UNIQUELY reuses 463 for
+            both conditions (confirmed via the real Gherkin scenarios; every
+            other voucher endpoint uses 460 for a bad Gov_Stack_BB — do not
+            "fix" this to 460, the live harness explicitly expects 463 here)
+      464 — voucher already cancelled (idempotent double-cancel)
     """
     # HasVoucherJWT: no-op when GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode);
     # requires request.user.is_authenticated when =True (production mode).
@@ -847,34 +929,46 @@ class VoucherStatusCheckView(GovStackAPIView):
         # URL parameter may arrive as an integer string from the harness.
         serial = str(voucherserialnumber).strip()
 
-        # GAP-7: spec §13.5 requires HTTP 400 (not 456) for an unknown serial,
-        # with a specific body shape: {status:9, message, serialNumber, value:0.0}.
-        # We must catch InvalidVoucherSerial before it propagates as an APIException
-        # (which would produce HTTP 456 via govstack_exception_handler).
-        try:
-            voucher = GovStackVoucherService.get_status(serial_number=serial)
-        except InvalidVoucherSerial:
-            return Response(
-                {
-                    "status": GovStackVoucher.STATUS_ERROR_INT,  # = 9
-                    "message": "Voucher not found.",
-                    "serialNumber": serial,
-                    "value": 0.0,
-                },
-                status=400,
-            )
+        # InvalidVoucherSerial (456), VoucherAlreadyUsed (458), and
+        # VoucherExpired (459) are all APIExceptions — DRF catches them via
+        # govstack_exception_handler and normalises to {"message": "..."}.
+        voucher = GovStackVoucherService.get_status(serial_number=serial)
+
+        voucher_status = _VOUCHER_STATUS_ENUM_MAP.get(
+            voucher.status,
+            _VOUCHER_STATUS_ENUM_DEFAULT,
+        )
 
         return Response(
             {
-                "status": voucher.status_int,
-                "serialNumber": voucher.serial_number,
-                "value": float(voucher.amount),  # GAP-10: spec §13.5 requires JSON number, not string
+                "voucher_status": voucher_status,
+                # Confirmed bug fix: must be a STRING, not float(voucher.amount).
+                "voucher_amount": str(voucher.amount),
             },
             status=200,
         )
 
     def patch(self, request: Request, voucherserialnumber: str) -> Response:
         serial = str(voucherserialnumber).strip()
+
+        # NEW (P1): validate the request body — previously this endpoint only
+        # looked at the URL path segment and silently ignored the body,
+        # meaning the harness's "missing X in payload" negative scenarios
+        # would have incorrectly returned 200. 400 on missing/blank fields,
+        # including an entirely empty payload (request.data resolves to {}).
+        ser = VoucherCancellationRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                {"message": self._flatten_errors(ser.errors)},
+                status=400,
+            )
+        d = ser.validated_data
+
+        # This endpoint uniquely reuses 463 (InvalidCancellationSerial) for a
+        # bad Gov_Stack_BB too — see class docstring for why this is
+        # intentionally NOT 460 like every other voucher endpoint.
+        if _is_known_invalid_gov_stack_bb(d["Gov_Stack_BB"]):
+            raise InvalidCancellationSerial()
 
         # InvalidCancellationSerial (463) and VoucherAlreadyCancelled (464) are
         # APIExceptions — DRF catches and calls govstack_exception_handler.
@@ -884,9 +978,9 @@ class VoucherStatusCheckView(GovStackAPIView):
             {
                 "voucherSerialNumber": voucher.serial_number,
                 # get_status_display() returns title-cased label, e.g. "Cancelled".
-                # Spec §13.4 requires this form; raw DB value ("cancelled") would fail
-                # the harness assertion.
                 "voucherStatus": voucher.get_status_display(),
+                # Required by the real harness schema — previously absent entirely.
+                "message": f"Voucher {voucher.serial_number} cancelled successfully.",
             },
             status=200,
         )

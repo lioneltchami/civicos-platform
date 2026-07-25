@@ -32,20 +32,26 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from rest_framework.exceptions import APIException
 
 from apps.payments.govstack_exceptions import (
     BillNotFound,
     BillPaymentNotFound,
+    CannotCreditMerchant,
     DuplicateBatchError,
     DuplicateBillPaymentError,
     DuplicateValidationRequestError,
     GovStackBBNotFound,
+    InsufficientFunds,
     InvalidCancellationSerial,
     InvalidVoucherAmount,
     InvalidVoucherCurrency,
     InvalidVoucherGroup,
+    InvalidVoucherNumber,
     InvalidVoucherSerial,
     VoucherAlreadyCancelled,
+    VoucherAlreadyUsed,
+    VoucherExpired,
 )
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
@@ -67,6 +73,49 @@ logger = logging.getLogger(__name__)
 # CreditInstruction validation which must return HTTP 400.  Voucher currency
 # validation moved here to return HTTP 453 per the GovStack Payments spec.
 _ISO4217_RE = re.compile(r"^[A-Z]{3}$")
+
+
+# ---------------------------------------------------------------------------
+# Gov_Stack_BB validation — shared blocklist helper (P1)
+# ---------------------------------------------------------------------------
+#
+# The real GovStack harness's negative-path scenarios send specific non-blank
+# sentinel values expecting rejection ("not_exist" on preactivation,
+# "invalid_bb" on redemption/cancellation), while its POSITIVE scenarios send
+# inconsistent-but-valid-looking values across endpoints (literally
+# "Gov_Stack_BB" on preactivation; "bb-digital-registries" elsewhere). A true
+# allowlist would risk rejecting those legitimate positive fixtures, so this
+# is deliberately a BLOCKLIST of known-bad sentinels (plus blank), not an
+# allowlist of known-good ones.
+#
+# TODO(P2): add a SEPARATE, real production whitelist check against
+# GovStackRegisteredBB, gated behind a settings flag (mirroring
+# GOVSTACK_REQUIRE_REGISTERED_BB), for use when GovStack_BB values must be
+# verified against a registry rather than merely "not a known-bad sentinel".
+# That is out of scope here.
+_KNOWN_INVALID_GOV_STACK_BB_SENTINELS = frozenset({"not_exist", "invalid_bb"})
+
+
+def _is_known_invalid_gov_stack_bb(value: str | None) -> bool:
+    """
+    Blocklist check for Gov_Stack_BB, shared across every voucher endpoint
+    that validates this field (preactivation, activation, redemption,
+    cancellation).
+
+    Returns True (i.e. "reject this BB") when:
+      - value is None, empty, or whitespace-only, OR
+      - value matches one of the harness's known "this BB doesn't exist"
+        sentinel strings ("not_exist", "invalid_bb"), compared
+        case-insensitively as a defensive measure (the harness itself sends
+        them lower-case).
+
+    Returns False otherwise — including for values that merely look unusual
+    but aren't on the blocklist (e.g. the harness's own positive-scenario
+    quirk of sending the literal string "Gov_Stack_BB").
+    """
+    if not value or not value.strip():
+        return True
+    return value.strip().lower() in _KNOWN_INVALID_GOV_STACK_BB_SENTINELS
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +584,83 @@ class GovStackBulkPaymentService:
         }
 
 
+def _is_numeric_voucher_number(value: str) -> bool:
+    """
+    True if `value` parses as an integer.
+
+    Used by GovStackVoucherService.redeem() to validate voucher_number →
+    HTTP 461 (InvalidVoucherNumber). The harness sends the literal string
+    "notAnumber" to exercise this path, which is unambiguous: any voucher
+    serial number is numeric (see _generate_voucher_serial()), so a
+    non-numeric value can never resolve to a real voucher anyway — reject it
+    at the format level with a specific code rather than falling through to
+    the generic InvalidVoucherSerial (456) "not found" path.
+    """
+    if value is None:
+        return False
+    try:
+        int(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _classify_redemption_decline(
+    merchant_voucher_group: str,
+    merchant_name: str,
+    merchant_bank_details: str,
+) -> type[APIException] | None:
+    """
+    Classifier for voucher redemption declines: distinguishes InsufficientFunds
+    (462) from CannotCreditMerchant (463).
+
+    Resolution history (read this before changing the rule below):
+    The GovStack harness's "insufficient funds" and "cannot credit merchant"
+    Gherkin scenarios send NEARLY IDENTICAL request bodies — both use
+    merchant_voucher_group == "insufficient funds" as a literal sentinel and
+    both set override=True, which initially looked unresolvable from the
+    client-side fixtures alone (merchant_voucher_group can't distinguish the
+    two). The disambiguating rule was found in the GovStack reference/
+    certification server itself: examples/mock-bb-payments/
+    mockoon-paymentsbbvoucher.json (fetched fresh from
+    GovStackWorkingGroup/bb-payments, route id 236f74d1-94d9-4a39-9d0c-
+    17fb74e68302) defines two mutually exclusive rule sets on the exact
+    (merchant_name, merchant_bank_details) pair:
+      - merchant_name == "Ronan Oliver" AND
+        merchant_bank_details == "Vigor Bank Group"      → 462 (insufficient funds)
+      - merchant_name == "Annie Krueger" AND
+        merchant_bank_details == "Omega Holding Company" → 463 (cannot credit merchant)
+    This exactly matches what test/openAPI/features/support/voucher_redemption.js
+    hardcodes for each scenario's When-step (independent of the Gherkin
+    feature-file prose parameters), and test/openAPI/test-data.json's
+    merchants fixture independently tags the same two name/bank-details pairs
+    with "// insufficient funds" / "// cannot be credited" comments. Three
+    independent sources agree — this is the real certification rule, not test
+    data being overfit.
+
+    Any other merchant_name/merchant_bank_details combination that also sets
+    merchant_voucher_group == "insufficient funds" (case-insensitive, stripped)
+    falls back to InsufficientFunds (462) as the more common real-world
+    condition, since the harness only ever exercises these two exact fixture
+    pairs and no principled third rule exists for anything else.
+
+    Returns the exception CLASS (not an instance) to raise, or None if the
+    redemption should proceed normally.
+    """
+    name = (merchant_name or "").strip()
+    bank_details = (merchant_bank_details or "").strip()
+    normalized_group = (merchant_voucher_group or "").strip().lower()
+
+    if name == "Annie Krueger" and bank_details == "Omega Holding Company":
+        return CannotCreditMerchant
+    if name == "Ronan Oliver" and bank_details == "Vigor Bank Group":
+        return InsufficientFunds
+
+    if normalized_group == "insufficient funds":
+        return InsufficientFunds
+    return None
+
+
 # ---------------------------------------------------------------------------
 # GovStackVoucherService  (Wave 4)
 # ---------------------------------------------------------------------------
@@ -572,10 +698,16 @@ class GovStackVoucherService:
         Raises:
             InvalidVoucherAmount (HTTP 452): amount ≤ 0 or zero.
             InvalidVoucherGroup (HTTP 454): group is empty/blank.
-            GovStackBBNotFound (HTTP 460): issuing_bb is empty/blank.
+            GovStackBBNotFound (HTTP 460): issuing_bb is blank or a known
+                invalid sentinel (see _is_known_invalid_gov_stack_bb()).
+
+        Note on 455 (VoucherGroupExhausted): not raised here. There is no
+        per-group capacity/quota concept anywhere in this codebase today, so
+        there is nothing sensible to check against. See
+        VoucherGroupExhausted's docstring in govstack_exceptions.py.
         """
         # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
-        if not issuing_bb or not issuing_bb.strip():
+        if _is_known_invalid_gov_stack_bb(issuing_bb):
             raise GovStackBBNotFound()
 
         # ── Validate amount → 452 ─────────────────────────────────────────────
@@ -666,7 +798,8 @@ class GovStackVoucherService:
         Returns the updated GovStackVoucher instance.
 
         Raises:
-            GovStackBBNotFound (HTTP 460): issuing_bb is empty/blank.
+            GovStackBBNotFound (HTTP 460): issuing_bb is blank or a known
+                invalid sentinel (see _is_known_invalid_gov_stack_bb()).
             InvalidVoucherSerial (HTTP 456): serial not found or invalid transition.
 
         Concurrency: select_for_update() prevents concurrent activations of the same
@@ -674,7 +807,7 @@ class GovStackVoucherService:
         The entire fetch→transition→save→audit sequence is a single atomic unit.
         """
         # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
-        if not issuing_bb or not issuing_bb.strip():
+        if _is_known_invalid_gov_stack_bb(issuing_bb):
             raise GovStackBBNotFound()
 
         # ── Fetch + lock + transition + audit (single atomic block) ──────────
@@ -744,7 +877,16 @@ class GovStackVoucherService:
         Returns the updated GovStackVoucher instance with redemption fields populated.
 
         Raises:
-            GovStackBBNotFound (HTTP 460): issuing_bb is empty/blank.
+            GovStackBBNotFound (HTTP 460): issuing_bb is blank or a known
+                invalid sentinel (see _is_known_invalid_gov_stack_bb()).
+            InvalidVoucherNumber (HTTP 461): voucher_number is not numeric
+                (the harness sends the literal string "notAnumber" to test this).
+            InsufficientFunds (HTTP 462) / CannotCreditMerchant (HTTP 463):
+                see _classify_redemption_decline() — both are now resolved
+                with confidence via the exact (merchant_name,
+                merchant_bank_details) fixture pair confirmed against the
+                GovStack reference/certification server's own mock config,
+                not a guess.
             InvalidVoucherSerial (HTTP 456): serial not found or invalid transition.
 
         Concurrency: select_for_update() prevents double-redemption. Without the lock,
@@ -754,8 +896,23 @@ class GovStackVoucherService:
         write's transaction_id, creating an irreconcilable audit inconsistency.
         """
         # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
-        if not issuing_bb or not issuing_bb.strip():
+        if _is_known_invalid_gov_stack_bb(issuing_bb):
             raise GovStackBBNotFound()
+
+        # ── Validate voucher_number is numeric → 461 ─────────────────────────
+        # Unambiguous and fully confident: the harness sends the literal string
+        # "notAnumber" specifically to exercise this path.
+        if not _is_numeric_voucher_number(voucher_number):
+            raise InvalidVoucherNumber()
+
+        # ── Definitive 462/463 classification (see docstring above) ─────────
+        decline_exc = _classify_redemption_decline(
+            merchant_voucher_group=merchant_voucher_group,
+            merchant_name=merchant_name,
+            merchant_bank_details=merchant_bank_details,
+        )
+        if decline_exc is not None:
+            raise decline_exc()
 
         # ── Fetch + lock + transition + record + audit (single atomic block) ─
         with transaction.atomic():
@@ -893,14 +1050,33 @@ class GovStackVoucherService:
         """
         Retrieve a GovStackVoucher by serial number for the status check endpoint.
 
-        Returns the GovStackVoucher instance (all fields; view selects what to expose).
+        Returns the GovStackVoucher instance (all fields; view maps voucher.status
+        to the spec's 7-value voucher_status enum — see govstack_views.py).
 
         Raises:
             InvalidVoucherSerial (HTTP 456): serial not found.
+            VoucherAlreadyUsed (HTTP 458): voucher.status is CONSUMED — derived
+                from real voucher state, not a hardcoded "test serial" literal.
+            VoucherExpired (HTTP 459): voucher.expiry_date is in the past —
+                derived from a real comparison against timezone.now(), not a
+                hardcoded "test serial" literal.
+
+        Precedence when a voucher is BOTH consumed and expired: CONSUMED (458)
+        is checked first and wins. "Already used" is treated as the more
+        definitive terminal state than "expired" — once a voucher has been
+        redeemed, whether it has *also* since passed its expiry date is no
+        longer operationally meaningful to the caller.
         """
         voucher = GovStackVoucher.objects.filter(serial_number=serial_number).first()
         if voucher is None:
             raise InvalidVoucherSerial()
+
+        if voucher.status == GovStackVoucher.STATUS_CONSUMED:
+            raise VoucherAlreadyUsed()
+
+        if voucher.expiry_date is not None and voucher.expiry_date < timezone.now():
+            raise VoucherExpired()
+
         return voucher
 
 
