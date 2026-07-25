@@ -6,17 +6,26 @@ CivicOS backing models: AppointmentType (event definition) + Slot (event occurre
 
 Each GovStack Event maps to one Slot (UUID PK). The event_id is str(slot.pk).
 
-Multi-slot events: one AppointmentType is shared across N Slots, one per slot entry
-in the GovStack ``slots`` list.
+Multi-slot create batches: POST /event/new's ``slots`` array is a batch-convenience
+for creating several *sibling* Events in one call — each slot entry becomes its own
+independent GovStack event_id / Slot / AppointmentType. AppointmentType is NOT shared
+across the batch (see Wave D review FIX 1): each event_id must be independently
+modifiable via PUT /event/modifications without side effects on siblings created in
+the same original POST call.
 
 GovStack discriminator:
-  All GovStack-managed AppointmentTypes carry slugs that start with "gs-". This prefix
-  is the discriminator used by event_list to exclude native CivicOS appointment types.
+  All GovStack-managed AppointmentTypes carry AppointmentType.is_govstack_managed=True.
+  This boolean field (not string-sniffing) is the discriminator used by event_list to
+  exclude native CivicOS appointment types. AppointmentType slugs are also prefixed
+  with "gs-" as a secondary/cosmetic naming convention for debugging — this prefix is
+  NOT the security/scoping boundary.
 
 Not-stored fields:
   ``deadline`` (GovStack booking cutoff) has no equivalent CivicOS field and is silently
   ignored on write. On event_list, deadline_from/deadline_to are mapped to
-  Slot.start_datetime range filters as a best-effort approximation.
+  Slot.start_datetime range filters as a best-effort approximation. The spec-compliant
+  event_filter.from/to window filters on the Slot's actual occurrence time instead
+  (Slot.start_datetime / Slot.end_datetime) and is the primary time-window filter.
 
 PIPEDA note:
   No PII is logged at any log level. Log statements use slot/type PKs only.
@@ -49,6 +58,7 @@ logger = logging.getLogger("civicos.appointments.services.govstack_event")
 
 _GS_SLUG_PREFIX = "gs-"
 _GOVSTACK_SYSTEM_EMAIL = "govstack-system-staff@civicos.internal"
+_GOVSTACK_SYSTEM_LOCATION_SLUG = "govstack-system-location"
 _MAX_SLUG_RETRIES = 9   # suffix counters 2..9 (8 retries beyond first attempt)
 _MAX_CAPACITY = 100
 _MIN_CAPACITY = 1
@@ -57,6 +67,33 @@ _MAX_DURATION = 480
 
 _VALID_STATUSES: frozenset[str] = frozenset(
     {"available", "partial", "full", "blocked", "cancelled", "completed"}
+)
+
+# Terms are appended to AppointmentType.description_en on write as either
+# "{description}\n\n[Terms: {terms}]" (description non-empty) or
+# "[Terms: {terms}]" (description empty). _split_description_terms() reverses
+# both forms on read.
+_TERMS_PREFIX = "[Terms: "
+
+# Valid ServiceType.category DB choices (see apps.appointments.models.ServiceType).
+_CATEGORY_CHOICES: frozenset[str] = frozenset(
+    {
+        "government", "health", "legal", "employment", "housing",
+        "settlement", "food", "mental_health", "other",
+    }
+)
+
+# Best-effort keyword mapping from free-form GovStack category strings to a
+# valid ServiceType.category choice, checked in this order (first match wins).
+_CATEGORY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("health", ("health", "medical", "clinic", "hospital", "wellness")),
+    ("legal", ("legal", "law", "attorney", "court", "justice")),
+    ("employment", ("employment", "job", "work", "career", "hiring")),
+    ("housing", ("housing", "shelter", "rent", "tenant", "eviction")),
+    ("settlement", ("settlement", "immigra", "newcomer", "refugee")),
+    ("food", ("food", "nutrition", "meal", "grocery")),
+    ("mental_health", ("mental", "addiction", "counsel", "therapy")),
+    ("government", ("government", "gov", "municipal", "public")),
 )
 
 # ---------------------------------------------------------------------------
@@ -89,10 +126,14 @@ def _get_or_create_govstack_location() -> Location:
 
     Slots created via the GovStack Event API use this virtual Location to
     satisfy the non-nullable FK on Slot.location when no real venue is provided.
+
+    This Location is SHARED across every GovStack event with no venue — it must
+    never be mutated in place by event_modify() (see _split_description_terms
+    and the venue-update branch of event_modify() for the corresponding guard).
     """
     org = _get_or_create_govstack_org()
     location, _ = Location.objects.get_or_create(
-        slug="govstack-system-location",
+        slug=_GOVSTACK_SYSTEM_LOCATION_SLUG,
         defaults={
             "organization": org,
             "name_en": "GovStack System Location",
@@ -106,10 +147,11 @@ def _get_or_create_govstack_location() -> Location:
 
 def _get_or_create_govstack_service_type() -> ServiceType:
     """
-    Get or create the GovStack System ServiceType.
+    Get or create the GovStack System ServiceType (category="government").
 
-    All GovStack-managed AppointmentTypes are parented to this ServiceType.
-    It acts as a sentinel group, distinct from native CivicOS service types.
+    Used as the fallback ServiceType for blank/unrecognised event categories.
+    Distinct, keyword-mapped categories get their own dedicated ServiceType —
+    see _get_or_create_service_type_for_category().
     """
     service_type, _ = ServiceType.objects.get_or_create(
         slug="govstack-system",
@@ -189,6 +231,7 @@ def _map_status(raw: str | None) -> str:
     ──────────────────────────────────
     "" or None        → "available"
     "available"       → "available"
+    "open"            → "available"  (real spec's own documented example value)
     "cancelled"       → "cancelled"
     "full"            → "full"
     "blocked"         → "blocked"
@@ -199,10 +242,12 @@ def _map_status(raw: str | None) -> str:
     if not raw:
         return "available"
     normalised = raw.strip().lower()
+    if normalised == "open":
+        return "available"
     if normalised not in _VALID_STATUSES:
         raise ValueError(
             f"Invalid status value {raw!r}. "
-            f"Must be one of: {', '.join(sorted(_VALID_STATUSES))}."
+            f"Must be one of: {', '.join(sorted(_VALID_STATUSES))}, or 'open'."
         )
     return normalised
 
@@ -240,19 +285,94 @@ def _make_appt_type_slug(name: str) -> str:
     """
     Build the base AppointmentType slug for a GovStack event.
 
-    All GovStack event AppointmentType slugs are prefixed with "gs-" to act
-    as a discriminator for event_list queries.
+    GovStack event AppointmentType slugs are prefixed with "gs-" as a
+    cosmetic/debugging naming convention (NOT the security boundary — see
+    AppointmentType.is_govstack_managed).
 
     - If name is provided: ``"gs-" + slugify(name)[:77]``
     - Otherwise: ``"gs-event-{uuid4().hex[:8]}"``
-
-    All slugs are prefixed with "gs-" so ``event_list`` can discriminate GovStack
-    events from natively-created CivicOS AppointmentTypes via
-    ``slug__startswith="gs-"``.
     """
     if name and name.strip():
         return ("gs-" + slugify(name)[:77])
     return f"gs-event-{uuid4().hex[:8]}"
+
+
+def _map_category(raw: str | None) -> str:
+    """
+    Map a free-form GovStack ``category`` string to a valid ServiceType.category
+    DB choice.
+
+    - Blank/None            → "government" (shared system default)
+    - Exact choice match    → that choice (case-insensitive)
+    - Keyword match         → best-effort mapped choice (first match wins)
+    - No match at all       → "other"
+    """
+    if not raw or not raw.strip():
+        return "government"
+    normalised = raw.strip().lower()
+    if normalised in _CATEGORY_CHOICES:
+        return normalised
+    for choice, keywords in _CATEGORY_KEYWORDS:
+        if any(kw in normalised for kw in keywords):
+            return choice
+    return "other"
+
+
+def _get_or_create_service_type_for_category(category: str | None) -> ServiceType:
+    """
+    Get or create a ServiceType for the given GovStack event ``category``.
+
+    Blank/unrecognised categories fall back to the shared GovStack System
+    ServiceType (category="government") to avoid proliferating near-duplicate
+    rows for the common case. Recognised/keyword-mapped categories get their
+    own dedicated ServiceType (slug ``govstack-svc-{category}``), so that
+    AppointmentType.service_type.category round-trips the caller's actual
+    categorisation on read instead of always returning a hardcoded constant.
+    """
+    if not category or not category.strip():
+        return _get_or_create_govstack_service_type()
+
+    mapped = _map_category(category)
+    if mapped == "government":
+        return _get_or_create_govstack_service_type()
+
+    slug = f"govstack-svc-{slugify(mapped)}"[:80]
+    service_type, _ = ServiceType.objects.get_or_create(
+        slug=slug,
+        defaults={
+            "name_en": f"GovStack — {mapped.replace('_', ' ').title()}",
+            "name_fr": f"GovStack — {mapped.replace('_', ' ').title()}",
+            "category": mapped,
+            "is_active": True,
+        },
+    )
+    return service_type
+
+
+def _split_description_terms(description_en: str) -> tuple[str, str]:
+    """
+    Split AppointmentType.description_en into (clean_description, terms).
+
+    On write, terms (if supplied) are appended to description_en using the
+    _TERMS_PREFIX marker (see _create_appointment_type / event_modify). This
+    reverses that on read so GovStack callers see a clean ``description`` and
+    a separate ``terms`` value, matching the real event_details schema
+    instead of leaking the internal storage format.
+
+    Returns (description_en, "") unchanged if no terms marker is present.
+    """
+    if not description_en:
+        return description_en, ""
+    idx = description_en.rfind(_TERMS_PREFIX)
+    if idx == -1 or not description_en.endswith("]"):
+        return description_en, ""
+    terms_blob = description_en[idx + len(_TERMS_PREFIX):-1]
+    clean = description_en[:idx]
+    # Strip the "\n\n" separator that precedes the marker when both a
+    # description and terms were present at write time.
+    if clean.endswith("\n\n"):
+        clean = clean[:-2]
+    return clean, terms_blob
 
 
 def _resolve_location(venue: dict | None, appt_type_slug: str, host_entity_id: str) -> Location:
@@ -270,6 +390,14 @@ def _resolve_location(venue: dict | None, appt_type_slug: str, host_entity_id: s
 
     If ``venue`` is absent or contains no non-empty string values, returns the
     shared GovStack system location placeholder.
+
+    Create-oriented: since FIX 1 each Slot has its own AppointmentType (and
+    thus its own unique appt_type_slug), this naturally gives each event its
+    own dedicated Location row when a real venue is supplied — never a row
+    shared with a sibling. For updating an EXISTING event's venue in place,
+    see the dedicated venue-update branch in event_modify() instead — calling
+    this function again on modify would have no effect on an already-existing
+    row's fields since get_or_create()'s defaults only apply on first creation.
     """
     has_venue = venue and any(
         isinstance(v, str) and v.strip() for v in venue.values()
@@ -305,6 +433,7 @@ def _resolve_location(venue: dict | None, appt_type_slug: str, host_entity_id: s
             "name_fr": loc_name,
             "street_address": (venue or {}).get("street", ""),
             "city": (venue or {}).get("city", ""),
+            "province": (venue or {}).get("state", ""),
             "timezone": "UTC",
             "is_virtual": False,
         },
@@ -319,22 +448,32 @@ def _create_appointment_type(
     capacity_per_slot: int,
     mode: str,
     service_type: ServiceType,
+    duration_minutes: int,
 ) -> AppointmentType:
     """
-    Create an AppointmentType for a GovStack Event, retrying on slug collision.
+    Create an AppointmentType for ONE GovStack Event Slot, retrying on slug collision.
+
+    FIX 1: called once PER SLOT (not once per POST /event/new batch) so that
+    every GovStack event_id owns an exclusive AppointmentType — modifying one
+    event can never affect a sibling created in the same batch.
 
     Slug strategy:
       - Base: ``_make_appt_type_slug(name)``
       - On IntegrityError (unique slug conflict): append ``-{n}`` for n = 2..9.
       - If all retries fail, raises RuntimeError.
+      - Because every slot in a multi-slot batch shares the same ``name``, this
+        retry mechanism is what gives each sibling a distinct slug (base, -2,
+        -3, ...) automatically.
 
-    Terms are appended to description_en as ``[Terms: ...]`` if non-empty.
+    Terms are appended to description_en as "[Terms: ...]" if non-empty.
+    Always sets is_govstack_managed=True (FIX 9 — the actual event_list
+    scoping boundary; the "gs-" slug prefix is cosmetic only).
     """
     base_slug = _make_appt_type_slug(name)
 
     desc_en = description or ""
     if terms and terms.strip():
-        desc_en = f"{desc_en}\n\n[Terms: {terms}]" if desc_en else f"[Terms: {terms}]"
+        desc_en = f"{desc_en}\n\n{_TERMS_PREFIX}{terms}]" if desc_en else f"{_TERMS_PREFIX}{terms}]"
 
     def _try_create(slug: str) -> AppointmentType:
         return AppointmentType.objects.create(
@@ -344,10 +483,11 @@ def _create_appointment_type(
             name_fr=name or slug,
             description_en=desc_en,
             description_fr=description or "",
-            duration_minutes=30,        # placeholder; overridden per-slot from actual times
+            duration_minutes=duration_minutes,
             capacity_per_slot=capacity_per_slot,
             mode=mode,
             is_active=True,
+            is_govstack_managed=True,
         )
 
     # First attempt.
@@ -415,8 +555,18 @@ def _slot_to_event_dict(slot: Slot, details_req: dict) -> dict:
     if details_req.get("name", True):
         result["name"] = slot.appointment_type.name_en
 
-    if details_req.get("description", False):
-        result["description"] = slot.appointment_type.description_en
+    want_description = details_req.get("description", False)
+    want_terms = details_req.get("terms", False)
+    if want_description or want_terms:
+        # FIX 5: split the internally-appended "[Terms: ...]" blob back out
+        # so description is clean and terms is independently readable.
+        clean_description, terms_value = _split_description_terms(
+            slot.appointment_type.description_en
+        )
+        if want_description:
+            result["description"] = clean_description
+        if want_terms:
+            result["terms"] = terms_value
 
     if details_req.get("category", True):
         result["category"] = (
@@ -477,26 +627,33 @@ def event_create(
     venue: dict | None = None,
 ) -> list[Slot]:
     """
-    Create a GovStack Event → CivicOS AppointmentType + N Slot records.
+    Create a GovStack Event batch → N independent (AppointmentType, Slot) pairs.
 
-    One AppointmentType is created for the event definition. One Slot is
-    created per entry in the ``slots`` list (or a single default Slot when
-    ``slots`` is empty/None). All Slots share the same AppointmentType.
+    One Slot AND one dedicated AppointmentType are created per entry in the
+    ``slots`` list (FIX 1 — each GovStack event_id owns an exclusive
+    AppointmentType, so modifying one sibling can never corrupt another
+    created in the same POST call). A single-entry ``slots`` list is the
+    common case; multi-entry is a batch-convenience for creating several
+    sibling Events in one call.
 
-    Field mappings
-    ──────────────
+    Field mappings (applied identically to every sibling in the batch)
+    ──────────────────────────────────────────────────────────────────
     name              → AppointmentType.name_en / name_fr
     description       → AppointmentType.description_en (terms appended if set)
     category          → AppointmentType.mode (via keyword mapping); also
-                        AppointmentType.service_type.category ("government")
+                        resolves/creates AppointmentType.service_type with a
+                        best-effort-mapped ServiceType.category (FIX 4)
     host_entity_id    → Location.organization (looked up by Organization PK)
     slots[].from/to   → Slot.start_datetime / end_datetime / effective_start /
-                        effective_end; duration derived from delta
+                        effective_end (per-entry); duration derived from delta
+                        and stored on that entry's own AppointmentType
     subscriber_limit  → AppointmentType.capacity_per_slot (int, clamped 1..100)
     terms             → appended to AppointmentType.description_en as
-                        "\\n\\n[Terms: {terms}]" when non-empty
+                        "[Terms: {terms}]" when non-empty (split back out on
+                        read — see _split_description_terms)
     status            → Slot.status (mapped via _map_status)
-    venue             → Location slug / name / address fields
+    venue             → Location slug / name / address fields (per-entry,
+                        since each entry gets its own AppointmentType slug)
 
     Not stored
     ──────────
@@ -504,94 +661,91 @@ def event_create(
     ignored. Wave D+ TODO: store in a dedicated JSONField or SchedulingPolicy
     if the business requirement emerges.
 
-    Raises ValueError on invalid status or subscriber_limit.
-    Returns list of created Slot instances (one per slot entry in 'slots').
+    Raises ValueError on invalid status, subscriber_limit, or slot entries.
+    Returns list of created Slot instances (one per slot entry in 'slots'),
+    in the same order as the input.
     """
     # --- Validate inputs ---
     civicos_status = _map_status(status)
     capacity = _clamp_capacity(subscriber_limit)
     mode = _map_mode(category)
 
-    # --- Seed system records ---
-    service_type = _get_or_create_govstack_service_type()
+    slot_entries = slots or []
+    if not slot_entries:
+        raise ValueError(
+            "At least one slot entry with 'from' and 'to' datetime strings is required."
+        )
+
+    # Pre-parse and validate every entry before creating any DB rows.
+    parsed_entries: list[tuple[object, object]] = []
+    for entry in slot_entries:
+        from_str = entry.get("from", "") or entry.get("start", "")
+        to_str = entry.get("to", "") or entry.get("end", "")
+
+        start_dt = _parse_datetime_str(from_str) if from_str else None
+        end_dt = _parse_datetime_str(to_str) if to_str else None
+
+        if start_dt is None or end_dt is None:
+            raise ValueError(
+                "Each slot entry must supply 'from' and 'to' ISO 8601 datetime strings."
+            )
+        if end_dt <= start_dt:
+            raise ValueError(
+                f"Slot 'to' ({to_str!r}) must be after 'from' ({from_str!r})."
+            )
+        parsed_entries.append((start_dt, end_dt))
+
+    # --- Seed system records (shared taxonomy/staff, not owned per-event) ---
+    service_type = _get_or_create_service_type_for_category(category)
     staff = _get_or_create_govstack_staff()
 
-    # --- Build AppointmentType ---
+    created_slots: list[Slot] = []
     with transaction.atomic():
-        appt_type = _create_appointment_type(
-            name=name,
-            description=description,
-            terms=terms,
-            capacity_per_slot=capacity,
-            mode=mode,
-            service_type=service_type,
-        )
-        logger.debug(
-            "event_create: created AppointmentType pk=%d slug=%r",
-            appt_type.pk,
-            appt_type.slug,
-        )
+        for start_dt, end_dt in parsed_entries:
+            duration = _compute_duration(start_dt, end_dt)
 
-        # --- Resolve Location ---
-        location = _resolve_location(
-            venue=venue,
-            appt_type_slug=appt_type.slug,
-            host_entity_id=host_entity_id,
-        )
-
-        # --- Create Slots ---
-        created_slots: list[Slot] = []
-        slot_entries = slots or []
-
-        if not slot_entries:
-            raise ValueError(
-                "At least one slot entry with 'from' and 'to' datetime strings is required."
+            # FIX 1: dedicated AppointmentType per slot entry.
+            appt_type = _create_appointment_type(
+                name=name,
+                description=description,
+                terms=terms,
+                capacity_per_slot=capacity,
+                mode=mode,
+                service_type=service_type,
+                duration_minutes=duration,
             )
-        else:
-            for entry in slot_entries:
-                from_str = entry.get("from", "") or entry.get("start", "")
-                to_str = entry.get("to", "") or entry.get("end", "")
+            logger.debug(
+                "event_create: created AppointmentType pk=%d slug=%r",
+                appt_type.pk,
+                appt_type.slug,
+            )
 
-                start_dt = _parse_datetime_str(from_str) if from_str else None
-                end_dt = _parse_datetime_str(to_str) if to_str else None
+            # Dedicated Location per slot entry when a real venue is supplied
+            # (keyed by this slot's own unique appt_type.slug — see
+            # _resolve_location docstring).
+            location = _resolve_location(
+                venue=venue,
+                appt_type_slug=appt_type.slug,
+                host_entity_id=host_entity_id,
+            )
 
-                if start_dt is None or end_dt is None:
-                    raise ValueError(
-                        "Each slot entry must supply 'from' and 'to' ISO 8601 datetime strings."
-                    )
-                if end_dt <= start_dt:
-                    raise ValueError(
-                        f"Slot 'to' ({to_str!r}) must be after 'from' ({from_str!r})."
-                    )
-
-                duration = _compute_duration(start_dt, end_dt)
-
-                # Update AppointmentType.duration_minutes from the first slot's timing.
-                # All slots in a multi-slot event share one AppointmentType, so duration
-                # reflects the first slot. Subsequent slots with different durations would
-                # need separate AppointmentTypes — not supported in Wave D.
-                if not created_slots:
-                    appt_type.duration_minutes = duration
-                    appt_type.save(update_fields=["duration_minutes", "updated_at"])
-
-                slot = Slot.objects.create(
-                    appointment_type=appt_type,
-                    staff=staff,
-                    location=location,
-                    start_datetime=start_dt,
-                    end_datetime=end_dt,
-                    effective_start=start_dt,
-                    effective_end=end_dt,
-                    capacity=capacity,
-                    spaces_used=0,
-                    status=civicos_status,
-                )
-                created_slots.append(slot)
-                logger.debug("event_create: created slot pk=%s", slot.pk)
+            slot = Slot.objects.create(
+                appointment_type=appt_type,
+                staff=staff,
+                location=location,
+                start_datetime=start_dt,
+                end_datetime=end_dt,
+                effective_start=start_dt,
+                effective_end=end_dt,
+                capacity=capacity,
+                spaces_used=0,
+                status=civicos_status,
+            )
+            created_slots.append(slot)
+            logger.debug("event_create: created slot pk=%s", slot.pk)
 
     logger.debug(
-        "event_create: event complete appt_type_pk=%d slot_count=%d",
-        appt_type.pk,
+        "event_create: batch complete slot_count=%d",
         len(created_slots),
     )
     return created_slots
@@ -604,6 +758,8 @@ def event_modify(
     category: str | None = None,
     host_entity_id: str | None = None,
     slots: list[dict] | None = None,
+    from_dt: str | None = None,
+    to_dt: str | None = None,
     deadline: str | None = None,
     subscriber_limit: str | None = None,
     terms: str | None = None,
@@ -616,16 +772,17 @@ def event_modify(
     None = field not supplied (no update). Only explicitly passed fields
     are written. Uses SELECT FOR UPDATE + transaction.atomic() for safety.
 
-    Slot timing: if ``slots`` is supplied and non-empty, the first entry's
-    from/to values are applied to Slot.start_datetime / end_datetime /
-    effective_start / effective_end. Remaining entries are ignored (the
-    GovStack modify endpoint is single-slot scoped by event_id).
+    Slot timing (FIX 3): the primary, spec-compliant path is the flat
+    ``from_dt``/``to_dt`` parameters, matching the real event_details schema
+    used by PUT /event/modifications (flat singular from/to — NOT the
+    ``slots`` array, which only exists on event_creation_details/POST).
+    Backward-compat: if from_dt/to_dt are both omitted and a legacy ``slots``
+    list is supplied, the first entry's from/to values are used instead.
 
+    Since FIX 1, every event_id owns an exclusive AppointmentType — mutating
     AppointmentType fields (name, description, terms, subscriber_limit,
-    category, host_entity_id, venue) are updated in place on the same
-    AppointmentType row — affecting all sibling Slots that share it.
-    Callers that need per-slot independence should issue separate event_create
-    calls.
+    category, mode) here can never affect a sibling Slot/event_id, even one
+    created in the same original batch POST.
 
     Not stored
     ──────────
@@ -651,29 +808,35 @@ def event_modify(
             slot.status = _map_status(status)
             slot_update_fields.append("status")
 
-        # -- Slot timing (first entry in slots list only) --
-        if slots is not None and len(slots) > 0:
+        # -- Slot timing --
+        resolved_from = from_dt
+        resolved_to = to_dt
+        if resolved_from is None and resolved_to is None and slots:
+            # Legacy backward-compat path (pre-FIX-3 callers sending slots[0]).
             entry = slots[0]
-            from_str = entry.get("from", "") or entry.get("start", "")
-            to_str = entry.get("to", "") or entry.get("end", "")
-            if from_str:
-                start_dt = _parse_datetime_str(from_str)
-                slot.start_datetime = start_dt
-                slot.effective_start = start_dt
-                slot_update_fields.extend(["start_datetime", "effective_start"])
-            if to_str:
-                end_dt = _parse_datetime_str(to_str)
-                slot.end_datetime = end_dt
-                slot.effective_end = end_dt
-                slot_update_fields.extend(["end_datetime", "effective_end"])
-            # Recompute AppointmentType.duration_minutes if we have both bounds.
-            # duration_minutes lives on AppointmentType, not on Slot.
-            if slot.end_datetime > slot.start_datetime:
-                appt_type.duration_minutes = _compute_duration(
-                    slot.start_datetime, slot.end_datetime
-                )
-                if "duration_minutes" not in appt_update_fields:
-                    appt_update_fields.append("duration_minutes")
+            resolved_from = entry.get("from") or entry.get("start")
+            resolved_to = entry.get("to") or entry.get("end")
+
+        if resolved_from:
+            start_dt = _parse_datetime_str(resolved_from)
+            slot.start_datetime = start_dt
+            slot.effective_start = start_dt
+            slot_update_fields.extend(["start_datetime", "effective_start"])
+        if resolved_to:
+            end_dt = _parse_datetime_str(resolved_to)
+            slot.end_datetime = end_dt
+            slot.effective_end = end_dt
+            slot_update_fields.extend(["end_datetime", "effective_end"])
+        # Recompute AppointmentType.duration_minutes if we have both bounds.
+        # duration_minutes lives on AppointmentType, not on Slot. Since FIX 1
+        # this AppointmentType is exclusively owned by this event_id, so
+        # mutating it here is always safe — it can never affect a sibling.
+        if (resolved_from or resolved_to) and slot.end_datetime > slot.start_datetime:
+            appt_type.duration_minutes = _compute_duration(
+                slot.start_datetime, slot.end_datetime
+            )
+            if "duration_minutes" not in appt_update_fields:
+                appt_update_fields.append("duration_minutes")
 
         # -- AppointmentType.name --
         if name is not None:
@@ -683,15 +846,21 @@ def event_modify(
 
         # -- AppointmentType.description / terms --
         if description is not None or terms is not None:
-            # Use current values as base when only one side is supplied.
-            current_desc = description if description is not None else appt_type.description_en
-            current_terms = terms if terms is not None else ""
-            # Strip any previously appended terms block before re-appending.
-            if "[Terms:" in current_desc:
-                current_desc = current_desc[:current_desc.rfind("\n\n[Terms:")].rstrip()
+            # Always start from a clean split of the currently-stored value so
+            # an update to only ONE of description/terms preserves the other
+            # (FIX 5 — terms must actually round-trip, including across modify).
+            current_desc, existing_terms = _split_description_terms(appt_type.description_en)
+            if description is not None:
+                current_desc = description
+            current_terms = terms if terms is not None else existing_terms
+
             desc_en = current_desc
             if current_terms and current_terms.strip():
-                desc_en = f"{current_desc}\n\n[Terms: {current_terms}]" if current_desc else f"[Terms: {current_terms}]"
+                desc_en = (
+                    f"{current_desc}\n\n{_TERMS_PREFIX}{current_terms}]"
+                    if current_desc
+                    else f"{_TERMS_PREFIX}{current_terms}]"
+                )
             appt_type.description_en = desc_en
             if description is not None:
                 appt_type.description_fr = description
@@ -705,22 +874,61 @@ def event_modify(
             appt_update_fields.append("capacity_per_slot")
             slot_update_fields.append("capacity")
 
-        # -- AppointmentType.mode (from category) --
+        # -- AppointmentType.mode / service_type (from category) --
         if category is not None:
             appt_type.mode = _map_mode(category)
-            appt_update_fields.append("mode")
+            appt_type.service_type = _get_or_create_service_type_for_category(category)
+            appt_update_fields.extend(["mode", "service_type"])
 
         # -- Location (venue / host_entity_id) --
         if venue is not None or host_entity_id is not None:
-            new_venue = venue if venue is not None else {}
-            new_entity_id = host_entity_id if host_entity_id is not None else ""
-            location = _resolve_location(
-                venue=new_venue,
-                appt_type_slug=appt_type.slug,
-                host_entity_id=new_entity_id,
+            has_new_venue = bool(venue) and any(
+                isinstance(v, str) and v.strip() for v in venue.values()
             )
-            slot.location = location
-            slot_update_fields.append("location")
+            if has_new_venue:
+                current_location = slot.location
+                is_shared_placeholder = (
+                    current_location is None
+                    or current_location.slug == _GOVSTACK_SYSTEM_LOCATION_SLUG
+                )
+                if not is_shared_placeholder:
+                    # FIX 6: this Location already belongs exclusively to this
+                    # event (either created dedicated at event_create time, or
+                    # by a prior modify) — safe to update its address fields
+                    # in place. Siblings from the same original batch each
+                    # have their own Location row since FIX 1.
+                    current_location.street_address = venue.get("street", "")
+                    current_location.city = venue.get("city", "")
+                    current_location.province = venue.get("state", "")
+                    current_location.save(
+                        update_fields=["street_address", "city", "province", "updated_at"]
+                    )
+                else:
+                    # Currently on the shared system placeholder — mutating it
+                    # would corrupt every other GovStack event without a real
+                    # venue, so create a NEW dedicated Location instead and
+                    # reassign the FK.
+                    location = _resolve_location(
+                        venue=venue,
+                        appt_type_slug=appt_type.slug,
+                        host_entity_id=host_entity_id if host_entity_id is not None else "",
+                    )
+                    slot.location = location
+                    slot_update_fields.append("location")
+            elif venue is not None:
+                # venue supplied but entirely blank → reset to shared placeholder.
+                slot.location = _get_or_create_govstack_location()
+                slot_update_fields.append("location")
+            else:
+                # host_entity_id changed with no venue payload at all —
+                # preserve prior behaviour for entity-only reassignment.
+                location = _resolve_location(
+                    venue=None,
+                    appt_type_slug=appt_type.slug,
+                    host_entity_id=host_entity_id,
+                )
+                slot.location = location
+                slot_update_fields.append("location")
 
         # -- Persist changes --
         if appt_update_fields:
@@ -753,13 +961,17 @@ def event_delete(event_id: str) -> None:
     Does NOT hard-delete the Slot — existing Booking FK dependents and the
     audit trail must remain intact.
 
+    Uses SELECT FOR UPDATE (FIX 10), matching the locking pattern used in
+    event_modify(), to prevent a concurrent modify/delete race on the same
+    Slot row.
+
     Raises:
       Slot.DoesNotExist — if event_id is not found.
       ValueError        — if event_id is not a valid UUID string.
     """
     with transaction.atomic():
         # Let UUID parsing fail naturally for invalid format.
-        slot = Slot.objects.get(pk=event_id)
+        slot = Slot.objects.select_for_update().get(pk=event_id)
         slot.status = "cancelled"
         slot.save(update_fields=["status", "updated_at"])
         logger.debug("event_delete: soft-cancelled slot pk=%s", slot.pk)
@@ -772,34 +984,43 @@ def event_list(
     """
     Return GovStack Event list from Slots, capped at 500 results.
 
-    Only returns Slots whose AppointmentType.slug starts with "gs-" (GovStack
-    discriminator — excludes native CivicOS appointment types).
+    Only returns Slots whose AppointmentType.is_govstack_managed is True
+    (FIX 9 — the actual security/scoping boundary; the "gs-" slug prefix is a
+    cosmetic naming convention only and is never used for access control).
 
     Filter keys (event_filter)
     ──────────────────────────
     event_id         — exact UUID match
     name             — case-insensitive substring on AppointmentType.name_en
-    category         — case-insensitive substring on AppointmentType.name_en
-                       (GovStack category is free-form; name is the best proxy)
+    category         — case-insensitive substring/exact match on
+                       AppointmentType.service_type.category (FIX 4)
     host_entity_id   — exact match on Location.organization PK
     status           — exact match on Slot.status; when absent, cancelled slots
                        are excluded by default
-    deadline_from    — maps to start_datetime ≥ value (best-effort approximation;
+    from_ / to       — real spec's event_filter.from/to date-range window
+                       (FIX 8): filters on Slot.start_datetime ≥ from_ and
+                       Slot.end_datetime ≤ to. NOTE: the wire-format key is
+                       literally "from" — EventFilterSerializer remaps it to
+                       the Python-safe attribute name "from_" (see
+                       govstack_serializers.EventFilterSerializer).
+    deadline_from    — legacy best-effort approximation: maps to
+                       start_datetime ≥ value (kept for backward compat;
                        deadline has no CivicOS field)
-    deadline_to      — maps to start_datetime ≤ value
+    deadline_to      — legacy best-effort approximation: maps to
+                       start_datetime ≤ value
 
     Ordering: start_datetime ASC. Hard cap: 500 rows.
 
     event_details_required controls which fields appear in each result dict.
     Missing keys default to the field-level default (True for event_id, name,
     category, host_entity_id, status; False for description, slots, venue,
-    subscriber_limit).
+    subscriber_limit, terms).
     """
     event_filter = event_filter or {}
     event_details_required = event_details_required or {}
 
     qs = (
-        Slot.objects.filter(appointment_type__slug__startswith=_GS_SLUG_PREFIX)
+        Slot.objects.filter(appointment_type__is_govstack_managed=True)
         .select_related(
             "appointment_type",
             "appointment_type__service_type",
@@ -816,7 +1037,9 @@ def event_list(
         qs = qs.filter(appointment_type__name_en__icontains=event_filter["name"])
 
     if event_filter.get("category"):
-        qs = qs.filter(appointment_type__name_en__icontains=event_filter["category"])
+        qs = qs.filter(
+            appointment_type__service_type__category__icontains=event_filter["category"]
+        )
 
     if event_filter.get("host_entity_id"):
         try:
@@ -831,6 +1054,16 @@ def event_list(
         # Default: exclude cancelled slots so stale events don't pollute results.
         qs = qs.exclude(status="cancelled")
 
+    # FIX 8: spec-compliant from/to date-range window (primary path).
+    if event_filter.get("from_"):
+        dt = _parse_datetime_str(event_filter["from_"])
+        qs = qs.filter(start_datetime__gte=dt)
+
+    if event_filter.get("to"):
+        dt = _parse_datetime_str(event_filter["to"])
+        qs = qs.filter(end_datetime__lte=dt)
+
+    # Legacy best-effort approximation (kept for backward compat).
     if event_filter.get("deadline_from"):
         dt = _parse_datetime_str(event_filter["deadline_from"])
         qs = qs.filter(start_datetime__gte=dt)

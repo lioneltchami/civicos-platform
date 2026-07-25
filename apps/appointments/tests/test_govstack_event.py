@@ -7,7 +7,9 @@ Covers 4 endpoints:
   DELETE /govstack/scheduler/event
   GET    /govstack/scheduler/event/list_details
 
-Tests are numbered EV1–EV45 matching the Wave D specification.
+Tests are numbered EV1–EV45 matching the original Wave D specification, plus
+EV46–EV53 added for the deep adversarial review fixes (see module docstring
+in services/govstack_event.py for the FIX 1..10 numbering referenced below).
 """
 from __future__ import annotations
 
@@ -15,9 +17,18 @@ import json
 import uuid
 from urllib.parse import urlencode
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils.dateparse import parse_datetime
 
-from apps.appointments.models import Slot
+from apps.appointments.models import (
+    AppointmentType,
+    Location,
+    Organization,
+    ServiceType,
+    Slot,
+    StaffProfile,
+)
 from apps.appointments.services.govstack_event import (
     event_create,
     event_delete,
@@ -73,6 +84,82 @@ def _create_event(name="Test Event", slots=None, status="available", **kwargs):
         status=status,
         venue=kwargs.get("venue"),
     )
+
+
+def _create_native_appointment_type(slug: str, is_govstack_managed: bool = False) -> tuple[AppointmentType, Slot]:
+    """
+    Factory: create a native CivicOS AppointmentType + Slot directly (bypassing
+    the GovStack service layer entirely), for FIX 9 boundary tests.
+    """
+    User = get_user_model()
+    user, _ = User.objects.get_or_create(
+        email="native-staff@civicos.internal",
+        defaults={"is_staff": True, "is_active": True},
+    )
+    staff, _ = StaffProfile.objects.get_or_create(
+        user=user,
+        defaults={
+            "display_name_en": "Native Staff",
+            "display_name_fr": "Personnel Natif",
+            "is_accepting_bookings": True,
+        },
+    )
+    org, _ = Organization.objects.get_or_create(
+        slug="native-org",
+        defaults={
+            "name_en": "Native Org",
+            "name_fr": "Org Native",
+            "organization_type": "other",
+            "is_active": True,
+        },
+    )
+    location, _ = Location.objects.get_or_create(
+        slug="native-location",
+        defaults={
+            "organization": org,
+            "name_en": "Native Location",
+            "name_fr": "Emplacement Natif",
+            "is_virtual": True,
+            "timezone": "UTC",
+        },
+    )
+    service_type, _ = ServiceType.objects.get_or_create(
+        slug="native-service",
+        defaults={
+            "name_en": "Native Service",
+            "name_fr": "Service Natif",
+            "category": "government",
+            "is_active": True,
+        },
+    )
+    appt_type = AppointmentType.objects.create(
+        service_type=service_type,
+        slug=slug,
+        name_en="GS Drivers License Renewal",
+        name_fr="Renouvellement de permis GS",
+        description_en="",
+        description_fr="",
+        duration_minutes=30,
+        capacity_per_slot=1,
+        mode="in_person",
+        is_active=True,
+        is_govstack_managed=is_govstack_managed,
+    )
+    start_dt = parse_datetime("2026-08-05T09:00:00Z")
+    end_dt = parse_datetime("2026-08-05T10:00:00Z")
+    slot = Slot.objects.create(
+        appointment_type=appt_type,
+        staff=staff,
+        location=location,
+        start_datetime=start_dt,
+        end_datetime=end_dt,
+        effective_start=start_dt,
+        effective_end=end_dt,
+        capacity=1,
+        spaces_used=0,
+        status="available",
+    )
+    return appt_type, slot
 
 
 # ===========================================================================
@@ -222,6 +309,27 @@ class EventNewTests(EventBaseTestCase):
         self.assertEqual(data["status"], "success")
         self.assertEqual(len(data["event_ids"]), 1)
 
+    # EV47 (FIX 2)
+    def test_ev47_post_new_response_includes_singular_event_id(self):
+        """EV47 (FIX 2): response includes singular event_id == event_ids[0], plus full event_ids list."""
+        resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertIn("event_id", data)
+        self.assertIn("event_ids", data)
+        self.assertEqual(data["event_id"], data["event_ids"][0])
+        self.assertEqual(len(data["event_ids"]), 2)
+
+    # EV48 (FIX 1)
+    def test_ev48_multi_slot_batch_creates_distinct_appointment_types(self):
+        """EV48 (FIX 1): each slot in a multi-slot POST batch gets its OWN AppointmentType, not a shared one."""
+        resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
+        self.assertEqual(resp.status_code, 201)
+        event_ids = resp.json()["event_ids"]
+        slot_a = Slot.objects.get(pk=event_ids[0])
+        slot_b = Slot.objects.get(pk=event_ids[1])
+        self.assertNotEqual(slot_a.appointment_type_id, slot_b.appointment_type_id)
+
 
 # ===========================================================================
 # EV12–EV17: PUT /event/modifications
@@ -247,15 +355,20 @@ class EventModificationsTests(EventBaseTestCase):
         self.assertEqual(data["status"], "success")
         self.assertEqual(data["event_id"], self.event_id)
 
-    # EV13
-    def test_ev13_put_new_slots_updates_slot_datetimes_in_db(self):
-        """EV13: PUT with new start/end in slots updates Slot.start_datetime in DB."""
-        new_slot = {"from": "2026-09-15T14:00:00Z", "to": "2026-09-15T15:00:00Z"}
-        resp = self._put(self._valid_put_qry(slots=[new_slot]), event_id=self.event_id)
+    # EV13 (rewritten for FIX 3 — flat from/to, not slots[])
+    def test_ev13_put_flat_from_to_updates_slot_datetimes_in_db(self):
+        """EV13 (FIX 3): PUT with flat from/to (real event_details schema) actually updates
+        Slot.start_datetime/end_datetime in DB — the old slots[] shape is spec-incorrect for PUT
+        and is silently dropped by the modify-only serializer now."""
+        new_from = "2026-09-15T14:00:00Z"
+        new_to = "2026-09-15T15:00:00Z"
+        resp = self._put({"details": {"from": new_from, "to": new_to}}, event_id=self.event_id)
         self.assertEqual(resp.status_code, 200)
         self.slot.refresh_from_db()
-        # The slot should reflect the new start time
-        self.assertIsNotNone(self.slot.start_datetime)
+        self.assertEqual(self.slot.start_datetime.isoformat(), "2026-09-15T14:00:00+00:00")
+        self.assertEqual(self.slot.end_datetime.isoformat(), "2026-09-15T15:00:00+00:00")
+        self.assertEqual(self.slot.effective_start, self.slot.start_datetime)
+        self.assertEqual(self.slot.effective_end, self.slot.end_datetime)
 
     # EV14
     def test_ev14_put_unknown_event_id_returns_404(self):
@@ -291,6 +404,74 @@ class EventModificationsTests(EventBaseTestCase):
         self.assertEqual(resp.status_code, 200)
         self.slot.refresh_from_db()
         self.assertEqual(self.slot.appointment_type.name_en, "Renamed Event")
+
+    # EV49 (FIX 1)
+    def test_ev49_modify_one_event_in_multi_slot_batch_does_not_affect_siblings(self):
+        """EV49 (FIX 1): modifying one event_id from a multi-slot batch must NOT rename/alter siblings
+        created in the same original POST call — each event_id owns an exclusive AppointmentType."""
+        created = _create_event(name="Batch Event", slots=[_SLOT_1, _SLOT_2])
+        slot_a, slot_b = created
+        event_id_a = str(slot_a.pk)
+
+        resp = self._put({"details": {"name": "Renamed A Only"}}, event_id=event_id_a)
+        self.assertEqual(resp.status_code, 200)
+
+        slot_a.refresh_from_db()
+        slot_b.refresh_from_db()
+        self.assertEqual(slot_a.appointment_type.name_en, "Renamed A Only")
+        self.assertEqual(slot_b.appointment_type.name_en, "Batch Event")
+        self.assertNotEqual(slot_a.appointment_type_id, slot_b.appointment_type_id)
+
+    # EV50 (FIX 5)
+    def test_ev50_terms_round_trips_and_description_is_clean_on_read(self):
+        """EV50 (FIX 5): terms round-trips via the service layer; description read path omits
+        the internal [Terms: ...] storage marker."""
+        created = _create_event(
+            name="Terms Event",
+            description="Come to this event.",
+            terms="No refunds.",
+        )
+        slot = created[0]
+        results = event_list(
+            event_filter={"event_id": str(slot.pk)},
+            event_details_required={"description": True, "terms": True},
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["description"], "Come to this event.")
+        self.assertEqual(results[0]["terms"], "No refunds.")
+        self.assertNotIn("[Terms:", results[0]["description"])
+
+    # EV51 (FIX 6)
+    def test_ev51_put_new_venue_updates_slot_location_in_db(self):
+        """EV51 (FIX 6): PUT with a new venue actually updates Slot.location fields (previously a no-op)."""
+        created = _create_event(name="Venue Event")
+        slot = created[0]
+        event_id = str(slot.pk)
+        original_location_id = slot.location_id
+        self.assertEqual(slot.location.slug, "govstack-system-location")
+
+        resp = self._put(
+            {"details": {"venue": {"city": "Halifax", "street": "123 Main St"}}},
+            event_id=event_id,
+        )
+        self.assertEqual(resp.status_code, 200)
+        slot.refresh_from_db()
+        self.assertNotEqual(slot.location_id, original_location_id)
+        self.assertEqual(slot.location.city, "Halifax")
+        self.assertEqual(slot.location.street_address, "123 Main St")
+
+        # A second venue update on the now-dedicated Location must mutate it
+        # in place, not create yet another Location row.
+        dedicated_location_id = slot.location_id
+        resp2 = self._put(
+            {"details": {"venue": {"city": "Moncton", "street": "456 Oak Ave"}}},
+            event_id=event_id,
+        )
+        self.assertEqual(resp2.status_code, 200)
+        slot.refresh_from_db()
+        self.assertEqual(slot.location_id, dedicated_location_id)
+        self.assertEqual(slot.location.city, "Moncton")
+        self.assertEqual(slot.location.street_address, "456 Oak Ave")
 
 
 # ===========================================================================
@@ -336,7 +517,6 @@ class EventDeleteTests(EventBaseTestCase):
         resp = self._delete(event_id=self.event_id)
         self.assertEqual(resp.status_code, 200)
         # Re-fetch to confirm
-        from apps.appointments.models import AppointmentType
         self.assertTrue(AppointmentType.objects.filter(pk=apt_type.pk).exists())
 
     # EV22
@@ -481,6 +661,73 @@ class EventListDetailsTests(EventBaseTestCase):
         ids = [r["event_id"] for r in data]
         self.assertIn(self.event_id, ids)
 
+    # EV52 (FIX 8)
+    def test_ev52_event_filter_from_to_filters_results(self):
+        """EV52 (FIX 8): event_filter.from/to (real spec fields) filter Slot occurrences by
+        actual time window, distinct from the legacy deadline_from/deadline_to approximation."""
+        _create_event(
+            name="Early Event",
+            slots=[{"from": "2026-01-01T09:00:00Z", "to": "2026-01-01T10:00:00Z"}],
+        )
+        _create_event(
+            name="Mid Event",
+            slots=[{"from": "2026-06-01T09:00:00Z", "to": "2026-06-01T10:00:00Z"}],
+        )
+        qry = {"event_filter": {"from": "2026-05-01T00:00:00Z", "to": "2026-07-01T00:00:00Z"}}
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        names = set()
+        for record in resp.json()["data"]:
+            s = Slot.objects.get(pk=record["event_id"])
+            names.add(s.appointment_type.name_en)
+        self.assertIn("Mid Event", names)
+        self.assertNotIn("Early Event", names)
+        self.assertNotIn("TestEvent", names)  # setUp's default event is Aug 2026, out of window
+
+    # EV53 (FIX 9)
+    def test_ev53_native_gs_prefixed_slug_apptype_excluded_from_event_list(self):
+        """EV53 (FIX 9): a native CivicOS AppointmentType with a gs-prefixed slug but
+        is_govstack_managed=False must NOT appear in event_list — the boolean field
+        (not the slug prefix) is the actual security/scoping boundary."""
+        _, native_slot = _create_native_appointment_type(
+            slug="gs-drivers-license-renewal", is_govstack_managed=False
+        )
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+        ids = [r["event_id"] for r in resp.json()["data"]]
+        self.assertNotIn(str(native_slot.pk), ids)
+
+    # EV54 (FIX 4)
+    def test_ev54_category_round_trips_via_service_type(self):
+        """EV54 (FIX 4): category round-trips through a per-category ServiceType instead of
+        always returning the hardcoded 'government' constant."""
+        _create_event(name="Health Event", category="health")
+        qry = {
+            "event_filter": {"name": "Health Event"},
+            "event_details_required": {"category": True},
+        }
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["category"], "health")
+
+    # EV55 (FIX 4)
+    def test_ev55_event_filter_category_filters_on_service_type_category(self):
+        """EV55 (FIX 4): event_filter.category filters on the real ServiceType.category,
+        not the name_en workaround."""
+        _create_event(name="Legal Clinic", category="legal")
+        _create_event(name="Health Clinic", category="health")
+        qry = {"event_filter": {"category": "legal"}}
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        names = {
+            Slot.objects.get(pk=r["event_id"]).appointment_type.name_en
+            for r in resp.json()["data"]
+        }
+        self.assertIn("Legal Clinic", names)
+        self.assertNotIn("Health Clinic", names)
+
 
 # ===========================================================================
 # EV34–EV37: Wrong HTTP method tests
@@ -605,3 +852,11 @@ class EventServiceTests(TestCase):
         from django.core.exceptions import ValidationError as DjangoValidationError
         with self.assertRaises((ValueError, Slot.DoesNotExist, DjangoValidationError)):
             event_delete(event_id="not-a-valid-uuid")
+
+    # EV46 (FIX 7)
+    def test_ev46_event_create_status_open_maps_to_available(self):
+        """EV46 (FIX 7): status='open' (the real spec's own documented example value) is
+        accepted (not rejected) and maps to CivicOS 'available'."""
+        slots = _create_event(name="Open Status Service Test", status="open")
+        slot = slots[0]
+        self.assertEqual(slot.status, "available")

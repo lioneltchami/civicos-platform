@@ -1417,7 +1417,8 @@ class EventNewView(APIView):
     """
     POST /govstack/scheduler/event/new
 
-    Create a new Event (AppointmentType + one Slot per entry in slots[]). All
+    Create a new Event batch (one dedicated AppointmentType + one Slot per
+    entry in slots[] — see services.govstack_event.event_create FIX 1). All
     request data arrives as query parameters; event details are embedded in `qry`.
 
     Expected qry shape:
@@ -1425,8 +1426,19 @@ class EventNewView(APIView):
                            "status": "available", ...}}}
 
     Returns:
-      201 {"status": "success", "event_ids": ["<slot_pk>", ...]}
+      201 {"status": "success", "event_id": "<first-slot-pk>", "event_ids": ["<slot_pk>", ...]}
       400 on validation or creation failure
+
+    Response field convention (dual-field, per Wave D review FIX 2):
+      "event_id" (singular) is the spec-compliant primary field — every other
+      */new endpoint in the module (and in the real GovStack OpenAPI spec)
+      returns a singular "<entity>_id", never a plural array. It is set to the
+      FIRST created slot's PK, so a single-slot POST (the common case) is
+      fully spec-compliant on its own.
+      "event_ids" (plural) is an ADDITIONAL, documented CivicOS extension
+      field containing every created event_id in the batch, so multi-slot
+      batch-create callers can still retrieve all of them from one response
+      without a follow-up list call.
     """
 
     gs_actor_role = "organizer"
@@ -1480,8 +1492,9 @@ class EventNewView(APIView):
                 status=400,
             )
 
+        event_ids = [str(s.pk) for s in created_slots]
         return Response(
-            {"status": "success", "event_ids": [str(s.pk) for s in created_slots]},
+            {"status": "success", "event_id": event_ids[0], "event_ids": event_ids},
             status=201,
         )
 
@@ -1493,8 +1506,9 @@ class EventModificationsView(APIView):
     Modify an existing Event (Slot + AppointmentType). Requires `event_id` and
     `qry` query parameters.
 
-    Expected qry shape:
-      {"details": {"name": "...", "slots": [...], "status": "...", ...}}  (all optional)
+    Expected qry shape (real event_details schema — flat from/to, no slots
+    array; see govstack_serializers.EventModifyDetailsSerializer FIX 3):
+      {"details": {"name": "...", "from": "...", "to": "...", "status": "...", ...}}  (all optional)
 
     Returns:
       200 {"status": "success", "event_id": "<event_id>"}
@@ -1538,7 +1552,8 @@ class EventModificationsView(APIView):
                 description=details.get("description"),
                 category=details.get("category"),
                 host_entity_id=details.get("host_entity_id"),
-                slots=details.get("slots"),
+                from_dt=details.get("from_"),
+                to_dt=details.get("to"),
                 deadline=details.get("deadline"),
                 subscriber_limit=details.get("subscriber_limit"),
                 terms=details.get("terms"),

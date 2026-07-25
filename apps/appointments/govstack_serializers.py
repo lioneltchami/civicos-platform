@@ -442,15 +442,21 @@ class VenueSerializer(serializers.Serializer):
 
 class EventDetailsSerializer(serializers.Serializer):
     """
-    GovStack Event core fields.
+    GovStack Event fields for POST /event/new (event_creation_details schema).
 
     Maps primarily to CivicOS Slot + AppointmentType + Location.
 
     slots is a list of slot objects per the OpenAPI spec. Each slot is expected
     to contain "from" and "to" datetime strings. The service layer generates
-    CivicOS Slot records from this array.
+    CivicOS Slot records from this array — one independent (AppointmentType,
+    Slot) pair per entry (see services.govstack_event.event_create FIX 1).
 
     venue is a nested VenueSerializer mapping to CivicOS Location address fields.
+
+    NOTE: this serializer is used ONLY by EventCreateQrySerializer (POST). The
+    real spec's PUT /event/modifications body uses a DIFFERENT schema
+    (event_details) with flat singular from/to fields and no slots array — see
+    EventModifyDetailsSerializer.
     """
 
     name = serializers.CharField(required=False, allow_blank=True)
@@ -474,8 +480,52 @@ class EventDetailsSerializer(serializers.Serializer):
     venue = VenueSerializer(required=False)
 
 
+class EventModifyDetailsSerializer(serializers.Serializer):
+    """
+    GovStack Event fields for PUT /event/modifications (real event_details schema).
+
+    Unlike EventDetailsSerializer (POST /event/new, modeled on
+    event_creation_details with a ``slots`` array), this matches the real
+    spec's ``event_details`` schema — used both as the PUT request body AND
+    as the nested item shape in GET /event/list_details responses: flat
+    singular ``from``/``to`` date-time strings, no ``slots`` array.
+
+    "from" is a Python reserved word and cannot be declared as a literal
+    class attribute name on a plain (non-Model) Serializer. The wire-format
+    key the GovStack caller sends is literally "from"; it is remapped here to
+    the Python-safe attribute name "from_" in to_internal_value() before
+    validation runs. "to" is not a reserved word and needs no remapping.
+    """
+
+    name = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True)
+    host_entity_id = serializers.CharField(required=False, allow_blank=True)
+    from_ = serializers.CharField(required=False, allow_blank=True)
+    to = serializers.CharField(required=False, allow_blank=True)
+    deadline = serializers.CharField(required=False, allow_blank=True)
+    subscriber_limit = serializers.CharField(required=False, allow_blank=True)
+    terms = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.CharField(required=False, allow_blank=True)
+    venue = VenueSerializer(required=False)
+
+    def to_internal_value(self, data):
+        data = dict(data)
+        if "from" in data and "from_" not in data:
+            data["from_"] = data.pop("from")
+        return super().to_internal_value(data)
+
+
 class EventFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /event/list_details."""
+    """
+    Filter parameters for GET /event/list_details.
+
+    from_/to are the real spec's event_filter.from/event_filter.to
+    date-range window fields. As with EventModifyDetailsSerializer, "from" is
+    remapped from the wire-format key to the Python-safe attribute name
+    "from_" in to_internal_value(). deadline_from/deadline_to are kept as a
+    non-spec CivicOS extension for backward compatibility.
+    """
 
     event_id = serializers.CharField(required=False, allow_blank=True)
     name = serializers.CharField(required=False, allow_blank=True)
@@ -484,6 +534,14 @@ class EventFilterSerializer(serializers.Serializer):
     status = serializers.CharField(required=False, allow_blank=True)
     deadline_from = serializers.CharField(required=False, allow_blank=True)
     deadline_to = serializers.CharField(required=False, allow_blank=True)
+    from_ = serializers.CharField(required=False, allow_blank=True)
+    to = serializers.CharField(required=False, allow_blank=True)
+
+    def to_internal_value(self, data):
+        data = dict(data)
+        if "from" in data and "from_" not in data:
+            data["from_"] = data.pop("from")
+        return super().to_internal_value(data)
 
 
 class EventDetailsRequiredSerializer(serializers.Serializer):
@@ -515,9 +573,15 @@ class EventCreateQrySerializer(serializers.Serializer):
 
 
 class EventModifySerializer(serializers.Serializer):
-    """PUT /event/modifications request body: { "details": <event_details> }"""
+    """
+    PUT /event/modifications request body: { "details": <event_details> }
 
-    details = EventDetailsSerializer(required=True)
+    Uses EventModifyDetailsSerializer (flat from/to, no slots array) — NOT
+    EventDetailsSerializer, which models the POST-only event_creation_details
+    schema. See EventModifyDetailsSerializer docstring for details (FIX 3).
+    """
+
+    details = EventModifyDetailsSerializer(required=True)
 
 
 class EventListQrySerializer(serializers.Serializer):

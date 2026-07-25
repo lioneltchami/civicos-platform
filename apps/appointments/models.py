@@ -642,6 +642,18 @@ class AppointmentType(TimestampedModel):
         ),
     )
 
+    # GovStack Scheduler BB Event API boundary marker.
+    is_govstack_managed = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name=_("GovStack-managed"),
+        help_text=_(
+            "True if this AppointmentType was created via the GovStack Scheduler BB "
+            "Event API. Used to scope /event/ endpoint visibility — never set this "
+            "manually via CivicOS admin."
+        ),
+    )
+
     class Meta:
         ordering = ["sort_order", "name_en"]
         verbose_name = _("Appointment type")
