@@ -2375,7 +2375,7 @@ class AlertScheduleNewView(APIView):
     embedded in `qry`.
 
     Expected qry shape:
-      {"qry": {"details": {"event_id": "...", "target_category": "subscriber",
+      {"qry": {"alert_schedule_details": {"event_id": "...", "target_category": "subscriber",
                            "message_id": "...", "alert_datetime": "2026-08-01T09:00:00Z"}}}
 
     Returns:
@@ -2405,7 +2405,7 @@ class AlertScheduleNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["details"]
+        details = ser.validated_data["qry"]["alert_schedule_details"]
         try:
             alert_schedule = alert_schedule_create(
                 event_id=details.get("event_id", ""),
@@ -2755,7 +2755,7 @@ class MessageNewView(APIView):
     details are embedded in `qry`.
 
     Expected qry shape:
-      {"qry": {"details": {"entity_id": "...", "category": "reminder",
+      {"qry": {"message_details": {"entity_id": "...", "category": "reminder",
                            "message_body": "Your appointment is tomorrow."}}}
 
     Returns:
@@ -2781,7 +2781,7 @@ class MessageNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["details"]
+        details = ser.validated_data["qry"]["message_details"]
         try:
             message = message_create(
                 entity_id=details.get("entity_id", ""),

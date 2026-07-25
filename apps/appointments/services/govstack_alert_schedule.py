@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import logging
 
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_naive
@@ -214,6 +215,24 @@ def alert_schedule_modify(
     resolves participants from alert_schedule.slot fresh at fire time, so
     updating the FK here is sufficient.
 
+    Locking — select_for_update() around the read-modify-write
+    ─────────────────────────────────────────────────────────────
+    The row is read with select_for_update() inside transaction.atomic(),
+    matching the precedent in services.govstack_affiliation.affiliation_create
+    and services.govstack_event.event_modify/event_delete. Without this, two
+    concurrent PUT /alert_schedule/modifications calls on the same row could
+    both read the same stale celery_task_id, both cause the view layer to
+    revoke that task and enqueue a replacement, and race unlocked on the
+    final celery_task_id write-back — the loser's newly-enqueued task would
+    never be recorded on the row (neither revocable nor trackable) yet would
+    still fire at its ETA, producing a stale/duplicate alert. The lock is
+    held only for the duration of this function's DB read-modify-write, NOT
+    across the actual Celery revoke/enqueue calls — those are network/broker
+    calls made by the view layer via transaction.on_commit() AFTER this
+    function returns and its transaction has committed, consistent with this
+    module's (and apps.appointments.tasks.dispatch_alert_schedule's) "never
+    hold a DB row lock across an outbound call" discipline.
+
     Returns:
       (alert_schedule, reschedule_needed, old_task_id)
         reschedule_needed — True if the view must revoke old_task_id (if
@@ -229,67 +248,70 @@ def alert_schedule_modify(
       ValueError — invalid target_category; alert_datetime unparseable,
                    naive, or not in the future.
     """
-    alert_schedule = GovStackAlertSchedule.objects.select_related("slot", "message").get(
-        pk=alert_schedule_id
-    )
-
-    old_task_id = alert_schedule.celery_task_id
-    update_fields: list[str] = []
-    alert_datetime_changed = False
-    message_id_changed = False
-
-    if event_id is not None:
-        slot = Slot.objects.get(pk=event_id)
-        if slot.pk != alert_schedule.slot_id:
-            alert_schedule.slot = slot
-            update_fields.append("slot")
-
-    if target_category is not None:
-        _validate_target_category(target_category)
-        alert_schedule.target_category = target_category
-        update_fields.append("target_category")
-
-    if message_id is not None:
-        message = _resolve_message(message_id)
-        if message.pk != alert_schedule.message_id:
-            alert_schedule.message = message
-            update_fields.append("message")
-            message_id_changed = True
-
-    if alert_datetime is not None:
-        new_dt = _parse_datetime_str(alert_datetime)
-        _validate_future_datetime(new_dt)
-        if new_dt != alert_schedule.alert_datetime:
-            alert_schedule.alert_datetime = new_dt
-            update_fields.append("alert_datetime")
-            alert_datetime_changed = True
-
-    reschedule_needed = False
-    if alert_schedule.dispatched:
-        # Re-arming: only a genuine alert_datetime change revives an
-        # already-fired schedule. A message_id-only change on an already
-        # dispatched row does NOT re-arm it (that would silently resurrect
-        # alerts the operator believed were done).
-        if alert_datetime_changed:
-            alert_schedule.dispatched = False
-            update_fields.append("dispatched")
-            reschedule_needed = True
-    else:
-        if alert_datetime_changed or message_id_changed:
-            reschedule_needed = True
-
-    if update_fields:
-        update_fields.append("updated_at")
-        alert_schedule.save(update_fields=update_fields)
-        logger.debug(
-            "alert_schedule_modify: updated alert_schedule pk=%s fields=%r",
-            alert_schedule.pk, update_fields,
+    with transaction.atomic():
+        alert_schedule = (
+            GovStackAlertSchedule.objects.select_for_update()
+            .select_related("slot", "message")
+            .get(pk=alert_schedule_id)
         )
-    else:
-        logger.debug(
-            "alert_schedule_modify: no fields changed for alert_schedule pk=%s",
-            alert_schedule.pk,
-        )
+
+        old_task_id = alert_schedule.celery_task_id
+        update_fields: list[str] = []
+        alert_datetime_changed = False
+        message_id_changed = False
+
+        if event_id is not None:
+            slot = Slot.objects.get(pk=event_id)
+            if slot.pk != alert_schedule.slot_id:
+                alert_schedule.slot = slot
+                update_fields.append("slot")
+
+        if target_category is not None:
+            _validate_target_category(target_category)
+            alert_schedule.target_category = target_category
+            update_fields.append("target_category")
+
+        if message_id is not None:
+            message = _resolve_message(message_id)
+            if message.pk != alert_schedule.message_id:
+                alert_schedule.message = message
+                update_fields.append("message")
+                message_id_changed = True
+
+        if alert_datetime is not None:
+            new_dt = _parse_datetime_str(alert_datetime)
+            _validate_future_datetime(new_dt)
+            if new_dt != alert_schedule.alert_datetime:
+                alert_schedule.alert_datetime = new_dt
+                update_fields.append("alert_datetime")
+                alert_datetime_changed = True
+
+        reschedule_needed = False
+        if alert_schedule.dispatched:
+            # Re-arming: only a genuine alert_datetime change revives an
+            # already-fired schedule. A message_id-only change on an already
+            # dispatched row does NOT re-arm it (that would silently resurrect
+            # alerts the operator believed were done).
+            if alert_datetime_changed:
+                alert_schedule.dispatched = False
+                update_fields.append("dispatched")
+                reschedule_needed = True
+        else:
+            if alert_datetime_changed or message_id_changed:
+                reschedule_needed = True
+
+        if update_fields:
+            update_fields.append("updated_at")
+            alert_schedule.save(update_fields=update_fields)
+            logger.debug(
+                "alert_schedule_modify: updated alert_schedule pk=%s fields=%r",
+                alert_schedule.pk, update_fields,
+            )
+        else:
+            logger.debug(
+                "alert_schedule_modify: no fields changed for alert_schedule pk=%s",
+                alert_schedule.pk,
+            )
 
     return alert_schedule, reschedule_needed, old_task_id
 

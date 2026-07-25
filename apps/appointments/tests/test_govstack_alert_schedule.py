@@ -254,7 +254,7 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
         mock_apply_async.return_value = mock.Mock(id="celery-task-id-1")
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": str(slot.pk), "message_id": str(msg.pk),
             "target_category": "subscriber", "alert_datetime": _FUTURE_DT,
         }}}
@@ -276,14 +276,14 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
 
     def test_as2_missing_event_id_returns_404(self, mock_apply_async):
         msg = _create_message()
-        qry = {"qry": {"details": {"message_id": str(msg.pk), "alert_datetime": _FUTURE_DT}}}
+        qry = {"qry": {"alert_schedule_details": {"message_id": str(msg.pk), "alert_datetime": _FUTURE_DT}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "EVENT_NOT_FOUND")
 
     def test_as3_nonexistent_event_id_returns_404(self, mock_apply_async):
         msg = _create_message()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": str(uuid.uuid4()), "message_id": str(msg.pk), "alert_datetime": _FUTURE_DT,
         }}}
         resp = self._post(qry)
@@ -292,7 +292,7 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
 
     def test_as4_malformed_event_id_returns_404(self, mock_apply_async):
         msg = _create_message()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": "not-a-uuid", "message_id": str(msg.pk), "alert_datetime": _FUTURE_DT,
         }}}
         resp = self._post(qry)
@@ -301,14 +301,14 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
 
     def test_as5_missing_message_id_returns_404(self, mock_apply_async):
         slot = _create_event_slot()
-        qry = {"qry": {"details": {"event_id": str(slot.pk), "alert_datetime": _FUTURE_DT}}}
+        qry = {"qry": {"alert_schedule_details": {"event_id": str(slot.pk), "alert_datetime": _FUTURE_DT}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "MESSAGE_NOT_FOUND")
 
     def test_as6_nonexistent_message_id_returns_404(self, mock_apply_async):
         slot = _create_event_slot()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": str(slot.pk), "message_id": "999999", "alert_datetime": _FUTURE_DT,
         }}}
         resp = self._post(qry)
@@ -318,7 +318,7 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
     def test_as7_invalid_target_category_returns_400(self, mock_apply_async):
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": str(slot.pk), "message_id": str(msg.pk),
             "target_category": "not-a-real-category", "alert_datetime": _FUTURE_DT,
         }}}
@@ -329,7 +329,7 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
     def test_as8_past_alert_datetime_returns_400(self, mock_apply_async):
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": str(slot.pk), "message_id": str(msg.pk), "alert_datetime": _PAST_DT,
         }}}
         resp = self._post(qry)
@@ -339,14 +339,14 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
     def test_as9_missing_alert_datetime_returns_400(self, mock_apply_async):
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"qry": {"details": {"event_id": str(slot.pk), "message_id": str(msg.pk)}}}
+        qry = {"qry": {"alert_schedule_details": {"event_id": str(slot.pk), "message_id": str(msg.pk)}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
 
     def test_as10_naive_alert_datetime_returns_400(self, mock_apply_async):
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": str(slot.pk), "message_id": str(msg.pk),
             "alert_datetime": "2027-06-01T09:00:00",  # no tz offset
         }}}
@@ -547,11 +547,21 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
         self.assertEqual(data[0]["details"]["entity_id"], str(org.pk))
 
     def test_as28_filter_by_from_to_datetime_range(self):
-        alert_schedule, _ = self._create_alert_schedule(alert_datetime=_FUTURE_DT)
+        """
+        AS28: the from/to window must both include an in-range row AND
+        exclude an out-of-range row. The original version of this test only
+        asserted inclusion, which would still pass even if the from/to
+        filter were a complete no-op (identified by the Wave F adversarial
+        review) — the out-of-range assertion below is what actually proves
+        the filter is doing anything.
+        """
+        in_range, _ = self._create_alert_schedule(alert_datetime=_FUTURE_DT)
+        out_of_range, _ = self._create_alert_schedule(alert_datetime="2027-12-25T00:00:00Z")
         resp = self._get({"alert_schedule_filter": {"from": "2027-05-01T00:00:00Z", "to": "2027-06-15T00:00:00Z"}})
         data = resp.json()["data"]
         ids = [item["alert_schedule_id"] for item in data]
-        self.assertIn(str(alert_schedule.pk), ids)
+        self.assertIn(str(in_range.pk), ids)
+        self.assertNotIn(str(out_of_range.pk), ids)
 
     def test_as29_response_shape_and_target_category_always_present(self):
         alert_schedule, org = self._create_alert_schedule(target_category="subscriber")
@@ -576,13 +586,21 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
 
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
-    """AS31-AS33: alert_schedule endpoints require gs_actor_role="organizer" or higher."""
+    """
+    AS31-AS35: alert_schedule endpoints require gs_actor_role="organizer" or
+    higher.
+
+    AS34/AS35 close a coverage gap identified by the Wave F adversarial
+    review: PUT /alert_schedule/modifications and DELETE /alert_schedule
+    previously had no test proving role enforcement applies to them at all
+    (only POST /new and GET /list_details were covered).
+    """
 
     def test_as31_resource_role_denied_on_alert_schedule_new(self):
         GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": str(slot.pk), "message_id": str(msg.pk), "alert_datetime": _FUTURE_DT,
         }}}
         resp = self._post(qry)
@@ -594,7 +612,7 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
         GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"qry": {"details": {
+        qry = {"qry": {"alert_schedule_details": {
             "event_id": str(slot.pk), "message_id": str(msg.pk), "alert_datetime": _FUTURE_DT,
         }}}
         with self.captureOnCommitCallbacks(execute=True):
@@ -605,6 +623,70 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
         GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
+
+    @mock.patch("celery.result.AsyncResult.revoke")
+    def test_as34_resource_role_denied_on_alert_schedule_modifications(self, mock_revoke):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        slot = _create_event_slot()
+        msg = _create_message()
+        alert_schedule = alert_schedule_create(
+            event_id=str(slot.pk), message_id=str(msg.pk), alert_datetime=_FUTURE_DT,
+        )
+        resp = self._put(
+            {"details": {"target_category": "resource"}}, alert_schedule_id=str(alert_schedule.pk)
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_as35_resource_role_denied_on_alert_schedule_delete(self):
+        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        slot = _create_event_slot()
+        msg = _create_message()
+        alert_schedule = alert_schedule_create(
+            event_id=str(slot.pk), message_id=str(msg.pk), alert_datetime=_FUTURE_DT,
+        )
+        resp = self._delete(alert_schedule_id=str(alert_schedule.pk))
+        self.assertEqual(resp.status_code, 403)
+
+
+# ===========================================================================
+# AS36: spec-literal wire format (locks in FIX 1 — wrong qry wrapper key)
+# ===========================================================================
+
+@mock.patch("apps.appointments.govstack_views.dispatch_alert_schedule.apply_async")
+class AlertScheduleSpecWireFormatTests(AlertScheduleBaseTestCase):
+    """
+    AS36: a POST /alert_schedule/new body built EXACTLY per the real
+    GovStack OpenAPI spec's alert_schedule_new_qry schema — i.e.
+    {"qry": {"alert_schedule_details": {...}}}, with no other wrapper key —
+    must succeed.
+
+    This test intentionally does NOT reuse any shared payload-building
+    helper: it hardcodes the wire-format dict inline so a future accidental
+    revert of the qry wrapper key (e.g. copy-pasting the Event/Appointment
+    wrapper convention again) fails loudly here, independent of any other
+    test in this module.
+    """
+
+    def test_as36_spec_literal_alert_schedule_new_payload_succeeds(self, mock_apply_async):
+        mock_apply_async.return_value = mock.Mock(id="spec-literal-task-id")
+        slot = _create_event_slot()
+        msg = _create_message()
+        spec_literal_qry = {
+            "qry": {
+                "alert_schedule_details": {
+                    "event_id": str(slot.pk),
+                    "message_id": str(msg.pk),
+                    "target_category": "subscriber",
+                    "alert_datetime": _FUTURE_DT,
+                }
+            }
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self._post(spec_literal_qry)
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        self.assertTrue(GovStackAlertSchedule.objects.filter(pk=data["alert_schedule_id"]).exists())
 
 
 # ===========================================================================

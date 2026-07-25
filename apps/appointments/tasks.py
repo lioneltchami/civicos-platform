@@ -322,6 +322,18 @@ _ALERT_DISPATCH_TIMEOUT_SECONDS: float = 10.0
 # means the appointment already happened, so there is nothing left to alert about.
 _ALERT_ELIGIBLE_BOOKING_STATUSES: tuple[str, ...] = ("pending", "confirmed")
 
+# RFC 6598 Shared Address Space (a.k.a. CGNAT range) — NOT covered by any of
+# ipaddress.ip_address's is_private/is_loopback/is_link_local/is_reserved/
+# is_multicast/is_unspecified properties (confirmed: ipaddress.ip_address
+# ("100.64.0.1") reports False for all six), yet it is routable inside many
+# cloud VPC / Kubernetes overlay networks and can reach internal
+# infrastructure — must be checked explicitly.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+# IANA special-purpose registry: IETF Protocol Assignments — likewise not
+# covered by the six ipaddress properties above.
+_IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
+
 
 def _is_safe_outbound_url(url: str) -> bool:
     """
@@ -341,10 +353,13 @@ def _is_safe_outbound_url(url: str) -> bool:
          HTTPS scheme) cannot catch a hostname that resolves to a private IP
          *at dispatch time*, since DNS can be repointed after registration.
       3. EVERY resolved IP address (a hostname may have multiple A/AAAA
-         records) must be public and routable — private, loopback,
-         link-local, reserved, multicast, and unspecified ranges are all
-         rejected. A single unsafe address among several resolved addresses
-         is enough to reject the whole URL.
+         records) must be public and routable. Rejected ranges: private,
+         loopback, link-local, reserved, multicast, and unspecified (the six
+         ipaddress.ip_address properties), PLUS two ranges those six
+         properties do NOT cover: RFC 6598 Shared Address Space / CGNAT
+         (100.64.0.0/10) and the IANA IETF Protocol Assignments block
+         (192.0.0.0/24). A single unsafe address among several resolved
+         addresses is enough to reject the whole URL.
       4. Any exception at all (malformed URL, DNS resolution failure, no
          addresses returned) is treated as unsafe.
 
@@ -356,6 +371,12 @@ def _is_safe_outbound_url(url: str) -> bool:
     the call, as done here, closes the registration-time-vs-dispatch-time gap
     that the planted SSRF-note comments call out, which is the specific risk
     this wave is required to close.
+
+    Deliberately NOT hardened beyond the two extra ranges above: this is not
+    a general-purpose IP-reputation blocklist. 100.64.0.0/10 and
+    192.0.0.0/24 were added because they are confirmed gaps in the six
+    ipaddress properties already checked; expanding this into a larger
+    hardcoded range list is out of scope.
     """
     try:
         parsed = urlparse(url)
@@ -375,6 +396,8 @@ def _is_safe_outbound_url(url: str) -> bool:
                 or ip.is_reserved
                 or ip.is_multicast
                 or ip.is_unspecified
+                or ip in _SHARED_ADDRESS_SPACE
+                or ip in _IETF_PROTOCOL_ASSIGNMENTS
             ):
                 return False
 
@@ -396,6 +419,21 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
     warnings — a delivery failure to one recipient must never abort dispatch
     to the remaining recipients or fail the Celery task.
 
+    Security — redirects are never followed (allow_redirects=False):
+    ``_is_safe_outbound_url()`` only validates the ORIGINAL url's scheme/DNS/
+    IP; it has no visibility into a response's ``Location`` header. Since
+    ``requests`` follows redirects by default, an attacker who controls a
+    registered alert_url could point it at a public HTTPS host that passes
+    validation, then have that host respond with a 3xx redirecting to a
+    private IP or cloud metadata endpoint (e.g. 169.254.169.254) —
+    transparently defeating the SSRF control. ``allow_redirects=False``
+    closes this: the redirect is never followed, and — because
+    ``Response.raise_for_status()`` only raises for status codes >= 400 and
+    would otherwise silently treat a 3xx as "delivered" — any 3xx response is
+    explicitly treated as a failed delivery below, logged identically to any
+    other non-2xx outcome (non-fatal; does not abort the rest of the
+    dispatch loop).
+
     Security: only the URL, exception class name, and log_ctx (a caller-
     supplied PK-only identifier such as "citizen_pk=123") are ever logged.
     payload["message_body"] — and the payload dict as a whole — is NEVER
@@ -412,7 +450,17 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
             url,
             json=payload,
             timeout=_ALERT_DISPATCH_TIMEOUT_SECONDS,
+            allow_redirects=False,
         )
+        if 300 <= response.status_code < 400:
+            # A validated-safe URL that 3xx-redirects to an internal target
+            # must never be silently followed — see docstring above.
+            # raise_for_status() would NOT raise on its own for this range
+            # (it only raises for >= 400), so this is an explicit check.
+            raise requests.exceptions.HTTPError(
+                f"{response.status_code} redirect response received "
+                f"(not followed — allow_redirects=False)"
+            )
         response.raise_for_status()
         logger.info(
             "dispatch_alert_schedule.delivered url=%s status=%s %s",
@@ -450,6 +498,27 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
     row; if dispatched=True already, this is a no-op exit under the row lock —
     identical pattern to apps.payments.govstack_tasks.process_bulk_payment_batch.
 
+    Crash-safety tradeoff — dispatched=True is set BEFORE any outbound calls
+    ───────────────────────────────────────────────────────────────────────
+    ``dispatched`` is flipped to True inside the SAME locked transaction as
+    the idempotency check above, BEFORE any recipient is resolved or any
+    HTTP call is attempted — deliberately, not an oversight. The task runs
+    with acks_late=True + reject_on_worker_lost=True + a fixed time_limit=120
+    budget; with a 10s-per-recipient timeout, an event with roughly 9-12+
+    slow/timing-out recipients can exhaust that budget mid-loop. If
+    ``dispatched=True`` were instead written only AFTER all outbound calls
+    complete (as an earlier version of this task did), a worker crash/kill/
+    time-limit-exceeded AFTER some alerts were already sent but BEFORE that
+    final write commits would cause Celery to redeliver the whole task, which
+    would re-read dispatched=False and RE-SEND every alert to every
+    recipient a second time — citizens would receive duplicate reminders.
+    Marking dispatched=True up front instead changes the failure mode to
+    UNDER-delivery on a crash (some or all recipients for that one alert
+    never get a copy) rather than OVER-delivery (every recipient gets 2+
+    copies). For a best-effort reminder system, under-delivery on the rare
+    crash-mid-dispatch path is the acceptable tradeoff — duplicate citizen-
+    facing notifications are not.
+
     Participant resolution
     ───────────────────────
     Subscribers (target_category in ("", "subscriber")): every Booking on
@@ -476,12 +545,14 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
 
     Locking discipline — no DB row lock held across outbound HTTP calls
     ─────────────────────────────────────────────────────────────────────
-    The idempotency check (select_for_update) and the "mark dispatched" write
-    are done in TWO SEPARATE short transactions, with all outbound HTTP calls
-    happening in between, OUTSIDE any transaction. A slow or blocked network
-    peer must never hold a DB row lock — this mirrors the identical outside-
-    the-transaction callback-POST discipline already used by
-    apps.payments.govstack_tasks.process_bulk_payment_batch /
+    The idempotency check (select_for_update) AND the "mark dispatched" write
+    both happen inside the SAME short initial transaction (see "Crash-safety
+    tradeoff" above) — but that transaction is closed, and its row lock
+    released, BEFORE any recipient is resolved or any outbound HTTP call is
+    made. All outbound HTTP calls happen afterwards, OUTSIDE any transaction.
+    A slow or blocked network peer must never hold a DB row lock — this
+    mirrors the identical outside-the-transaction callback-POST discipline
+    already used by apps.payments.govstack_tasks.process_bulk_payment_batch /
     validate_prepayment_async ("POST callback OUTSIDE the transaction").
 
     Delivery is best-effort per recipient — one recipient's failure (unsafe
@@ -529,6 +600,14 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
                 alert_schedule_pk,
             )
             return {"attempted": 0, "skipped_unsafe": 0, "already_dispatched": True}
+
+        # Mark dispatched=True NOW, in the same locked transaction as the
+        # idempotency check above, BEFORE any outbound HTTP call is
+        # attempted — see docstring "Crash-safety tradeoff" for why this
+        # ordering (under-delivery-on-crash, never duplicate-delivery-on-
+        # crash) was deliberately chosen over marking dispatched at the end.
+        alert_schedule.dispatched = True
+        alert_schedule.save(update_fields=["dispatched"])
 
         # Snapshot everything needed for delivery BEFORE releasing the lock.
         slot = alert_schedule.slot
@@ -584,13 +663,9 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
             else:
                 skipped_unsafe += 1
 
-    # Second, short transaction to flip dispatched=True — deliberately NOT
-    # holding the row lock from above across the outbound HTTP calls (see
-    # docstring "Locking discipline"). A plain queryset .update() is used
-    # rather than re-fetching + .save() since no other field needs writing.
-    with transaction.atomic():
-        GovStackAlertSchedule.objects.filter(pk=alert_schedule_pk).update(dispatched=True)
-
+    # dispatched=True was already committed in the initial locked transaction
+    # above, BEFORE these outbound HTTP calls were attempted — see docstring
+    # "Crash-safety tradeoff". No second write is needed here.
     logger.info(
         "dispatch_alert_schedule.completed alert_schedule_pk=%s attempted=%d skipped_unsafe=%d",
         alert_schedule_pk, attempted, skipped_unsafe,

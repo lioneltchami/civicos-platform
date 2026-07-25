@@ -820,13 +820,23 @@ class AlertScheduleDetailsRequiredSerializer(serializers.Serializer):
 
 
 class _AlertScheduleQryDetailsSerializer(serializers.Serializer):
-    """Inner { "details": ... } wrapper used by AlertScheduleCreateQrySerializer."""
+    """
+    Inner { "alert_schedule_details": ... } wrapper used by AlertScheduleCreateQrySerializer.
 
-    details = AlertScheduleDetailsSerializer(required=True)
+    NOTE: the real spec's alert_schedule_new_qry wraps the field as
+    "alert_schedule_details", NOT "details" (unlike event_new_qry, which does
+    use "details") — confirmed directly from the OpenAPI schema
+    (components.schemas.alert_schedule_new_qry.properties). Do not copy the
+    Event wrapper key name here (see AppointmentCreateQrySerializer's
+    docstring above for the precedent this bug class was already caught and
+    fixed for).
+    """
+
+    alert_schedule_details = AlertScheduleDetailsSerializer(required=True)
 
 
 class AlertScheduleCreateQrySerializer(serializers.Serializer):
-    """POST /alert_schedule/new request body: { "qry": { "details": <alert_schedule_details> } }"""
+    """POST /alert_schedule/new request body: { "qry": { "alert_schedule_details": <alert_schedule_details> } }"""
 
     qry = _AlertScheduleQryDetailsSerializer(required=True)
 
@@ -890,13 +900,22 @@ class MessageDetailsRequiredSerializer(serializers.Serializer):
 
 
 class _MessageQryDetailsSerializer(serializers.Serializer):
-    """Inner { "details": ... } wrapper used by MessageCreateQrySerializer."""
+    """
+    Inner { "message_details": ... } wrapper used by MessageCreateQrySerializer.
 
-    details = MessageDetailsSerializer(required=True)
+    NOTE: the real spec's message_new_qry wraps the field as
+    "message_details", NOT "details" (unlike event_new_qry, which does use
+    "details") — confirmed directly from the OpenAPI schema
+    (components.schemas.message_new_qry.properties). Do not copy the Event
+    wrapper key name here (see AppointmentCreateQrySerializer's docstring
+    above for the precedent this bug class was already caught and fixed for).
+    """
+
+    message_details = MessageDetailsSerializer(required=True)
 
 
 class MessageCreateQrySerializer(serializers.Serializer):
-    """POST /message/new request body: { "qry": { "details": <message_details> } }"""
+    """POST /message/new request body: { "qry": { "message_details": <message_details> } }"""
 
     qry = _MessageQryDetailsSerializer(required=True)
 

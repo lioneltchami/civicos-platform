@@ -636,7 +636,31 @@ into a single flat object. The service layer must:
 
 ### Wave F — Message + AlertSchedule Endpoints
 
-**Status: implemented.** `apps/appointments/services/govstack_message.py`,
+**Status: implemented, deep-reviewed, and hardened.** A two-agent adversarial
+review (each independently fetching the real GovStack OpenAPI spec) found and
+fixed: (1) CRITICAL — `POST /message/new` and `POST /alert_schedule/new` were
+wrapping the create payload under a generic `details` key instead of the
+spec-mandated `message_details`/`alert_schedule_details` keys, repeating a
+mistake this codebase's own Appointment-wave serializer docstring explicitly
+warned against; (2) CRITICAL — the alert-dispatch webhook POST followed HTTP
+redirects by default, letting an attacker-controlled `alert_url` bypass the
+SSRF validator via a 3xx to a private IP (`allow_redirects=False` added, 3xx
+now treated as a failed delivery); (3) MEDIUM — the SSRF validator didn't
+reject RFC 6598 Shared Address Space (100.64.0.0/10) or IETF Protocol
+Assignments (192.0.0.0/24), both now explicitly checked; (4) MEDIUM — a race
+in `alert_schedule_modify()` around `celery_task_id` (no row lock) could drop
+a concurrently-enqueued Celery task off the record; fixed with
+`select_for_update()` matching the Affiliation/Event precedent; (5) MEDIUM-HIGH
+— `dispatched` was flagged only after all outbound alert POSTs completed, so
+a worker crash/redelivery mid-dispatch could double-send every alert; the flag
+is now set before any outbound call, trading a rare under-delivery edge case
+for eliminating duplicate sends. Known, pre-existing, out-of-scope-for-this-wave
+spec deviations (present since Wave B, not introduced here): the outer `qry`
+value requires an extra nesting level beyond the real spec's literal shape,
+and array-typed filter fields (`message_id[]`, `alert_schedule_id[]`) are
+implemented as single-value exact-match rather than `IN`-style filtering.
+
+`apps/appointments/services/govstack_message.py`,
 `services/govstack_alert_schedule.py`, 8 views in `govstack_views.py`, the
 `dispatch_alert_schedule` Celery task (`apps/appointments/tasks.py`) with a
 fail-closed SSRF-safe outbound URL validator (HTTPS-only, rejects private/
