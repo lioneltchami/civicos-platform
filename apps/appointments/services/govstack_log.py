@@ -389,13 +389,15 @@ def log_list(
 
     Response shape: [{"log_id": "<pk>", "details": {...}}, ...]
 
-    "details"."log_data", when included, is NEVER the raw stored string
-    verbatim — it is reconstructed from safe fields only (detail,
-    previous_status, new_status) as a JSON string. `actor_ip` is
-    deliberately EXCLUDED from this reconstruction: while IP addresses are
-    not classic PII, they are excluded here as an extra-cautious
-    PIPEDA-consistent choice matching this codebase's general "log/expose
-    PK-and-safe-fields only" discipline.
+    "details"."log_data", when included, reflects the originally-supplied
+    log_data content (stored verbatim in BookingAuditLog.detail at create
+    time — see log_create()'s field-mapping docstring). It is NOT filtered
+    or redacted; the only field deliberately excluded from this
+    reconstruction is `actor_ip`, which was never part of log_data in the
+    first place. PII-safety of log_data's contents is an assumption about
+    GovStack caller behaviour (BB-to-BB/admin-tier callers, operational
+    correlation data only), not a guarantee enforced by this code — see the
+    module docstring's PIPEDA section.
     """
     qs = BookingAuditLog.objects.select_related(
         "booking", "booking__slot", "booking__slot__location"
@@ -458,9 +460,12 @@ def log_list(
             details["datetime"] = entry.timestamp.isoformat()
 
         if required.get("log_data", False):
-            # Reconstructed from safe fields only — the raw stored string is
-            # never echoed verbatim, and actor_ip is deliberately excluded
-            # (see docstring above).
+            # entry.detail == {"log_data": <original raw string>} (see
+            # log_create()'s field mapping) — this reconstruction returns
+            # that content, re-wrapped one JSON layer deeper. It is NOT a
+            # redaction step; the only field genuinely excluded here is
+            # actor_ip. See log_list()'s docstring for the accurate PII
+            # framing.
             details["log_data"] = json.dumps(
                 {
                     "detail": entry.detail,

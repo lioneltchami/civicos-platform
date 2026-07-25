@@ -951,10 +951,27 @@ class BookingAuditLogInline(admin.TabularInline):
     extra = 0
     can_delete = False
     readonly_fields = [
-        "timestamp", "action", "actor_id", "actor_ip",
+        "timestamp", "action_display", "actor_id", "actor_ip",
         "previous_status", "new_status", "detail",
     ]
     ordering = ["-timestamp"]
+
+    @admin.display(description="Action")
+    def action_display(self, obj):
+        """
+        Renders BookingAuditLog.action as its raw stored string, bypassing
+        Django admin's default choices-lookup rendering for readonly fields
+        with choices=. That default rendering silently blanks out any value
+        not present in ACTION_CHOICES — but the GovStack Log endpoint
+        (services.govstack_log.log_create) deliberately stores arbitrary
+        caller-supplied log_category text into this field without
+        constraining it to ACTION_CHOICES (GovStack's log_category is
+        free-text by spec; see govstack_log.py's module docstring). Without
+        this override, every GovStack-created audit entry whose category
+        isn't one of CivicOS's own 16 internal action strings would render
+        as a blank dash here, defeating the purpose of this audit-trail view.
+        """
+        return obj.action
 
     def has_add_permission(self, request, obj=None):
         return False

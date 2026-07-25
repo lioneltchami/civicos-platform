@@ -339,6 +339,19 @@ class LogModificationsTests(LogBaseTestCase):
         self._put()
         self.assertEqual(BookingAuditLog.objects.count(), before_count)
 
+    def test_log41_missing_auth_returns_401_or_403_not_405(self):
+        """
+        LOG41: a caller supplying NO requestor_id/request_token at all must
+        be rejected with 401/403 before ever reaching the always-405
+        handler. test_log33 only proves an authenticated-but-under-
+        privileged (organizer role) caller is denied with 403; this proves
+        a fully credential-less caller is also denied — not somehow routed
+        through to the 405 response. Matches the test_log39/test_log40
+        no-auth-params pattern (direct client call, no _AUTH params).
+        """
+        resp = self.client.put(MODIFICATIONS_URL)
+        self.assertIn(resp.status_code, (401, 403))
+
 
 # ===========================================================================
 # LOG17-LOG18: DELETE /log — always 405
@@ -361,6 +374,18 @@ class LogDeleteTests(LogBaseTestCase):
         )
         self._delete()
         self.assertTrue(BookingAuditLog.objects.filter(pk=entry.pk).exists())
+
+    def test_log42_missing_auth_returns_401_or_403_not_405(self):
+        """
+        LOG42: same as LOG41 but for DELETE /log — a caller supplying NO
+        requestor_id/request_token at all must be rejected with 401/403
+        before ever reaching the always-405 handler, not just an
+        authenticated-but-under-privileged (organizer role) caller
+        (test_log35). Matches the test_log39/test_log40 no-auth-params
+        pattern (direct client call, no _AUTH params).
+        """
+        resp = self.client.delete(DELETE_URL)
+        self.assertIn(resp.status_code, (401, 403))
 
 
 # ===========================================================================

@@ -689,7 +689,9 @@ so it can be cancelled on DELETE.
 **Status: implemented — final wave, all 37 GovStack Scheduler BB endpoints
 now shipped.** `services/govstack_log.py` (`log_create`/`log_list` only —
 no modify/delete service functions exist, matching the 405 decision below),
-4 views in `govstack_views.py`, tests in `test_govstack_log.py` (40 tests).
+4 views in `govstack_views.py`, tests in `test_govstack_log.py` (42 tests —
+40 from initial implementation + 2 added in the Wave G deep review closing an
+auth-before-405 test-coverage gap).
 `gs_actor_role="admin"` on all 4 endpoints per §2.2 ("Admin: ... View logs").
 
 Key architecture decision: `BookingAuditLog.booking` is a required FK, but
@@ -701,6 +703,18 @@ comma-separated `key:value` format the real spec's own example already uses
 `Booking.objects.get(slot_id=event_id, citizen_id=subscriber_id)`. A
 supplied `entity_id` is validation-only against the resolved booking's
 organization, never used for resolution.
+
+**Known conformance risk (documented, not fixed):** because `log_data` MUST
+contain parseable `event_id`/`subscriber_id` key:value pairs for booking
+resolution, any legitimate GovStack log entry that is administrative,
+org-level, or otherwise not scoped to one specific citizen+slot pair cannot
+be created through this endpoint, even though the real `log_details` schema
+does not require this. This is a structural consequence of
+`BookingAuditLog.booking` being a required, non-nullable FK — there is no
+clean way to store a non-booking-scoped GovStack log entry in the current
+schema without a model change (making `booking` nullable), which is out of
+scope for this wave. Flagged here for certification-review visibility rather
+than presented as fully resolved.
 
 `BookingAuditLog.timestamp` (`auto_now_add=True`) means the GovStack
 `datetime` field is accepted on create but always ignored — framed as a
@@ -716,7 +730,11 @@ response's `logger_role` value — a real inconsistency in the upstream spec.
 **Goal:** 4 log endpoints, with PUT/DELETE returning 405.
 
 **Endpoints:**
-- `POST /log/new` → calls `_write_audit_log()` with GovStack-provided data
+- `POST /log/new` → `BookingAuditLog.objects.create(...)` directly (not via
+  the internal `_write_audit_log()` helper — see `services/govstack_log.py`'s
+  module docstring for why that helper wasn't reused: its actor_role
+  derivation is session/is_staff-based with no analog for a GovStack
+  BB-to-BB caller supplying `logger_role` directly)
 - `PUT /log/modifications` → `HTTP 405 Method Not Allowed` (audit immutability)
 - `DELETE /log` → `HTTP 405 Method Not Allowed` (audit immutability)
 - `GET /log/list_details` → `BookingAuditLog.objects.filter(...)` mapped to GovStack log schema
