@@ -769,22 +769,52 @@ class AlertScheduleDetailsSerializer(serializers.Serializer):
 
 
 class AlertScheduleFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /alert_schedule/list_details."""
+    """
+    Filter parameters for GET /alert_schedule/list_details.
+
+    Verified against the real GovStack OpenAPI spec
+    (components.schemas.alert_schedule_filter): alert_schedule_id, entity_id,
+    target_category, message_id, from, to. NOTE this uses entity_id — NOT
+    event_id — unlike alert_schedule_details (the create/modify payload
+    schema), because entity_id here is a DERIVED filter field (see
+    services.govstack_alert_schedule.alert_schedule_list's docstring for the
+    slot.location.organization_id derivation); there is no direct event_id
+    filter in the real spec's alert_schedule_filter schema.
+
+    from/to are the real spec's date-range window fields on alert_datetime.
+    "from" is a Python reserved word and cannot be a class attribute; it is
+    remapped to "from_" in to_internal_value() — identical technique to
+    EventFilterSerializer/AppointmentFilterSerializer (see those docstrings
+    for the precedent this replicates).
+    """
 
     alert_schedule_id = serializers.CharField(required=False, allow_blank=True)
-    event_id = serializers.CharField(required=False, allow_blank=True)
+    entity_id = serializers.CharField(required=False, allow_blank=True)
     target_category = serializers.CharField(required=False, allow_blank=True)
     message_id = serializers.CharField(required=False, allow_blank=True)
-    alert_datetime_from = serializers.CharField(required=False, allow_blank=True)
-    alert_datetime_to = serializers.CharField(required=False, allow_blank=True)
+    from_ = serializers.CharField(required=False, allow_blank=True)
+    to = serializers.CharField(required=False, allow_blank=True)
+
+    def to_internal_value(self, data):
+        data = dict(data)
+        if "from" in data and "from_" not in data:
+            data["from_"] = data.pop("from")
+        return super().to_internal_value(data)
 
 
 class AlertScheduleDetailsRequiredSerializer(serializers.Serializer):
-    """Boolean flags controlling which AlertSchedule fields appear in list responses."""
+    """
+    Boolean flags controlling which AlertSchedule fields appear in list responses.
+
+    Verified against the real GovStack OpenAPI spec
+    (components.schemas.alert_schedule_details_required): alert_schedule_id,
+    entity_id, message_id, alert_datetime. There is no target_category flag
+    in the real spec — target_category is always included in list responses
+    regardless (see services.govstack_alert_schedule.alert_schedule_list).
+    """
 
     alert_schedule_id = serializers.BooleanField(required=False, default=True)
-    event_id = serializers.BooleanField(required=False, default=True)
-    target_category = serializers.BooleanField(required=False, default=True)
+    entity_id = serializers.BooleanField(required=False, default=True)
     message_id = serializers.BooleanField(required=False, default=True)
     alert_datetime = serializers.BooleanField(required=False, default=True)
 
@@ -824,19 +854,30 @@ class MessageDetailsSerializer(serializers.Serializer):
 
     Maps to GovStackMessage model (created in Wave A migration).
     entity_id references the owning Organization (GovStack Entity).
+
+    category's max_length=50 mirrors GovStackMessage.category's DB column
+    (models.py) exactly — an over-length category is REJECTED with a 400 at
+    the serializer layer rather than silently truncated at the DB layer.
     """
 
     entity_id = serializers.CharField(required=False, allow_blank=True)
-    category = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True, max_length=50)
     message_body = serializers.CharField(required=False, allow_blank=True)
 
 
 class MessageFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /message/list_details."""
+    """
+    Filter parameters for GET /message/list_details.
+
+    Verified against the real GovStack OpenAPI spec
+    (components.schemas.message_filter): message_id, entity_id, category,
+    message_body.
+    """
 
     message_id = serializers.CharField(required=False, allow_blank=True)
     entity_id = serializers.CharField(required=False, allow_blank=True)
     category = serializers.CharField(required=False, allow_blank=True)
+    message_body = serializers.CharField(required=False, allow_blank=True)
 
 
 class MessageDetailsRequiredSerializer(serializers.Serializer):

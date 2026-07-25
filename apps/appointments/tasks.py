@@ -5,9 +5,18 @@ Wave 2 tasks (implemented here):
   generate_slots_for_period   — generate Slot records for the upcoming horizon window
   mark_past_slots_completed   — transition past Slots to 'completed' status
 
+Wave 3 tasks (implemented here):
+  cleanup_expired_pending_bookings — cancel PENDING bookings past their timeout window
+
+Wave F tasks (implemented here):
+  dispatch_alert_schedule     — deliver a GovStackAlertSchedule's push
+                                 notification to its resolved participants at
+                                 (or after) its scheduled alert_datetime ETA.
+                                 See the dedicated module docstring on
+                                 dispatch_alert_schedule() below for the full
+                                 idempotency / locking / SSRF design.
+
 Later waves will add:
-  Wave 3: send_appointment_reminder, expire_pending_bookings
-  Wave 4: send_waitlist_notification, detect_no_shows, expire_waitlist_notifications
   Wave 6: iCal reminder email dispatch
 
 Security invariants (apply to ALL tasks):
@@ -18,14 +27,28 @@ Security invariants (apply to ALL tasks):
   - acks_late=True on all tasks — Celery will not ACK until the task returns,
     preventing message loss on worker crash.
   - reject_on_worker_lost=True — task will be requeued if worker dies.
+
+Wave F additional invariant — SSRF:
+  dispatch_alert_schedule() makes outbound HTTP calls to URLs supplied by
+  GovStack callers at subscriber/resource registration time (Wave C/B). Those
+  URLs are validated for HTTPS-only + public-IP-only via
+  _is_safe_outbound_url() IMMEDIATELY BEFORE each outbound call (not just at
+  registration time) — DNS can change between registration and dispatch
+  (TOCTOU), so re-validating at call time is mandatory. See
+  _is_safe_outbound_url()'s docstring for the full threat model.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
+import socket
 from datetime import timedelta
+from urllib.parse import urlparse
 
+import requests
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from django.db import transaction
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -283,3 +306,293 @@ def cleanup_expired_pending_bookings(self) -> dict:
             type(exc).__name__,
         )
         raise self.retry(exc=exc)
+
+
+# ---------------------------------------------------------------------------
+# Wave F: dispatch_alert_schedule — SSRF-safe URL validator + delivery task
+# ---------------------------------------------------------------------------
+
+# Seconds to wait for an alert recipient's callback endpoint to respond before
+# abandoning the POST. Mirrors apps.payments.govstack_tasks._CALLBACK_TIMEOUT_SECONDS.
+_ALERT_DISPATCH_TIMEOUT_SECONDS: float = 10.0
+
+# Booking statuses that represent a "still a real participant" citizen for
+# alert-dispatch purposes — see apps.appointments.models.Booking.STATUS_CHOICES.
+# STATUS_REJECTED / STATUS_CANCELLED participants never attended; STATUS_COMPLETED
+# means the appointment already happened, so there is nothing left to alert about.
+_ALERT_ELIGIBLE_BOOKING_STATUSES: tuple[str, ...] = ("pending", "confirmed")
+
+
+def _is_safe_outbound_url(url: str) -> bool:
+    """
+    Return True only if ``url`` is safe to issue an outbound HTTP POST to.
+
+    Required for EVERY outbound call this task makes (subscriber alert_url,
+    staff gs_alert_url, resource alert_url) — see the module docstring's
+    "Wave F additional invariant — SSRF" note and the planted SSRF-note
+    comments in models.py / services/govstack_subscriber.py this function
+    satisfies.
+
+    Checks, in order (fails closed on ANY failure):
+      1. scheme must be exactly "https" and a hostname must be present.
+      2. The hostname is resolved via DNS (socket.getaddrinfo) — this is the
+         TOCTOU-safe step: registration-time validation (see
+         services.govstack_subscriber._validate_url, which only checks the
+         HTTPS scheme) cannot catch a hostname that resolves to a private IP
+         *at dispatch time*, since DNS can be repointed after registration.
+      3. EVERY resolved IP address (a hostname may have multiple A/AAAA
+         records) must be public and routable — private, loopback,
+         link-local, reserved, multicast, and unspecified ranges are all
+         rejected. A single unsafe address among several resolved addresses
+         is enough to reject the whole URL.
+      4. Any exception at all (malformed URL, DNS resolution failure, no
+         addresses returned) is treated as unsafe.
+
+    This function intentionally does NOT attempt to resolve the URL a second
+    time immediately before the actual `requests.post()` call (a true
+    TOCTOU-proof design would need to pin the resolved IP and connect to it
+    directly, bypassing a second DNS lookup inside `requests`) — that level
+    of hardening is out of scope for Wave F; validating immediately before
+    the call, as done here, closes the registration-time-vs-dispatch-time gap
+    that the planted SSRF-note comments call out, which is the specific risk
+    this wave is required to close.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            return False
+
+        addrinfo = socket.getaddrinfo(parsed.hostname, None)
+        if not addrinfo:
+            return False
+
+        for info in addrinfo:
+            ip = ipaddress.ip_address(info[4][0])
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
+                return False
+
+        return True
+    except Exception:  # noqa: BLE001 — fail closed on ANY parse/DNS error.
+        return False
+
+
+def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
+    """
+    Best-effort delivery of one alert POST. Returns True if a request was
+    actually sent (regardless of the remote end's response — that outcome is
+    logged but never raised), False if the URL failed the SSRF safety check
+    and was skipped before any network call was made.
+
+    Mirrors apps.payments.govstack_tasks._post_callback's non-fatal
+    try/except/log structure exactly: ALL exceptions from the outbound call
+    (connection error, timeout, non-2xx, etc.) are caught and logged as
+    warnings — a delivery failure to one recipient must never abort dispatch
+    to the remaining recipients or fail the Celery task.
+
+    Security: only the URL, exception class name, and log_ctx (a caller-
+    supplied PK-only identifier such as "citizen_pk=123") are ever logged.
+    payload["message_body"] — and the payload dict as a whole — is NEVER
+    logged, since it may describe appointment-specific details.
+    """
+    if not _is_safe_outbound_url(url):
+        logger.warning(
+            "dispatch_alert_schedule.unsafe_url_skipped url=%s %s", url, log_ctx
+        )
+        return False
+
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=_ALERT_DISPATCH_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        logger.info(
+            "dispatch_alert_schedule.delivered url=%s status=%s %s",
+            url, response.status_code, log_ctx,
+        )
+    except Exception as exc:  # noqa: BLE001 — non-fatal, matches _post_callback.
+        logger.warning(
+            "dispatch_alert_schedule.delivery_failed url=%s exc_type=%s %s",
+            url, type(exc).__name__, log_ctx,
+        )
+
+    return True
+
+
+@shared_task(
+    bind=True,
+    name="appointments.dispatch_alert_schedule",
+    max_retries=3,
+    default_retry_delay=60,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    soft_time_limit=90,
+    time_limit=120,
+)
+def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
+    """
+    Deliver a GovStackAlertSchedule's push notification to its resolved
+    participants. Scheduled with a Celery ETA equal to
+    GovStackAlertSchedule.alert_datetime by the view layer (see
+    govstack_views.AlertScheduleNewView / AlertScheduleModificationsView).
+
+    Idempotency
+    ───────────
+    select_for_update() inside transaction.atomic() on the GovStackAlertSchedule
+    row; if dispatched=True already, this is a no-op exit under the row lock —
+    identical pattern to apps.payments.govstack_tasks.process_bulk_payment_batch.
+
+    Participant resolution
+    ───────────────────────
+    Subscribers (target_category in ("", "subscriber")): every Booking on
+    alert_schedule.slot with status in _ALERT_ELIGIBLE_BOOKING_STATUSES
+    ("pending", "confirmed") is a candidate. For each, GovStackSubscriberProfile
+    is looked up via the citizen's govstack_subscriber_profile reverse
+    relation; a candidate is only alerted if profile.alert_preference == "push"
+    and profile.alert_url is non-blank. Other preference values ("poll",
+    "email", "sms", "none") are OUT OF SCOPE for this wave — this codebase has
+    no email/SMS channel yet — and are silently skipped; this is a deliberate,
+    documented deferral, not a bug.
+
+    Resources (target_category in ("", "resource")): TWO possible recipients
+    per Slot, both attempted if eligible:
+      - Slot.staff (StaffProfile) — alerted if gs_alert_preference == "push"
+        and gs_alert_url is non-blank.
+      - Slot.resource (the optional physical-resource FK), if set — alerted
+        if alert_preference == "push" and alert_url is non-blank. (Scope
+        note: the spec-drafting notes for this wave assumed only staff had
+        comparable alert fields; on inspection, apps.appointments.models.Resource
+        ALSO has alert_url/alert_preference/status_poll_url fields — reused
+        here rather than left unimplemented, since the fields already exist
+        and are otherwise dead.)
+
+    Locking discipline — no DB row lock held across outbound HTTP calls
+    ─────────────────────────────────────────────────────────────────────
+    The idempotency check (select_for_update) and the "mark dispatched" write
+    are done in TWO SEPARATE short transactions, with all outbound HTTP calls
+    happening in between, OUTSIDE any transaction. A slow or blocked network
+    peer must never hold a DB row lock — this mirrors the identical outside-
+    the-transaction callback-POST discipline already used by
+    apps.payments.govstack_tasks.process_bulk_payment_batch /
+    validate_prepayment_async ("POST callback OUTSIDE the transaction").
+
+    Delivery is best-effort per recipient — one recipient's failure (unsafe
+    URL or a failed HTTP call) never blocks delivery to the others, and never
+    fails the task as a whole (see _attempt_alert_delivery).
+
+    Security: the outbound payload never includes citizen PII (name, email) —
+    only alert_schedule_id, the message's category/message_body (caller-
+    authored template text), and alert_datetime. message_body is NEVER
+    logged, only ever POSTed. Log lines use PKs only (citizen_pk, staff_pk,
+    resource_pk), never combined with delivery outcome in a way that differs
+    from the existing accepted logging pattern elsewhere in this codebase.
+
+    Args:
+        alert_schedule_pk: str(alert_schedule.pk) — PK of the
+                            GovStackAlertSchedule to dispatch.
+
+    Returns:
+        {"attempted": N, "skipped_unsafe": M} — N is the number of recipients
+        an HTTP POST was actually attempted for (delivery success/failure is
+        logged but not reflected here — this is a best-effort fire count, not
+        a confirmed-delivery count); M is the number of would-be recipients
+        skipped because their configured URL failed the SSRF safety check.
+        {"already_dispatched": True} if this was a no-op idempotent re-run.
+    """
+    from apps.appointments.models import Booking, GovStackAlertSchedule
+
+    with transaction.atomic():
+        try:
+            alert_schedule = (
+                GovStackAlertSchedule.objects.select_for_update()
+                .select_related("slot", "slot__staff", "slot__resource", "message")
+                .get(pk=alert_schedule_pk)
+            )
+        except GovStackAlertSchedule.DoesNotExist:
+            logger.error(
+                "dispatch_alert_schedule.not_found alert_schedule_pk=%s", alert_schedule_pk
+            )
+            return {"attempted": 0, "skipped_unsafe": 0}
+
+        if alert_schedule.dispatched:
+            # Already processed — idempotent exit under the row lock.
+            logger.debug(
+                "dispatch_alert_schedule.already_dispatched alert_schedule_pk=%s",
+                alert_schedule_pk,
+            )
+            return {"attempted": 0, "skipped_unsafe": 0, "already_dispatched": True}
+
+        # Snapshot everything needed for delivery BEFORE releasing the lock.
+        slot = alert_schedule.slot
+        message = alert_schedule.message
+        target_category = alert_schedule.target_category
+        alert_datetime_iso = alert_schedule.alert_datetime.isoformat()
+
+    payload = {
+        "alert_schedule_id": str(alert_schedule_pk),
+        "category": message.category,
+        "message_body": message.message_body,
+        "alert_datetime": alert_datetime_iso,
+    }
+
+    attempted = 0
+    skipped_unsafe = 0
+
+    if target_category in ("", "subscriber"):
+        bookings = Booking.objects.filter(
+            slot=slot, status__in=_ALERT_ELIGIBLE_BOOKING_STATUSES
+        ).select_related("citizen__govstack_subscriber_profile")
+
+        for booking in bookings:
+            # Reverse OneToOneField descriptor: raises a DoesNotExist subclass
+            # (which is ALSO an AttributeError, by Django's own design) when no
+            # profile exists — getattr's default safely handles both "no
+            # profile row" and "no such attribute" in one line.
+            profile = getattr(booking.citizen, "govstack_subscriber_profile", None)
+            if profile is None or profile.alert_preference != "push" or not profile.alert_url:
+                continue
+
+            if _attempt_alert_delivery(
+                profile.alert_url, payload, f"citizen_pk={booking.citizen_id}"
+            ):
+                attempted += 1
+            else:
+                skipped_unsafe += 1
+
+    if target_category in ("", "resource"):
+        staff = slot.staff
+        if staff is not None and staff.gs_alert_preference == "push" and staff.gs_alert_url:
+            if _attempt_alert_delivery(staff.gs_alert_url, payload, f"staff_pk={staff.pk}"):
+                attempted += 1
+            else:
+                skipped_unsafe += 1
+
+        resource = slot.resource
+        if resource is not None and resource.alert_preference == "push" and resource.alert_url:
+            if _attempt_alert_delivery(
+                resource.alert_url, payload, f"resource_pk={resource.pk}"
+            ):
+                attempted += 1
+            else:
+                skipped_unsafe += 1
+
+    # Second, short transaction to flip dispatched=True — deliberately NOT
+    # holding the row lock from above across the outbound HTTP calls (see
+    # docstring "Locking discipline"). A plain queryset .update() is used
+    # rather than re-fetching + .save() since no other field needs writing.
+    with transaction.atomic():
+        GovStackAlertSchedule.objects.filter(pk=alert_schedule_pk).update(dispatched=True)
+
+    logger.info(
+        "dispatch_alert_schedule.completed alert_schedule_pk=%s attempted=%d skipped_unsafe=%d",
+        alert_schedule_pk, attempted, skipped_unsafe,
+    )
+    return {"attempted": attempted, "skipped_unsafe": skipped_unsafe}

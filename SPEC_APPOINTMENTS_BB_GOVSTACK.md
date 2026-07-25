@@ -636,6 +636,18 @@ into a single flat object. The service layer must:
 
 ### Wave F — Message + AlertSchedule Endpoints
 
+**Status: implemented.** `apps/appointments/services/govstack_message.py`,
+`services/govstack_alert_schedule.py`, 8 views in `govstack_views.py`, the
+`dispatch_alert_schedule` Celery task (`apps/appointments/tasks.py`) with a
+fail-closed SSRF-safe outbound URL validator (HTTPS-only, rejects private/
+loopback/link-local/reserved/multicast/unspecified resolved IPs — satisfies
+the SSRF invariant planted in `models.py`/`services/govstack_subscriber.py`
+during Waves A/C), and tests in `test_govstack_message.py` (31 tests) /
+`test_govstack_alert_schedule.py` (51 tests, including dedicated SSRF
+validator and dispatch-task coverage). `GovStackAlertSchedule.delete()` was
+given a model-level override to revoke the pending Celery task before the
+row is removed. `gs_actor_role="organizer"` on all 8 endpoints per §2.2.
+
 **Goal:** 8 endpoints for notification templates and scheduled alerts.
 
 **Endpoints:**

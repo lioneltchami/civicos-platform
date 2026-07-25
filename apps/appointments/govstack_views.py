@@ -12,8 +12,19 @@ Wave B (this module):
   Affiliation (4 endpoints)   → AffiliationNewView, AffiliationModificationsView,
                                  AffiliationDeleteView, AffiliationListDetailsView
 
-Waves C–G: Subscriber, Event, Appointment, AlertSchedule, Message, Log
-  (stubs remain in govstack_urls.py until each wave is implemented)
+Wave F (this module):
+  AlertSchedule (4 endpoints) → AlertScheduleNewView, AlertScheduleModificationsView,
+                                 AlertScheduleDeleteView, AlertScheduleListDetailsView
+  Message       (4 endpoints) → MessageNewView, MessageModificationsView,
+                                 MessageDeleteView, MessageListDetailsView
+
+  AlertSchedule create/modify enqueue a Celery ETA dispatch task
+  (apps.appointments.tasks.dispatch_alert_schedule) via transaction.on_commit()
+  — see the dedicated helpers _enqueue_alert_dispatch / _reschedule_alert_dispatch
+  below the AlertSchedule view classes for the commit-then-enqueue sequencing.
+
+Waves C, D, E: Subscriber, Event, Appointment (implemented in earlier waves)
+Wave G: Log (stub remains in govstack_urls.py until implemented)
 
 Request data convention (GovStack Scheduler BB):
   ALL parameters arrive as query parameters — not request body.
@@ -53,6 +64,8 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
+from django.db.models import ProtectedError
 
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -68,6 +81,9 @@ from apps.appointments.govstack_serializers import (
     AffiliationCreateQrySerializer,
     AffiliationListQrySerializer,
     AffiliationModifySerializer,
+    AlertScheduleCreateQrySerializer,
+    AlertScheduleListQrySerializer,
+    AlertScheduleModifySerializer,
     AppointmentCreateQrySerializer,
     AppointmentListQrySerializer,
     AppointmentModifySerializer,
@@ -77,6 +93,9 @@ from apps.appointments.govstack_serializers import (
     EventCreateQrySerializer,
     EventListQrySerializer,
     EventModifySerializer,
+    MessageCreateQrySerializer,
+    MessageListQrySerializer,
+    MessageModifySerializer,
     ResourceAvailabilityFilterSerializer,
     ResourceCreateQrySerializer,
     ResourceListQrySerializer,
@@ -88,6 +107,8 @@ from apps.appointments.govstack_serializers import (
 from apps.appointments.models import (
     Booking,
     GovStackAffiliation,
+    GovStackAlertSchedule,
+    GovStackMessage,
     GovStackSubscriberProfile,
     Organization,
     Resource,
@@ -98,6 +119,12 @@ from apps.appointments.services.govstack_affiliation import (
     affiliation_delete,
     affiliation_list,
     affiliation_modify,
+)
+from apps.appointments.services.govstack_alert_schedule import (
+    alert_schedule_create,
+    alert_schedule_delete,
+    alert_schedule_list,
+    alert_schedule_modify,
 )
 from apps.appointments.services.govstack_appointment import (
     AppointmentOwnershipError,
@@ -128,6 +155,12 @@ from apps.appointments.services.govstack_event import (
     event_list,
     event_modify,
 )
+from apps.appointments.services.govstack_message import (
+    message_create,
+    message_delete,
+    message_list,
+    message_modify,
+)
 from apps.appointments.services.govstack_subscriber import (
     subscriber_create,
     subscriber_delete,
@@ -141,6 +174,7 @@ from apps.appointments.services.govstack_resource import (
     resource_list,
     resource_modify,
 )
+from apps.appointments.tasks import dispatch_alert_schedule
 
 logger = logging.getLogger("civicos.appointments.services.govstack_views")
 
@@ -2254,6 +2288,766 @@ class AppointmentListDetailsView(APIView):
             )
         except Exception:
             logger.exception("appointment_list failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LIST_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {
+                "status": "success",
+                "data": results,
+                "truncated": len(results) == 500,
+            },
+            status=200,
+        )
+
+
+# ===========================================================================
+# AlertSchedule views (4 endpoints) — Wave F
+# ===========================================================================
+
+def _enqueue_alert_dispatch(alert_schedule_pk: str, eta) -> None:
+    """
+    Schedule the Celery ETA dispatch task for a newly created AlertSchedule
+    and persist the resulting AsyncResult.id back onto the row.
+
+    MUST be called only from inside a transaction.on_commit() callback (see
+    AlertScheduleNewView.post()) — by the time this runs, the
+    GovStackAlertSchedule row is guaranteed to already be committed, so
+    apply_async() and the subsequent celery_task_id write-back are both safe.
+
+    celery_task_id write-back sequencing (documented choice — see Wave F spec
+    §"Celery ETA dispatch"): apply_async() cannot be called until AFTER the
+    row commits (a worker picking up the task before commit would find no
+    row), but celery_task_id must still end up stored ON that same row. Of
+    the two options the spec allows (a small second on_commit-safe update, or
+    fetch-and-update inside the task itself at start), this uses the FIRST:
+    a standalone `.update()` issued here, immediately after apply_async()
+    returns, still inside the same on_commit callback. This is chosen over
+    "fetch-and-update inside the task" because by the time this callback
+    runs, the request-level transaction (ATOMIC_REQUESTS=True, see
+    config/settings/base.py) has already committed — so this .update() runs
+    in its own tiny autocommit transaction with no lock contention, and it
+    keeps 100% of the Celery-facing logic in the view layer (matching the
+    payments-BB precedent) rather than spreading it into the task too.
+    """
+    result = dispatch_alert_schedule.apply_async(args=[alert_schedule_pk], eta=eta)
+    GovStackAlertSchedule.objects.filter(pk=alert_schedule_pk).update(celery_task_id=result.id)
+
+
+def _reschedule_alert_dispatch(alert_schedule_pk: str, eta, old_task_id: str) -> None:
+    """
+    Revoke a previously scheduled Celery ETA task (best-effort, non-fatal)
+    and enqueue + persist a replacement — used by AlertScheduleModificationsView
+    when alert_schedule_modify() reports reschedule_needed=True.
+
+    MUST be called only from inside a transaction.on_commit() callback, for
+    the same reasons documented in _enqueue_alert_dispatch().
+    """
+    if old_task_id:
+        try:
+            from celery.result import AsyncResult
+            AsyncResult(old_task_id).revoke()
+        except Exception as exc:
+            # Non-fatal: the old task may have already fired, already been
+            # revoked, or the broker may be briefly unreachable — none of
+            # these should block scheduling the replacement task below.
+            logger.warning(
+                "alert_schedule_modify: could not revoke old Celery task for "
+                "alert_schedule pk=%s: %s",
+                alert_schedule_pk, type(exc).__name__,
+            )
+    _enqueue_alert_dispatch(alert_schedule_pk, eta)
+
+
+class AlertScheduleNewView(APIView):
+    """
+    POST /govstack/scheduler/alert_schedule/new
+
+    Create a new AlertSchedule — schedules a push notification (Message) to
+    be dispatched to an Event's (Slot's) participants at a future datetime.
+    All request data arrives as query parameters; alert schedule details are
+    embedded in `qry`.
+
+    Expected qry shape:
+      {"qry": {"details": {"event_id": "...", "target_category": "subscriber",
+                           "message_id": "...", "alert_datetime": "2026-08-01T09:00:00Z"}}}
+
+    Returns:
+      201 {"status": "success", "alert_schedule_id": "<pk>"}
+      400 on invalid target_category, unparseable/past alert_datetime, or
+          other validation failure
+      404 if event_id (Slot) or message_id (GovStackMessage) does not resolve
+
+    On success, the Celery ETA dispatch task is enqueued via
+    transaction.on_commit() — see _enqueue_alert_dispatch().
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def post(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = AlertScheduleCreateQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["qry"]["details"]
+        try:
+            alert_schedule = alert_schedule_create(
+                event_id=details.get("event_id", ""),
+                message_id=details.get("message_id", ""),
+                target_category=details.get("target_category", ""),
+                alert_datetime=details.get("alert_datetime", ""),
+            )
+        except (Slot.DoesNotExist, DjangoValidationError):
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_NOT_FOUND",
+                    "message": "No event with the given event_id.",
+                },
+                status=404,
+            )
+        except GovStackMessage.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MESSAGE_NOT_FOUND",
+                    "message": "No message with the given message_id.",
+                },
+                status=404,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "ALERT_SCHEDULE_CREATE_FAILED",
+                    "message": "Alert schedule creation failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("alert_schedule_create failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "CREATE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        _pk = str(alert_schedule.pk)
+        _eta = alert_schedule.alert_datetime
+        transaction.on_commit(lambda: _enqueue_alert_dispatch(_pk, _eta))
+
+        return Response({"status": "success", "alert_schedule_id": _pk}, status=201)
+
+
+class AlertScheduleModificationsView(APIView):
+    """
+    PUT /govstack/scheduler/alert_schedule/modifications
+
+    Modify an existing AlertSchedule. Requires `alert_schedule_id` and `qry`
+    query parameters.
+
+    Expected qry shape:
+      {"details": {"event_id": "...", "target_category": "...",
+                   "message_id": "...", "alert_datetime": "..."}}  (all optional)
+
+    Returns:
+      200 {"status": "success", "alert_schedule_id": "<pk>"}
+      400 on missing/invalid alert_schedule_id, invalid target_category,
+          unparseable/past alert_datetime, or other modification failure
+      404 if alert_schedule_id, event_id, or message_id does not resolve
+
+    If alert_datetime and/or message_id change (see
+    services.govstack_alert_schedule.alert_schedule_modify's docstring for
+    the exact reschedule semantics, including the "re-arming" behaviour for
+    already-dispatched rows), the old Celery task is revoked and a new one
+    enqueued via transaction.on_commit() — see _reschedule_alert_dispatch().
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def put(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        alert_schedule_id_str = request.query_params.get("alert_schedule_id", "").strip()
+        if not alert_schedule_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_ALERT_SCHEDULE_ID",
+                    "message": "alert_schedule_id query parameter is required.",
+                },
+                status=400,
+            )
+        alert_schedule_id, err = _require_int_id(alert_schedule_id_str, "alert_schedule_id")
+        if err:
+            return err
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = AlertScheduleModifySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["details"]
+        try:
+            alert_schedule, reschedule_needed, old_task_id = alert_schedule_modify(
+                alert_schedule_id=alert_schedule_id,
+                event_id=details.get("event_id") or None,
+                # target_category is meaningfully blank ("" = all categories) — unlike
+                # event_id/message_id above, do NOT collapse "" to None here. DRF only
+                # populates validated_data for a key the caller actually sent (optional
+                # CharFields with no explicit default), so .get() alone already yields
+                # None for "omitted" vs "" for "explicitly cleared" — same idiom used by
+                # EventModificationsView's status=details.get("status").
+                target_category=details.get("target_category"),
+                message_id=details.get("message_id") or None,
+                alert_datetime=details.get("alert_datetime") or None,
+            )
+        except GovStackAlertSchedule.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "ALERT_SCHEDULE_NOT_FOUND",
+                    "message": f"No alert schedule with id={alert_schedule_id_str}.",
+                },
+                status=404,
+            )
+        except (Slot.DoesNotExist, DjangoValidationError):
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_NOT_FOUND",
+                    "message": "No event with the given event_id.",
+                },
+                status=404,
+            )
+        except GovStackMessage.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MESSAGE_NOT_FOUND",
+                    "message": "No message with the given message_id.",
+                },
+                status=404,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "ALERT_SCHEDULE_MODIFY_FAILED",
+                    "message": "Alert schedule modification failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception(
+                "alert_schedule_modify failed for alert_schedule_id=%s", alert_schedule_id_str
+            )
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MODIFY_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        if reschedule_needed:
+            _pk = str(alert_schedule.pk)
+            _eta = alert_schedule.alert_datetime
+            _old_task_id = old_task_id
+            transaction.on_commit(
+                lambda: _reschedule_alert_dispatch(_pk, _eta, _old_task_id)
+            )
+
+        return Response(
+            {"status": "success", "alert_schedule_id": str(alert_schedule.pk)}, status=200
+        )
+
+
+class AlertScheduleDeleteView(APIView):
+    """
+    DELETE /govstack/scheduler/alert_schedule
+
+    Hard-delete an AlertSchedule. Requires `alert_schedule_id` query parameter.
+
+    Returns:
+      200 {"status": "success", "alert_schedule_id": "<alert_schedule_id>"}
+      400 if alert_schedule_id is missing or malformed
+      404 if no alert schedule with the given alert_schedule_id exists
+
+    The scheduled Celery task is revoked as part of the delete — see
+    GovStackAlertSchedule.delete() in models.py (the revoke happens
+    synchronously inside the model's overridden delete(), not deferred to
+    on_commit — Celery revoke has no DB transactional semantics, so there is
+    no benefit to deferring it, unlike the enqueue path).
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def delete(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        alert_schedule_id_str = request.query_params.get("alert_schedule_id", "").strip()
+        if not alert_schedule_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_ALERT_SCHEDULE_ID",
+                    "message": "alert_schedule_id query parameter is required.",
+                },
+                status=400,
+            )
+        alert_schedule_id, err = _require_int_id(alert_schedule_id_str, "alert_schedule_id")
+        if err:
+            return err
+
+        try:
+            alert_schedule_delete(alert_schedule_id)
+        except GovStackAlertSchedule.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "ALERT_SCHEDULE_NOT_FOUND",
+                    "message": f"No alert schedule with id={alert_schedule_id_str}.",
+                },
+                status=404,
+            )
+        except Exception:
+            logger.exception(
+                "alert_schedule_delete failed for alert_schedule_id=%s", alert_schedule_id_str
+            )
+            return Response(
+                {
+                    "status": "error",
+                    "code": "DELETE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {"status": "success", "alert_schedule_id": alert_schedule_id_str}, status=200
+        )
+
+
+class AlertScheduleListDetailsView(APIView):
+    """
+    GET /govstack/scheduler/alert_schedule/list_details
+
+    List AlertSchedules matching the supplied filters. All parameters arrive
+    as query params; filter and field-selection objects are embedded in `qry`.
+
+    Expected qry shape:
+      {
+        "alert_schedule_filter": {"target_category": "subscriber", "from": "...", "to": "..."},
+        "alert_schedule_details_required": {"alert_schedule_id": true, "alert_datetime": true}
+      }
+
+    Returns:
+      200 {"status": "success", "data": [...], "truncated": <bool>}
+      400 on invalid filter parameters (e.g. malformed from/to datetimes)
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def get(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = AlertScheduleListQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        alert_schedule_filter = ser.validated_data.get("alert_schedule_filter", {})
+        alert_schedule_details_required = (
+            ser.validated_data.get("alert_schedule_details_required") or {}
+        )
+
+        # AlertScheduleFilterSerializer's to_internal_value() remaps the wire-format
+        # "from" key to "from_" (Python reserved word workaround — see
+        # EventListDetailsView / EventFilterSerializer for the identical pattern).
+        # alert_schedule_list() expects the raw "from" key, so remap back here.
+        if "from_" in alert_schedule_filter:
+            alert_schedule_filter["from"] = alert_schedule_filter.pop("from_")
+
+        try:
+            results = alert_schedule_list(
+                alert_schedule_filter=alert_schedule_filter,
+                alert_schedule_details_required=alert_schedule_details_required,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "ALERT_SCHEDULE_LIST_FILTER_INVALID",
+                    "message": "Invalid filter parameters.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("alert_schedule_list failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LIST_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {
+                "status": "success",
+                "data": results,
+                "truncated": len(results) == 500,
+            },
+            status=200,
+        )
+
+
+# ===========================================================================
+# Message views (4 endpoints) — Wave F
+# ===========================================================================
+
+class MessageNewView(APIView):
+    """
+    POST /govstack/scheduler/message/new
+
+    Create a new Message (notification template) owned by an Entity
+    (Organization). All request data arrives as query parameters; message
+    details are embedded in `qry`.
+
+    Expected qry shape:
+      {"qry": {"details": {"entity_id": "...", "category": "reminder",
+                           "message_body": "Your appointment is tomorrow."}}}
+
+    Returns:
+      201 {"status": "success", "message_id": "<pk>"}
+      400 on validation failure (e.g. category exceeds 50 characters)
+      404 if entity_id does not resolve to an active Organization
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def post(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = MessageCreateQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["qry"]["details"]
+        try:
+            message = message_create(
+                entity_id=details.get("entity_id", ""),
+                category=details.get("category", ""),
+                message_body=details.get("message_body", ""),
+            )
+        except Organization.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "ENTITY_NOT_FOUND",
+                    "message": "No active entity with the given entity_id.",
+                },
+                status=404,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MESSAGE_CREATE_FAILED",
+                    "message": "Message creation failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("message_create failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "CREATE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {"status": "success", "message_id": str(message.pk)}, status=201
+        )
+
+
+class MessageModificationsView(APIView):
+    """
+    PUT /govstack/scheduler/message/modifications
+
+    Modify an existing Message's category and/or message_body. Requires
+    `message_id` and `qry` query parameters. entity_id is not modifiable
+    (see services.govstack_message module docstring).
+
+    Expected qry shape:
+      {"details": {"category": "...", "message_body": "..."}}  (all optional)
+
+    Returns:
+      200 {"status": "success", "message_id": "<pk>"}
+      400 on missing/invalid message_id or validation failure
+      404 if no message with the given message_id exists
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def put(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        message_id_str = request.query_params.get("message_id", "").strip()
+        if not message_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_MESSAGE_ID",
+                    "message": "message_id query parameter is required.",
+                },
+                status=400,
+            )
+        message_id, err = _require_int_id(message_id_str, "message_id")
+        if err:
+            return err
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = MessageModifySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["details"]
+        try:
+            message = message_modify(
+                message_id=message_id,
+                # category/message_body are meaningfully blank (an explicit "clear this
+                # field" request) — .get() alone already distinguishes "omitted" (None)
+                # from "explicitly sent as blank" ("") since DRF only populates
+                # validated_data for keys the caller actually sent. Same idiom as
+                # AlertScheduleModificationsView's target_category handling above.
+                category=details.get("category"),
+                message_body=details.get("message_body"),
+            )
+        except GovStackMessage.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MESSAGE_NOT_FOUND",
+                    "message": f"No message with id={message_id_str}.",
+                },
+                status=404,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MESSAGE_MODIFY_FAILED",
+                    "message": "Message modification failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("message_modify failed for message_id=%s", message_id_str)
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MODIFY_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {"status": "success", "message_id": str(message.pk)}, status=200
+        )
+
+
+class MessageDeleteView(APIView):
+    """
+    DELETE /govstack/scheduler/message
+
+    Hard-delete a Message. Requires `message_id` query parameter.
+
+    Returns:
+      200 {"status": "success", "message_id": "<message_id>"}
+      400 if message_id is missing/malformed, or the message is still
+          referenced by one or more AlertSchedules (MESSAGE_IN_USE)
+      404 if no message with the given message_id exists
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def delete(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        message_id_str = request.query_params.get("message_id", "").strip()
+        if not message_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_MESSAGE_ID",
+                    "message": "message_id query parameter is required.",
+                },
+                status=400,
+            )
+        message_id, err = _require_int_id(message_id_str, "message_id")
+        if err:
+            return err
+
+        try:
+            message_delete(message_id)
+        except GovStackMessage.DoesNotExist:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MESSAGE_NOT_FOUND",
+                    "message": f"No message with id={message_id_str}.",
+                },
+                status=404,
+            )
+        except ProtectedError:
+            # message.on_delete=PROTECT on GovStackAlertSchedule.message — mirrors
+            # apps.payments.admin.GovStackBillAdmin.delete_view()'s ProtectedError
+            # handling, adapted here for a service layer rather than Django admin.
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MESSAGE_IN_USE",
+                    "message": (
+                        "This message template is still referenced by one or more "
+                        "alert schedules."
+                    ),
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("message_delete failed for message_id=%s", message_id_str)
+            return Response(
+                {
+                    "status": "error",
+                    "code": "DELETE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {"status": "success", "message_id": message_id_str}, status=200
+        )
+
+
+class MessageListDetailsView(APIView):
+    """
+    GET /govstack/scheduler/message/list_details
+
+    List Messages matching the supplied filters. All parameters arrive as
+    query params; filter and field-selection objects are embedded in `qry`.
+
+    Expected qry shape:
+      {
+        "message_filter": {"entity_id": "...", "category": "reminder"},
+        "message_details_required": {"message_id": true, "category": true, "message_body": false}
+      }
+
+    Returns:
+      200 {"status": "success", "data": [...], "truncated": <bool>}
+      400 on invalid filter parameters
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission, GovStackSchedulerRolePermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def get(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = MessageListQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        message_filter = ser.validated_data.get("message_filter", {})
+        message_details_required = ser.validated_data.get("message_details_required") or {}
+
+        try:
+            results = message_list(
+                message_filter=message_filter,
+                message_details_required=message_details_required,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MESSAGE_LIST_FILTER_INVALID",
+                    "message": "Invalid filter parameters.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("message_list failed")
             return Response(
                 {
                     "status": "error",

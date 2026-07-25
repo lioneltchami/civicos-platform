@@ -371,6 +371,10 @@ CELERY_TASK_ROUTES = {
     # Appointments & Scheduling BB — slot generation, reminders, waitlist expiry
     "appointments.generate_slots_for_period": {"queue": "appointments"},
     "appointments.mark_past_slots_completed": {"queue": "appointments"},
+    # GovStack Scheduler BB (Wave F) — AlertSchedule push-notification dispatch.
+    # Dispatched via transaction.on_commit() in AlertScheduleNewView /
+    # AlertScheduleModificationsView (apps/appointments/govstack_views.py).
+    "appointments.dispatch_alert_schedule": {"queue": "appointments"},
     # Webhook-triggered tasks — fast, latency-sensitive.
     # Must reach workers within Stripe's 30-second retry window.
     "apps.payments.tasks.process_stripe_webhook": {"queue": "webhooks"},

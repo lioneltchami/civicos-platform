@@ -67,6 +67,16 @@ from apps.appointments.govstack_views import (
     AppointmentModificationsView,
     AppointmentDeleteView,
     AppointmentListDetailsView,
+    # Wave F — AlertSchedule
+    AlertScheduleNewView,
+    AlertScheduleModificationsView,
+    AlertScheduleDeleteView,
+    AlertScheduleListDetailsView,
+    # Wave F — Message
+    MessageNewView,
+    MessageModificationsView,
+    MessageDeleteView,
+    MessageListDetailsView,
 )
 
 app_name = "govstack_scheduler"
@@ -110,17 +120,25 @@ urlpatterns = [
     path("entity/list_details", EntityListDetailsView.as_view(), name="entity_list_details"),
     path("entity", EntityDeleteView.as_view(), name="entity_delete"),
 
-    # ── AlertSchedule (Wave F) ────────────────────────────────────────────────
-    path("alert_schedule/new", govstack_not_implemented, name="alert_schedule_new"),
-    path("alert_schedule/modifications", govstack_not_implemented, name="alert_schedule_modifications"),
-    path("alert_schedule/list_details", govstack_not_implemented, name="alert_schedule_list_details"),
-    path("alert_schedule", govstack_not_implemented, name="alert_schedule_delete"),
+    # ── AlertSchedule (Wave F) — sub-paths listed before bare DELETE path ──────
+    path("alert_schedule/new", AlertScheduleNewView.as_view(), name="alert_schedule_new"),
+    path(
+        "alert_schedule/modifications",
+        AlertScheduleModificationsView.as_view(),
+        name="alert_schedule_modifications",
+    ),
+    path(
+        "alert_schedule/list_details",
+        AlertScheduleListDetailsView.as_view(),
+        name="alert_schedule_list_details",
+    ),
+    path("alert_schedule", AlertScheduleDeleteView.as_view(), name="alert_schedule_delete"),
 
-    # ── Message (Wave F) ──────────────────────────────────────────────────────
-    path("message/new", govstack_not_implemented, name="message_new"),
-    path("message/modifications", govstack_not_implemented, name="message_modifications"),
-    path("message/list_details", govstack_not_implemented, name="message_list_details"),
-    path("message", govstack_not_implemented, name="message_delete"),
+    # ── Message (Wave F) — sub-paths listed before bare DELETE path ────────────
+    path("message/new", MessageNewView.as_view(), name="message_new"),
+    path("message/modifications", MessageModificationsView.as_view(), name="message_modifications"),
+    path("message/list_details", MessageListDetailsView.as_view(), name="message_list_details"),
+    path("message", MessageDeleteView.as_view(), name="message_delete"),
 
     # ── Resource (Wave B) — sub-paths listed before bare DELETE path ──────────
     path("resource/new", ResourceNewView.as_view(), name="resource_new"),
