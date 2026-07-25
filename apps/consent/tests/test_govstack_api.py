@@ -951,6 +951,87 @@ class ConsentRevisionTests(GovStackAPIBase):
         rev_data = r.data["revisions"][0]
         self.assertIn("predecessorSignature", rev_data)
 
+    def test_policy_revision_serialized_snapshot_matches_spec_envelope(self):
+        """
+        GovStack spec (Revision.serializedSnapshot description, bb-consent
+        v1.1.0-rc1 api/consent-openapi.yaml): the stored snapshot must be a
+        dict envelope {objectData, schemaName, objectId,
+        signedWithoutObjectId, timestamp, authorizedByIndividual,
+        authorizedByOther} — not a flat dict of the object's own fields.
+        """
+        policy, rev = ConsentService.create_policy(
+            {"name": "P", "version": "1.0", "url": "https://example.com"},
+            actor=self.admin,
+        )
+        snapshot = rev.serialized_snapshot
+        self.assertEqual(
+            set(snapshot.keys()),
+            {
+                "objectData", "schemaName", "objectId", "signedWithoutObjectId",
+                "timestamp", "authorizedByIndividual", "authorizedByOther",
+            },
+        )
+        self.assertEqual(snapshot["schemaName"], "Policy")
+        self.assertEqual(snapshot["objectId"], str(policy.pk))
+        # Admin-initiated revisions go in authorizedByOther, not authorizedByIndividual.
+        self.assertIsNone(snapshot["authorizedByIndividual"])
+        self.assertEqual(snapshot["authorizedByOther"], str(self.admin.pk))
+        self.assertIsInstance(snapshot["signedWithoutObjectId"], bool)
+        self.assertIsInstance(snapshot["timestamp"], str)
+        # objectData holds the flat Policy fields (what used to be stored directly).
+        self.assertEqual(snapshot["objectData"]["name"], "P")
+        self.assertEqual(snapshot["objectData"]["version"], "1.0")
+        self.assertEqual(snapshot["objectData"]["id"], str(policy.pk))
+
+    def test_data_agreement_revision_serialized_snapshot_matches_spec_envelope(self):
+        """Same envelope-shape assertion as above, for a DataAgreement revision."""
+        category, revision = ConsentService.create_data_agreement(
+            {
+                "slug": "envelope-shape-test",
+                "name_en": "Envelope Test",
+                "name_fr": "Test Enveloppe",
+                "purpose_en": "Testing",
+                "purpose_fr": "Test",
+            },
+            actor=self.admin,
+        )
+        snapshot = revision.serialized_snapshot
+        self.assertEqual(
+            set(snapshot.keys()),
+            {
+                "objectData", "schemaName", "objectId", "signedWithoutObjectId",
+                "timestamp", "authorizedByIndividual", "authorizedByOther",
+            },
+        )
+        self.assertEqual(snapshot["schemaName"], "DataAgreement")
+        self.assertEqual(snapshot["objectId"], str(category.pk))
+        self.assertIsNone(snapshot["authorizedByIndividual"])
+        self.assertEqual(snapshot["authorizedByOther"], str(self.admin.pk))
+        self.assertIsInstance(snapshot["signedWithoutObjectId"], bool)
+        self.assertIsInstance(snapshot["timestamp"], str)
+        self.assertEqual(snapshot["objectData"]["slug"], "envelope-shape-test")
+        self.assertEqual(snapshot["objectData"]["nameEn"], "Envelope Test")
+
+    def test_revision_serializer_serializedsnapshot_string_reflects_envelope(self):
+        """
+        RevisionSerializer.get_serializedSnapshot() must keep serializing
+        WHATEVER is stored in serialized_snapshot (now the envelope) rather
+        than the old flat shape — and the hash must still verify.
+        """
+        policy, rev = ConsentService.create_policy(
+            {"name": "P", "version": "1.0", "url": "https://example.com"},
+            actor=self.admin,
+        )
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/config/policy/{policy.pk}/revisions/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        rev_data = next(rv for rv in r.data["revisions"] if rv["id"] == str(rev.pk))
+        parsed = json.loads(rev_data["serializedSnapshot"])
+        self.assertIn("objectData", parsed)
+        self.assertEqual(parsed["schemaName"], "Policy")
+        recomputed_hash = hashlib.sha256(rev_data["serializedSnapshot"].encode()).hexdigest()
+        self.assertEqual(recomputed_hash, rev.serialized_hash)
+
 
 # ===========================================================================
 # Service — DataAgreement-scoped consent record
@@ -1478,6 +1559,26 @@ class MalformedPathIdRoutingTests(GovStackAPIBase):
         self._auth(self.admin)
         r = self.client.get("/api/v1/consent/config/data-agreement/999999/")
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_config_data_agreement_detail_invalid_id_literal_returns_400(self):
+        """
+        Locks in the upstream bb-consent Gherkin harness's
+        @negative @get_data_agreement scenario literally: GET
+        /config/data-agreement/{dataAgreementId}/ with dataAgreementId =
+        "invalid_id" must return HTTP 400.
+        """
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/data-agreement/invalid_id/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_config_data_agreement_detail_wire_encoded_garbage_id_returns_400(self):
+        """
+        Same harness scenario, second malformed value: dataAgreementId =
+        "123!@#" as sent wire-encoded ("123%21%40%23"). Must return HTTP 400.
+        """
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/data-agreement/123%21%40%23/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 # ===========================================================================

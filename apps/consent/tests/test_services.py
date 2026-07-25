@@ -15,7 +15,7 @@ import uuid
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test import TestCase, TransactionTestCase
 
 from apps.consent.models import (
@@ -455,3 +455,135 @@ class ConcurrentFirstGrantTests(TransactionTestCase):
         # Both threads must have observed the SAME winning record (grant() is
         # idempotent — the loser re-fetches and returns the winner's row).
         self.assertEqual(results[0].pk, results[1].pk)
+
+
+# ===========================================================================
+# Fix 2 (this round) — grant()'s IntegrityError recovery, SQLite-compatible
+#
+# ConcurrentFirstGrantTests above is the only test that previously exercised
+# grant()'s except-IntegrityError branch, and it is skipped whenever the DB
+# backend is SQLite (this project's test backend — config/settings/test.py).
+# That means "N tests passing" previously included ZERO executed tests of
+# this recovery code path. These tests decouple "does the recovery LOGIC
+# work" (provable by mocking .create(), no real concurrency/Postgres
+# required) from "does Postgres actually enforce the constraint under true
+# concurrency" (which legitimately does need Postgres — already covered,
+# separately, by ConcurrentFirstGrantTests, which is left unchanged).
+# ===========================================================================
+
+class GrantIntegrityErrorRecoveryTests(TestCase):
+
+    def setUp(self):
+        self.citizen = _make_citizen()
+        self.category = _make_category(slug="integrity-race-test")
+
+    def test_recovers_by_refetching_winning_row_on_current_consent_race(self):
+        """
+        Simulates the real concurrent scenario without needing real threads
+        or PostgreSQL.
+
+        grant() runs its "archive the previous current record" step
+        (services.py) inside its OUTER transaction.atomic() block, then
+        attempts ConsentRecord.objects.create() inside a nested savepoint
+        (transaction.atomic()). If that create() raises, only the nested
+        savepoint is rolled back — anything written earlier in the outer
+        transaction (i.e. before the create() attempt) survives.
+
+        That is exactly the real race window: our own archive step finds
+        nothing to archive (this is the citizen's very first grant), and
+        — concurrently — another grant() call's insert lands right after
+        it and commits, before our own create() attempt. To simulate this
+        without threads, the "concurrent winner" is inserted as a side
+        effect of the archive step's .update() call (which runs in the
+        outer transaction, so it is NOT undone when our own create()
+        raises and its nested savepoint rolls back) rather than inside
+        create()'s own side effect (which WOULD be undone, since it runs
+        inside the doomed nested savepoint — that was this test's original,
+        broken approach).
+
+        grant() must catch that specific IntegrityError, re-fetch the
+        winning row via select_for_update(), and return it — not crash, and
+        not fabricate/return a different record.
+        """
+        real_manager_filter = ConsentRecord.objects.filter
+        real_create = ConsentRecord.objects.create
+        winner_holder = {}
+
+        def _filter_side_effect(*args, **kwargs):
+            qs = real_manager_filter(*args, **kwargs)
+            is_archive_call = (
+                kwargs.get("is_current") is True
+                and getattr(kwargs.get("citizen"), "pk", None) == self.citizen.pk
+                and getattr(kwargs.get("category"), "pk", None) == self.category.pk
+                and "state" not in kwargs
+                and "status" not in kwargs
+            )
+            if is_archive_call:
+                real_update = qs.update
+
+                def _update_side_effect(**update_kwargs):
+                    result = real_update(**update_kwargs)
+                    # The concurrent transaction's insert lands here — after
+                    # our own archive step but before our own create()
+                    # attempt below — mirroring the real race window.
+                    winner_holder["winner"] = real_create(
+                        citizen=self.citizen,
+                        category=self.category,
+                        status=ConsentRecord.STATUS_GRANTED,
+                        state=ConsentRecord.STATE_SIGNED,
+                        is_current=True,
+                    )
+                    return result
+
+                qs.update = _update_side_effect
+            return qs
+
+        def _create_side_effect(**kwargs):
+            # Our own INSERT hits the constraint the concurrent winner
+            # (injected above, in the archive step) just committed under.
+            raise IntegrityError(
+                'duplicate key value violates unique constraint '
+                '"unique_current_consent_record_per_citizen_category"'
+            )
+
+        with patch(
+            "apps.consent.models.ConsentRecord.objects.filter",
+            side_effect=_filter_side_effect,
+        ), patch(
+            "apps.consent.models.ConsentRecord.objects.create",
+            side_effect=_create_side_effect,
+        ):
+            record = ConsentService.grant(self.citizen, "integrity-race-test")
+
+        self.assertIn("winner", winner_holder)
+        self.assertEqual(record.pk, winner_holder["winner"].pk)
+        self.assertIsInstance(record, ConsentRecord)
+        self.assertTrue(record.is_current)
+        self.assertEqual(record.status, ConsentRecord.STATUS_GRANTED)
+        self.assertEqual(record.state, ConsentRecord.STATE_SIGNED)
+        # Recovery must not fabricate a duplicate — exactly one current row.
+        self.assertEqual(
+            ConsentRecord.objects.filter(
+                citizen=self.citizen, category=self.category, is_current=True
+            ).count(),
+            1,
+        )
+
+    def test_unrelated_integrity_error_is_not_swallowed(self):
+        """
+        An IntegrityError NOT caused by the current-consent-race constraint
+        (e.g. a different constraint violation entirely) must propagate to
+        the caller rather than being silently treated as "lost the race".
+        """
+        def _create_side_effect(**kwargs):
+            raise IntegrityError(
+                'duplicate key value violates unique constraint '
+                '"some_unrelated_constraint_name"'
+            )
+
+        with patch(
+            "apps.consent.models.ConsentRecord.objects.create",
+            side_effect=_create_side_effect,
+        ):
+            with self.assertRaises(IntegrityError):
+                ConsentService.grant(self.citizen, "integrity-race-test")

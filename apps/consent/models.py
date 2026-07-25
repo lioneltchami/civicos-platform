@@ -386,6 +386,18 @@ class ConsentRevision(UUIDModel):
 
         This is the canonical way to create a revision — do not call
         ``ConsentRevision(...)`` directly.
+
+        ``snapshot`` is the flat dict of the target object's own fields (e.g.
+        what ``_policy_snapshot()`` / ``_data_agreement_snapshot()`` /
+        ``_consent_record_snapshot()`` in services.py build). Per the GovStack
+        Consent BB OpenAPI spec, ``Revision.serializedSnapshot`` is documented
+        as a dict envelope:
+            {objectData: {...}, schemaName, objectId, signedWithoutObjectId,
+             timestamp, authorizedByIndividual, authorizedByOther}
+        containing "all the fields of the schema except id, successor,
+        predecessorHash and predecessorSignature". ``create_for()`` builds
+        that envelope here (rather than requiring every call site to do it)
+        so ``snapshot`` stays a clean, reusable per-object serialization.
         """
         object_id = str(obj.pk)
 
@@ -397,15 +409,41 @@ class ConsentRevision(UUIDModel):
         )
         predecessor_hash = prev.serialized_hash if prev else ""
 
-        # Do NOT inject _predecessor_hash into the snapshot dict.
+        # Do NOT inject _predecessor_hash into the envelope.
         # The predecessor hash is stored in the dedicated predecessor_hash field.
         # The snapshot must be a clean serialization of the object — injecting
         # implementation-specific keys would pollute the spec-defined snapshot shape
         # and compute a hash over data that is not part of the object itself.
+        envelope = {
+            "objectData": snapshot,
+            "schemaName": schema_name,
+            "objectId": object_id,
+            # GovStack spec describes signedWithoutObjectId as part of the
+            # snapshot envelope, but ConsentRevision itself has no field that
+            # tracks whether the revision was signed without its object ID
+            # (RevisionSerializer.get_signedWithoutObjectId() likewise returns
+            # None — "not yet stored on model"). ConsentSignature has a
+            # similarly-named signed_without_object_id field, but that is a
+            # property of the *Signature*, not of this Revision, so it is not
+            # a valid source here. Nothing in this codebase tracks this
+            # concept for Revisions, so we use False as the closest available
+            # default rather than inventing a value.
+            "signedWithoutObjectId": False,
+            # Timestamp embedded in the snapshot itself, captured at
+            # build time. The Revision row's own `timestamp` field is set via
+            # auto_now_add on save() a few lines below, so the two values may
+            # differ by microseconds — that is an accepted, spec-mandated
+            # redundancy (the spec asks for timestamp inside the envelope
+            # *and* as a sibling Revision field), not a bug.
+            "timestamp": timezone.now().isoformat(),
+            "authorizedByIndividual": str(authorized_by.pk) if authorized_by else None,
+            "authorizedByOther": authorized_by_other or "",
+        }
+
         rev = cls(
             schema_name=schema_name,
             object_id=object_id,
-            serialized_snapshot=snapshot,
+            serialized_snapshot=envelope,
             predecessor_hash=predecessor_hash,
             authorized_by_individual=authorized_by,
             authorized_by_other=authorized_by_other,

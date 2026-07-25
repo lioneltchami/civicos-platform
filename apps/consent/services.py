@@ -160,7 +160,16 @@ class ConsentService:
                         data_agreement_revision=revision,
                         data_agreement_revision_hash=revision.serialized_hash if revision else "",
                     )
-            except IntegrityError:
+            except IntegrityError as exc:
+                # Only treat this as the expected "lost the first-grant race"
+                # case if the violated constraint is actually
+                # unique_current_consent_record_per_citizen_category. Any
+                # other IntegrityError (e.g. an unrelated FK/NOT NULL
+                # violation) is a real bug and must propagate, not be
+                # silently swallowed and mis-reported as a successful grant.
+                if not _is_current_consent_race(exc):
+                    raise
+
                 # Lost the race: a concurrent grant() call already committed
                 # the current record for this citizen/category. select_for_
                 # update() blocks until that transaction commits, then reads
@@ -860,6 +869,38 @@ def _get_source(request) -> str:
     if request is None:
         return "api"
     return "api" if getattr(request, "is_api_request", False) else "web"
+
+
+# Name of the DB-level constraint (models.py, ConsentRecord.Meta.constraints)
+# that grant()'s first-grant race recovery is specifically designed to catch.
+_CURRENT_CONSENT_RACE_CONSTRAINT = "unique_current_consent_record_per_citizen_category"
+
+
+def _is_current_consent_race(exc: IntegrityError) -> bool:
+    """
+    Return True only if ``exc`` was raised by a violation of
+    ``unique_current_consent_record_per_citizen_category`` — the specific
+    constraint that guards against the concurrent "very first grant" race
+    (see ConsentService.grant()). Any other IntegrityError (unrelated FK
+    violation, NOT NULL violation, a different unique constraint, etc.) must
+    NOT be treated as this race and must be re-raised by the caller.
+
+    Prefers the structured diagnostics psycopg (both psycopg2 and psycopg3,
+    which this project uses per requirements/base.txt) attaches to the
+    underlying driver exception via ``exc.__cause__.diag.constraint_name`` —
+    this is authoritative and immune to message-wording differences across
+    PostgreSQL versions/locales. Falls back to substring-matching the
+    constraint name in ``str(exc)`` for backends that don't expose that
+    structured diagnostic (e.g. SQLite, used in this project's test
+    settings — see config/settings/test.py — and easy to construct directly
+    in mocked unit tests).
+    """
+    cause = getattr(exc, "__cause__", None)
+    diag = getattr(cause, "diag", None)
+    diag_constraint_name = getattr(diag, "constraint_name", None)
+    if diag_constraint_name is not None:
+        return diag_constraint_name == _CURRENT_CONSENT_RACE_CONSTRAINT
+    return _CURRENT_CONSENT_RACE_CONSTRAINT in str(exc)
 
 
 def _policy_snapshot(policy) -> dict:
