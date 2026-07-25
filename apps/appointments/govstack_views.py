@@ -1368,12 +1368,12 @@ class SubscriberListDetailsView(APIView):
 
         try:
             results = subscriber_list(subscriber_filter, subscriber_details_required)
-        except ValueError as exc:
+        except ValueError:
             return Response(
                 {
                     "status": "error",
-                    "code": "LIST_FAILED",
-                    "message": str(exc),
+                    "code": "LIST_FILTER_INVALID",
+                    "message": "Invalid filter parameters. Please check subscriber_filter values.",
                 },
                 status=400,
             )
@@ -1388,4 +1388,11 @@ class SubscriberListDetailsView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "data": results}, status=200)
+        return Response(
+            {
+                "status": "success",
+                "data": results,
+                "truncated": len(results) == 500,
+            },
+            status=200,
+        )

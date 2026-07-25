@@ -286,8 +286,8 @@ class SubscriberDetailsSerializer(serializers.Serializer):
     migration 0013_govstack_wave_a.py).
     """
 
-    name = serializers.CharField(required=False, allow_blank=True)
-    category = serializers.CharField(required=False, allow_blank=True)
+    name = serializers.CharField(required=False, allow_blank=True, max_length=301)
+    category = serializers.CharField(required=False, allow_blank=True, max_length=50)
     phone = serializers.CharField(required=False, allow_blank=True)
     email = serializers.CharField(required=False, allow_blank=True)
     alert_url = serializers.CharField(required=False, allow_blank=True)

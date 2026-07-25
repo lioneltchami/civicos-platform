@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator as _URLValidator
 from django.core.validators import validate_email as _django_validate_email
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -63,13 +64,19 @@ def _validate_alert_preference(alert_preference: str) -> None:
         )
 
 
+_https_validator = _URLValidator(schemes=["https"])
+
+
 def _validate_url(url: str, field_name: str) -> None:
-    """Raise ValueError if url is non-empty and does not start with https://."""
-    if url and not url.startswith("https://"):
-        raise ValueError(
-            f"{field_name} must use HTTPS (got {url!r}). "
-            f"Plain HTTP callbacks are not permitted for government data."
-        )
+    """Raise ValueError if url is non-empty and is not a valid HTTPS URL."""
+    if url:
+        try:
+            _https_validator(url)
+        except DjangoValidationError:
+            raise ValueError(
+                f"{field_name} must be a valid HTTPS URL. "
+                f"Plain HTTP and malformed URLs are not permitted."
+            )
 
 
 def _validate_email_format(email: str) -> None:
@@ -147,34 +154,40 @@ def subscriber_create(
     _validate_url(alert_url, "alert_url")
     _validate_url(status_poll_url, "status_poll_url")
 
-    if phone and len(phone) > 20:
+    phone = (phone or "").strip()
+    if len(phone) > 20:
         raise ValueError("phone must not exceed 20 characters.")
 
+    if category and len(category) > 50:
+        raise ValueError("category must not exceed 50 characters.")
+
     first_name, last_name = _split_name(name)
+    if len(first_name) > 150 or len(last_name) > 150:
+        raise ValueError("name must not exceed 150 characters per part.")
 
-    try:
-        with transaction.atomic():
-            user = User(
-                email=email,
-                first_name=first_name,
-                last_name=last_name,
-                phone_number=phone or "",
-                is_active=True,
-            )
-            user.set_unusable_password()
+    with transaction.atomic():
+        user = User(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone,
+            is_active=True,
+        )
+        user.set_unusable_password()
+        try:
             user.save()
+        except IntegrityError as exc:
+            raise ValueError(
+                "A subscriber with this email already exists."
+            ) from exc
 
-            profile = GovStackSubscriberProfile.objects.create(
-                user=user,
-                category=category or "",
-                alert_url=alert_url or "",
-                alert_preference=alert_preference or "",
-                status_poll_url=status_poll_url or "",
-            )
-    except IntegrityError as exc:
-        raise ValueError(
-            "A subscriber with this email already exists."
-        ) from exc
+        profile = GovStackSubscriberProfile.objects.create(
+            user=user,
+            category=category or "",
+            alert_url=alert_url or "",
+            alert_preference=alert_preference or "",
+            status_poll_url=status_poll_url or "",
+        )
 
     logger.debug(
         "subscriber_create: created profile pk=%d user_pk=%d",
@@ -236,11 +249,14 @@ def subscriber_modify(
         # --- User fields ---
         if name is not None:
             first_name, last_name = _split_name(name)
+            if len(first_name) > 150 or len(last_name) > 150:
+                raise ValueError("name must not exceed 150 characters per part.")
             user.first_name = first_name
             user.last_name = last_name
             user_update_fields.extend(["first_name", "last_name"])
 
         if phone is not None:
+            phone = phone.strip()
             if len(phone) > 20:
                 raise ValueError("phone must not exceed 20 characters.")
             user.phone_number = phone
@@ -282,6 +298,8 @@ def subscriber_modify(
             profile_update_fields.append("status_poll_url")
 
         if category is not None:
+            if category and len(category) > 50:
+                raise ValueError("category must not exceed 50 characters.")
             profile.category = category
             profile_update_fields.append("category")
 
@@ -325,6 +343,7 @@ def subscriber_delete(subscriber_id: int) -> None:
         )
         profile.user.is_active = False
         profile.user.save(update_fields=["is_active"])
+        profile.save(update_fields=["updated_at"])
     logger.debug("subscriber_delete: soft-deleted subscriber user_pk=%d", subscriber_id)
 
 
@@ -348,7 +367,7 @@ def subscriber_list(
 
     Default visibility (matching GovStack spec for PII minimisation):
       subscriber_id     always included
-      name              True  (display name is expected in most list responses)
+      name              False (PII — excluded unless explicitly requested)
       category          False
       phone             False (PII)
       email             False (PII — only expose when explicitly requested)
@@ -388,11 +407,11 @@ def subscriber_list(
 
     phone_filter = filter_data.get("phone", "")
     if phone_filter:
-        qs = qs.filter(user__phone_number__icontains=phone_filter)
+        qs = qs.filter(user__phone_number__iexact=phone_filter)
 
     email_filter = filter_data.get("email", "")
     if email_filter:
-        qs = qs.filter(user__email__icontains=email_filter)
+        qs = qs.filter(user__email__iexact=email_filter)
 
     category_filter = filter_data.get("category", "")
     if category_filter:
@@ -401,6 +420,14 @@ def subscriber_list(
     alert_preference_filter = filter_data.get("alert_preference", "")
     if alert_preference_filter:
         qs = qs.filter(alert_preference__icontains=alert_preference_filter)
+
+    alert_url_filter = filter_data.get("alert_url", "")
+    if alert_url_filter:
+        qs = qs.filter(alert_url__icontains=alert_url_filter)
+
+    status_poll_url_filter = filter_data.get("status_poll_url", "")
+    if status_poll_url_filter:
+        qs = qs.filter(status_poll_url__icontains=status_poll_url_filter)
 
     MAX_RESULTS = 500
     qs = qs.order_by("pk")[:MAX_RESULTS]

@@ -126,6 +126,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
         self.assertEqual(data["status"], "error")
+        self.assertEqual(data.get("code"), "SUBSCRIBER_CREATE_FAILED")
 
     # S3
     def test_s3_post_new_duplicate_email_returns_400(self):
@@ -138,6 +139,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
         data = resp.json()
         self.assertEqual(data["status"], "error")
         self.assertEqual(data["code"], "SUBSCRIBER_CREATE_FAILED")
+        self.assertNotIn(email, resp.content.decode())
 
     # S4
     def test_s4_post_new_invalid_alert_preference_returns_400(self):
@@ -231,6 +233,43 @@ class SubscriberNewTests(SubscriberBaseTestCase):
             status_poll_url="",
         )
         self.assertFalse(profile.user.has_usable_password())
+
+    # S38
+    def test_s38_post_new_name_too_long_returns_400(self):
+        """S38 — name field exceeding 150 chars per part returns 400."""
+        long_name = "A" * 151 + " B"
+        qry = {"qry": {"details": {"email": "longname@example.com", "name": long_name}}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 400)
+
+    # S39
+    def test_s39_post_new_category_too_long_returns_400(self):
+        """S39 — category exceeding 50 chars returns 400."""
+        qry = {"qry": {"details": {"email": "longcat@example.com", "category": "X" * 51}}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 400)
+
+    # S40
+    def test_s40_post_new_whitespace_phone_stores_empty(self):
+        """S40 — Phone with only whitespace is stripped and stored as empty string."""
+        profile = subscriber_create(
+            name="Whitespace Phone",
+            email="wsphone@example.com",
+            category="",
+            phone="   ",
+            alert_url="",
+            alert_preference="",
+            status_poll_url="",
+        )
+        self.assertEqual(profile.user.phone_number, "")
+
+    # S41
+    def test_s41_post_new_status_poll_url_http_returns_400(self):
+        """S41 — http:// status_poll_url returns 400."""
+        qry = {"qry": {"details": {"email": "spoll@example.com",
+                                    "status_poll_url": "http://example.com/poll"}}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 400)
 
 
 # ===========================================================================
@@ -496,6 +535,15 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         resp = self._get({"subscriber_filter": {"subscriber_id": "abc"}})
         self.assertEqual(resp.status_code, 400)
 
+    # S42
+    def test_s42_list_nonexistent_alert_url_filter_returns_empty(self):
+        """S42 — alert_url filter actually filters (not silently ignored)."""
+        _create_subscriber(email="al1@example.com")  # no alert_url
+        resp = self._get({"subscriber_filter": {"alert_url": "https://notregistered.example.com/hook"}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(len(data["data"]), 0)  # filter actually applied
+
 
 # ===========================================================================
 # S27–S29: Service-level tests (direct imports)
@@ -558,3 +606,31 @@ class SubscriberServiceTests(TestCase):
         self.assertTrue(GovStackSubscriberProfile.objects.filter(user_id=user_id).exists())
         # User should be inactive
         self.assertFalse(User.objects.get(pk=user_id).is_active)
+
+
+# ===========================================================================
+# S43–S46: Wrong HTTP method tests
+# ===========================================================================
+
+class SubscriberViewMethodTests(TestCase):
+    """S43–S46 — Wrong HTTP methods return 405."""
+
+    def test_s43_get_on_new_returns_405(self):
+        """S43: GET on POST-only /subscriber/new returns 405."""
+        resp = self.client.get(NEW_URL + _qs())
+        self.assertEqual(resp.status_code, 405)
+
+    def test_s44_post_on_modifications_returns_405(self):
+        """S44: POST on PUT-only /subscriber/modifications returns 405."""
+        resp = self.client.post(MODIFICATIONS_URL + _qs())
+        self.assertEqual(resp.status_code, 405)
+
+    def test_s45_post_on_subscriber_delete_returns_405(self):
+        """S45: POST on DELETE-only /subscriber returns 405."""
+        resp = self.client.post(DELETE_URL + _qs())
+        self.assertEqual(resp.status_code, 405)
+
+    def test_s46_post_on_list_details_returns_405(self):
+        """S46: POST on GET-only /subscriber/list_details returns 405."""
+        resp = self.client.post(LIST_URL + _qs())
+        self.assertEqual(resp.status_code, 405)
