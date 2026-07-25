@@ -51,6 +51,8 @@ from __future__ import annotations
 import json
 import logging
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
@@ -66,6 +68,9 @@ from apps.appointments.govstack_serializers import (
     EntityCreateQrySerializer,
     EntityListQrySerializer,
     EntityModifySerializer,
+    EventCreateQrySerializer,
+    EventListQrySerializer,
+    EventModifySerializer,
     ResourceAvailabilityFilterSerializer,
     ResourceCreateQrySerializer,
     ResourceListQrySerializer,
@@ -74,7 +79,7 @@ from apps.appointments.govstack_serializers import (
     SubscriberListQrySerializer,
     SubscriberModifySerializer,
 )
-from apps.appointments.models import GovStackAffiliation, GovStackSubscriberProfile, Organization, Resource
+from apps.appointments.models import GovStackAffiliation, GovStackSubscriberProfile, Organization, Resource, Slot
 from apps.appointments.services.govstack_affiliation import (
     affiliation_create,
     affiliation_delete,
@@ -86,6 +91,12 @@ from apps.appointments.services.govstack_entity import (
     entity_delete,
     entity_list,
     entity_modify,
+)
+from apps.appointments.services.govstack_event import (
+    event_create,
+    event_delete,
+    event_list,
+    event_modify,
 )
 from apps.appointments.services.govstack_subscriber import (
     subscriber_create,
@@ -1384,6 +1395,306 @@ class SubscriberListDetailsView(APIView):
                     "status": "error",
                     "code": "LIST_FAILED",
                     "message": "Operation failed. Please check your input and try again.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {
+                "status": "success",
+                "data": results,
+                "truncated": len(results) == 500,
+            },
+            status=200,
+        )
+
+
+# ===========================================================================
+# Event views (4 endpoints) — Wave D
+# ===========================================================================
+
+class EventNewView(APIView):
+    """
+    POST /govstack/scheduler/event/new
+
+    Create a new Event (AppointmentType + one Slot per entry in slots[]). All
+    request data arrives as query parameters; event details are embedded in `qry`.
+
+    Expected qry shape:
+      {"qry": {"details": {"name": "...", "slots": [{"from": "...", "to": "..."}],
+                           "status": "available", ...}}}
+
+    Returns:
+      201 {"status": "success", "event_ids": ["<slot_pk>", ...]}
+      400 on validation or creation failure
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def post(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = EventCreateQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["qry"]["details"]
+        try:
+            created_slots = event_create(
+                name=details.get("name", ""),
+                description=details.get("description", ""),
+                category=details.get("category", ""),
+                host_entity_id=details.get("host_entity_id", ""),
+                slots=details.get("slots", []),
+                deadline=details.get("deadline", ""),
+                subscriber_limit=details.get("subscriber_limit", ""),
+                terms=details.get("terms", ""),
+                status=details.get("status", ""),
+                venue=details.get("venue"),
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_CREATE_FAILED",
+                    "message": "Event creation failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("event_create failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "CREATE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response(
+            {"status": "success", "event_ids": [str(s.pk) for s in created_slots]},
+            status=201,
+        )
+
+
+class EventModificationsView(APIView):
+    """
+    PUT /govstack/scheduler/event/modifications
+
+    Modify an existing Event (Slot + AppointmentType). Requires `event_id` and
+    `qry` query parameters.
+
+    Expected qry shape:
+      {"details": {"name": "...", "slots": [...], "status": "...", ...}}  (all optional)
+
+    Returns:
+      200 {"status": "success", "event_id": "<event_id>"}
+      400 on missing/invalid params or modification failure
+      404 if no event with the given event_id exists
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def put(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        event_id_str = request.query_params.get("event_id", "").strip()
+        if not event_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_EVENT_ID",
+                    "message": "event_id is required.",
+                },
+                status=400,
+            )
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = EventModifySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        details = ser.validated_data["details"]
+        try:
+            event_modify(
+                event_id=event_id_str,
+                name=details.get("name"),
+                description=details.get("description"),
+                category=details.get("category"),
+                host_entity_id=details.get("host_entity_id"),
+                slots=details.get("slots"),
+                deadline=details.get("deadline"),
+                subscriber_limit=details.get("subscriber_limit"),
+                terms=details.get("terms"),
+                status=details.get("status"),
+                venue=details.get("venue"),
+            )
+        except (Slot.DoesNotExist, DjangoValidationError):
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_NOT_FOUND",
+                    "message": f"No event with id={event_id_str}.",
+                },
+                status=404,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_MODIFY_FAILED",
+                    "message": "Event modification failed. Please check the supplied details.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("event_modify failed for event_id=%s", event_id_str)
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MODIFY_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response({"status": "success", "event_id": event_id_str}, status=200)
+
+
+class EventDeleteView(APIView):
+    """
+    DELETE /govstack/scheduler/event
+
+    Soft-delete an Event (sets Slot.status = "cancelled"). Requires `event_id`
+    query parameter.
+
+    Returns:
+      200 {"status": "success", "event_id": "<event_id>"}
+      400 if event_id is missing
+      404 if no event with the given event_id exists
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def delete(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        event_id_str = request.query_params.get("event_id", "").strip()
+        if not event_id_str:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "MISSING_EVENT_ID",
+                    "message": "event_id is required.",
+                },
+                status=400,
+            )
+
+        try:
+            event_delete(event_id=event_id_str)
+        except (Slot.DoesNotExist, DjangoValidationError):
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_NOT_FOUND",
+                    "message": f"No event with id={event_id_str}.",
+                },
+                status=404,
+            )
+        except Exception:
+            logger.exception("event_delete failed for event_id=%s", event_id_str)
+            return Response(
+                {
+                    "status": "error",
+                    "code": "DELETE_FAILED",
+                    "message": "Operation failed.",
+                },
+                status=400,
+            )
+
+        return Response({"status": "success", "event_id": event_id_str}, status=200)
+
+
+class EventListDetailsView(APIView):
+    """
+    GET /govstack/scheduler/event/list_details
+
+    List Events matching the supplied filters. All parameters arrive as query
+    params; filter and field-selection objects are embedded in `qry`.
+
+    Expected qry shape:
+      {
+        "event_filter": {"status": "available", "name": "..."},
+        "event_details_required": {"event_id": true, "name": true, "slots": false}
+      }
+
+    Returns:
+      200 {"status": "success", "data": [...], "truncated": <bool>}
+      400 on invalid params
+    """
+
+    gs_actor_role = "organizer"
+    authentication_classes = [GovStackSchedulerAuth]
+    permission_classes = [GovStackSchedulerPermission]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+    def get(self, request):
+        request.META["_gs_actor_role"] = "organizer"
+
+        qry_data, err = _parse_qry(request)
+        if err:
+            return err
+
+        ser = EventListQrySerializer(data=qry_data)
+        if not ser.is_valid():
+            return _validation_error(ser)
+
+        event_filter = ser.validated_data.get("event_filter", {})
+        # Use serializer defaults when caller omits event_details_required entirely.
+        event_details_required = ser.validated_data.get("event_details_required") or {}
+
+        try:
+            results = event_list(
+                event_filter=event_filter,
+                event_details_required=event_details_required,
+            )
+        except ValueError:
+            return Response(
+                {
+                    "status": "error",
+                    "code": "EVENT_LIST_FILTER_INVALID",
+                    "message": "Invalid filter parameters.",
+                },
+                status=400,
+            )
+        except Exception:
+            logger.exception("event_list failed")
+            return Response(
+                {
+                    "status": "error",
+                    "code": "LIST_FAILED",
+                    "message": "Operation failed.",
                 },
                 status=400,
             )

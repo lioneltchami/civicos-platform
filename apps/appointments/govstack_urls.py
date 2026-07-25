@@ -57,6 +57,11 @@ from apps.appointments.govstack_views import (
     SubscriberModificationsView,
     SubscriberDeleteView,
     SubscriberListDetailsView,
+    # Wave D — Event
+    EventNewView,
+    EventModificationsView,
+    EventDeleteView,
+    EventListDetailsView,
 )
 
 app_name = "govstack_scheduler"
@@ -89,10 +94,10 @@ def govstack_not_implemented(request, *args, **kwargs):
 
 urlpatterns = [
     # ── Event (Wave D) ────────────────────────────────────────────────────────
-    path("event/new", govstack_not_implemented, name="event_new"),
-    path("event/modifications", govstack_not_implemented, name="event_modifications"),
-    path("event/list_details", govstack_not_implemented, name="event_list_details"),
-    path("event", govstack_not_implemented, name="event_delete"),
+    path("event/new", EventNewView.as_view(), name="event_new"),
+    path("event/modifications", EventModificationsView.as_view(), name="event_modifications"),
+    path("event/list_details", EventListDetailsView.as_view(), name="event_list_details"),
+    path("event", EventDeleteView.as_view(), name="event_delete"),
 
     # ── Entity (Wave B) ───────────────────────────────────────────────────────
     path("entity/new", EntityNewView.as_view(), name="entity_new"),
