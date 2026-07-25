@@ -1,6 +1,21 @@
 # GovStack Payments BB — Completion Plan
-**Date:** 2026-07-25
+**Date:** 2026-07-25 (P0 completed and independently verified same day — see status update below)
 **Method:** Every claim below was checked against the live `GovStackWorkingGroup/bb-payments` GitHub repo (cloned fresh via sparse-checkout of `api/` and `test/openAPI/`), not against memory, prior reports, or code comments. Where CivicOS's own code comments cite "the spec" or "the harness," those citations were checked against the actual OpenAPI YAMLs and the actual Cucumber/Gherkin + JS step-definition files that GovStack itself runs — and several of them turned out to be wrong. That mismatch is the direct answer to "you said we were done, now not so much."
+
+---
+
+## STATUS UPDATE (2026-07-25, same day): P0 — DONE
+
+Implemented via 3 parallel agents (1 implementer, 2 independent verifiers — one re-fetching the live harness from scratch across every branch, one auditing the rest of the codebase for the same bug class), then personally re-verified before commit (read every diff hunk and every new test body, ran `manage.py check`/`test apps.payments`/`makemigrations --check --dry-run` myself). Commit `8adb3ea`.
+
+- `IsTrustedSourceBB.has_permission()` now degrades to `AllowAnyBB`-equivalent behavior when the header is absent AND `GOVSTACK_REQUIRE_REGISTERED_BB=False` (harness default) — mirroring `HasVoucherJWT`'s existing pattern. Production behavior (flag `=True`) is unchanged: header required, whitelist-checked.
+- Applied uniformly to all 5 G2P views (`RegisterBeneficiaryView`, `UpdateBeneficiaryView`, `BulkPaymentView`, `PrepaymentValidationView`, `PrepaymentValidationResponseView`) — the plan's own "4 G2P endpoints" phrasing was an internal inconsistency (it named 5 classes in the same breath); corrected here and in the code docstrings.
+- 1590 tests passing (up from 1572), including 18 new/rewritten tests that are the actual regression guard for this bug (missing header + harness mode → 200; missing header + production → 401; unregistered/registered header + production → 401/200) across all 5 views.
+- Independent re-verification (separate fresh clone, all branches, whole `test/` tree grepped, not just the 4 files originally checked) **confirmed** the core claim and found no other permission class anywhere in this codebase (Payments, Appointments/Scheduler, Consent) has the same "unconditionally strict regardless of settings mode" bug — Scheduler BB's analogous `GovStackSchedulerAuth` was already built correctly (mode check happens before any unconditional rejection).
+- **New finding surfaced by this round's re-verification, not previously known:** the formal `BulkPayment.yml` and `BulkValidateAccountRequest.yml` YAMLs describe a *structurally different* API (different paths — `/batchtransactions`, `/beneficiaries?command=validate` — different body shapes, HTTP 202) than what the live harness actually tests (which matches CivicOS's current body field names — `RequestID`/`SourceBBID`/`BatchID`/`CreditInstructions`/HTTP 200 — exactly). This is the same "wrong reference document" failure mode P1 already identified for the Voucher engine, now confirmed to also apply to G2P's formal specs. No action needed — CivicOS is already built against the harness's real shape for G2P body fields — but worth knowing so a future pass doesn't "fix" G2P body fields to match the formal YAMLs and break the actual harness.
+- Also confirmed: GovStack's own `ADR-bb-payments-001.md` (merged into `main` 2026-05-01, status OPEN) states GovStack is actively re-scoping/splitting the Payments BB for "GovStack 2.0+" — i.e. GovStack itself acknowledges this surface is unsettled. Treat the harness (not the formal YAMLs) as the near-term certification target, but expect further churn upstream.
+
+P1 (voucher response schema + error code rewrite), P2 (`Gov_Stack_BB` blocklist + seed fix), and P3 (mechanical migration cleanup) remain open and unstarted — see their sections below, unchanged from the original plan.
 
 ---
 
