@@ -472,13 +472,36 @@ def _build_export_payload(user) -> dict:
         "preferred_language": getattr(user, "preferred_language", None),
     }
 
-    consents = list(
-        ConsentRecord.objects.filter(citizen=user).values(
-            "category__slug", "category__name_en", "status", "granted_at", "withdrawn_at", "source"
-        )
-    )
+    consent_records = list(ConsentRecord.objects.filter(citizen=user))
+    consents = [
+        {
+            "category__slug": r.category.slug,
+            "category__name_en": r.category.name_en,
+            "status": r.status,
+            "granted_at": r.granted_at,
+            "withdrawn_at": r.withdrawn_at,
+            "source": r.source,
+        }
+        for r in consent_records
+    ]
 
-    # Try to import optional apps gracefully
+    # BUGFIX (item 6 hardening round): the three sections below each import an
+    # optional app (apps.portal / apps.notifications may not be installed in
+    # every CivicOS deployment) and query it. The previous code used a bare
+    # `except Exception: pass` for all three — meaning a genuine query bug
+    # (a renamed field, a broken migration, a DB error) would be silently
+    # swallowed exactly like a legitimate "app not installed" ImportError,
+    # producing a PIPEDA s.4.9 access-request export that is silently
+    # INCOMPLETE with no trace in the logs. For a legally-mandated data
+    # export this is a real defect, not just noisy logging — the citizen
+    # (and the org responding to their request) would have no way to know
+    # data was missing. Fixed by only swallowing the two "expected, optional
+    # app" exception types (ImportError / ModuleNotFoundError) silently, and
+    # logging (not swallowing) anything else so a real bug surfaces instead
+    # of vanishing.  A single section's genuine failure still does not abort
+    # the whole export — the citizen's other data is more useful delivered
+    # incomplete-but-flagged than not delivered at all — but it is now always
+    # visible in the logs.
     service_requests = []
     try:
         from apps.portal.models import ServiceRequest
@@ -487,8 +510,14 @@ def _build_export_payload(user) -> dict:
                 "reference_number", "service_name", "status", "description", "created_at"
             )
         )
-    except Exception:
+    except ImportError:
         pass
+    except Exception:
+        logger.exception(
+            "_build_export_payload: service_requests section failed for user pk=%s "
+            "(NOT an ImportError — this is a genuine bug, export will omit this section)",
+            user.pk,
+        )
 
     notifications = []
     try:
@@ -498,8 +527,14 @@ def _build_export_payload(user) -> dict:
                 "subject", "channel", "read_at", "sent_at", "created_at"
             )
         )
-    except Exception:
+    except ImportError:
         pass
+    except Exception:
+        logger.exception(
+            "_build_export_payload: notifications section failed for user pk=%s "
+            "(NOT an ImportError — this is a genuine bug, export will omit this section)",
+            user.pk,
+        )
 
     consent_audit_entries = []
     try:
@@ -513,8 +548,66 @@ def _build_export_payload(user) -> dict:
         for entry in consent_audit_entries:
             if entry.get("timestamp"):
                 entry["timestamp"] = str(entry["timestamp"])
-    except Exception:
+    except ImportError:
         pass
+    except Exception:
+        logger.exception(
+            "_build_export_payload: consent_audit_entries section failed for user pk=%s "
+            "(NOT an ImportError — this is a genuine bug, export will omit this section)",
+            user.pk,
+        )
+
+    # GAP FIX (item 6): the export previously included ConsentRecord rows
+    # (`consents` above) and ConsentAuditEntry rows, but neither the
+    # ConsentRevision snapshots (the tamper-evident, hashed history of every
+    # state transition each of the citizen's ConsentRecords went through) nor
+    # the ConsentSignature rows (the actual signature payloads GovStack
+    # attaches to a signed ConsentRecord) were ever included. Per PIPEDA
+    # s.4.9, a citizen is entitled to the actual record of what they signed
+    # and when — the revision chain and signature are exactly that record,
+    # not just the current-state summary `consents` provides.
+    revisions = []
+    signatures = []
+    try:
+        from apps.consent.models import ConsentRevision, ConsentSignature
+
+        record_ids = [str(r.pk) for r in consent_records]
+        if record_ids:
+            revisions = list(
+                ConsentRevision.objects.filter(
+                    schema_name="ConsentRecord", object_id__in=record_ids
+                )
+                .order_by("-timestamp")
+                .values(
+                    "id", "object_id", "serialized_snapshot", "serialized_hash",
+                    "timestamp", "predecessor_hash",
+                )
+            )
+            for rev in revisions:
+                rev["id"] = str(rev["id"])
+                rev["timestamp"] = str(rev["timestamp"])
+
+            signatures = list(
+                ConsentSignature.objects.filter(consent_record__in=consent_records)
+                .order_by("-timestamp")
+                .values(
+                    "id", "consent_record_id", "payload", "signature",
+                    "verification_type", "verification_signed_as",
+                    "verification_signed_by", "timestamp",
+                )
+            )
+            for sig in signatures:
+                sig["id"] = str(sig["id"])
+                sig["consent_record_id"] = str(sig["consent_record_id"])
+                sig["timestamp"] = str(sig["timestamp"])
+    except ImportError:
+        pass
+    except Exception:
+        logger.exception(
+            "_build_export_payload: revisions/signatures section failed for user pk=%s "
+            "(NOT an ImportError — this is a genuine bug, export will omit this section)",
+            user.pk,
+        )
 
     # NOTE: FormSubmission records are not included in the PIPEDA export because
     # Wagtail AbstractFormSubmission does not store a user FK — submissions are
@@ -533,6 +626,8 @@ def _build_export_payload(user) -> dict:
         "subject": "PIPEDA Data Export",
         "profile": profile,
         "consents": consents,
+        "consent_revisions": revisions,
+        "consent_signatures": signatures,
         "service_requests": service_requests,
         "notifications": notifications,
         "consent_audit_entries": consent_audit_entries,

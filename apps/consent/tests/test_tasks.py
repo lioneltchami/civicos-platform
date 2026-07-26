@@ -25,7 +25,9 @@ from apps.consent.models import (
     ConsentWebhook,
     DataExportRequest,
 )
+from apps.consent.services import ConsentService
 from apps.consent.tasks import (
+    _build_export_payload,
     cleanup_export_files,
     dispatch_consent_webhook,
     process_data_export,
@@ -173,6 +175,115 @@ class ProcessDataExportTaskTests(TestCase):
             result = process_data_export.apply(args=[str(export.pk)], throw=False)
         export.refresh_from_db()
         self.assertEqual(export.status, DataExportRequest.STATUS_FAILED)
+
+
+class BuildExportPayloadTests(TestCase):
+    """
+    Item 6 (Consent closure plan): _build_export_payload() previously
+    silently swallowed ANY exception (`except Exception: pass`) in its
+    service_requests/notifications/consent_audit_entries sections, and never
+    included ConsentRevision or ConsentSignature data at all. These tests
+    pin the fixed behavior: genuine data (not just ImportError) surfaces
+    Revisions/Signatures correctly, and a non-ImportError failure is logged
+    rather than silently discarded.
+    """
+
+    def setUp(self):
+        self.citizen = _make_citizen()
+        self.category, _initial_revision = ConsentService.create_data_agreement({
+            "slug": f"export-cat-{uuid.uuid4().hex[:6]}",
+            "name_en": "Export Test Category",
+            "name_fr": "Catégorie de test",
+            "purpose_en": "Testing exports",
+            "purpose_fr": "Test",
+            "lawful_basis": "consent",
+            "is_required": False,
+            "is_active": True,
+        })
+
+    def test_payload_includes_consent_revisions_for_this_citizen(self):
+        """
+        grant() creates 2 ConsentRevisions (unsigned, then signed) per call
+        (services.py Steps 2 and 6) — the export must surface both.
+        """
+        ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
+        payload = _build_export_payload(self.citizen)
+        self.assertIn("consent_revisions", payload)
+        self.assertEqual(len(payload["consent_revisions"]), 2)
+        for rev in payload["consent_revisions"]:
+            self.assertIsInstance(rev["id"], str)
+            self.assertIsInstance(rev["serialized_snapshot"], dict)
+            self.assertIsInstance(rev["serialized_hash"], str)
+
+    def test_payload_includes_consent_signatures_for_this_citizen(self):
+        """
+        grant() auto-creates exactly one ConsentSignature (services.py Step 5,
+        "auto-create system string-type signature") — the export must include it.
+        """
+        ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
+        payload = _build_export_payload(self.citizen)
+        self.assertIn("consent_signatures", payload)
+        self.assertEqual(len(payload["consent_signatures"]), 1)
+        sig = payload["consent_signatures"][0]
+        self.assertEqual(sig["verification_type"], "string")
+        self.assertIsInstance(sig["payload"], str)
+        self.assertIsInstance(sig["signature"], str)
+
+    def test_payload_scopes_revisions_and_signatures_to_this_citizen_only(self):
+        """A second citizen's revisions/signatures must never leak into this one's export."""
+        other = _make_citizen()
+        ConsentService.grant(citizen=other, category_slug=self.category.slug)
+        # This citizen has no ConsentRecord of their own at all.
+        payload = _build_export_payload(self.citizen)
+        self.assertEqual(payload["consent_revisions"], [])
+        self.assertEqual(payload["consent_signatures"], [])
+
+    def test_empty_for_citizen_with_no_consent_records(self):
+        payload = _build_export_payload(self.citizen)
+        self.assertEqual(payload["consents"], [])
+        self.assertEqual(payload["consent_revisions"], [])
+        self.assertEqual(payload["consent_signatures"], [])
+
+    def test_payload_is_json_serializable(self):
+        """The task json.dumps()'s this payload directly — it must not blow up."""
+        ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
+        payload = _build_export_payload(self.citizen)
+        json.dumps(payload, default=str)  # must not raise
+
+    def test_non_import_error_in_optional_section_is_logged_not_swallowed(self):
+        """
+        BUGFIX regression guard: a genuine bug (anything other than
+        ImportError) in the service_requests/notifications/audit-entries
+        sections must be logged via logger.exception, not silently passed —
+        the old `except Exception: pass` made this indistinguishable from
+        "app not installed". We simulate this by making the ConsentAuditEntry
+        import raise a plain RuntimeError instead of ImportError.
+        """
+        with patch("apps.consent.models.ConsentAuditEntry") as mock_model:
+            mock_model.objects.filter.side_effect = RuntimeError("simulated DB error")
+            with patch("apps.consent.tasks.logger") as mock_logger:
+                payload = _build_export_payload(self.citizen)
+                mock_logger.exception.assert_called()
+        # The rest of the payload must still be produced despite this failure.
+        self.assertIn("profile", payload)
+        self.assertEqual(payload["consent_audit_entries"], [])
+
+    def test_import_error_in_optional_section_is_silently_skipped(self):
+        """
+        The genuinely-expected case (an optional app not installed) must NOT
+        be logged as an error — only unexpected exceptions should be.
+
+        Setting sys.modules["apps.portal.models"] = None is the standard
+        Python trick to force the next `import apps.portal.models` statement
+        to raise ImportError, simulating "this optional app isn't installed"
+        without needing to actually uninstall anything.
+        """
+        import sys
+        with patch.dict(sys.modules, {"apps.portal.models": None}):
+            with patch("apps.consent.tasks.logger") as mock_logger:
+                payload = _build_export_payload(self.citizen)
+                mock_logger.exception.assert_not_called()
+        self.assertEqual(payload["service_requests"], [])
 
 
 class CleanupExportFilesTaskTests(TestCase):
