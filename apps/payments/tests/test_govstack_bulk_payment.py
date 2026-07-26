@@ -15,6 +15,7 @@ Coverage matrix:
      A5: Empty CreditInstructions array → HTTP 400, ResponseCode "01"
      A6: "invalid" SourceBBID (7 chars, fails min_length=10) → HTTP 400
      A7: "invalid" BatchID (7 chars, fails min_length=10) → HTTP 400
+     A8: malformed-length RequestID (not exactly 12 chars) → HTTP 400, ResponseCode "01"
 
   B. PrepaymentValidation view — harness scenarios (15 total, ALL HTTP 200)
      B1:  Smoke POST → HTTP 200
@@ -32,6 +33,7 @@ Coverage matrix:
      B13: "Invalid BatchID" partial body → HTTP 200, ResponseCode "01"
      B14: Invalid Amount "100.10.1" (unparseable Decimal) → HTTP 200, ResponseCode "01"
      B15: Invalid Currency "US" (2 chars, fails ISO 4217) → HTTP 200, ResponseCode "01"
+     B16: malformed-length RequestID (not exactly 12 chars) → HTTP 200, ResponseCode "01"
 
   C. G2P envelope invariants
      C1: BulkPayment success envelope has all three required keys
@@ -73,6 +75,13 @@ Coverage matrix:
      E7:  CreditInstructionSerializer (bulk): Narration is optional
      E8:  PrepaymentValidationResponseAckSerializer: field is Source_BatchID (with underscore)
      E9:  PrepaymentValidationResponseAckSerializer: SourceBatchID (no underscore) is ignored
+     E10: BulkPaymentRequestSerializer accepts exactly-12-char RequestID
+     E11: BulkPaymentRequestSerializer rejects 11-char RequestID
+     E12: BulkPaymentRequestSerializer rejects 13-char RequestID
+     E13: BulkPaymentRequestSerializer — omitted RequestID still defaults to ""
+     E14: PrepaymentValidationRequestSerializer accepts exactly-12-char RequestID
+     E15: PrepaymentValidationRequestSerializer rejects 11-char RequestID
+     E16: PrepaymentValidationRequestSerializer rejects 13-char RequestID
 
   F. Critical bug regression tests (post-review fixes)
      F1: UUID-format correlation_id (36 chars) accepted and persisted without truncation
@@ -118,6 +127,7 @@ from apps.payments.govstack_serializers import (
     BulkPaymentRequestSerializer,
     CreditInstructionSerializer,
     PrepaymentCreditInstructionSerializer,
+    PrepaymentValidationRequestSerializer,
     PrepaymentValidationResponseAckSerializer,
 )
 from apps.payments.govstack_services import GovStackBulkPaymentService
@@ -325,6 +335,19 @@ class BulkPaymentHarnessTest(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["ResponseCode"], "01")
 
+    # A8 — malformed-length RequestID (not exactly 12 chars) → HTTP 400,
+    # ResponseCode "01" — live spec: g2pResponseSchema.RequestID is
+    # {minLength: 12, maxLength: 12}. The invalid RequestID is still echoed
+    # back verbatim (echo-back is independent of input validation).
+    def test_a8_malformed_length_request_id_returns_400(self):
+        body = _bulk_body(request_id="too-short")  # 9 chars
+        resp = self.client.post(BULK_PAYMENT_URL, data=body, format="json")
+        data = resp.json()
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(data["ResponseCode"], "01")
+        self.assertEqual(data["RequestID"], "too-short")
+
 
 # ============================================================================
 # B.  PrepaymentValidation — harness scenarios (ALL HTTP 200)
@@ -517,6 +540,17 @@ class PrepaymentValidationHarnessTest(TestCase):
         status, data = self._post(body)
         self.assertEqual(status, 200)
         self.assertEqual(data["ResponseCode"], "01")
+
+    # B16 — malformed-length RequestID (not exactly 12 chars) → HTTP 200 (this
+    # endpoint always returns 200), ResponseCode "01". Live spec:
+    # g2pResponseSchema.RequestID is {minLength: 12, maxLength: 12}. The
+    # invalid RequestID is still echoed back verbatim.
+    def test_b16_malformed_length_request_id(self):
+        body = _prepay_body(request_id="too-short")  # 9 chars
+        status, data = self._post(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["ResponseCode"], "01")
+        self.assertEqual(data["RequestID"], "too-short")
 
 
 # ============================================================================
@@ -1207,6 +1241,78 @@ class BulkPaymentSerializerTest(TestCase):
         ser = self._ser(SourceBBID="aBcD12345")    # 9 chars
         self.assertFalse(ser.is_valid())
         self.assertIn("SourceBBID", ser.errors)
+
+    # E10 — exactly-12-char RequestID is accepted (live spec: g2pResponseSchema
+    # RequestID is {minLength: 12, maxLength: 12}).
+    def test_e10_exactly_12_char_request_id_accepted(self):
+        ser = self._ser(RequestID="RequestID111")   # exactly 12 chars
+        self.assertTrue(ser.is_valid(), ser.errors)
+        self.assertEqual(ser.validated_data["RequestID"], "RequestID111")
+
+    # E11 — an 11-char RequestID is rejected (too short per live spec)
+    def test_e11_eleven_char_request_id_rejected(self):
+        ser = self._ser(RequestID="RequestID11")   # 11 chars
+        self.assertFalse(ser.is_valid())
+        self.assertIn("RequestID", ser.errors)
+
+    # E12 — a 13-char RequestID is rejected (too long per live spec)
+    def test_e12_thirteen_char_request_id_rejected(self):
+        ser = self._ser(RequestID="RequestID1111")   # 13 chars
+        self.assertFalse(ser.is_valid())
+        self.assertIn("RequestID", ser.errors)
+
+    # E13 — an omitted RequestID still defaults to "" unvalidated (matches
+    # RegisterBeneficiaryRequestSerializer's G8 behaviour).
+    def test_e13_omitted_request_id_defaults_to_empty(self):
+        data = {
+            "SourceBBID": BP_SOURCE_BB_1,
+            "BatchID": BP_BATCH_ID_1,
+            "CreditInstructions": [self._valid_instr()],
+        }
+        ser = BulkPaymentRequestSerializer(data=data)
+        self.assertTrue(ser.is_valid(), ser.errors)
+        self.assertEqual(ser.validated_data["RequestID"], "")
+
+
+class PrepaymentValidationRequestSerializerTest(TestCase):
+    """Tests for PrepaymentValidationRequestSerializer's RequestID field constraint."""
+
+    def _valid_instr(self):
+        return {
+            "InstructionID": PV_INSTR_ID_1,
+            "PayeeFunctionalID": PV_PAYEE_ID_1,
+            "Amount": "100.00",
+            "Currency": "USD",
+            "Narration": "Narration",
+        }
+
+    def _ser(self, **kwargs) -> PrepaymentValidationRequestSerializer:
+        data = {
+            "RequestID": PV_REQUEST_ID_1,
+            "SourceBBID": PV_SOURCE_BB_1,
+            "BatchID": PV_BATCH_ID_1,
+            "CreditInstructions": [self._valid_instr()],
+        }
+        data.update(kwargs)
+        return PrepaymentValidationRequestSerializer(data=data)
+
+    # E14 — exactly-12-char RequestID is accepted
+    def test_e14_exactly_12_char_request_id_accepted(self):
+        ser = self._ser(RequestID="abcdef123456")   # exactly 12 chars
+        self.assertTrue(ser.is_valid(), ser.errors)
+        self.assertEqual(ser.validated_data["RequestID"], "abcdef123456")
+
+    # E15 — an 11-char RequestID is rejected
+    def test_e15_eleven_char_request_id_rejected(self):
+        ser = self._ser(RequestID="abcdef12345")   # 11 chars
+        self.assertFalse(ser.is_valid())
+        self.assertIn("RequestID", ser.errors)
+
+    # E16 — a 13-char RequestID is rejected
+    def test_e16_thirteen_char_request_id_rejected(self):
+        ser = self._ser(RequestID="abcdef1234567")   # 13 chars
+        self.assertFalse(ser.is_valid())
+        self.assertIn("RequestID", ser.errors)
 
 
 class PrepaymentSerializerTest(TestCase):

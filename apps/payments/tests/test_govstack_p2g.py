@@ -737,6 +737,194 @@ class TestPayerFIProductionModeEnforcement(TestCase):
 
 
 # ===========================================================================
+# D3. X-Platform-TenantId tenant-scoping validation
+#
+#   Distinct from D2 above: X-Platform-TenantId answers "which tenant's
+#   data", not "who is calling" (that's X-PayerFI-Id / IsTrustedPayerFI /
+#   RequirePayerFI, covered in D2). Validated by
+#   GovStackAPIView._validate_platform_tenant_id() — HTTP 400 on failure
+#   (validation error), not 401 (auth failure).
+#
+#   Length validation (>20 chars) fires REGARDLESS of the
+#   GOVSTACK_REQUIRE_PLATFORM_TENANT_ID flag. Presence validation only fires
+#   when that flag is True (production mode) — in harness/test mode
+#   (flag unset, defaults False) an absent header is tolerated everywhere,
+#   matching every other GOVSTACK_REQUIRE_* flag's default-off behaviour.
+# ===========================================================================
+
+_OVERSIZED_TENANT_ID = "T" * 21  # maxLength: 20 on every live P2G YAML
+
+
+class TestPlatformTenantIdOversizedAlwaysRejected(TestCase):
+    """
+    An oversized X-Platform-TenantId (or Platform-TenantId) header is
+    rejected with HTTP 400 in EVERY settings mode — this check does not
+    depend on GOVSTACK_REQUIRE_PLATFORM_TENANT_ID, mirroring how
+    IsTrustedPayerFI's length check also applies regardless of its own flag.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+
+    def test_bill_inquiry_oversized_tenant_id_returns_400(self):
+        resp = self.client.get(
+            _bill_url(BILL_ID), HTTP_X_PLATFORM_TENANTID=_OVERSIZED_TENANT_ID
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+
+    def test_bill_transfer_request_oversized_tenant_id_returns_400(self):
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+            HTTP_X_PLATFORM_TENANTID=_OVERSIZED_TENANT_ID,
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+        # The oversized value must not have been persisted anywhere.
+        self.assertFalse(
+            GovStackBillPayment.objects.filter(request_id=REQUEST_ID).exists()
+        )
+
+    def test_mark_bill_paid_oversized_tenant_id_returns_400(self):
+        resp = self.client.post(
+            _mark_paid_url(BILL_ID),
+            HTTP_X_PAYERFI_ID="FI-TEST",  # RequirePayerFI is fail-closed regardless
+            HTTP_X_PLATFORM_TENANTID=_OVERSIZED_TENANT_ID,
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.bill.refresh_from_db()
+        self.assertEqual(self.bill.status, GovStackBill.STATUS_UNPAID)
+
+    def test_transfer_status_oversized_tenant_id_returns_400(self):
+        payment = _make_payment(bill=self.bill)
+        resp = self.client.get(
+            _transfer_status_url(REQUEST_ID),
+            HTTP_X_PLATFORM_TENANTID=_OVERSIZED_TENANT_ID,
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+class TestPlatformTenantIdHarnessModePermissive(TestCase):
+    """
+    In harness/test mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID unset, default
+    False), an ABSENT X-Platform-TenantId header must still be tolerated —
+    this pins the no-regression contract for every existing P2G test in this
+    file that does not send the header at all.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+
+    def test_bill_inquiry_no_tenant_id_still_200_in_harness_mode(self):
+        resp = self.client.get(_bill_url(BILL_ID))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_bill_transfer_request_no_tenant_id_still_200_in_harness_mode(self):
+        resp = self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_mark_bill_paid_no_tenant_id_still_200_in_harness_mode(self):
+        resp = self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_transfer_status_no_tenant_id_still_200_in_harness_mode(self):
+        payment = _make_payment(bill=self.bill)
+        resp = self.client.get(_transfer_status_url(REQUEST_ID))
+        self.assertEqual(resp.status_code, 200)
+
+
+@override_settings(GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True)
+class TestPlatformTenantIdProductionModeEnforcement(TestCase):
+    """
+    With GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True, all 4 P2G views must:
+      - reject a request with no X-Platform-TenantId header (or the
+        Platform-TenantId spelling variant) with HTTP 400 (a validation
+        failure, distinct from D2's HTTP 401 auth failures)
+      - accept a request with a present, ≤20-char header with HTTP 200
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+
+    # BillInquiryView
+    def test_bill_inquiry_no_tenant_id_returns_400_in_production_mode(self):
+        resp = self.client.get(_bill_url(BILL_ID))
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+
+    def test_bill_inquiry_with_tenant_id_returns_200_in_production_mode(self):
+        resp = self.client.get(
+            _bill_url(BILL_ID), HTTP_X_PLATFORM_TENANTID="TENANT-GOV"
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_bill_inquiry_accepts_platform_tenantid_spelling_variant(self):
+        # billInquiryRequest.yml spells this header "Platform-TenantId" (no
+        # "X-" prefix) — confirm both variants are accepted.
+        resp = self.client.get(
+            _bill_url(BILL_ID), HTTP_PLATFORM_TENANTID="TENANT-GOV"
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    # BillTransferRequestView
+    def test_bill_transfer_request_no_tenant_id_returns_400_in_production_mode(self):
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL, _transfer_body(), format="json"
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+        self.assertFalse(
+            GovStackBillPayment.objects.filter(request_id=REQUEST_ID).exists()
+        )
+
+    def test_bill_transfer_request_with_tenant_id_returns_200_in_production_mode(self):
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+            HTTP_X_PLATFORM_TENANTID="TENANT-GOV",
+        )
+        self.assertEqual(resp.status_code, 200)
+        payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
+        self.assertEqual(payment.platform_tenant_id, "TENANT-GOV")
+
+    # MarkBillPaidView
+    def test_mark_bill_paid_no_tenant_id_returns_400_in_production_mode(self):
+        resp = self.client.post(
+            _mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST"
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.bill.refresh_from_db()
+        self.assertEqual(self.bill.status, GovStackBill.STATUS_UNPAID)
+
+    def test_mark_bill_paid_with_tenant_id_returns_200_in_production_mode(self):
+        resp = self.client.post(
+            _mark_paid_url(BILL_ID),
+            HTTP_X_PAYERFI_ID="FI-TEST",
+            HTTP_X_PLATFORM_TENANTID="TENANT-GOV",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    # TransferRequestStatusView
+    def test_transfer_status_no_tenant_id_returns_400_in_production_mode(self):
+        payment = _make_payment(bill=self.bill)
+        resp = self.client.get(_transfer_status_url(REQUEST_ID))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_transfer_status_with_tenant_id_returns_200_in_production_mode(self):
+        payment = _make_payment(bill=self.bill)
+        resp = self.client.get(
+            _transfer_status_url(REQUEST_ID), HTTP_X_PLATFORM_TENANTID="TENANT-GOV"
+        )
+        self.assertEqual(resp.status_code, 200)
+
+
+# ===========================================================================
 # E. GovStackP2GService — unit tests
 # ===========================================================================
 

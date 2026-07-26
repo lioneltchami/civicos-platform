@@ -322,3 +322,37 @@ GOVSTACK_SCHEDULER_REQUIRE_TOKEN = env.bool("GOVSTACK_SCHEDULER_REQUIRE_TOKEN", 
 GOVSTACK_REQUIRE_REGISTERED_PAYER_FI = env.bool(
     "GOVSTACK_REQUIRE_REGISTERED_PAYER_FI", default=True
 )
+
+# ---------------------------------------------------------------------------
+# GovStack Payments BB — P2G tenant-scoping header validation
+# ---------------------------------------------------------------------------
+
+# Controls whether GovStackAPIView._validate_platform_tenant_id() requires
+# the X-Platform-TenantId header (or the Platform-TenantId spelling variant
+# used on 2 of the 15 live P2G YAMLs) to be present on the 4 P2G bill payment
+# endpoints:
+#   GET  /govstack/payments/bills/{bill_id}
+#   POST /govstack/payments/billTransferRequests
+#   POST /govstack/payments/bills/{bill_id}/mark-paid
+#   GET  /govstack/payments/transferRequests/{transfer_request_id}
+#
+# This is a TENANT-SCOPING validation concern, distinct from
+# GOVSTACK_REQUIRE_REGISTERED_PAYER_FI above (caller identity). It does NOT
+# gate a whitelist lookup — there is no tenant registry table in this
+# codebase, and the live spec's only constraint on this header is presence +
+# maxLength: 20, not "is this a known tenant". A present-but-invalid
+# (oversized) header is always rejected with HTTP 400 regardless of this
+# flag's value; this flag only controls whether an ABSENT header is
+# tolerated.
+#
+# Production deployments MUST set this to True (the default here).
+# GovStack harness environments set GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=False
+# via environment variable, because there is currently zero P2G harness
+# coverage (confirmed: no "tenantid" match anywhere in test/openAPI/) and the
+# harness does not send this header. Never hardcode False in this file — use
+# the env var for per-environment control.
+#
+# Handled by apps/payments/govstack_views.GovStackAPIView._validate_platform_tenant_id().
+GOVSTACK_REQUIRE_PLATFORM_TENANT_ID = env.bool(
+    "GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", default=True
+)

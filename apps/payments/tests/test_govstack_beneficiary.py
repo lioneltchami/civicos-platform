@@ -915,7 +915,13 @@ class BeneficiarySerializerTest(TestCase):
         self.assertFalse(ser.is_valid())
         self.assertIn("Beneficiaries", ser.errors)
 
-    # G8 — RequestID is optional (harness may omit it in some scenarios)
+    # G8 — an omitted RequestID key still defaults to "" unvalidated.
+    # NOTE: re-verified against a fresh clone of the live harness (all 4
+    # g2p_*.feature files) that no scenario actually omits RequestID for this
+    # endpoint — this test documents current lenient behaviour for the
+    # omitted-key case specifically (DRF does not run field-level validators,
+    # like _validate_request_id, when a required=False field falls back to its
+    # default), not an accurate claim about what the harness sends.
     def test_g8_request_id_optional(self):
         ser = RegisterBeneficiaryRequestSerializer(data={
             "SourceBBID": VALID_SOURCE_BB_ID,
@@ -984,6 +990,53 @@ class BeneficiarySerializerTest(TestCase):
         })
         self.assertFalse(ser.is_valid())
         self.assertIn("SourceBBID", ser.errors)
+
+    # G15 — exactly-12-char RequestID is accepted (live spec: g2pResponseSchema
+    # RequestID is {minLength: 12, maxLength: 12}).
+    def test_g15_exactly_12_char_request_id_accepted(self):
+        ser = RegisterBeneficiaryRequestSerializer(data={
+            "RequestID": "abc123456789",  # exactly 12 chars
+            "SourceBBID": VALID_SOURCE_BB_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        })
+        self.assertTrue(ser.is_valid(), ser.errors)
+        self.assertEqual(ser.validated_data["RequestID"], "abc123456789")
+
+    # G16 — an 11-char RequestID is rejected (too short per live spec)
+    def test_g16_eleven_char_request_id_rejected(self):
+        ser = RegisterBeneficiaryRequestSerializer(data={
+            "RequestID": "abc12345678",  # 11 chars
+            "SourceBBID": VALID_SOURCE_BB_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        })
+        self.assertFalse(ser.is_valid())
+        self.assertIn("RequestID", ser.errors)
+
+    # G17 — a 13-char RequestID is rejected (too long per live spec)
+    def test_g17_thirteen_char_request_id_rejected(self):
+        ser = RegisterBeneficiaryRequestSerializer(data={
+            "RequestID": "abc1234567890",  # 13 chars
+            "SourceBBID": VALID_SOURCE_BB_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        })
+        self.assertFalse(ser.is_valid())
+        self.assertIn("RequestID", ser.errors)
+
+    # G18 — the same exactly-12 / 11 / 13 boundary applies at the HTTP layer:
+    # a malformed-length RequestID → HTTP 400, ResponseCode "01", and the raw
+    # (invalid) RequestID is still echoed back verbatim (echo-back is
+    # independent of input validation — see GovStackG2PView._request_id).
+    def test_g18_malformed_length_request_id_rejected_at_http_layer(self):
+        payload = {
+            "RequestID": "short-id",  # 8 chars — fails the exactly-12 constraint
+            "SourceBBID": VALID_SOURCE_BB_ID,
+            "Beneficiaries": [{"PayeeFunctionalID": VALID_PAYEE_ID}],
+        }
+        resp = APIClient().post(REGISTER_URL, payload, format="json")
+        self.assertEqual(resp.status_code, 400)
+        body = resp.json()
+        self.assertEqual(body["ResponseCode"], "01")
+        self.assertEqual(body["RequestID"], "short-id")
 
 
 # ============================================================================

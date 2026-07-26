@@ -400,7 +400,9 @@ class GovStackBulkPaymentService:
         Celery task is a no-op stub (processing is out of scope for harness tests).
 
         Args:
-            request_id:      RequestID from request body. Max 16 chars.
+            request_id:      RequestID from request body. Exactly 12 chars per
+                             the live GovStack schema (see _REQUEST_ID_VALIDATOR,
+                             govstack_models.py).
             source_bb_id:    SourceBBID identifying the calling BB.
             batch_id:        BatchID — must be globally unique.
             instructions:    Validated CreditInstruction dicts from the serializer.

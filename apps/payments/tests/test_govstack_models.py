@@ -25,6 +25,9 @@ Coverage matrix:
   M18. GovStackPaymentAuditEntry — initial creation (save()) succeeds
   M19. GovStackVoucher.__str__() — includes serial_number and status
   M20. GovStackBeneficiary.is_active defaults to True
+  M21. BulkPaymentBatch.request_id — _REQUEST_ID_VALIDATOR enforces exactly
+       12 chars via full_clean() (M21/M21b/M21c); .objects.create() bypasses
+       model validators entirely, unaffected by this tightening (M21d)
 
 Security invariants tested:
   - payee_functional_id NEVER appears in GovStackBeneficiary.__str__()
@@ -161,6 +164,75 @@ class BulkPaymentBatchModelTest(TestCase):
         self._make(batch_id="BATCH-DUPE")
         with self.assertRaises(IntegrityError):
             self._make(batch_id="BATCH-DUPE")
+
+
+# ============================================================================
+# M21  BulkPaymentBatch.request_id — _REQUEST_ID_VALIDATOR (exactly 12 chars)
+# ============================================================================
+
+class RequestIdValidatorTest(TestCase):
+    """
+    Tests for _REQUEST_ID_VALIDATOR, applied to BulkPaymentBatch.request_id.
+
+    Verified against a fresh clone of GovStackWorkingGroup/bb-payments
+    (test/openAPI/features/support/helpers/helpers.js): g2pResponseSchema.RequestID
+    is {minLength: 12, maxLength: 12} — this validator was previously 1-16 chars,
+    which was over-permissive relative to the live spec.
+
+    NOTE: .objects.create() does NOT call full_clean(), so these Django model
+    validators only fire when full_clean() is explicitly invoked (they are not
+    DB-level constraints). BulkPaymentBatchModelTest above legitimately uses
+    non-12-char request_id values like "REQ001" via .objects.create() — that
+    is unaffected by this tightened validator and continues to pass, because
+    the validator is never invoked on that code path (the real request-time
+    enforcement is in BulkPaymentRequestSerializer.RequestID's field-level
+    validator, not the model layer).
+    """
+
+    def _make_unsaved(self, request_id: str) -> BulkPaymentBatch:
+        return BulkPaymentBatch(
+            batch_id="BATCH-VALIDATOR-TEST",
+            request_id=request_id,
+            source_bb_id="gs-bb-01",
+            status=BulkPaymentBatch.STATUS_RECEIVED,
+            total_amount=Decimal("100.00"),
+        )
+
+    def test_m21_exactly_12_chars_passes_full_clean(self):
+        """M21: exactly-12-char request_id passes full_clean()."""
+        batch = self._make_unsaved("RequestID111")  # 12 chars
+        batch.full_clean()  # must not raise
+
+    def test_m21b_eleven_chars_fails_full_clean(self):
+        """M21b: an 11-char request_id fails full_clean() with a ValidationError."""
+        from django.core.exceptions import ValidationError
+        batch = self._make_unsaved("RequestID11")  # 11 chars
+        with self.assertRaises(ValidationError):
+            batch.full_clean()
+
+    def test_m21c_thirteen_chars_fails_full_clean(self):
+        """M21c: a 13-char request_id fails full_clean() with a ValidationError."""
+        from django.core.exceptions import ValidationError
+        batch = self._make_unsaved("RequestID1111")  # 13 chars
+        with self.assertRaises(ValidationError):
+            batch.full_clean()
+
+    def test_m21d_objects_create_bypasses_validator_for_short_id(self):
+        """
+        M21d: .objects.create() with a non-12-char request_id succeeds because
+        Django model validators are not enforced by .save()/.create() — only by
+        full_clean(). This documents (not merely asserts) that the model-layer
+        validator tightening in this change cannot break any existing
+        .objects.create()-based test or code path.
+        """
+        batch = BulkPaymentBatch.objects.create(
+            batch_id="BATCH-BYPASS-TEST",
+            request_id="REQ001",  # 6 chars — would fail full_clean(), but not create()
+            source_bb_id="gs-bb-01",
+            status=BulkPaymentBatch.STATUS_RECEIVED,
+            total_amount=Decimal("100.00"),
+        )
+        self.assertEqual(batch.request_id, "REQ001")
 
 
 # ============================================================================

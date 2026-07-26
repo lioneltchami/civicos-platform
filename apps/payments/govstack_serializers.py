@@ -42,7 +42,22 @@ from .govstack_models import (
 
 # Broad validator: any alphanumeric + hyphen, used by Voucher/P2G flows
 _BB_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,20}$")
-_REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,16}$")
+
+# G2P RequestID: exactly 12 alphanumeric-or-hyphen chars.
+# Verified against a fresh clone of GovStackWorkingGroup/bb-payments
+# (test/openAPI/features/support/helpers/helpers.js): g2pResponseSchema.RequestID
+# is `{type: 'string', minLength: 12, maxLength: 12}` — used by the response
+# schema for register-beneficiary, update-beneficiary-details, bulk-payment, and
+# prepayment-validation. Every RequestID literal in the harness's own .feature
+# files for these 4 endpoints is exactly 12 characters (e.g. "RequestID111",
+# "abcdef123456", "4a0425ef-008") and no scenario ever sends a non-12-char or
+# missing RequestID — so tightening 1–16 down to exactly 12 cannot break any
+# harness run; it only closes a real spec-fidelity gap.
+# NOTE: prepayment-validation-response uses a *different* schema
+# (prepaymentValidationResponseSchema) whose RequestID has no length constraint
+# at all — that endpoint's serializer (PrepaymentValidationResponseAckSerializer)
+# is deliberately NOT covered by this validator.
+_REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{12}$")
 
 # Bulk-payment-specific BB ID validator: min length 10.
 # • Valid harness values: "SourceBBID11" (12 chars), "BatchID11111" (12 chars)
@@ -113,10 +128,21 @@ def _validate_g2p_id(value: str, *, field_name: str = "field") -> str:
 
 
 def _validate_request_id(value: str) -> str:
-    """Validate RequestID: 1–16 alphanumeric or hyphen chars."""
+    """
+    Validate RequestID: exactly 12 alphanumeric or hyphen characters.
+
+    Matches the live GovStack g2pResponseSchema (helpers.js) exactly:
+    RequestID is `{minLength: 12, maxLength: 12}` there. Used as a field-level
+    validator on the RequestID field of the request serializers for
+    register-beneficiary, update-beneficiary-details, bulk-payment, and
+    prepayment-validation — i.e. only when a RequestID value is actually
+    present in the payload (DRF does not run field-level validators when a
+    `required=False` field is omitted and falls back to its default; the
+    omitted case is intentionally left as-is — see RequestID field comments).
+    """
     if not value or not _REQUEST_ID_RE.match(value):
         raise serializers.ValidationError(
-            "Must be 1–16 alphanumeric or hyphen characters."
+            "Must be exactly 12 alphanumeric or hyphen characters."
         )
     return value
 
@@ -176,13 +202,17 @@ class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
     """
     # RequestID is echoed back verbatim in all responses (success and error).
     # The harness always sends exactly 12-char RequestIDs (UUID prefix format).
-    # Not validated for format here — just echoed back as-is.
+    # Validated by _validate_request_id (exactly 12 alphanumeric/hyphen chars) —
+    # this only fires when a RequestID value is present in the payload; an
+    # omitted key still falls back to the "" default unvalidated (DRF does not
+    # run field-level validators on a required=False field's default value).
     RequestID = serializers.CharField(
         max_length=16,
         required=False,
         allow_blank=True,
         default="",
-        help_text="RequestID. Max 16 chars. Echoed back in response.",
+        validators=[_validate_request_id],
+        help_text="RequestID. Exactly 12 alphanumeric or hyphen chars when present. Echoed back in response.",
     )
     SourceBBID = serializers.CharField(
         max_length=20,
@@ -272,7 +302,12 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
       HTTP 400: missing SourceBBID, missing BatchID, empty CreditInstructions,
                "invalid" SourceBBID, "invalid" BatchID.
     """
-    RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
+    # RequestID: validated by _validate_request_id (exactly 12 alphanumeric/hyphen
+    # chars) when present; an omitted key still defaults to "" unvalidated.
+    RequestID = serializers.CharField(
+        max_length=16, required=False, allow_blank=True, default="",
+        validators=[_validate_request_id],
+    )
     SourceBBID = serializers.CharField(max_length=20)
     BatchID = serializers.CharField(max_length=20)
     CreditInstructions = serializers.ListField(
@@ -350,7 +385,12 @@ class PrepaymentValidationRequestSerializer(serializers.Serializer):
     (only that one field), so failure is triggered by MISSING required fields
     (BatchID, CreditInstructions), not by an invalid SourceBBID/BatchID value.
     """
-    RequestID = serializers.CharField(max_length=16, required=False, allow_blank=True, default="")
+    # RequestID: validated by _validate_request_id (exactly 12 alphanumeric/hyphen
+    # chars) when present; an omitted key still defaults to "" unvalidated.
+    RequestID = serializers.CharField(
+        max_length=16, required=False, allow_blank=True, default="",
+        validators=[_validate_request_id],
+    )
     SourceBBID = serializers.CharField(max_length=20)
     BatchID = serializers.CharField(max_length=20)
     CreditInstructions = serializers.ListField(
@@ -376,6 +416,16 @@ class PrepaymentValidationResponseAckSerializer(serializers.Serializer):
     Body sent by the harness to acknowledge receipt of the async validation
     result callback.  The harness sends {RequestID, Source_BatchID} (note the
     underscore in Source_BatchID — matches the GovStack spec field name exactly).
+
+    IMPORTANT — RequestID on THIS endpoint is deliberately NOT run through
+    _validate_request_id (unlike register-beneficiary / update-beneficiary-details
+    / bulk-payment / prepayment-validation). Verified against a fresh clone of
+    GovStackWorkingGroup/bb-payments: this endpoint's response is validated
+    against `prepaymentValidationResponseSchema` in helpers.js, which declares
+    `RequestID: { type: 'string' }` with NO length constraint — a different,
+    unconstrained schema from `g2pResponseSchema` (minLength/maxLength 12) used
+    by the other four endpoints. Applying the 12-char constraint here would be
+    over-tightening beyond what the live spec actually requires for this route.
 
     All fields are optional and is_valid() ALWAYS returns True:
       - No max_length constraints (callers may send arbitrarily long values —

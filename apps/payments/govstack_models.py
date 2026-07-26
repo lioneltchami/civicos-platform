@@ -68,9 +68,14 @@ _G2P_UUID_VALIDATOR = RegexValidator(
     ),
 )
 
+# Exactly 12 alphanumeric-or-hyphen chars — matches the live GovStack
+# g2pResponseSchema.RequestID constraint (minLength: 12, maxLength: 12) in
+# GovStackWorkingGroup/bb-payments' helpers.js. max_length on the CharField
+# below stays at 16 (not narrowed to 12): this validator is the actual length
+# gate, and 16 leaves headroom without requiring a migration.
 _REQUEST_ID_VALIDATOR = RegexValidator(
-    regex=r"^[a-zA-Z0-9\-]{1,16}$",
-    message="RequestID must be 1–16 alphanumeric or hyphen characters.",
+    regex=r"^[a-zA-Z0-9\-]{12}$",
+    message="RequestID must be exactly 12 alphanumeric or hyphen characters.",
 )
 
 
@@ -232,7 +237,7 @@ class BulkPaymentBatch(TimestampedModel):
         db_index=True,
         validators=[_REQUEST_ID_VALIDATOR],
         verbose_name=_("Request ID"),
-        help_text=_("RequestID from Source BB. Max 16 chars."),
+        help_text=_("RequestID from Source BB. Exactly 12 alphanumeric/hyphen chars per the live GovStack spec."),
     )
     source_bb_id = models.CharField(
         max_length=20,
@@ -442,7 +447,9 @@ class PrepaymentValidationRequest(TimestampedModel):
     request_id = models.CharField(
         max_length=16,
         unique=True,  # unique already creates an index
+        validators=[_REQUEST_ID_VALIDATOR],
         verbose_name=_("Request ID"),
+        help_text=_("RequestID from Source BB. Exactly 12 chars per live schema."),
     )
     source_bb_id = models.CharField(
         max_length=20,

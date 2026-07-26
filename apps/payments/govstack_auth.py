@@ -59,6 +59,17 @@ Security note:
   These permissions do NOT authenticate individual citizens. They authenticate
   inter-BB API calls. Do not mix with CivicOS's IsAuthenticated / JWT auth for
   citizen-facing endpoints.
+
+Not in this file — X-Platform-TenantId (tenant scoping):
+  The 4 P2G views also validate a SEPARATE header, X-Platform-TenantId (or
+  Platform-TenantId), via GovStackAPIView._validate_platform_tenant_id() in
+  govstack_views.py — NOT a permission class, and NOT defined here. That
+  header answers "which tenant's data" (a request-validation concern, HTTP
+  400 on failure), whereas every permission class in this file answers "who
+  is calling" (an auth concern, HTTP 401 on failure). The two are
+  deliberately kept separate rather than stacking two permission classes per
+  view for two different questions. See that method's docstring for the full
+  design rationale and live-spec citations.
 """
 from __future__ import annotations
 

@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from django.db import transaction
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -111,6 +112,10 @@ class GovStackAPIView(APIView):
     - Throttle scope "govstack_bb" (100 req/min per IP via ScopedRateThrottle)
     - Logging of incoming requests at DEBUG level (no PII)
     - _flatten_errors() helper for both Voucher and G2P validation error rendering
+    - _validate_platform_tenant_id() helper for the P2G X-Platform-TenantId
+      tenant-scoping header (see that method's docstring for the full design
+      rationale — this is a request-validation concern, distinct from the
+      IsTrustedPayerFI/RequirePayerFI caller-identity permission classes)
 
     Wave 2+ concrete views delegate to service methods and return proper shapes.
     """
@@ -118,6 +123,117 @@ class GovStackAPIView(APIView):
     # without touching DEFAULT_THROTTLE_CLASSES (which controls citizen/anon flows).
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "govstack_bb"
+
+    # X-Platform-TenantId / Platform-TenantId (spelling varies across the live
+    # P2G YAMLs, exactly like PayerFI-Id) — tenant-scoping header, `required:
+    # true` on ALL 15 api/P2G API YAMLs/*.yml files (fresh-clone-verified),
+    # `maxLength: 20` everywhere it appears. Lookups are via Django's
+    # HttpHeaders (case-insensitive), so only the "X-" prefix variant needs
+    # listing separately.
+    _PLATFORM_TENANT_ID_HEADERS: tuple[str, ...] = (
+        "X-Platform-TenantId",
+        "Platform-TenantId",
+    )
+    _PLATFORM_TENANT_ID_MAX_LENGTH = 20
+
+    def _extract_platform_tenant_id(self, request: Request) -> str:
+        for header_name in self._PLATFORM_TENANT_ID_HEADERS:
+            value = request.headers.get(header_name, "").strip()
+            if value:
+                return value
+        return ""
+
+    def _validate_platform_tenant_id(
+        self, request: Request
+    ) -> tuple[str, Response | None]:
+        """
+        Validate the X-Platform-TenantId / Platform-TenantId header.
+
+        Returns (value, None) on success — `value` is "" when the header is
+        absent and tolerated (harness/test mode, see below). Returns
+        ("", Response(...)) when validation fails; the caller MUST return
+        that Response immediately without proceeding.
+
+        Design rationale (deliberately NOT the IsTrustedPayerFI pattern):
+          X-Platform-TenantId is a tenant-SCOPING header (which tenant's data
+          this request concerns), not a caller-IDENTITY credential (who is
+          calling) — that distinction is Issue B's IsTrustedPayerFI /
+          RequirePayerFI's job, addressed separately and NOT duplicated here.
+          Consequently:
+            - Failure mode is HTTP 400 (bad/incomplete request), not 401/403
+              (auth failure) — an unscoped request is a validation problem,
+              not proof the caller is untrusted.
+            - There is no whitelist/registry table analogous to
+              GovStackRegisteredBB for tenant IDs in this codebase, and adding
+              one would be speculative over-engineering for a header whose
+              only live-spec constraint is presence + maxLength: 20 — not
+              "is this a known/registered tenant". If CivicOS later needs a
+              real multi-tenant registry, that is a materially bigger feature
+              (data isolation, per-tenant querysets, etc.) than this header
+              validation, and is explicitly out of scope here.
+            - Implemented as a plain helper (not a permission class) so it
+              composes cleanly with IsTrustedPayerFI/RequirePayerFI without
+              stacking two permission classes per view for two genuinely
+              different concerns.
+
+        Mode gating (mirrors _HeaderWhitelistBBPermission's shape, but is NOT
+        that class — no whitelist lookup is ever performed here):
+          GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=False (default; unset in
+          harness/test settings, matching every other GOVSTACK_REQUIRE_*
+          flag's absence-means-False behaviour):
+            - Header absent → tolerated, value is "".
+            - Header present → still length-checked (≤ 20 chars) regardless
+              of this flag, so the check is exercisable in tests without
+              flipping the flag.
+          GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True (production default, see
+          production.py):
+            - Header absent → HTTP 400.
+            - Header present but > 20 chars → HTTP 400 either way.
+
+        Live-spec fidelity: fresh-clone-verified (2026-07-26) that
+        X-Platform-TenantId/Platform-TenantId is `required: true` with
+        `maxLength: 20` on EVERY one of the 15 api/P2G API YAMLs/*.yml files,
+        with zero exceptions — unlike X-PayerFI-Id, which is `required:
+        false` on the 2 billInquiryBiller* YAMLs. There is currently zero
+        P2G harness coverage for this header (confirmed: no "tenantid" match
+        anywhere in test/openAPI/), so — like IsTrustedPayerFI — this design
+        is driven by spec-fidelity and real production correctness, not by a
+        harness that doesn't exist.
+        """
+        value = self._extract_platform_tenant_id(request)
+        require_tenant_id = getattr(
+            settings, "GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", False
+        )
+
+        if not value:
+            if require_tenant_id:
+                logger.debug(
+                    "govstack.p2g.missing_platform_tenant_id path=%s",
+                    request.path,
+                )
+                return "", Response(
+                    {"message": "Missing required X-Platform-TenantId header."},
+                    status=400,
+                )
+            return "", None
+
+        if len(value) > self._PLATFORM_TENANT_ID_MAX_LENGTH:
+            logger.debug(
+                "govstack.p2g.platform_tenant_id_too_long len=%d path=%s",
+                len(value),
+                request.path,
+            )
+            return "", Response(
+                {
+                    "message": (
+                        "X-Platform-TenantId header exceeds maximum length "
+                        f"({self._PLATFORM_TENANT_ID_MAX_LENGTH})."
+                    )
+                },
+                status=400,
+            )
+
+        return value, None
 
     def get_exception_handler(self):
         return govstack_exception_handler
@@ -238,6 +354,21 @@ class GovStackG2PView(GovStackAPIView):
         The harness always sends a 12-char RequestID in the body and expects it
         echoed back verbatim in every response (success and error).  If the body
         is missing or unparseable, return "" (the harness does not test that case).
+
+        Re-verified against a fresh clone of GovStackWorkingGroup/bb-payments
+        (all 4 g2p_*.feature files + step-defs): no scenario for
+        register-beneficiary, update-beneficiary-details, bulk-payment, or
+        prepayment-validation ever omits RequestID or sends an unparseable body,
+        so this fallback path is genuinely never exercised by the harness — this
+        is intentional, permissive-by-design echo behaviour, not a validation
+        bypass (actual length/format enforcement happens in the request
+        serializers' RequestID field, not here).
+
+        This method deliberately catches ALL exceptions (bare `except Exception`)
+        because it must never itself raise — it is also called from paths that
+        run after a body-parse failure has already occurred (see
+        govstack_g2p_exception_handler), where the goal is to still produce a
+        valid G2P envelope rather than a second, unhandled exception.
         """
         try:
             data = request.data
@@ -246,7 +377,14 @@ class GovStackG2PView(GovStackAPIView):
                 # the 4-char string "None" which is incorrect for echo-back.
                 return str(data.get("RequestID") or "")
         except Exception:
-            pass
+            # Malformed/unparseable body (e.g. invalid JSON) — no RequestID is
+            # recoverable. Logged at debug level for observability only; this is
+            # not re-raised so the caller can still build a valid G2P envelope.
+            logger.debug(
+                "GovStackG2PView._request_id: could not extract RequestID "
+                "from request body (unparseable or malformed); echoing \"\".",
+                exc_info=True,
+            )
         return ""
 
     def _g2p_ok(self, request: Request, description: str = "Request received successfully.") -> Response:
@@ -1039,10 +1177,23 @@ class BillInquiryView(GovStackAPIView):
       apps.payments.govstack_auth.IsTrustedPayerFI for the full permission
       matrix (Issue B fix — this endpoint previously used AllowAnyBB with
       zero caller-identity validation in every settings mode).
+    - Tenant scoping: X-Platform-TenantId (or Platform-TenantId) is validated
+      via GovStackAPIView._validate_platform_tenant_id() — required + length
+      (≤20) checked in production mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=
+      True), optional-but-length-checked-if-present in harness/test mode.
+      This is a distinct, later HTTP 400 validation check — NOT part of the
+      IsTrustedPayerFI permission layer above. billInquiryBillerRequest.yml /
+      billInquiryRequest.yml both mark this header `required: true`. There is
+      no natural place to persist it for this read-only endpoint (GovStackBill
+      has no tenant field), so it is validated but not stored.
     """
     permission_classes = [IsTrustedPayerFI]
 
     def get(self, request: Request, bill_id: str) -> Response:
+        _tenant_id, tenant_error = self._validate_platform_tenant_id(request)
+        if tenant_error is not None:
+            return tenant_error
+
         # BillNotFound (404) is an APIException — handled by govstack_exception_handler.
         bill = GovStackP2GService.get_bill(bill_id=str(bill_id).strip())
 
@@ -1069,14 +1220,19 @@ class BillTransferRequestView(GovStackAPIView):
     Called by a Source BB (mobile money operator) to notify the Payments BB
     that a citizen has submitted a payment for a government bill.
 
-    Optional headers consumed:
-      X-CorrelationID       — stored on the payment record for cross-system tracing
-      X-PayerFI-Id          — financial institution that originated the payment
-      X-Platform-TenantId   — platform tenant identifier
+    Headers consumed:
+      X-CorrelationID       — optional; stored on the payment record for
+                              cross-system tracing
+      X-PayerFI-Id          — caller-identity; see IsTrustedPayerFI below
+      X-Platform-TenantId   — tenant-scoping; required in production mode
+                              (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True),
+                              optional-but-length-checked in harness/test
+                              mode; see _validate_platform_tenant_id below
 
     Body: {requestId, billId, billInquiryRequestId?, paymentReferenceID?}
     Response 200: {requestId, billId, amount, currency, status, message}
-    Response 400: {"message": "..."} (missing fields or duplicate requestId)
+    Response 400: {"message": "..."} (missing fields, duplicate requestId, or
+      missing/oversized X-Platform-TenantId in production mode)
     Response 404: {"message": "Bill not found."}
 
     Security:
@@ -1092,10 +1248,26 @@ class BillTransferRequestView(GovStackAPIView):
       record. See apps.payments.govstack_auth.IsTrustedPayerFI (Issue B fix —
       this endpoint previously used AllowAnyBB with zero caller-identity
       validation in every settings mode).
+    - Tenant scoping: X-Platform-TenantId (or Platform-TenantId) is validated
+      via GovStackAPIView._validate_platform_tenant_id() — required + length
+      (≤20) checked in production mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=
+      True), optional-but-length-checked-if-present in harness/test mode.
+      This is a distinct HTTP 400 validation check — NOT part of the
+      IsTrustedPayerFI permission layer above, and NOT the same concern as
+      caller identity (billPaymentRequest.yml marks BOTH X-PayerFI-Id and
+      X-Platform-TenantId `required: true`, but they answer different
+      questions: who is calling vs. which tenant's data). The validated value
+      is what gets stored on GovStackBillPayment.platform_tenant_id (same
+      field this view already wrote to pre-fix; the fix is that it is now
+      validated first instead of stored unchecked).
     """
     permission_classes = [IsTrustedPayerFI]
 
     def post(self, request: Request) -> Response:
+        platform_tenant_id, tenant_error = self._validate_platform_tenant_id(request)
+        if tenant_error is not None:
+            return tenant_error
+
         ser = BillTransferRequestSerializer(data=request.data)
         if not ser.is_valid():
             return Response(
@@ -1106,7 +1278,6 @@ class BillTransferRequestView(GovStackAPIView):
 
         correlation_id = request.headers.get("X-CorrelationID", "").strip()
         payer_fi_id = request.headers.get("X-PayerFI-Id", "").strip()
-        platform_tenant_id = request.headers.get("X-Platform-TenantId", "").strip()
 
         try:
             # BillNotFound (404) is an APIException — propagates automatically.
@@ -1179,10 +1350,26 @@ class MarkBillPaidView(GovStackAPIView):
       IsTrustedPayerFI do. See apps.payments.govstack_auth.RequirePayerFI
       (Issue B fix — this endpoint previously used AllowAnyBB with zero
       caller-identity validation in every settings mode).
+    - Tenant scoping: X-Platform-TenantId (or Platform-TenantId) is validated
+      via GovStackAPIView._validate_platform_tenant_id() using the SAME
+      mode-gated check as the other 3 P2G views (NOT forced-always like
+      RequirePayerFI above) — this endpoint has no literal corresponding
+      entry in api/P2G API YAMLs/ (it is a staff/fallback endpoint, per this
+      class's own docstring above), so there is no live-spec `required: true`
+      mandate to fail closed on specifically for tenant scoping. It is
+      validated here anyway, mode-gated like the other views, purely for
+      consistency (this endpoint mutates the same tenant-scoped GovStackBill
+      resource the other 3 views read/write) — not because the spec demands
+      it for this particular synthesized endpoint. GovStackBill has no
+      tenant field, so the validated value is not persisted anywhere.
     """
     permission_classes = [RequirePayerFI]
 
     def post(self, request: Request, bill_id: str) -> Response:
+        _tenant_id, tenant_error = self._validate_platform_tenant_id(request)
+        if tenant_error is not None:
+            return tenant_error
+
         # BillNotFound (404) is an APIException — handled automatically.
         bill = GovStackP2GService.mark_bill_paid(bill_id=str(bill_id).strip())
 
@@ -1218,10 +1405,21 @@ class TransferRequestStatusView(GovStackAPIView):
       apps.payments.govstack_auth.IsTrustedPayerFI (Issue B fix — this
       endpoint previously used AllowAnyBB with zero caller-identity
       validation in every settings mode).
+    - Tenant scoping: X-Platform-TenantId (or Platform-TenantId) is validated
+      via GovStackAPIView._validate_platform_tenant_id() — required + length
+      (≤20) checked in production mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=
+      True), optional-but-length-checked-if-present in harness/test mode.
+      rtpStatusUpdateRequest.yml marks this header `required: true`. This is
+      a distinct HTTP 400 validation check, not part of the IsTrustedPayerFI
+      permission layer above. Read-only endpoint — validated but not stored.
     """
     permission_classes = [IsTrustedPayerFI]
 
     def get(self, request: Request, transfer_request_id: str) -> Response:
+        _tenant_id, tenant_error = self._validate_platform_tenant_id(request)
+        if tenant_error is not None:
+            return tenant_error
+
         # BillPaymentNotFound (404) is an APIException — handled automatically.
         payment = GovStackP2GService.get_transfer_request(
             request_id=str(transfer_request_id).strip()
