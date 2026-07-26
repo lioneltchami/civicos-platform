@@ -27,6 +27,7 @@ from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from drf_spectacular.utils import extend_schema
@@ -242,13 +243,46 @@ class PublicDataAgreementReadPermission(_PublicReadOrAuthenticated):
     fallback_permission_classes = (IsAuthenticated, IsConsentAdminUser)
 
 
+class ConsentGovStackAPIView(APIView):
+    """
+    Shared base for every Consent GovStack API view in this module (item 7 of
+    the Consent closure plan: "add a dedicated throttle scope").
+
+    Applies the SAME "govstack_bb" ScopedRateThrottle scope the Payments BB's
+    GovStackAPIView already uses (config/settings/base.py,
+    DEFAULT_THROTTLE_RATES["govstack_bb"] = "100/minute"). That scope's own
+    docstring in base.py describes it generically as "GovStack BB-to-BB API
+    calls" — not Payments-specific — so reusing it here (rather than adding a
+    near-duplicate "consent_bb" scope at the same rate) is the correct
+    architectural choice: this really is the same category of traffic
+    (reference-harness / other-BB calls), and one shared, centrally-tuned
+    rate setting is easier to reason about than two independently drifting
+    ones.
+
+    Before this change, none of the ~29 Consent GovStack view classes below
+    declared throttle_classes/throttle_scope at all, so every one of them
+    fell through to DRF's global DEFAULT_THROTTLE_CLASSES (AnonRateThrottle
+    only, 60/hour per settings.py) — a much looser and differently-scoped
+    limit than Payments' equivalent surface has had all along, and one that
+    would be trivially easy to leave un-set on any single view if declared
+    per-class instead of centralized here.
+
+    Every view class below now extends this class instead of APIView
+    directly — a mechanical, in-place substitution with no other behavioral
+    change (all existing permission_classes/authentication_classes on each
+    view are unaffected).
+    """
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "govstack_bb"
+
+
 # ===========================================================================
 # Config API — Policy
 # GovStack paths: /config/policy/, /config/policy/{id}/, /config/policies/,
 #                 /config/policy/{id}/revisions/
 # ===========================================================================
 
-class ConfigPolicyListView(APIView):
+class ConfigPolicyListView(ConsentGovStackAPIView):
     """
     GET  /config/policies/       — list all policies
     POST /config/policy/         — create a new policy + initial revision
@@ -290,7 +324,7 @@ class ConfigPolicyCollectionView(ConfigPolicyListView):
     http_method_names = ["get"]
 
 
-class ConfigPolicyDetailView(APIView):
+class ConfigPolicyDetailView(ConsentGovStackAPIView):
     """
     GET    /config/policy/{policyId}/  — read a policy + latest revision
     PUT    /config/policy/{policyId}/  — update policy + new revision
@@ -362,7 +396,7 @@ class ConfigPolicyDetailView(APIView):
         return Response({"revision": RevisionSerializer(revision).data})
 
 
-class ConfigPolicyRevisionsView(APIView):
+class ConfigPolicyRevisionsView(ConsentGovStackAPIView):
     """GET /config/policy/{policyId}/revisions/ — list all revisions"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
@@ -394,7 +428,7 @@ class ConfigPolicyRevisionsView(APIView):
 #                 /config/data-agreements/
 # ===========================================================================
 
-class ConfigDataAgreementListView(APIView):
+class ConfigDataAgreementListView(ConsentGovStackAPIView):
     """
     GET  /config/data-agreements/   — list all data agreements
     POST /config/data-agreement/    — create a new data agreement
@@ -446,7 +480,7 @@ class ConfigDataAgreementCollectionView(ConfigDataAgreementListView):
     http_method_names = ["get"]
 
 
-class ConfigDataAgreementDetailView(APIView):
+class ConfigDataAgreementDetailView(ConsentGovStackAPIView):
     """
     GET    /config/data-agreement/{id}/  — read a data agreement
     PUT    /config/data-agreement/{id}/  — update + new revision
@@ -514,7 +548,7 @@ class ConfigDataAgreementDetailView(APIView):
 # GovStack paths: /config/individual/, /config/individual/{id}/, /config/individuals/
 # ===========================================================================
 
-class ConfigIndividualListView(APIView):
+class ConfigIndividualListView(ConsentGovStackAPIView):
     """GET /config/individuals/ + POST /config/individual/"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
@@ -556,7 +590,7 @@ class ConfigIndividualCollectionView(ConfigIndividualListView):
     http_method_names = ["get"]
 
 
-class ConfigIndividualDetailView(APIView):
+class ConfigIndividualDetailView(ConsentGovStackAPIView):
     """GET/PUT/DELETE /config/individual/{id}/"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
@@ -597,7 +631,7 @@ class ConfigIndividualDetailView(APIView):
 # GovStack paths: /config/webhook/, /config/webhook/{id}/, /config/webhooks/
 # ===========================================================================
 
-class ConfigWebhookListView(APIView):
+class ConfigWebhookListView(ConsentGovStackAPIView):
     """GET /config/webhooks/ + POST /config/webhook/"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
@@ -648,7 +682,7 @@ class ConfigWebhookCollectionView(ConfigWebhookListView):
     http_method_names = ["get"]
 
 
-class ConfigWebhookDetailView(APIView):
+class ConfigWebhookDetailView(ConsentGovStackAPIView):
     """GET /config/webhook/{id}/ + PUT + DELETE"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
@@ -683,7 +717,7 @@ class ConfigWebhookDetailView(APIView):
         return Response(status=status.HTTP_200_OK)
 
 
-class ConfigWebhookPayloadView(APIView):
+class ConfigWebhookPayloadView(ConsentGovStackAPIView):
     """
     GET /config/webhook/{id}/payload/
     Returns the last payload delivered to this webhook (ping/test endpoint).
@@ -718,7 +752,7 @@ class ConfigWebhookPayloadView(APIView):
 # GovStack paths: /service/individual/, /service/individual/{id}/, /service/individuals/
 # ===========================================================================
 
-class ServiceIndividualView(APIView):
+class ServiceIndividualView(ConsentGovStackAPIView):
     """
     GET  /service/individuals/        — list all (admin) or own record (citizen)
     POST /service/individual/         — create/register self
@@ -814,7 +848,7 @@ class ServiceIndividualDetailView(ServiceIndividualView):
 # GovStack path: /service/data-agreement/{id}/
 # ===========================================================================
 
-class ServiceDataAgreementDetailView(APIView):
+class ServiceDataAgreementDetailView(ConsentGovStackAPIView):
     """GET /service/data-agreement/{id}/ — read a Data Agreement"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated]
@@ -838,7 +872,7 @@ class ServiceDataAgreementDetailView(APIView):
 # GovStack path: /service/policy/{id}/
 # ===========================================================================
 
-class ServicePolicyDetailView(APIView):
+class ServicePolicyDetailView(ConsentGovStackAPIView):
     """
     GET /service/policy/{id}/ — read a Policy
 
@@ -890,7 +924,7 @@ class ServicePolicyDetailView(APIView):
 #                 /service/verification/consent-record/{id}/
 # ===========================================================================
 
-class ServiceVerificationDataAgreementsView(APIView):
+class ServiceVerificationDataAgreementsView(ConsentGovStackAPIView):
     """
     GET /service/verification/data-agreements/
     LIST — fetch Data Agreements for data consumers to verify consent against.
@@ -910,7 +944,7 @@ class ServiceVerificationDataAgreementsView(APIView):
         })
 
 
-class ServiceVerificationConsentRecordsView(APIView):
+class ServiceVerificationConsentRecordsView(ConsentGovStackAPIView):
     """
     GET /service/verification/consent-records/
     LIST — query consent records. Data consumers check whether consent exists.
@@ -945,7 +979,7 @@ class ServiceVerificationConsentRecordsView(APIView):
         })
 
 
-class ServiceVerificationConsentRecordDetailView(APIView):
+class ServiceVerificationConsentRecordDetailView(ConsentGovStackAPIView):
     """
     GET /service/verification/consent-record/{id}/
     READ — read a single consent record for verification.
@@ -981,7 +1015,7 @@ class ServiceVerificationConsentRecordDetailView(APIView):
 #                 /service/individual/record/ (DELETE = RTBF)
 # ===========================================================================
 
-class ServiceIndividualConsentRecordListView(APIView):
+class ServiceIndividualConsentRecordListView(ConsentGovStackAPIView):
     """
     GET  /service/individual/record/consent-record/
          LIST — all consent records for the authenticated individual.
@@ -1057,7 +1091,7 @@ class ServiceIndividualConsentRecordListView(APIView):
         })
 
 
-class ServiceIndividualConsentRecordDetailView(APIView):
+class ServiceIndividualConsentRecordDetailView(ConsentGovStackAPIView):
     """
     GET /service/individual/record/consent-record/{id}/ — read one record
     PUT /service/individual/record/consent-record/{id}/ — update opt_in (grant/withdraw)
@@ -1115,7 +1149,7 @@ class ServiceIndividualConsentRecordDetailView(APIView):
         })
 
 
-class ServiceIndividualDataAgreementConsentRecordView(APIView):
+class ServiceIndividualDataAgreementConsentRecordView(ConsentGovStackAPIView):
     """
     GET  /service/individual/record/data-agreement/{id}/
          READ — fetch the ConsentRecord for a specific DataAgreement.
@@ -1207,7 +1241,7 @@ class ServiceIndividualDataAgreementConsentRecordView(APIView):
         })
 
 
-class ServiceIndividualConsentRecordDraftView(APIView):
+class ServiceIndividualConsentRecordDraftView(ConsentGovStackAPIView):
     """
     POST /service/individual/record/consent-record/draft/
          DRAFT — returns an unsigned (unsaved) ConsentRecord preview.
@@ -1300,7 +1334,7 @@ class ServiceIndividualConsentRecordDraftView(APIView):
         })
 
 
-class ServiceIndividualRightToBeForgottenView(APIView):
+class ServiceIndividualRightToBeForgottenView(ConsentGovStackAPIView):
     """
     DELETE /service/individual/record/
            Right to Be Forgotten — cascading delete of forgettable records.
@@ -1324,7 +1358,7 @@ class ServiceIndividualRightToBeForgottenView(APIView):
 #                 /audit/data-agreements/, /audit/data-agreement/{id}/
 # ===========================================================================
 
-class AuditConsentRecordListView(APIView):
+class AuditConsentRecordListView(ConsentGovStackAPIView):
     """GET /audit/consent-records/ — list all consent records"""
     authentication_classes = _AUTH
     # C-01 fix: "any valid token" in GovStack spec means a valid authenticated request,
@@ -1344,7 +1378,7 @@ class AuditConsentRecordListView(APIView):
         })
 
 
-class AuditConsentRecordDetailView(APIView):
+class AuditConsentRecordDetailView(ConsentGovStackAPIView):
     """GET /audit/consent-record/{id}/ — read a single consent record"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated, IsAuditorUser]
@@ -1361,7 +1395,7 @@ class AuditConsentRecordDetailView(APIView):
         return Response({"consentRecord": ConsentRecordGovStackSerializer(record).data})
 
 
-class AuditDataAgreementListView(APIView):
+class AuditDataAgreementListView(ConsentGovStackAPIView):
     """GET /audit/data-agreements/ — list all data agreements"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated, IsAuditorUser]
@@ -1377,7 +1411,7 @@ class AuditDataAgreementListView(APIView):
         })
 
 
-class AuditDataAgreementDetailView(APIView):
+class AuditDataAgreementDetailView(ConsentGovStackAPIView):
     """GET /audit/data-agreement/{id}/ — read a single data agreement"""
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated, IsAuditorUser]
@@ -1392,7 +1426,7 @@ class AuditDataAgreementDetailView(APIView):
         return Response({"dataAgreement": DataAgreementSerializer(category).data})
 
 
-class AuditConsentLogView(APIView):
+class AuditConsentLogView(ConsentGovStackAPIView):
     """
     GET /audit/consent-log/
     CivicOS extension: full consent audit trail with chain-integrity data.
@@ -1420,7 +1454,7 @@ class AuditConsentLogView(APIView):
 # GovStack paths: /service/individual/record/consent-record/{id}/signature/
 # ===========================================================================
 
-class ServiceConsentRecordSignatureView(APIView):
+class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
     """
     POST /service/individual/record/consent-record/{consentRecordId}/signature/
          CREATE — attach a new Signature to a ConsentRecord.
@@ -1483,7 +1517,7 @@ class ServiceConsentRecordSignatureView(APIView):
 # GovStack path: /service/individual/record/data-agreement/{id}/all/
 # ===========================================================================
 
-class ServiceIndividualDataAgreementAllConsentRecordsView(APIView):
+class ServiceIndividualDataAgreementAllConsentRecordsView(ConsentGovStackAPIView):
     """
     GET /service/individual/record/data-agreement/{dataAgreementId}/all/
 

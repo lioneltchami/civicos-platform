@@ -325,7 +325,34 @@ class ConsentRevision(UUIDModel):
     )
     serialized_hash = models.CharField(
         max_length=64,
-        help_text="SHA-256 hash of serialized_snapshot (JSON, sort_keys=True).",
+        help_text=(
+            "SHA-256 hash of serialized_snapshot (JSON, sort_keys=True). "
+            "DELIBERATE, DOCUMENTED SPEC DEVIATION (item 7 of the Consent BB "
+            "closure plan): the live GovStack v23Q4 consent-openapi.yaml "
+            "describes this exact field (Revision.serializedHash) as 'Hash "
+            "of serializedSnapshot (SHA-1)' — i.e. the spec's own reference "
+            "prose names SHA-1. This codebase deliberately uses SHA-256 "
+            "instead, everywhere a hash is computed in this app (this field, "
+            "plus ConsentSignature.verification_payload_hash and the webhook "
+            "HMAC in ConsentWebhook — see apps/core/fields and services.py), "
+            "with NO SHA-1 usage anywhere in apps/consent (confirmed by "
+            "direct grep). Rationale: SHA-1 has known collision attacks "
+            "(demonstrated in practice, e.g. the 2017 SHAttered attack) and "
+            "is deprecated by NIST for any application requiring collision "
+            "resistance; this field's entire purpose per the spec's own "
+            "description is a 'tamper-resistant artifact' guarding against "
+            "tampering with the revision chain, which is precisely a "
+            "collision-resistance use case SHA-1 is unsuitable for today. "
+            "Every consumer of this field within CivicOS treats it as an "
+            "opaque hex string (CharField, max_length=64, sized for a "
+            "SHA-256 digest) — nothing decodes it as SHA-1-shaped, and the "
+            "GovStack spec does not mandate byte-for-byte hash-algorithm "
+            "interop for a self-hosted BB's own internal tamper-evidence "
+            "chain (unlike, say, a signature verified by an external party "
+            "using a fixed algorithm). This is a security hardening choice, "
+            "not an oversight — it is intentionally NOT 'fixed' to match "
+            "the spec's literal SHA-1 text."
+        ),
     )
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
     authorized_by_individual = models.ForeignKey(
@@ -387,6 +414,11 @@ class ConsentRevision(UUIDModel):
         raise ValueError("ConsentRevision records cannot be deleted.")
 
     def _compute_hash(self) -> str:
+        # SHA-256, not the live spec's literal "SHA-1" — a deliberate, documented
+        # security-hardening deviation. See serialized_hash's help_text above for
+        # the full rationale (SHA-1 collision resistance is broken in practice;
+        # nothing in this codebase or the spec requires byte-for-byte hash-
+        # algorithm interop for this self-hosted BB's own tamper-evidence chain).
         payload = json.dumps(self.serialized_snapshot, sort_keys=True, default=str)
         return hashlib.sha256(payload.encode()).hexdigest()
 

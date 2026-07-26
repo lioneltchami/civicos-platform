@@ -27,6 +27,7 @@ import json
 import uuid
 
 from django.contrib.auth import get_user_model
+from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -1680,3 +1681,73 @@ class PaginationTotalFieldTests(GovStackAPIBase):
         self.assertIn("total", r.data)
         self.assertEqual(r.data["total"], 2)
         self.assertEqual(len(r.data["consentRecords"]), 1)
+
+
+class ConsentGovStackThrottleScopeTests(TestCase):
+    """
+    Item 7 of the Consent closure plan: "add a dedicated throttle scope".
+
+    Before this fix, none of the ~29 Consent GovStack view classes declared
+    throttle_classes/throttle_scope at all — every Consent GovStack endpoint
+    fell through to DRF's global DEFAULT_THROTTLE_CLASSES (AnonRateThrottle
+    only, 60/hour), a much looser and differently-scoped limit than the
+    Payments BB's equivalent surface has had all along (ScopedRateThrottle,
+    "govstack_bb" scope, 100/minute). These tests pin that every Consent
+    GovStack view now shares that same scope via ConsentGovStackAPIView.
+    """
+
+    def test_settings_govstack_bb_rate_is_configured(self):
+        from django.conf import settings
+        self.assertIn("govstack_bb", settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"])
+
+    def test_representative_views_use_govstack_bb_scope(self):
+        """
+        Spot-check one view from each of the 3 GovStack namespaces
+        (config/service/audit) plus the base class itself.
+        """
+        from rest_framework.throttling import ScopedRateThrottle
+        from apps.consent import govstack_views as v
+
+        views_to_check = [
+            v.ConsentGovStackAPIView,
+            v.ConfigPolicyListView,
+            v.ConfigDataAgreementDetailView,
+            v.ServicePolicyDetailView,
+            v.ServiceIndividualConsentRecordListView,
+            v.AuditConsentRecordListView,
+            v.AuditDataAgreementListView,
+        ]
+        for view_cls in views_to_check:
+            with self.subTest(view=view_cls.__name__):
+                self.assertEqual(view_cls.throttle_scope, "govstack_bb")
+                self.assertIn(ScopedRateThrottle, view_cls.throttle_classes)
+
+    def test_all_govstack_views_extend_shared_throttle_base(self):
+        """
+        Every class in govstack_views.py ending in "View" (except the base
+        itself) must derive from ConsentGovStackAPIView — guards against a
+        future new view being added directly under APIView and silently
+        missing the throttle scope, the exact mistake this fix corrects.
+        """
+        from apps.consent import govstack_views as v
+        from rest_framework.views import APIView
+
+        checked = 0
+        for name in dir(v):
+            obj = getattr(v, name)
+            if (
+                isinstance(obj, type)
+                and issubclass(obj, APIView)
+                and obj is not v.ConsentGovStackAPIView
+                and obj.__module__ == v.__name__
+                and name.endswith("View")
+            ):
+                checked += 1
+                with self.subTest(view=name):
+                    self.assertTrue(
+                        issubclass(obj, v.ConsentGovStackAPIView),
+                        f"{name} must extend ConsentGovStackAPIView, not APIView directly",
+                    )
+        # Sanity check that this loop actually found the views we expect
+        # (i.e. this test isn't silently checking zero classes).
+        self.assertGreaterEqual(checked, 25)
