@@ -316,15 +316,46 @@ class ConsentServiceGrantRevisionTests(TestCase):
 
     def setUp(self):
         self.citizen = _make_citizen()
-        self.category = _make_category(slug=f"rev-{uuid.uuid4().hex[:6]}")
+        # BUGFIX (item 5 hardening round): this test previously used the bare
+        # _make_category() helper (a plain ConsentCategory.objects.create()),
+        # which never creates a ConsentRevision for the category. grant()
+        # only auto-attaches a revision via _get_latest_revision(category)
+        # when one actually exists (services.py:100-101) — with none ever
+        # created, record1.data_agreement_revision was ALWAYS None, so
+        # test_grant_with_specific_revision_uses_that_revision's own
+        # `if revision1 is None: self.skipTest(...)` guard fired on every
+        # single run. This test had therefore never once executed the
+        # "H-02 fix" behavior it exists to verify, on any backend — not a
+        # SQLite-only limitation like ConcurrentFirstGrantTests below, just
+        # a genuinely broken test fixture. Fixed by creating the category via
+        # ConsentService.create_data_agreement(), the same service method
+        # production code paths use, which creates an initial ConsentRevision
+        # alongside the ConsentCategory (services.py:650-670).
+        self.category, self.initial_revision = ConsentService.create_data_agreement({
+            "slug": f"rev-{uuid.uuid4().hex[:6]}",
+            "name_en": "Revision Test Category",
+            "name_fr": "Catégorie de test de révision",
+            "purpose_en": "Test purpose",
+            "purpose_fr": "Objet de test",
+            "lawful_basis": "consent",
+            "is_required": False,
+            "is_active": True,
+        })
 
     def test_grant_with_specific_revision_uses_that_revision(self):
         """H-02 fix: when a revision is supplied to grant(), it is used not discarded."""
-        # Create the first revision via a grant
+        # grant() auto-attaches the latest revision (self.initial_revision)
+        # via _get_latest_revision() since none is explicitly supplied here.
         record1 = ConsentService.grant(citizen=self.citizen, category_slug=self.category.slug)
         revision1 = record1.data_agreement_revision
-        if revision1 is None:
-            self.skipTest("No DataAgreement revision configured for this category")
+        self.assertIsNotNone(
+            revision1,
+            "ConsentService.create_data_agreement() must produce a category "
+            "with a real ConsentRevision, and grant() must auto-attach it "
+            "via _get_latest_revision() — this is the precondition the rest "
+            "of this test relies on to actually exercise the H-02 fix.",
+        )
+        self.assertEqual(revision1.pk, self.initial_revision.pk)
         # Withdraw and re-grant supplying the specific revision object
         ConsentService.withdraw(citizen=self.citizen, category_slug=self.category.slug)
         record2 = ConsentService.grant(
@@ -379,8 +410,24 @@ class ConsentServiceGetCitizenExportsTests(TestCase):
 
 @unittest.skipIf(
     connection.vendor == "sqlite",
-    "select_for_update()/real row-level locking requires PostgreSQL; SQLite "
-    "cannot serialise concurrent threads the way this test needs.",
+    "Two independent, permanent SQLite limitations — not a sandbox/CI "
+    "artifact, and not fixable by config alone — make this test unable to "
+    "prove what it claims on this backend: (1) Django's sqlite3 backend "
+    "reports has_select_for_update=False (confirmed via "
+    "connection.features.has_select_for_update), so ConsentService.grant()'s "
+    "select_for_update() silently becomes a no-op — the row-level lock this "
+    "test exists to exercise simply isn't taken; (2) this project's test "
+    "settings use NAME=':memory:' (config/settings/test.py), and each thread "
+    "opens its own separate SQLite connection — per SQLite's own semantics, "
+    "each connection to ':memory:' gets an independent, unshared database, "
+    "so the two threads below would not even see each other's writes, "
+    "making 'concurrent race' meaningless here regardless of locking. "
+    "Real concurrency + real row locking requires PostgreSQL. This is why "
+    "GrantIntegrityErrorRecoveryTests exists below: it exercises the exact "
+    "same `except IntegrityError` recovery branch in grant() deterministically "
+    "via mocking (no threads, no Postgres, SQLite-safe), so the recovery "
+    "LOGIC has real coverage on every backend even though the true "
+    "concurrent-locking GUARANTEE can only be verified against Postgres.",
 )
 class ConcurrentFirstGrantTests(TransactionTestCase):
     """
