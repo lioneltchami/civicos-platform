@@ -1,6 +1,7 @@
 # GovStack BB Master Certifiability Report — CivicOS
-**Date:** 2026-07-25 (v2 — supersedes `GOVSTACK_READINESS_REPORT_2026-07-25.md` draft and the 2026-07-22 report)
-**Method:** 3 parallel deep-review agents, each fetching live GovStack specs fresh from GitHub and running the actual test suite, followed by personal verification of the highest-stakes findings (direct code reads, not agent self-report) before this synthesis was written. Methodology: `GOVSTACK_BB_READINESS_ASSESSMENT_PROMPT.md` (10 dimensions, 4-tier scale, "never round up").
+**Date:** 2026-07-25, round 3 (supersedes the round-2 content previously in this file, which is preserved as historical narrative inside each BB section below — do not treat any tier/status claim above the "ROUND 3" markers as current).
+**Method:** 3 parallel deep-review agents, each independently fetching live GovStack specs fresh from GitHub (not from memory or prior reports) and re-running the actual test suites themselves, followed by personal verification of the highest-stakes findings — direct code reads and a fresh upstream `git clone`, not agent self-report — before this synthesis was written. Methodology: `GOVSTACK_BB_READINESS_ASSESSMENT_PROMPT.md` (10 dimensions, 4-tier scale, "never round up").
+**Trigger for this round:** the user reported Payments, Consent, and Documents as previously assessed, and Appointments/Scheduler as "just finished," and asked for a fresh, skeptical, deep review to confirm what's actually done and what's next — explicitly not a rubber stamp.
 
 ---
 
@@ -8,139 +9,130 @@
 
 | Building Block | Tier | Certification | Open Blockers |
 |---|---|---|---|
-| **Consent** | 🟢 Production-Ready | Not run (harness) | 5 (all hours-scale) |
-| **Payments** | 🟢 Production-Ready *(updated later same day — see note below)* | Not run | 0 code blockers; live harness run still pending |
-| **Appointments / Scheduler** | 🟡 Partial | Not run | 2 (both mechanical, <1 day) |
-| **Documents** (GovStack axis) | 🔴 Not Started | N/A — no usable upstream spec exists | Structural, not owned by this repo |
-| **Documents** (CivicOS-internal axis) | 🟡 Partial | N/A | 2 (unwired notification signals) |
+| **Payments** | 🟡 Partial *(re-downgraded from 🟢 — see below)* | Not run | 3 real (1 severe: unauthenticated P2G; 1 severe: voucher schema length mismatch; 1 real: seed data gaps) |
+| **Consent** | 🟢 Production-Ready (unchanged) | Not run | 5 (all hours-scale) + 1 new (concealed untested code path) |
+| **Appointments / Scheduler** | 🟡 Partial *(NOT "just finished" — both prior blockers still open, plus 1 new severe finding)* | Not run | 3 (1 severe: auth-bypass-by-design; 2 mechanical, unchanged from round 2) |
+| **Documents** (GovStack axis) | 🔴 Not Started, but re-scoped | N/A — real spec text now exists upstream but no test harness | A genuine gap-analysis target now exists (see below) — was previously believed literally empty |
+| **Documents** (CivicOS-internal axis) | 🟡 Partial | N/A | 3 unwired notification signals (was reported as 2), plus a new encryption-at-rest gap |
 
-**Headline change since the last report:** Consent has moved from 🟡 Partial (2026-07-22) → 🟢 Production-Ready today, following the two rounds of fixes closed out this session (commits `770a8d7`, `9dd29c1`). Payments has since ALSO moved to 🟢 Production-Ready, later the same day this report was written — the 7 blockers listed below in the original Payments section (unauthenticated bulk-payment, voucher schema mismatch, missing error codes, no Gov_Stack_BB whitelist, wrong seed data, migration drift, stale docstring) were all closed via a dedicated P0–P3 remediation plan run after this report. **The Payments section below is preserved as the historical record of what that plan started from; it is not current.** The authoritative, up-to-date Payments status now lives entirely in `SPEC_GOVSTACK_PAYMENTS_BB.md` (§22 GAP list, §23 completion log) — see the update note at the top of that section below.
-
----
-
-## Consent BB — 🟢 Production-Ready
-
-### Verdict
-All 32 GovStack spec endpoints (spec re-fetched fresh, `bb-consent` v1.1.0-rc1) are implemented and field-correct on every dimension that was previously broken. 286 tests pass clean (`manage.py test apps.consent`, re-run independently). Service layer is atomic, audited, and append-only throughout. No blocker found this round is more than an hours-scale fix — this is a materially different result from every other BB reviewed.
-
-### What's newly confirmed fixed (from this session's round 1 + round 2 work)
-- `serializedSnapshot` is a JSON **string** (not object), matching spec type.
-- `serialized_snapshot` storage now matches the spec's literal envelope shape (`objectData`/`schemaName`/`objectId`/`signedWithoutObjectId`/`timestamp`/`authorizedByIndividual`/`authorizedByOther`) — verified via 3 new tests that read the real model field and the real HTTP response, not a mock.
-- Malformed-ID routing (`<uuid:>`/`<int:>` → `<str:>` + validation) returns 400, not a raw Django 404, on all 16 path-ID-consuming views — including a permanent regression test pinned to the literal upstream harness Gherkin values (`"invalid_id"`, `"123!@#"`).
-- `grant()`'s `is_current` race-recovery logic is narrowed to the specific DB constraint and, critically, now has a test that actually executes the recovery branch on SQLite (previously the only such test was silently skipped on this project's own test backend, meaning "279 passing" concealed an unexercised code path).
-
-### New findings from this fresh pass (not previously known)
-1. **`serializedHash` uses SHA-256; the live spec text says SHA-1** (`apps/consent/models.py:371-373`, `ConsentRevision._compute_hash()`). Not exploitable, but a harness that checks hash length (40 vs. 64 hex chars) would flag it. Needs an explicit decision: match the spec literally, or document the deviation.
-2. **`DataAgreementSerializer.purpose`/`.dpia` are wrongly optional** (`serializers.py:241,244`) despite the spec listing `purpose`, `lawfulBasis`, `dpia` as required fields on DataAgreement — lets a DataAgreement be created with blank purpose/DPIA text.
-3. **PIPEDA data export is incomplete** — `_build_export_payload()` (`tasks.py:460-540`) only exports `ConsentRecord` fields; it omits `ConsentSignature` and `ConsentRevision` data, so a citizen's right-of-access export doesn't include the cryptographic evidence of their own consent.
-4. **Uncommitted migration drift**, personally re-confirmed: `makemigrations consent --check --dry-run` detects an unmigrated `AlterField` on `ConsentRecord.state`, `ConsentSignature.verification_type`, and `ConsentWebhook.secret_key`. This is pre-existing (flagged, never resolved, in migration 0017's own docstring) — not introduced by this session's fixes, but still open.
-5. No Consent-specific throttle scope — config/audit views fall back to generic citizen/anon throttle rates rather than the `govstack_bb` scope already defined in settings and used by other BBs.
-
-### Blockers to ✅ Certified
-1. Run `makemigrations consent`, review, and commit the resulting migration (state/verification_type/secret_key drift). *Under 1 hour.*
-2. Decide SHA-1 vs. SHA-256 for `serializedHash` and document or fix. *Under 1 hour.*
-3. Make `purpose`/`dpia` actually required in `DataAgreementSerializer`. *Under 1 hour.*
-4. Extend the PIPEDA export to include signatures + revisions, with a test. *~half day.*
-5. Submit to `testing.govstack.global` for an actual harness run — this is the only remaining dimension that cannot be self-certified.
-
-### Cross-cutting platform assessment (reviewed alongside Consent)
-Everything checked here **passed**: shared error envelope (`apps/api/exceptions.py`), rate limiting (`apps/api/throttling.py`), BB URL mounting, `EncryptedCharField` (Fernet, key-rotation-capable), the platform-wide hash-chained `AuditLogEntry` append-only log, Celery Beat schedule, `GOVSTACK_REQUIRE_REGISTERED_BB`/`GOVSTACK_VOUCHER_REQUIRE_JWT` defaulting safely to `True` in production with no hardcoded bypass, and general Django security hardening (`DEBUG`, `ALLOWED_HOSTS`, HSTS, CSRF, CSP, Sentry PII filtering). One informational note: no CORS configuration exists anywhere — appears intentional (same-origin architecture) but worth confirming explicitly if any BB needs cross-origin browser calls from a harness client.
+**Headline: the round-2 "Payments is 🟢 Production-Ready" verdict was wrong, and the round-2 "Appointments just needs 2 mechanical fixes" verdict undersold a real security defect.** Both are corrected below with file:line evidence I personally re-verified myself (not just agent citations). Consent remains the strongest BB in this codebase. Documents' GovStack axis has new, real information (a spec document that didn't exist, or wasn't checked, before) but the practical conclusion — no viable harness-based certification path today — is unchanged.
 
 ---
 
-## Payments BB — 🟡 Partial *(as of this report; see update below)*
+## Payments BB — 🟡 Partial (re-downgraded)
 
-> **UPDATE, later same day (2026-07-25):** every blocker in this section was resolved via a dedicated P0–P3 remediation plan run immediately after this report was written, each phase implemented and independently re-verified against the live GovStack harness source, then personally verified before commit. Payments BB is now 🟢 Production-Ready. This section is kept as-is below for the historical record of what the plan started from — do not treat it as current. For the real, up-to-date status, findings, and full commit history, see `SPEC_GOVSTACK_PAYMENTS_BB.md` §22 (GAP list) and §23 (P0–P3 completion log). In brief: bulk-payment/prepayment-validation are now authenticated (P0), all 5 voucher endpoints return the real harness schema and all missing error codes are implemented including a defensible 462/463 resolution (P1), a real production `Gov_Stack_BB` allowlist now layers on top of the harness-compatible blocklist (P2), and the migration drift plus this very spec's staleness were both closed out (P3). Full `apps/payments/` suite: 1,633/1,633 passing.
+### What's genuinely confirmed done (personally verified, not just re-read from the spec)
+- **1,633/1,633 tests pass**, `makemigrations --check --dry-run payments` clean. Both reproduced independently this round.
+- G2P auth mode-gating (P0) is correct: I re-confirmed `IsTrustedSourceBB` degrades properly and none of the live `g2p_*.js` step files send the auth header.
+- The 462/463 redemption disambiguation rule (P1) is quoted correctly against a fresh parse of `mockoon-paymentsbbvoucher.json`.
+- The `Gov_Stack_BB` blocklist/allowlist layering (P2) behaves exactly as documented, with an honest "not harness-verified" caveat for the allowlist layer.
+- P2G genuinely still has zero harness coverage upstream (re-confirmed: still only 9 `.feature` files, all G2P/voucher).
 
-### Verdict
-G2P and P2G layers are structurally sound (atomic, audited, race-safe), but **the Voucher engine's 5 endpoints don't match the harness's actual JSON-schema contract on response field names or error codes**, and — the most serious finding across all three reports this round — **`BulkPaymentView` and both `PrepaymentValidation*` views are unauthenticated in every environment**, directly contradicting the auth module's own docstring, which claims they're protected. I independently confirmed this by reading `govstack_views.py:180-410` and `govstack_auth.py:1-70` myself: `GovStackG2PView.permission_classes = [AllowAnyBB]` (line 205) is the base class default; `RegisterBeneficiaryView`/`UpdateBeneficiaryView` explicitly override it with `[IsTrustedSourceBB]` (lines 292, 335), but `BulkPaymentView` never does — it inherits `AllowAnyBB` unchanged, while `govstack_auth.py`'s module docstring (lines 10-11) and `IsTrustedSourceBB`'s own class docstring (lines 51-56) both explicitly list `bulk-payment` and `prepayment-validation` as endpoints that class protects. The documentation and the code disagree, and the code is the one that's live.
+### NEW findings this round (missed by every prior pass, including the P0–P3 remediation that was believed complete)
 
-### Spec-sourcing correction (important context)
-The agent found that `api/openapi.yaml` on `bb-payments` 404s — the real spec is split across `api/G2P API YAMLs/`, `api/Voucher API YAMLs/`, `api/P2G API YAMLs/`, and critically, the Voucher YAMLs describe an **internal** Payment-Hub↔Voucher-Engine protocol, not the harness's actual test contract, which lives separately at `test/openAPI/Payment_BB_Voucher_api_test.json` plus 5 Gherkin `.feature` files. CivicOS's code comments cite the internal YAMLs — that's the root cause of the schema mismatch below, not a simple oversight.
+1. **🔴 Severe — the harness's own JSON schema requires 16–25 character voucher identifiers; CivicOS emits 6-digit numbers.** I personally re-fetched `test/openAPI/features/support/helpers/helpers.js` from `GovStackWorkingGroup/bb-payments` and confirmed lines 68–79 define the preactivation response schema as:
+   ```
+   voucher_number:        { type: 'string', minLength: 16, maxLength: 25 }
+   voucher_serial_number: { type: 'string', minLength: 16, maxLength: 25 }
+   ```
+   I then read `apps/payments/govstack_models.py:77-85` myself: `_generate_voucher_serial()` returns `str(secrets.randbelow(900_000) + 100_000)` — always exactly 6 digits. **Every positive preactivation harness scenario that validates the JSON schema would fail**, independent of every other fix already made. This was never checked in P1 (which focused on field *names*, not value *shapes*) and is not mentioned anywhere in `SPEC_GOVSTACK_PAYMENTS_BB.md`. Also per the live spec, `voucher_number` is meant to be a *secret* distinct from the public `voucher_serial_number` — CivicOS returns the same value for both.
 
-### Findings (re-verified fresh; test suite re-run: 1,572 tests pass)
-1. **Security — unauthenticated bulk disbursement endpoint.** *(Personally verified — see above.)* `bulk-payment` instructs government-to-person fund disbursement and has no auth in any environment.
-2. **Voucher response schemas don't match the harness contract.** E.g. preactivation returns `{voucherNumber, voucherSerialNumber, voucherGroup, expiryDate}` where the harness schema requires `voucher_number`, `voucher_serial_number`, `expiry_date_time`; activation/redemption never emit the required `result_status` key; status-check returns `status`(int)/`value`(float) instead of `voucher_status`(string enum)/`voucher_amount`(string). The BB's own 457 GovStack-specific tests pass because they assert against the code's own (non-conformant) field names — 100% internal pass rate here does not indicate harness conformance.
-3. **5 missing/wrong voucher error codes**: 455, 458, 459, 461, 462 absent from `govstack_exceptions.py` entirely (prior report had only flagged 4 of these — 455 was missed). Status-check additionally returns the *wrong* code (400 instead of the harness-required 456) for an invalid serial, per a stale internal-spec code comment that doesn't match the live Gherkin feature file.
-4. **`Gov_Stack_BB` is never validated against a whitelist** — only checked for blankness. The harness's own negative scenarios send non-empty invalid values (`"not_exist"`, `"invalid_bb"`) expecting HTTP 460; current code would return 200 for these.
-5. **Seed data uses the wrong BB ID.** `seed_govstack_vouchers` seeds `bb_id="GS-HARNESS"`, but the harness's own fetched `test-data.json` and Gherkin fixtures consistently use `"bb-digital-registries"` — the seeded whitelist entry doesn't match what the harness will actually send.
-6. **Uncommitted migration drift**: `makemigrations payments --check --dry-run` reproducibly detects a pending, cosmetic `verbose_name`-only migration (`0023_alter_govstackbill_created_at_and_more.py` equivalent) — not destructive, but unresolved.
-7. **`AllowAnyBB`'s docstring is stale/misleading** relative to what it actually guards — needs correcting regardless of what the auth decision ends up being.
+2. **🔴 Severe — the entire P2G surface is unauthenticated in every environment, including the money-moving endpoint.** I personally read `apps/payments/govstack_views.py:1010-1183` and confirmed all four P2G views — `BillInquiryView`, `BillTransferRequestView`, `MarkBillPaidView`, `TransferRequestStatusView` — declare `permission_classes = [AllowAnyBB]`, with no mode-gating and no `Gov_Stack_BB` body validation at all. `POST /bills/{id}/mark-paid` marks a government bill paid with zero authentication. P0's fix (mode-gating `IsTrustedSourceBB`) was scoped only to the 5 G2P views and was never extended to P2G — this is a real gap in the P0–P3 plan's scope, not a new regression, but it was never flagged because no prior round's threat model covered P2G.
 
-### Blockers to 🟢 Production-Ready
-1. Resolve the `AllowAnyBB` scope decision for `bulk-payment`/`prepayment-validation`: add a settings-gated auth mode (mirroring the pattern already used for `IsTrustedSourceBB`/`HasVoucherJWT`), or make an explicit, documented risk-acceptance decision — but the current silently-contradictory docstring must be fixed either way. *This is the highest-priority item in this entire report.*
-2. Rewrite the 5 voucher response bodies to the harness's real schema (`voucher_number`, `voucher_serial_number`, `expiry_date_time`, `result_status`, `voucher_status`, `voucher_amount`, `message`). *~1-2 days.*
-3. Implement the 5 missing error codes plus real expiry-date and insufficient-funds/cannot-credit-merchant logic (currently unbuilt, not merely miswired — the relevant service parameters are explicitly marked "Reserved... Not used"). *Folds into item 2.*
-4. Fix status-check to return 456 (not 400) for an invalid/not-found serial.
-5. Add real `Gov_Stack_BB` whitelist validation on all 5 voucher endpoints.
-6. Correct the seed command to use `bb_id="bb-digital-registries"`.
-7. Commit the pending cosmetic migration.
+3. **🟠 Real — seed data doesn't cover 3 harness scenarios the spec itself documents.** `voucher_status_check.feature` requires serial `6001` to be `CONSUMED` (→ 458) and `6002` to be `EXPIRED` (→ 459); `seed_govstack_vouchers.py` seeds neither in those states, so both currently return 456 instead. Separately, seeded serial `6004` is left `PREACTIVATED` but no harness scenario ever activates it before the redemption smoke test expects to redeem it — that scenario would also fail. `SPEC_GOVSTACK_PAYMENTS_BB.md` §13.5 already documents the 6001/6002 requirement; the seed command was simply never updated to match.
+
+4. *(Minor)* `IsTrustedSourceBB`'s docstring inconsistently says "4 G2P endpoints" while listing 5. No upstream commit hash is cited anywhere in the spec doc, which makes future staleness harder to detect.
+
+### Blockers to genuine 🟢
+1. Widen `GovStackVoucher.serial_number`/`voucher_number` generation to produce 16–25 character values (or otherwise satisfy the schema), and update every response/test that currently assumes 6 digits. This is likely the single highest-value fix — it affects all 5 voucher scenarios' schema validation, not just one code path.
+2. Add real authentication to the 4 P2G views, mirroring the G2P pattern (mode-gated `IsTrustedSourceBB` or equivalent), with a settings flag consistent with the rest of the codebase.
+3. Fix `seed_govstack_vouchers` to seed `6001`→CONSUMED, `6002`→EXPIRED (with a past `expiry_date`), and either activate `6004` at seed time or confirm which scenario actually exercises it.
+4. Re-run `manage.py test apps.payments` and add regression tests for all of the above before considering this closed again.
+
+### Risk if submitted to the harness today
+Voucher preactivation fails on schema validation alone, independent of every other fix. Separately, and more seriously: a real deployment's P2G bill-payment endpoint accepts unauthenticated requests to mark government bills as paid — this is a production security defect, not just a harness-conformance gap.
+
+---
+
+## Consent BB — 🟢 Production-Ready (verdict unchanged, new finding added)
+
+### Confirmed still accurate
+286 tests pass (0 fail; this round's re-run correctly reports `skipped=2` — one is a legitimate PostgreSQL-only row-locking test, previously omitted from the reported figure). Spec re-fetched fresh (`bb-consent` HEAD unchanged since the last check). All 5 previously-flagged remaining items are **still open, not regressed**: migration drift (`state`/`verification_type`/`secret_key`), `serializedHash` SHA-256-vs-spec's-SHA-1 (now additionally corroborated by the live OpenAPI spec text and the upstream reference CSV-to-OpenAPI generator, both of which say SHA-1 explicitly), `purpose`/`dpia` wrongly optional, incomplete PIPEDA export, and no dedicated throttle scope.
+
+### NEW findings this round
+1. **The required-field gap is 3 fields, not 2.** The live `DataAgreement` schema requires `id`, `version`, `purpose`, `lawfulBasis`, `dpia` — `DataAgreementSerializer` also leaves `lawfulBasis` optional (`serializers.py:241`), a field the round-2 report didn't check.
+2. **A test hides an unexercised fix, the same bug class round-2 believed it had already eliminated.** `apps/consent/tests/test_services.py:321-327` — the only test for `grant()` respecting a caller-supplied `revision` — calls `self.skipTest(...)` because its own setup never creates a `DataAgreement` revision to test against. The underlying code path has never actually run in CI. This is the identical failure mode (a silently-skipped test concealing dead coverage) that round-2's own fixes were supposed to have closed out on a different code path.
+
+### Blockers to certified (unchanged, now 6 items)
+Same 5 as before, plus: fix `test_services.py`'s skipped revision test so the `grant()` fix it's meant to guard is actually exercised.
+
+---
+
+## Appointments / Scheduler BB — 🟡 Partial (the "just finished" claim does not hold)
+
+### What's genuinely solid (personally spot-checked, not just re-read)
+Spec conformance is real: I independently diffed the live `Govstack_scheduler_BB_APIs.json` (fetched fresh, upstream unchanged since the last check) against `govstack_urls.py` — all 37 operations match 1:1. I also checked the 9 endpoint groups' JSON envelope wrapper keys against the fetched spec myself and found no camelCase/snake_case mismatches anywhere, including two easy-to-miss quirks (a capital-`E` `Entity_id` field, and endpoint-specific wrapper key names) that the code honors correctly. 799/799 tests pass — identical to the round-2 count, which itself is telling (see below). Role-based auth (`GovStackSchedulerAuth`/`GovStackSchedulerRolePermission`) is applied to all 37 views with no gaps, and IDOR on citizen appointment access is properly closed via `caller_citizen_id` ownership checks.
+
+Important scoping note: unlike Payments, `bb-scheduler` has **no test harness at all** upstream — `test/plan.md` is an unfilled template, there are no `.feature` files, no JSON test schemas, no fixture data. Spec conformance here can only be checked against the raw OpenAPI JSON, not against harness behavior, which is a materially different (and weaker) form of verification than what's possible for Payments or Consent.
+
+### Confirmed: both round-2 blockers are still open — no work has landed since
+1. **Migration still not committed.** `makemigrations --check --dry-run appointments` still reports the pending `alert_preference` `choices=` change. Since the test count (799) is byte-for-byte identical to round-2's figure, this corroborates that no work happened on this BB between the two rounds — contradicting the "just finished" framing.
+2. **4 models still unregistered in admin** (`GovStackSubscriberProfile`, `GovStackMessage`, `GovStackAffiliation`, `GovStackAlertSchedule`) — unchanged.
+
+### NEW finding — 🔴 severe, auth-bypass-by-design
+I personally read `apps/appointments/govstack_auth.py:164-185` and confirmed: in production mode, `GovStackSchedulerAuth` authenticates a caller by checking whether the `request_token` query parameter matches `GovStackRegisteredBB.bb_id`. I then confirmed `GovStackRegisteredBB` (`apps/payments/govstack_models.py`) has exactly four fields — `bb_id`, `description`, `is_active`, `role` — **no secret or credential field at all**. `bb_id` is, by design, a *public* identifier: it's the same value sent in cleartext as Payments' `X-Registering-Institution-ID` header and `Gov_Stack_BB` body field, and the harness's own fixtures use predictable/known values (`"bb-digital-registries"`, `"GS-HARNESS"`, even the literal string `"Gov_Stack_BB"`). **Scheduler is reusing a public infrastructure identifier as if it were a secret authentication token.** Concretely: `seed_govstack_vouchers.py` creates a `GovStackRegisteredBB` row with `bb_id="GS-HARNESS"` and `role="admin"` — anyone who knows or guesses this publicly-referenced value can authenticate to all 37 Scheduler endpoints as an admin-tier caller, with read access to every citizen's appointments and subscriber PII (name/email/phone) and the ability to cancel any appointment. This is a design flaw, not a wiring bug, and was not caught by the round-2 report or by Wave A–G's own deep-review rounds because none of them checked whether `bb_id` was ever meant to double as a secret.
+
+### Blockers to genuine 🟢
+1. Give `GovStackRegisteredBB` (or a new Scheduler-specific model) a real secret/token field, distinct from the public `bb_id`, and validate `request_token` against that instead. This is the highest-priority item — it's a live authentication bypass in production mode, not a harness-conformance nicety.
+2. Commit the pending migration (mechanical, ~15 min).
+3. Register the 4 missing models in admin (~1-2 hours).
 
 ### Risk if deployed today
-A real harness run fails all 5 voucher scenarios on schema mismatch despite green internal tests. Separately: any external caller who finds the URL can submit government payment disbursement instructions with zero authentication — this is not visible to a future reviewer relying on the auth module's own docstring, which currently states the opposite.
-
-### Estimated effort
-~3-4 engineer-days total. No structural rework needed — this is schema/wiring/auth-decision work on top of an otherwise solid state machine and audit trail.
+Any party who has ever seen a registered BB's public identifier (which by design is exchanged in plaintext across multiple other endpoints) can impersonate that BB against every Scheduler endpoint at its full role tier, including admin. This is more severe than anything found in Payments' P2G gap, because it defeats an auth layer that appears, on the surface, to be correctly and consistently applied everywhere.
 
 ---
 
-## Appointments / Scheduler BB — 🟡 Partial
+## Documents BB — 🔴 Not Started (GovStack axis, re-scoped) / 🟡 Partial (CivicOS-internal axis)
 
-### Verdict
-The strongest-built BB in this codebase on substance — all 37 endpoints (spec re-fetched fresh, confirmed exact 1:1 match including HTTP methods and the `qry`/`requestor_id`/`request_token` query convention), 799/799 tests passing, comprehensive locking (`select_for_update()` on every race-prone path), and append-only audit enforcement — but it fails two purely mechanical Production-Ready criteria that were not caught by the prior wave-review or final certifiability pass, and I personally reproduced both.
+### GovStack axis — practical conclusion unchanged, but the evidence behind it was wrong
+Round 2 said `bb-file-management`'s spec files were "literally 0 bytes." That's **only true of `api/swagger.json`/`api/swagger.yaml`**. I confirmed, via a fresh clone, that `spec/4-key-digital-functionalities.md` is **15KB of real, substantive document-management requirements** — lifecycle/versioning, MoReq2010/OAIS archival concepts, SHA-256 checksum verification, legal hold, dual-approval deletion, ABAC + break-glass access, AES-256-at-rest, GDPR Art. 17, immutable audit logging, WCAG 2.1 AA. **A genuine gap-analysis target exists that was previously missed entirely.** However, the practical certification conclusion doesn't change: there is still no `test/openAPI/features/` directory, no test-data fixtures, and no API schema to validate against — `test/plan.md` remains an unfilled template. So: a real spec to gap-analyze against now exists, but no harness-based certification path exists yet. Recommend a follow-up pass that treats `4-key-digital-functionalities.md` as a genuine target for a written gap analysis (similar to what exists for the other 3 BBs), even without a harness to run against. Also confirmed by an exhaustive org listing: no other upstream repo (`bb-digital-registries`, `bb-wallet`, `bb-cms`, `bb-esignature`, etc.) is a better domain match; "domain-mismatched" for `bb-digital-registries` is a fair characterization (its API is a generic keyed-value CRUD registry, with zero upload/MIME/scan concepts).
 
-### Findings (personally re-verified)
-1. **Uncommitted migration drift**, confirmed myself via `makemigrations --check --dry-run appointments`: a pending `AlterField` on `GovStackSubscriberProfile.alert_preference` (adding `choices=`) that migration `0016_govstack_appointment_fields.py`'s own comments say was deliberately deferred as "separate tech debt... out of scope" and never subsequently generated. Metadata-only (no DB schema/data risk), but real and unresolved.
-2. **No GovStack scheduler models registered in Django admin** — `GovStackAffiliation`, `GovStackAlertSchedule`, `GovStackMessage`, `GovStackSubscriberProfile` have zero admin visibility (only `BookingAuditLog` is admin-visible, as a read-only inline). Ops/support staff have no GUI path to inspect these records; direct DB or API access would be required today.
+### CivicOS-internal axis — confirmed solid, with 2 new findings
+1,066 tests pass. PIPEDA-specific protections (IDOR-safe 404s, scan-gating, storage-key non-leakage, IP masking) are real and tested, not just claimed.
 
-### Blockers to 🟢 Production-Ready
-1. Run `manage.py makemigrations appointments`, confirm the generated migration is a no-op at the DB level (choices= is Python-only metadata), and commit it. *~15 min.*
-2. Register the 4 missing models in `apps/appointments/admin.py` with appropriate read-only/sensitive-field handling. *~1-2 hours.*
-3. (Non-blocking) Differentiate the flat `100/minute` `govstack_bb` throttle scope by actor role.
-
-### Estimated effort
-Under 1 day — both real blockers are mechanical, not structural.
-
----
-
-## Documents BB — 🔴 Not Started (GovStack axis) / 🟡 Partial (CivicOS-internal axis)
-
-### Verdict
-Confirmed, via fresh fetch, that **no usable upstream GovStack spec exists for this domain**: `bb-file-management`'s spec files are still literally 0 bytes (git empty-blob hash, last commit 2026-06-08), and `bb-digital-registries` is a generic key-value registry CRUD API with no upload/MIME/storage/scan concepts — a genuine domain mismatch, not a document-management API. This is a structural gap that is not owned by this codebase; it requires GovStack to publish a real spec, or CivicOS to adopt a different reference point.
-
-On its own internal merits, the DRF REST API (`apps/api/documents/`, Wave 8) is well-built: 1,066 tests pass, dedicated PIPEDA test suite covers IDOR (404 not 403), scan-status gating, storage-key non-leakage, IP masking, legal hold, and single-use download tokens. All 11 recently-tracked open items (quarantined-list endpoint, 410 on expired token, confirm-upload/attach alignment, download endpoint rename, general list endpoint) are confirmed present in code.
-
-### New finding — worse than previously understood
-Of **8** domain signals declared in `apps/documents/signals.py`, only **3** have connected receivers (`document_soft_deleted`, `document_hard_deleted`, `document_legal_hold_changed`) — I personally confirmed this via grep. The **5 unwired** are `document_upload_initiated`, `document_confirmed`, `document_scan_clean`, `document_quarantined`, and `document_version_created`. This is worse than the "2 of 4" figure carried over from an earlier task list — it's 5 of 8, and critically includes the two signals whose own docstrings say they should drive notifications: `document_scan_clean` ("Receivers may notify the citizen uploader") and `document_quarantined` ("Receivers notify the system admin only"). Concretely: a citizen whose upload clears virus scanning gets no notification, and if malware is found and a document is quarantined, no admin is automatically alerted — this only surfaces if someone proactively polls `GET /quarantined/`. For a government platform, silent malware quarantine with no push alert is an operational blind spot (though the document itself is correctly blocked from citizen access regardless).
+**New findings:**
+1. **The notification gap is 5 of 8 signals unwired, not "2 of 4" as previously tracked.** Only `document_soft_deleted`, `document_hard_deleted`, and `document_legal_hold_changed` have connected receivers; `document_upload_initiated`, `document_confirmed`, `document_scan_clean`, `document_quarantined`, and `document_version_created` do not. The two with the clearest operational impact — clean-scan citizen notification and quarantine admin alerting — remain silent, meaning a detected-malware event currently has no automatic alert path (the document is still correctly blocked from access; only the *notification* is missing).
+2. **🟠 The claimed encryption-at-rest is not actually enforced.** Production settings never set an `SSEKMSKeyId`, which means the code path that would attach server-side encryption parameters to S3 uploads is dead — presigned upload policies are issued with no encryption enforcement, despite the (real, substantive) upstream spec mandating `aws:kms` + customer-managed keys for this class of document sensitivity.
 
 ### Blockers
-1. **GovStack axis**: not actionable from this codebase — needs an upstream spec.
-2. **Internal axis**: wire receivers for `document_scan_clean` and `document_quarantined` (patterns already exist for the 3 connected signals; the "Future:" TODO is already in the receiver docstrings). *~4-8 hours incl. tests.*
-3. Explicitly decide and document whether the other 3 unwired signals are intentional future cross-BB hooks or an oversight.
-4. (Minor, non-blocking) Consider hashing `DocumentAccessToken.token` at rest instead of storing it in plaintext, readonly-visible in admin.
+1. GovStack axis: write a gap analysis against `4-key-digital-functionalities.md` even without a harness (new, actionable follow-up); real API-conformance certification remains blocked on GovStack publishing test scaffolding.
+2. Internal axis: wire the 2 highest-impact notification receivers (scan-clean, quarantine); fix the S3 encryption-at-rest gap; decide/document intent for the other 3 unwired signals.
 
 ---
 
-## Certification Priority Order
+## Certification Priority Order (revised this round)
 
-1. **Payments** — *(updated)* all code blockers resolved via the P0–P3 plan (see update note in its section above); now tied with Consent for closest to harness submission.
-2. **Consent** — closest to done; 5 remaining items are all hours-scale. Recommend closing these out and being among the first BBs submitted to `testing.govstack.global`.
-3. **Appointments/Scheduler** — also very close (both blockers are same-day mechanical fixes); next in line for harness submission once Consent's/Payments' items are closed.
-4. **Documents** — internal-axis fixes (signal wiring) are cheap and worth doing regardless, but GovStack-axis certification is blocked on an external dependency (a real upstream spec) and shouldn't be sequenced against the others.
+1. **Consent** — genuinely closest to done; all remaining items are hours-to-half-day scale and none involve a security defect. First candidate for `testing.govstack.global`.
+2. **Payments** — was believed done; now has 2 severe findings (voucher ID schema shape, unauthenticated P2G) plus 1 real seed-data gap. Estimated 2-3 more engineer-days before genuinely ready.
+3. **Appointments/Scheduler** — has the single most severe finding in this round (auth-bypass-by-design via public `bb_id` reused as a secret). This should be treated as urgent regardless of harness-submission timing, since it's a live production security defect, not a conformance nicety. No upstream harness exists to even validate against once fixed.
+4. **Documents** — internal-axis fixes are cheap and worth doing regardless (notification wiring, S3 encryption); GovStack-axis now has a real spec to analyze against for the first time, which is new, actionable work, but a genuine certification path still doesn't exist.
+
+---
 
 ## Cross-BB Integration Gaps
-- `GovStackRegisteredBB` (the shared BB-whitelist model, defined in `apps/payments/govstack_models.py`) is consumed by Payments and Appointments/Scheduler auth, but **not** by Consent, which uses citizen JWT/token auth exclusively. This is architecturally fine today (Consent doesn't need BB-to-BB org auth yet) but worth flagging if Consent ever grows org-to-org config/audit calls.
-- The platform-wide hash-chained `AuditLogEntry` (in `apps/audit/`) and Consent's own `ConsentAuditEntry` are separate, non-unified audit trails by design — each BB owns its domain-specific chain. Not a defect, but an investigator using `AuditLogEntry.verify_chain()` alone would not see Consent events.
-- ~~Payments' `seed_govstack_vouchers` and the actual harness fixtures disagree on the whitelist BB ID~~ — **resolved in P2** (see `SPEC_GOVSTACK_PAYMENTS_BB.md` §13.7/§23); the command now also seeds the production allowlist table.
-- **Still open, not addressed by the Payments P0–P3 plan (different subsystem):** `GovStackHeaderMiddleware` injects the `X-GovStack-BB-Version` response header only for requests matching Consent's URL prefixes — Payments (`/govstack/payments/`) and Appointments (`/govstack/scheduler/`) responses never receive it, even though the platform requirements table below marks this a GovStack-wide expectation. This was carried forward from the now-deleted `GOVSTACK_READINESS_REPORT_2026-07-25.md` draft specifically because it is a real, still-unfixed regression that appears nowhere else in this report.
+
+- **`GovStackRegisteredBB.bb_id` is used as BOTH a public identifier (Payments' header/body fields) AND, in Appointments/Scheduler, as if it were a secret credential.** This is the round's most important cross-cutting finding — it means the same model field carries two incompatible trust assumptions depending on which BB reads it. Any future BB that consumes this table needs an explicit decision about which of the two patterns it's following.
+- `X-GovStack-BB-Version` response header is still only injected for Consent's URL prefixes, not Payments (`/govstack/payments/`) or Appointments (`/govstack/scheduler/`) — carried forward, unchanged, from round 2.
+- Audit trail DB-level immutability (`apps/audit/`, and by the same pattern Consent's `ConsentRevision`/`ConsentAuditEntry` and Appointments' `BookingAuditLog`) remains Python-only (`raise ValueError` in `save()`/`delete()`), with no PostgreSQL trigger or `CheckConstraint` — unchanged from round 2.
+- Payments' P0-era auth fix (mode-gated `IsTrustedSourceBB`) was scoped only to G2P; it was never extended to P2G, which is architecturally the same kind of gap Appointments has (an endpoint surface added after the auth pattern was established, without the pattern being re-applied).
 
 ---
 
-## Appendix — Platform-Wide Findings Carried Forward (from the deleted 2026-07-25 draft report)
+## Appendix — Round-2 Platform-Wide Findings (still not re-verified this round)
 
-These sections were produced by the same 2026-07-25 review round as the rest of this report but lived in a since-deleted draft (`GOVSTACK_READINESS_REPORT_2026-07-25.md`). They cover ground this report's per-BB sections don't (a Tier-2 platform-BB snapshot, a cross-cutting auth/requirements audit, and a prioritized action list spanning all BBs) and are preserved here rather than lost.
+Carried forward unchanged from the previous version of this report; not re-checked in round 3.
 
-### Tier 2 — Core Platform BBs (carried forward from 2026-07-22 — not re-verified since)
+### Tier 2 — Core Platform BBs (from 2026-07-22 — stale by 3 days at this point, flag for a future pass)
 | BB | App | Tests (2026-07-22) | Verdict (2026-07-22, unverified since) |
 |---|---|---|---|
 | Workflows | `apps/workflows/` | 113 | PRODUCTION-READY |
@@ -152,22 +144,11 @@ These sections were produced by the same 2026-07-25 review round as the rest of 
 | Volunteers | `apps/volunteers/` | 831 | SOLID (audit gap) |
 | Reports | `apps/reports/` | 485 | PRODUCTION-READY |
 | Authentication | `apps/auth_extension/` | 75 | PRODUCTION-READY |
-| Audit Trail | `apps/audit/` | 19 | DB-level immutability gap unchanged (see below) |
+| Audit Trail | `apps/audit/` | 19 | DB-level immutability gap unchanged |
 | Core Utilities | `apps/core/` | 83 | PRODUCTION-READY |
 | CMS | `apps/cms/` | 0 | No tests |
 
-### BB-to-BB auth robustness (as of 2026-07-25, before the Payments P0 fix)
-| Class | File | 2026-07-22 finding | State as of this report |
-|---|---|---|---|
-| `IsTrustedSourceBB` | `apps/payments/govstack_auth.py` | Accepted any non-empty header | Fixed — whitelist-backed via `GovStackRegisteredBB` |
-| `HasVoucherJWT` | `apps/payments/govstack_auth.py` | Not enforced in prod settings | Fixed — defaults `True` in `production.py` |
-| `GovStackSchedulerAuth` | `apps/appointments/govstack_auth.py` | N/A (didn't exist) | New, secure by default — same whitelist pattern |
-| `AllowAnyBB` | `apps/payments/govstack_auth.py` | Unconditionally `True` | Was unconditionally `True`, guarding bulk-payment/prepayment-validation/voucher preactivation-activation — **this specific gap was the Payments P0 fix** (see update note above); now uses `IsTrustedSourceBB` on the two beneficiary-money endpoints. Voucher preactivation/activation intentionally remain `AllowAnyBB` — identity there is carried by the `Gov_Stack_BB` body field, not a header (see `SPEC_GOVSTACK_PAYMENTS_BB.md` §8.2). |
-
-### Audit trail DB-level immutability — still open
-`apps/audit/models.py`'s `AuditLogEntry.save()`/`delete()` enforce immutability only via Python-level `raise ValueError`; no PostgreSQL trigger or `CheckConstraint` exists in any migration. `QuerySet.update()`/`QuerySet.delete()` bypass the guard entirely. Consent's own `ConsentRevision`/`ConsentAuditEntry`, and by the same pattern Appointments' `BookingAuditLog`, share this architecture platform-wide. Not fixed by any work in this session; still the correct next hardening step before production go-live.
-
-### GovStack Platform Requirements Table (as of 2026-07-25)
+### GovStack Platform Requirements Table (as of round 2, 2026-07-25 — not re-checked this round)
 | Requirement | Status | Notes |
 |---|---|---|
 | `/health/` endpoint | ✅ | Checks DB, cache, Stripe; 503 on failure |
@@ -175,16 +156,17 @@ These sections were produced by the same 2026-07-25 review round as the rest of 
 | Rate limiting | ✅ | `govstack_bb` scope 100/min on Payments/Appointments BB-to-BB views; Consent correctly uses citizen/anon scopes instead |
 | HTTPS enforced | ✅ | `SECURE_SSL_REDIRECT=True`, HSTS 1yr+preload |
 | `X-Request-ID` header | ✅ | Applies globally |
-| `X-GovStack-BB-Version` header | ⚠️ **still open** | Only injected for Consent's URL prefixes, not Payments/Appointments — see the Cross-BB Integration Gaps bullet above |
+| `X-GovStack-BB-Version` header | ⚠️ still open | Only injected for Consent's URL prefixes |
 | `ATOMIC_REQUESTS` | ✅ | Correctly exempted on health probe |
 | CSP headers | ✅ | `django-csp` with nonces |
 | `X-Frame-Options DENY` | ✅ | |
 | `SECURE_REFERRER_POLICY` | ✅ | |
-| BB-to-BB auth whitelist | ✅ *(updated)* | All 4 permission classes now real and mode-gated as of the Payments P0 fix |
+| BB-to-BB auth whitelist | ⚠️ *(re-opened this round)* | Believed fully real as of round 2; round 3 found Appointments' variant is a bypass-by-design (see above) |
 | CORS policy | ⚠️ | No `django-cors-headers`; acceptable for server-to-server, fails browser-based harness/Swagger cross-origin use |
 | Audit log DB-level immutability | ❌ | Unchanged — Python-only guard |
 
 ---
 
 ## Verification note
-This report was produced by 3 independent agents that each fetched live GovStack specs fresh (not from memory or prior reports) and re-ran the relevant test suites themselves. Before finalizing, the single most consequential finding (Payments' unauthenticated bulk-payment endpoint) plus the Consent, Appointments, and Documents migration/signal-wiring findings were independently re-confirmed by direct code reads and command re-runs, not accepted on agent self-report alone. Payments' section was subsequently superseded the same day by a full P0–P3 remediation round — see the update note at the top of that section.
+
+This round was produced by 3 independent agents, each fetching live GovStack specs fresh (fresh `git clone`, not cached/memory) and re-running the relevant test suites themselves. Before finalizing, the 3 most consequential findings — Payments' voucher-ID schema length mismatch, Payments' unauthenticated P2G surface, and Appointments' `bb_id`-as-secret auth bypass — were independently re-confirmed by me directly: a fresh upstream clone and grep for the schema claim, and direct file:line reads of the relevant CivicOS source for the other two. Everything reported above without an explicit "taken on faith" caveat in the underlying agent transcripts reflects either my own direct verification or a specific, cited file:line/command-output the agent captured — not agent self-report alone.
