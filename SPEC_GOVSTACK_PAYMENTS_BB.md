@@ -172,14 +172,14 @@ Different endpoints require different headers. The full reference:
 | Header | Required on | Purpose |
 |---|---|---|
 | `X-Callback-URL` | Register Beneficiary, Update Beneficiary, Voucher Preactivation, Voucher Activation | URL to POST async result to |
-| `X-Registering-Institution-ID` | Register Beneficiary, Update Beneficiary | Source ministry/org ID |
+| `X-Registering-Institution-ID` | All 5 G2P endpoints — **conditionally required**: mandatory only when `GOVSTACK_REQUIRE_REGISTERED_BB=True` (production). Optional in harness/test mode, which is the default. See §8.1. | Source ministry/org ID |
 | `X-CorrelationID` | Bulk Payment, Prepayment Validation, P2G Bill | Globally unique request ID |
 | `X-Platform-TenantId` | P2G Bill Transfer | Tenant scoping |
 | `X-PayerFI-Id` | P2G Bill Transfer | Payer financial institution ID |
-| `X-Registering-Institution-Id` | Voucher endpoints | Issuing agency ID |
+| `X-Registering-Institution-Id` | Voucher preactivation, activation (**optional** — recorded on the voucher record, not an auth input; see §8.2) | Issuing agency ID |
 | `X-Channel` | Voucher (optional) | Channel identifier |
 | `X-Date` | Voucher (optional) | Request date |
-| `Authorization: Bearer <jwt>` | Voucher Redemption, Voucher Status | Standard JWT |
+| `Authorization: Bearer <jwt>` | Voucher Redemption, Voucher Status check (GET), Voucher Cancellation (PATCH) — enforced only when `GOVSTACK_VOUCHER_REQUIRE_JWT=True` (production); see §8.2 | Standard JWT |
 
 ### 4.3 Async Callback Pattern
 
@@ -539,6 +539,7 @@ class GovStackPaymentAuditEntry(TimestampedModel):
     ACTION_BENEFICIARY_UPDATED = "beneficiary_updated"
     ACTION_BATCH_RECEIVED = "batch_received"
     ACTION_BATCH_COMPLETED = "batch_completed"
+    ACTION_BATCH_PARTIAL = "batch_partial"
     ACTION_BATCH_FAILED = "batch_failed"
     ACTION_INSTRUCTION_COMPLETED = "instruction_completed"
     ACTION_INSTRUCTION_FAILED = "instruction_failed"
@@ -548,9 +549,15 @@ class GovStackPaymentAuditEntry(TimestampedModel):
     ACTION_VOUCHER_ACTIVATED = "voucher_activated"
     ACTION_VOUCHER_REDEEMED = "voucher_redeemed"
     ACTION_VOUCHER_CANCELLED = "voucher_cancelled"
+    # P2G (Wave 5)
+    ACTION_BILL_PAYMENT_REQUESTED = "bill_payment_requested"
+    ACTION_BILL_PAID = "bill_paid"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    action = models.CharField(max_length=50, db_index=True)
+    # The real model constrains this with choices=ACTION_CHOICES (all 16 actions
+    # above). `choices` is Python-level validation metadata only — it emits no
+    # CHECK constraint on PostgreSQL or SQLite.
+    action = models.CharField(max_length=50, choices=ACTION_CHOICES, db_index=True)
     actor_bb_id = models.CharField(max_length=50, blank=True,
         help_text="SourceBBID or Gov_Stack_BB that triggered the action.")
     object_type = models.CharField(max_length=50,
@@ -631,10 +638,18 @@ The GovStack Payments BB uses non-standard HTTP status codes for domain-specific
 | `452` | Invalid voucher amount | Voucher preactivation |
 | `453` | Invalid voucher currency | Voucher preactivation |
 | `454` | Invalid voucher group | Voucher preactivation |
-| `456` | Invalid voucher serial number (not found) | Voucher activation |
-| `460` | Gov_Stack_BB does not exist / not authorized | Voucher preactivation, activation, redemption |
-| `463` | Invalid serial number for cancellation | Voucher cancellation |
+| `455` | Voucher group exhausted | *(schema completeness only — no harness scenario, no real trigger; see §13.8)* |
+| `456` | Invalid voucher serial number (not found) | Voucher activation, redemption, status check (GET) |
+| `458` | Voucher already used (status is `consumed`) | Voucher status check (GET) |
+| `459` | Voucher expired (`expiry_date` in the past) | Voucher status check (GET) |
+| `460` | Gov_Stack_BB does not exist / not authorized | Voucher preactivation, activation, redemption (see §13.7) |
+| `461` | `voucher_number` is not numeric | Voucher redemption |
+| `462` | Insufficient funds | Voucher redemption (see §13.8) |
+| `463` | Cannot credit merchant | Voucher redemption (see §13.8) |
+| `463` | Invalid serial number for cancellation **or** invalid `Gov_Stack_BB` | Voucher cancellation — this endpoint uniquely reuses `463` for a bad BB instead of `460` (see §13.4) |
 | `464` | Voucher already cancelled (idempotent double-cancel) | Voucher cancellation |
+
+Note that `463` covers two distinct conditions on two different endpoints. They are implemented as two separate exception classes (`CannotCreditMerchant` for redemption, `InvalidCancellationSerial` for cancellation) that happen to share a `status_code`.
 
 ### 7.1 Error Response Shape
 
@@ -692,6 +707,8 @@ class VoucherAlreadyCancelled(APIException):
     default_detail = "This voucher has already been cancelled."
 ```
 
+> The block above is the Wave 1 scaffolding set. P1 added six further classes to `govstack_exceptions.py` to cover the rest of the table in §7.1: `VoucherGroupExhausted` (455), `VoucherAlreadyUsed` (458), `VoucherExpired` (459), `InvalidVoucherNumber` (461), `InsufficientFunds` (462), and `CannotCreditMerchant` (463 for redemption — a separate class from `InvalidCancellationSerial`, which is 463 for cancellation).
+
 In `govstack_views.py`, add a custom exception handler:
 
 ```python
@@ -723,37 +740,60 @@ These are BB-to-BB APIs. The caller is another GovStack building block (Registry
 
 Authentication: **Header-based API key** using `X-Registering-Institution-ID` or `X-CorrelationID`.
 
-For the harness, these endpoints must be publicly accessible (no JWT required). Create a custom DRF permission:
+For the harness, these endpoints must be publicly accessible (no JWT required). All 5 G2P endpoints (`register-beneficiary`, `update-beneficiary-details`, `bulk-payment`, `prepayment-validation`, `prepayment-validation-response`) use the same permission class, `IsTrustedSourceBB`.
+
+**The `X-Registering-Institution-ID` header requirement is mode-dependent, not unconditional.** This was corrected in P0 of `PAYMENTS_BB_COMPLETION_PLAN_2026-07-25.md` after the live harness step-definition files (`test/openAPI/features/support/g2p_*.js`) were read directly and confirmed to **never** send this header on **any** G2P endpoint — including the smoke-test scenarios that must return HTTP 200. A permission class that required the header in every settings mode would reject every real harness call with HTTP 401.
+
+The two modes, governed by the `GOVSTACK_REQUIRE_REGISTERED_BB` setting (mirroring the `GOVSTACK_VOUCHER_REQUIRE_JWT` pattern):
+
+| `GOVSTACK_REQUIRE_REGISTERED_BB` | Header absent | Header present |
+|---|---|---|
+| `False` — **default**; applies under `manage.py test` and in every harness environment | **Access granted** (degrades to `AllowAnyBB`-equivalent behaviour) | Length-validated (≤ 20 chars); **no** DB whitelist lookup |
+| `True` — production default, set in `config/settings/production.py` | Access denied (HTTP 401) | Length-validated, then looked up in `GovStackRegisteredBB`; only an active matching row grants access |
 
 ```python
-# govstack_auth.py
+# govstack_auth.py (behavioural summary — see the real file for the full implementation)
+from django.conf import settings
 from rest_framework.permissions import BasePermission
 
 class IsTrustedSourceBB(BasePermission):
     """
     Validates that the caller is a known Source BB.
-    For harness testing: passes if X-Registering-Institution-ID header is present.
-    For production: validate against a whitelist of registered Source BB IDs.
+    Harness/test mode (GOVSTACK_REQUIRE_REGISTERED_BB=False): a MISSING header
+    is allowed — the real harness never sends one. A supplied header is still
+    length-validated.
+    Production mode (=True): header required and checked against the
+    GovStackRegisteredBB whitelist.
     """
     def has_permission(self, request, view):
-        institution_id = request.headers.get("X-Registering-Institution-ID", "")
+        institution_id = (
+            request.headers.get("X-Registering-Institution-ID", "").strip()
+            or request.headers.get("X-Registering-Institution-Id", "").strip()
+        )
+        require_registered = getattr(settings, "GOVSTACK_REQUIRE_REGISTERED_BB", False)
+
         if not institution_id:
+            return not require_registered  # harness mode tolerates an absent header
+        if len(institution_id) > 20:
             return False
-        # Harness uses any non-empty value — validate format only
-        # Production would check against GovStackRegisteredBB table
-        return len(institution_id) <= 20
+        if not require_registered:
+            return True
+        return GovStackRegisteredBB.objects.filter(
+            bb_id=institution_id, is_active=True
+        ).exists()
 
 class AllowAnyBB(BasePermission):
-    """For endpoints that accept any BB caller (bulk payment, vouchers)."""
+    """For endpoints that accept any BB caller (vouchers — auth is carried by the
+    Gov_Stack_BB field in the request body instead of a header)."""
     def has_permission(self, request, view):
-        return True  # Auth validated by Gov_Stack_BB field in request body
+        return True
 ```
 
 ### 8.2 Voucher Endpoints
 
-Voucher Redemption and Voucher Status require JWT Bearer authentication (as per the spec's `bearerAuth` security scheme). Use CivicOS's existing JWT authentication.
+Voucher Redemption, Voucher Status check (GET) and Voucher Cancellation (PATCH) use `HasVoucherJWT` — JWT Bearer authentication per the spec's `bearerAuth` security scheme, backed by CivicOS's existing JWT authentication. Like `IsTrustedSourceBB`, it is mode-gated: when `GOVSTACK_VOUCHER_REQUIRE_JWT=False` (the harness/test default) it degrades to `AllowAnyBB` behaviour so the harness can call these endpoints without a Bearer token; when `True` (production default, set in `production.py`) an authenticated request is required.
 
-Voucher Preactivation and Activation use header-based auth (`X-Registering-Institution-Id`).
+Voucher Preactivation and Activation use `AllowAnyBB`. Their caller identity is carried by the `Gov_Stack_BB` **body** field, validated per §13.7 — not by a header. `X-Registering-Institution-Id`, when supplied, is merely recorded on the voucher record; it is not an authentication input on these endpoints.
 
 ### 8.3 Rate Limiting
 
@@ -923,7 +963,7 @@ path("govstack/payments/", include("apps.payments.govstack_urls", namespace="gov
 
 **Required headers:**
 - `X-Callback-URL` (required) — URL to POST async confirmation
-- `X-Registering-Institution-ID` (required)
+- `X-Registering-Institution-ID` — **conditionally required**: enforced only when `GOVSTACK_REQUIRE_REGISTERED_BB=True` (production). Optional in harness/test mode, which is the default, because the live harness never sends it. See §8.1.
 
 **Request body:**
 ```json
@@ -1185,7 +1225,7 @@ This is the largest single wave — 5 features but one unified model.
 ### 13.1 `POST /govstack/payments/vouchers/voucher_preactivation`
 
 **Harness:** `voucher_preactivation.feature`
-**Required headers:** `X-Registering-Institution-Id` (optional: `X-Callback-URL`, `X-Channel`, `X-Date`, `X-CorrelationID`)
+**Headers:** all optional. `X-Registering-Institution-Id` is recorded on the voucher record but is not an authentication input on this endpoint (see §8.2); `X-Callback-URL`, `X-Channel`, `X-Date`, `X-CorrelationID` are accepted and ignored or stored.
 
 **Request body:**
 ```json
@@ -1201,19 +1241,20 @@ This is the largest single wave — 5 features but one unified model.
 - `voucher_amount`: must be positive float → HTTP `452` if invalid
 - `voucher_currency`: must be 3-letter ISO 4217 → HTTP `453` if invalid
 - `voucher_group`: must be non-empty string → HTTP `454` if invalid/empty
-- `Gov_Stack_BB`: must be a known/registered BB identifier → HTTP `460` if not recognized. **For the harness:** accept any non-empty string — the harness uses `"Gov_Stack_BB"` as the value
+- `Gov_Stack_BB`: validated in **two layers** → HTTP `460` if rejected. See §13.7 for the full description of both layers.
 
-**Success response (HTTP 200):**
+**Success response (HTTP 200) — real harness schema, snake_case:**
 ```json
 {
-  "voucherNumber": "123456",
-  "voucherSerialNumber": "123456",
-  "voucherGroup": "string",
-  "expiryDate": "2026-12-31T00:00:00Z"
+  "voucher_number": "123456",
+  "voucher_serial_number": "123456",
+  "expiry_date_time": "2026-12-31T00:00:00+00:00"
 }
 ```
 
-Note: `voucherNumber` and `voucherSerialNumber` are the same value. `expiryDate` is `now() + 90 days` (configurable via `GOVSTACK_VOUCHER_EXPIRY_DAYS` setting, default 90).
+All three fields are required by the harness schema (`test/openAPI/Payment_BB_Voucher_api_test.json`). `voucher_number` and `voucher_serial_number` carry the same value (the voucher's serial number). `expiry_date_time` is the ISO-8601 rendering of `now() + 90 days` (configurable via `GOVSTACK_VOUCHER_EXPIRY_DAYS`, default 90), or `null` if no expiry is set.
+
+> **Schema-source correction (P1, 2026-07-25):** earlier revisions of this section documented a camelCase body (`voucherNumber` / `voucherSerialNumber` / `voucherGroup` / `expiryDate`). That shape came from `api/Voucher API YAMLs/*.yml`, which is an **internal** Payment-Hub↔Voucher-Engine protocol document, not the certification contract. The harness validates against `test/openAPI/Payment_BB_Voucher_api_test.json` plus the `voucher_*.feature` files, which use snake_case. The snake_case shape above is what `VoucherPreactivationView.post()` actually returns today.
 
 **Service call:**
 ```python
@@ -1230,7 +1271,7 @@ voucher = GovStackVoucherService.preactivate(
 ### 13.2 `PATCH /govstack/payments/vouchers/voucher_activation`
 
 **Harness:** `voucher_activation.feature`
-**Required headers:** `X-Registering-Institution-Id` (optional: `X-Callback-URL`, `X-Channel`, `X-Date`, `X-CorrelationID`)
+**Headers:** all optional. `X-Registering-Institution-Id` is recorded on the voucher record but is not an authentication input on this endpoint (see §8.2); `X-Callback-URL`, `X-Channel`, `X-Date`, `X-CorrelationID` are accepted and ignored or stored.
 
 **Request body:**
 ```json
@@ -1243,24 +1284,25 @@ voucher = GovStackVoucherService.preactivate(
 Note: `voucher_serial_number` is sent as integer by the harness.
 
 **Validation:**
-- `Gov_Stack_BB`: unknown → HTTP `460`
-- `voucher_serial_number`: not found → HTTP `456`
+- `Gov_Stack_BB`: unknown → HTTP `460` (see §13.7)
+- `voucher_serial_number`: not found, or the voucher is not in a state that can be activated → HTTP `456`
 - Empty payload → HTTP `400`
 
-**Success response (HTTP 200):**
+**Success response (HTTP 200) — real harness schema:**
 ```json
 {
-  "voucherNumber": "5550",
-  "voucherSerialNumber": "5550",
-  "voucherStatus": "Activated",
-  "voucherGroup": "Payment Voucher"
+  "result_status": "Voucher activated successfully."
 }
 ```
+
+`result_status` is the only field the harness schema requires. It is a free-form non-empty string — there is no enum constraint on this endpoint.
+
+> **Schema-source correction (P1, 2026-07-25):** earlier revisions documented `{voucherNumber, voucherSerialNumber, voucherStatus, voucherGroup}` here. That was the internal `api/Voucher API YAMLs/` shape, not the harness contract. See the note in §13.1.
 
 ### 13.3 `POST /govstack/payments/vouchers/voucher_redemption`
 
 **Harness:** `voucher_redemption.feature`
-**Auth:** JWT Bearer
+**Auth:** JWT Bearer via `HasVoucherJWT` — enforced only when `GOVSTACK_VOUCHER_REQUIRE_JWT=True` (production); a no-op in harness/test mode. See §8.2.
 
 **Request body:**
 ```json
@@ -1275,48 +1317,60 @@ Note: `voucher_serial_number` is sent as integer by the harness.
 ```
 
 **Validation:**
-- `Gov_Stack_BB`: not known → HTTP `460`
-- `voucher_number`: not found → HTTP `456`
+- `Gov_Stack_BB`: not known → HTTP `460` (see §13.7)
+- `voucher_number`: not found, or voucher not in `ACTIVATED` state → HTTP `456`
+- `voucher_number`: not numeric (the harness sends the literal `"notAnumber"`) → HTTP `461`
+- Insufficient funds → HTTP `462`; cannot credit merchant → HTTP `463` (see §13.8 for how these two are disambiguated)
 - Empty payload → HTTP `400`
 
-**Success response (HTTP 200):**
+**Success response (HTTP 200) — real harness schema:**
 ```json
 {
-  "status": 1,
-  "message": "Voucher redeemed successfully.",
-  "serialNumber": "6004",
-  "value": 15.21,
-  "timestamp": "2026-07-19T14:00:00Z",
-  "transactionId": "TXN123456"
+  "result_status": "Voucher redeemed successfully."
 }
 ```
 
-Failure response (HTTP 400):
-```json
-{
-  "status": 0,
-  "message": "Invalid voucher number."
-}
-```
+`result_status` is the only required field; free-form non-empty string, no enum. `merchant_name` and `merchant_bank_details` may contain PII and are deliberately **not** echoed back — they are stored internally only.
+
+**Failure responses** use the standard GovStack error envelope (`{"message": "..."}`) with the numeric status codes listed above — not a `{"status": 0, ...}` body.
+
+> **Schema-source correction (P1, 2026-07-25):** earlier revisions documented a `{status, message, serialNumber, value, timestamp, transactionId}` success body and a `{status: 0, message}` HTTP 400 failure body. Neither matches the harness contract. See the note in §13.1.
 
 ### 13.4 `PATCH /govstack/payments/vouchers/voucherstatuscheck/{voucherserialnumber}` — Cancellation
 
 **Harness:** `voucher_cancelation.feature`
 
-No request body required — the serial number is in the path.
+**A request body IS required** — the serial number appears in the path *and* the harness sends a JSON body on every cancellation call:
+
+```json
+{
+  "voucherserialnumber": "60000",
+  "Gov_Stack_BB": "bb-digital-registries"
+}
+```
+
+Both body fields are required and must be non-blank; either missing or blank → HTTP `400`. (Before P1 this endpoint read only the URL path segment and ignored the body entirely, which meant the harness's two "missing X in payload" negative scenarios would have incorrectly returned HTTP 200.)
 
 **Scenarios:**
 - Serial `"60000"` → cancel successfully → HTTP `200`
 - Serial `"60001"` → cancel once → `200`, cancel again → HTTP `464`
 - Serial `"invalid_serial_number"` → HTTP `463`
+- `voucherserialnumber` missing from the body → HTTP `400`
+- `Gov_Stack_BB` missing from the body → HTTP `400`
+- `Gov_Stack_BB` invalid (harness sends `"invalid_bb"`) → HTTP `463`
+
+> **This endpoint uniquely reuses `463` for a bad `Gov_Stack_BB`.** Every other voucher endpoint returns `460` for a BB problem. Do not "fix" this to `460` — the live `voucher_cancelation.feature` explicitly expects `463` here.
 
 **Success response (HTTP 200):**
 ```json
 {
   "voucherSerialNumber": "60000",
-  "voucherStatus": "Cancelled"
+  "voucherStatus": "Cancelled",
+  "message": "Voucher 60000 cancelled successfully."
 }
 ```
+
+`message` is the field the harness schema requires (it was absent entirely before P1). `voucherSerialNumber` and `voucherStatus` are retained additively for API consumers — the harness schema does not forbid extra fields. `voucherStatus` is the title-cased display label (`get_status_display()`), per GAP-6.
 
 **Double-cancel (HTTP 464):**
 ```json
@@ -1342,35 +1396,42 @@ The harness uses serial numbers `"5555"`, `"5556"`, `"5557"`, etc. These must ex
 
 **Optional headers:** `X-Callback-URL`, `X-Channel`, `X-Date`, `X-CorrelationID`
 
-**Success response (HTTP 200):**
+**Success response (HTTP 200) — real harness schema:**
 ```json
 {
-  "status": 1,
-  "serialNumber": "5555",
-  "value": 15.21
+  "voucher_status": "Pre-Activated",
+  "voucher_amount": "15.21"
 }
 ```
 
-Status integer map (from `GovStackVoucher.STATUS_INT_MAP`):
-- `0` = Not Preactivated
-- `1` = Preactivated
-- `2` = Activated
-- `3` = Consumed
-- `4` = Blocked
-- `5` = Suspended
-- `6` = Cancelled
-- `7` = Purged
-- `9` = Error
+Both fields are required. `voucher_amount` is a **JSON string** (`str(voucher.amount)`), not a number. `voucher_status` must be exactly one of the harness schema's 7 enum strings: `"Not Pre-Activated"`, `"Pre-Activated"`, `"Activated"`, `"Suspended"`, `"Blocked"`, `"Purged"`, `"Not Existing"`.
 
-**Failure response (HTTP 400, invalid serial):**
-```json
-{
-  "status": 9,
-  "message": "Voucher not found.",
-  "serialNumber": "invalid",
-  "value": 0.0
-}
-```
+Model status → enum mapping (`_VOUCHER_STATUS_ENUM_MAP` in `govstack_views.py`):
+
+| `GovStackVoucher.status` | `voucher_status` | Note |
+|---|---|---|
+| `preactivated` | `"Pre-Activated"` | exact |
+| `activated` | `"Activated"` | exact |
+| `suspended` | `"Suspended"` | exact |
+| `blocked` | `"Blocked"` | exact |
+| `purged` | `"Purged"` | exact |
+| `cancelled` | `"Purged"` | **judgment call** — no enum value means "cancelled"; `"Purged"` is the closest conceptual match. Not harness-verified: no Gherkin scenario does a status check against a cancelled voucher. Consequence: `cancelled` and `purged` are indistinguishable through this endpoint. |
+| `consumed` | *(never returned)* | `get_status()` raises `VoucherAlreadyUsed` (458) first |
+| `not_preactivated` | `"Not Pre-Activated"` | defensive default; this model state is dead code in practice |
+| — | `"Not Existing"` | genuinely unreachable: HTTP `456` already covers "serial not found". A redundant value in the upstream schema, not an omission here. |
+
+**Failure responses** — plain `{"message": "..."}` envelope with these codes:
+
+| Condition | HTTP |
+|---|---|
+| Serial not found (harness sends an unknown serial) | `456` |
+| Voucher already used — status is `consumed` (harness serial `"6001"`) | `458` |
+| Voucher expired — `expiry_date` is in the past (harness serial `"6002"`) | `459` |
+| Malformed input (e.g. `voucherserialnumber="{}"`) | `400` |
+
+`458` is checked before `459`. Note `400` is reserved for genuinely malformed input on this endpoint — an unknown serial is `456`, **not** `400`. See the GAP-7 correction in §22.
+
+> **Note on `GovStackVoucher.STATUS_INT_MAP` / `.status_int`:** the integer status map documented in §5.5 is **no longer used by any HTTP response**. It predates the discovery of the real harness schema and is retained on the model for internal/admin use only.
 
 ### 13.6 Harness Pre-seeded Data
 
@@ -1388,12 +1449,51 @@ This seeds:
 
 All with `amount=15.21`, `currency=AED`, `group_code="Payment Voucher"`.
 
+### 13.7 `Gov_Stack_BB` Validation — Two Layers
+
+`Gov_Stack_BB` is a **request-body** field on 4 of the 5 voucher endpoints (preactivation, activation, redemption, cancellation). The GET status-check endpoint has no such field and performs no BB validation at all.
+
+Validation is **two independent layers**, not a single allowlist:
+
+**Layer 1 — always-on sentinel blocklist** (`_is_known_invalid_gov_stack_bb()` in `govstack_services.py`). Active in **every** settings mode, including the harness. Rejects:
+- `None`, empty, or whitespace-only values, and
+- the harness's fixed "this BB doesn't exist" sentinels — `not_exist` and `invalid_bb` — compared case-insensitively.
+
+Any other value passes this layer, including the harness's own odd positive fixture `"Gov_Stack_BB"`.
+
+**Layer 2 — production-only registry allowlist** (`_is_unregistered_gov_stack_bb()`), gated by the `GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB` setting. It is set only in `config/settings/production.py`, so it resolves `False` under `manage.py test` and in every harness environment, where the helper short-circuits with **zero** DB queries. When `True`, a value is rejected unless an active `GovStackRegisteredBB` row exists whose `bb_id` matches exactly (case-sensitive, stripped). This layer is *additional* to Layer 1 and never replaces it.
+
+Rejection status codes: `460` on preactivation / activation / redemption; `463` on cancellation (that endpoint's deliberate reuse of `463` — see §13.4).
+
+> **Why a blocklist and not a pure allowlist for harness conformance.** The harness's *positive* fixture values are inconsistent across endpoints: preactivation sends the literal string `"Gov_Stack_BB"`, while activation, redemption, and cancellation send `"bb-digital-registries"`. A strict allowlist would be fragile against that inconsistency and risks rejecting legitimate test data. The negative scenarios, by contrast, use exactly two fixed sentinels — so blocking those sentinels is both sufficient and robust.
+
+> **Honest scope caveat — Layer 2 is NOT harness-verified.** No scenario anywhere across the 5 voucher features tests genuine "well-formed but unregistered BB" rejection; every negative `Gov_Stack_BB` scenario uses one of the two sentinels, which Layer 1 already rejects unconditionally. Layer 2 is production hardening only and its rejection semantics will never be validated by a GovStack certification run.
+>
+> There is a further, narrow limitation, documented in the P2 status update of `PAYMENTS_BB_COMPLETION_PLAN_2026-07-25.md`: **neither of the harness's positive fixture values can currently be stored in `GovStackRegisteredBB.bb_id`.** `"Gov_Stack_BB"` contains underscores and is rejected by `_BB_ID_VALIDATOR`; `"bb-digital-registries"` is 21 characters and exceeds `bb_id`'s `max_length=20`. Rather than weaken the validator or widen the field to force them through, the limitation is documented and locked down by a test. The practical consequence is narrow and already safe by construction: `GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB` must remain `False` in any harness-facing environment — which it already is, since the setting is absent outside `production.py`.
+
+### 13.8 Redemption Decline Codes `462` vs `463`
+
+Both the "insufficient funds" (`462`) and "cannot credit merchant" (`463`) redemption scenarios send the *identical* `merchant_voucher_group: "insufficient funds"` sentinel and `override: true`. They differ only in `merchant_name` and `merchant_bank_details`, so the two codes cannot be told apart from the Gherkin feature text alone.
+
+The disambiguating rule was resolved definitively in P1 by reading GovStack's own reference/certification mock server config, `examples/mock-bb-payments/mockoon-paymentsbbvoucher.json`, which keys on the `(merchant_name, merchant_bank_details)` pair:
+
+| `merchant_name` | `merchant_bank_details` | HTTP |
+|---|---|---|
+| `Ronan Oliver` | `Vigor Bank Group` | `462` — insufficient funds |
+| `Annie Krueger` | `Omega Holding Company` | `463` — cannot credit merchant |
+
+This is independently corroborated by `voucher_redemption.js`'s hardcoded When-steps and by `test-data.json`'s merchant fixture comments — three sources in agreement. `GovStackVoucherService._classify_redemption_decline()` implements this pair rule directly, falling back to a `merchant_voucher_group` sentinel heuristic only for merchant pairs the harness never exercises. **Both `462` and `463` are resolved, not best-effort** — earlier drafts of the completion plan flagged them as an unresolvable heuristic; that caveat is superseded.
+
+`461` (non-numeric `voucher_number`, harness sends `"notAnumber"`) is unambiguous and fully implemented.
+
+`455` (`VoucherGroupExhausted`) exists in the upstream OpenAPI schema but has **no Gherkin scenario anywhere** in the harness. It is implemented for schema completeness and is not wired to a real trigger — this codebase has no group-capacity concept. Not a certification blocker.
+
 **Definition of Done — Wave 4:**
 - [ ] `voucher_preactivation.feature` — all scenarios pass (positive + all negative error codes 452, 453, 454, 460, 400)
 - [ ] `voucher_activation.feature` — all scenarios pass (positive + 400, 456, 460)
-- [ ] `voucher_redemption.feature` — all scenarios pass (positive + 400, 460)
-- [ ] `voucher_cancelation.feature` — all scenarios pass (positive + 463, 464)
-- [ ] `voucher_status_check.feature` — all scenarios pass (positive + optional headers + 400)
+- [ ] `voucher_redemption.feature` — all scenarios pass (positive + 400, 460, 461, 462, 463)
+- [ ] `voucher_cancelation.feature` — all scenarios pass (positive + 400 body validation, 463, 464)
+- [ ] `voucher_status_check.feature` — all scenarios pass (positive + optional headers + 456, 458, 459; 400 only for malformed input)
 - [ ] `seed_govstack_vouchers` management command works idempotently
 - [ ] `GovStackVoucher` state machine rejects invalid transitions with `ValueError`
 - [ ] `voucher_secret` never appears in any HTTP response or log
@@ -1610,23 +1710,29 @@ Never include `payee_functional_id`, `financial_address`, or `voucher_secret` in
 - Verify `financial_address` is encrypted at rest (raw DB value ≠ input value)
 
 **`test_govstack_vouchers.py`:**
-- Preactivation happy path → HTTP 200, `voucherNumber` in response
+- Preactivation happy path → HTTP 200, `voucher_number` / `voucher_serial_number` / `expiry_date_time` in response
 - Preactivation invalid amount → HTTP 452, `message` present
 - Preactivation invalid currency → HTTP 453
 - Preactivation invalid group → HTTP 454
 - Preactivation unknown BB → HTTP 460
 - Preactivation empty body → HTTP 400
-- Activation happy path → HTTP 200
+- Activation happy path → HTTP 200, `result_status` in response
 - Activation invalid serial → HTTP 456
 - Activation unknown BB → HTTP 460
 - Activation empty body → HTTP 400
-- Redemption happy path → HTTP 200, `status: 1`
+- Redemption happy path → HTTP 200, `result_status` in response
 - Redemption unknown BB → HTTP 460
+- Redemption non-numeric `voucher_number` → HTTP 461
 - Redemption invalid voucher → HTTP 400 or 456
-- Cancellation happy path → HTTP 200
+- Redemption insufficient funds / cannot credit merchant → HTTP 462 / 463 (per the §13.8 merchant-pair rule)
+- Cancellation happy path → HTTP 200, `message` in response
+- Cancellation missing `voucherserialnumber` or `Gov_Stack_BB` in body → HTTP 400
+- Cancellation invalid `Gov_Stack_BB` → HTTP 463
 - Double cancellation → HTTP 464
 - Cancellation invalid serial → HTTP 463
-- Status check happy path → HTTP 200, `status` integer
+- Status check happy path → HTTP 200, `voucher_status` enum string + `voucher_amount` string
+- Status check unknown serial → HTTP 456 (not 400)
+- Status check consumed voucher → HTTP 458; expired voucher → HTTP 459
 - Status check optional headers accepted → HTTP 200
 - State machine: `PREACTIVATED → ACTIVATED → CONSUMED` valid
 - State machine: `CONSUMED → CANCELLED` invalid → `ValueError`
@@ -1655,6 +1761,8 @@ python manage.py test \
 |---|---|
 | `0016_govstack_models.py` | Create all 6 new govstack tables |
 | `0017_govstack_voucher_seed_data.py` | RunPython to call `seed_govstack_vouchers` for harness pre-seeded data |
+
+> **Actual migration history diverges from this plan.** `0017` in the real codebase is `0017_tighten_payee_functional_id_validator.py`, a schema migration — the harness fixtures are seeded by the `seed_govstack_vouchers` management command instead, deliberately (a data migration would run on every `migrate`, including production, and permanently pollute the DB). See the note in GAP-1. Subsequent GovStack migrations are `0018`–`0022` (validator tightening, `correlation_id` widening, P2G models, `GovStackRegisteredBB` + its `role` field) and `0023_alter_govstackbill_created_at_and_more.py`, which reconciles the hand-written P2G/registry `CreateModel` migrations with the shared `TimestampedModel` base (adds `db_index` on three `created_at` columns, normalises two `verbose_name` strings, and records the two new P2G `action` choices from §5.6). `0023` is additive and touches no data.
 
 **`0016` must include:**
 - `GovStackBeneficiary` (unique on `payee_functional_id`)
@@ -2316,12 +2424,12 @@ This supersedes the checklist in §21.
 | GAP-4 | `GovStackRegisteredBB` model + `IsTrustedSourceBB` hardening | P3 | No — post-certification | `govstack_models.py`, `govstack_auth.py`, migration `0021` | 4–6 hrs |
 | GAP-5 | Test file naming to match spec §18 | P4 | No — cosmetic | `apps/payments/tests/test_govstack_*.py` | 2–3 hrs |
 | GAP-6 | `voucherStatus` field returns lowercase DB value, spec expects title-case | **P0** | **YES — activation + cancellation harness scenarios** | `govstack_views.py` | 30 min |
-| GAP-7 | GET /voucherstatuscheck invalid serial: wrong HTTP code + body shape | **P0** | **YES — status check negative harness scenario** | `govstack_views.py` | 1 hr |
+| GAP-7 | ~~GET /voucherstatuscheck invalid serial: wrong HTTP code + body shape~~ **WITHDRAWN — claim was backwards; harness expects 456, not 400** | — | No — the pre-GAP-7 behaviour was already correct | `govstack_views.py` | reverted |
 | GAP-8 | Missing test files `test_govstack_models.py` and `test_govstack_services.py` | P3 | No — spec audit | `apps/payments/tests/` | 3–4 hrs |
 | GAP-9 | `process_bulk_payment_batch` omits ID Mapper beneficiary lookup | P2 | Unlikely — harness tests HTTP response not task outcome | `govstack_tasks.py` | 2–3 hrs |
 | GAP-10 | Voucher `value` field serialized as JSON string, spec requires JSON number | P1 | Maybe — depends on harness JSON schema strictness | `govstack_views.py` | 15 min |
 
-**Status as of 2026-07-24: ALL GAPS RESOLVED.** GAP-1 through GAP-10, GAP-C1, and GAP-C2 are all implemented and committed. The GovStack Payments BB implementation is harness-ready. See the complete summary table at the end of this document.
+**Status as of 2026-07-25:** GAP-1 through GAP-6 and GAP-8 through GAP-10, plus GAP-C1 and GAP-C2, are implemented and committed. **GAP-7 is WITHDRAWN** — its premise was backwards and its change has been reverted. Parts of GAP-6 and GAP-10 were later superseded by the P1 schema rewrite (see their entries). See the complete summary table at the end of this document.
 
 ---
 
@@ -2329,6 +2437,8 @@ This supersedes the checklist in §21.
 
 **Added:** 2026-07-23, fresh gap audit following GAP-1–5 implementation.
 **Resolved:** 2026-07-23 — commit `1b9455f` (`govstack_views.py`: use `get_status_display()` in `VoucherActivationView` and `VoucherStatusCheckView.patch`).
+
+> **Partly superseded by P1 (2026-07-25).** The activation response no longer contains a `voucherStatus` field at all — it returns `{result_status}` (§13.2). The cancellation response still carries `voucherStatus` additively, and this gap's `get_status_display()` fix still governs it (§13.4). The GET status-check endpoint uses a separate 7-value enum, `_VOUCHER_STATUS_ENUM_MAP` (§13.5), not `get_status_display()`.
 
 **Files to modify:** `apps/payments/govstack_views.py`
 
@@ -2390,14 +2500,23 @@ E4-fix: voucherStatus is "Cancelled" (title-case) in cancellation success respon
 
 ---
 
-### GAP-7 ✅ RESOLVED — GET /voucherstatuscheck for invalid serial returns wrong HTTP code and wrong response body shape
+### GAP-7 ❌ WITHDRAWN — the original claim was backwards; GET /voucherstatuscheck must return **456**, not 400
 
 **Added:** 2026-07-23, fresh gap audit.
-**Resolved:** 2026-07-23 — commit `c367d7b` (`govstack_views.py`: catch `InvalidVoucherSerial` in `VoucherStatusCheckView.get()`, return HTTP 400 with `{status: 9, message: "Voucher not found.", serialNumber: ..., value: 0.0}`).
+**"Resolved":** 2026-07-23 — commit `c367d7b` (`govstack_views.py`: caught `InvalidVoucherSerial` in `VoucherStatusCheckView.get()` and returned HTTP 400 with `{status: 9, message: "Voucher not found.", serialNumber: ..., value: 0.0}`).
+**Withdrawn and reversed:** 2026-07-25 — the gap as written was wrong, and so was the "fix" it produced.
 
-**File to modify:** `apps/payments/govstack_views.py`
+> **⚠ CORRECTION.** This entire gap entry asserted that the spec and harness require HTTP `400` for an invalid serial on the GET status-check endpoint. **That is backwards.** The live `test/openAPI/features/voucher_status_check.feature` explicitly expects HTTP **`456`** for an unknown serial. `400` is reserved on that endpoint for genuinely malformed input (e.g. `voucherserialnumber="{}"`).
+>
+> The root cause is the failure mode described in the opening of `PAYMENTS_BB_COMPLETION_PLAN_2026-07-25.md`: GAP-7 was written against a *reading* of an inconsistent upstream document (and against this spec's own then-stale §13.5), and was never checked against the harness source itself. The GAP-7 "fix" then left a stale inline comment in `VoucherStatusCheckView.get()` — *"GAP-7: spec §13.5 requires 400, NOT 456"* — that actively overrode the correct behaviour.
+>
+> **The code has since been corrected** (in an earlier wave, well before the P0/P1/P2 work of 2026-07-25): the 400-with-custom-body override was removed, `InvalidVoucherSerial` (456) now propagates normally through the standard exception handler, and the misleading comment is gone. §13.5 above has been rewritten to state the real contract, including the additional `458` (already used) and `459` (expired) codes.
+>
+> Everything below this box is retained **only as a historical record of the incorrect gap**. Do not implement it.
 
-**Current state:**
+**File affected:** `apps/payments/govstack_views.py`
+
+**State at the time the gap was raised:**
 
 `VoucherStatusCheckView.get()` calls `GovStackVoucherService.get_status()`, which raises `InvalidVoucherSerial` (HTTP 456) on not-found:
 ```python
@@ -2405,7 +2524,9 @@ E4-fix: voucherStatus is "Cancelled" (title-case) in cancellation success respon
 # HTTP 456, body: {"message": "Voucher serial number not found."}
 ```
 
-**Spec requirement (§13.5):**
+This was, in fact, already correct.
+
+**What the gap *incorrectly* claimed §13.5 required:**
 
 ```
 Failure response (HTTP 400, invalid serial):
@@ -2417,15 +2538,15 @@ Failure response (HTTP 400, invalid serial):
 }
 ```
 
-Two mismatches:
-1. **HTTP code:** 456 vs required 400
-2. **Body shape:** `{"message": "..."}` vs required `{"status": 9, "message": "...", "serialNumber": "<serial>", "value": 0.0}`
+Two claimed mismatches, **both since disproved**:
+1. ~~**HTTP code:** 456 vs required 400~~ — 456 was right all along.
+2. ~~**Body shape:** `{"message": "..."}` vs required `{"status": 9, "message": "...", "serialNumber": "<serial>", "value": 0.0}`~~ — the plain `{"message": "..."}` envelope is what the harness expects.
 
-Note: This only affects the GET (status check) operation. The PATCH (cancellation) uses 463 and 464 which are correct per spec §13.4. For the GET, §13.5 and the harness's `voucher_status_check.feature` expect HTTP 400.
+The gap's note that this affects only the GET operation was correct: the PATCH (cancellation) uses 463 and 464, which remain correct per §13.4.
 
-**Fix:**
+**The (incorrect) fix that was applied and has since been reverted:**
 
-In `VoucherStatusCheckView.get()`, catch `InvalidVoucherSerial` explicitly and return the correct body:
+In `VoucherStatusCheckView.get()`, catch `InvalidVoucherSerial` explicitly and return the "correct" body:
 
 ```python
 from .govstack_exceptions import InvalidVoucherSerial
@@ -2456,16 +2577,18 @@ def get(self, request: Request, voucherserialnumber: str) -> Response:
 
 Note that `InvalidVoucherSerial` is already imported in `govstack_views.py` (line 63), so no new import is needed.
 
-**Tests to add in `test_govstack_vouchers.py`:**
+**Tests the gap asked for — all four assert the wrong contract and have been replaced:**
 
 ```
-D8:  GET /voucherstatuscheck with unknown serial → HTTP 400 (not 456)
-D9:  GET /voucherstatuscheck with unknown serial → body contains "status": 9
-D10: GET /voucherstatuscheck with unknown serial → body contains "serialNumber" = the submitted serial
-D11: GET /voucherstatuscheck with unknown serial → body contains "value": 0.0
+D8:  GET /voucherstatuscheck with unknown serial → HTTP 400 (not 456)     ← WRONG, now asserts 456
+D9:  GET /voucherstatuscheck with unknown serial → body contains "status": 9        ← WRONG, removed
+D10: GET /voucherstatuscheck with unknown serial → body contains "serialNumber"     ← WRONG, removed
+D11: GET /voucherstatuscheck with unknown serial → body contains "value": 0.0       ← WRONG, removed
 ```
 
-**Estimated effort:** 1 hour (view change + 4 tests).
+The current tests in `test_govstack_vouchers.py` instead assert the real contract: unknown serial → `456`, consumed voucher → `458`, expired voucher → `459`, `{"message": "..."}` envelope on all three.
+
+**Original estimated effort:** 1 hour (view change + 4 tests). **Actual net effect: negative** — the "fix" introduced a harness-failing regression on the status-check negative scenario that had to be undone.
 
 ---
 
@@ -2626,6 +2749,8 @@ G-new-3:   process_bulk_payment_batch sets batch.failed_amount correctly for fai
 **Added:** 2026-07-23, fresh gap audit.
 **Resolved:** 2026-07-23 — commits `9b1ac36`, `08b7cb2`, `5b1b2ef` (`govstack_views.py`: `float(voucher.amount)` in `VoucherRedemptionView` and `VoucherStatusCheckView.get()`; `float(bill.amount)` and `float(payment.amount)` in all P2G views; test assertions updated to check `assertIsInstance(value, (int, float))`).
 
+> **Superseded for the voucher endpoints by P1 (2026-07-25).** Neither voucher response still has a `value` field: redemption returns `{result_status}` (§13.3), and the GET status check returns `voucher_amount` as a **JSON string** — `str(voucher.amount)`, not a float — because that is what the real harness schema requires (§13.5). This gap's float conversion remains correct and unchanged for the **P2G** bill/payment `amount` fields.
+
 **Files to modify:** `apps/payments/govstack_views.py` (2 occurrences)
 
 **Current state:**
@@ -2686,9 +2811,13 @@ Note: `_validate_iso4217()` at lines 253 and 334 (bulk-payment `CreditInstructio
 
 **Root cause:** `RegisterBeneficiaryView` and `UpdateBeneficiaryView` inherited `permission_classes = [AllowAnyBB]` from `GovStackG2PView`. `AllowAnyBB.has_permission()` is an unconditional `return True`. These endpoints process `PayeeFunctionalID` and `FinancialAddress` (PII). Any caller — without providing any identifying header — could register or update beneficiaries.
 
-**Fix:** Both views now declare `permission_classes = [IsTrustedSourceBB]` explicitly, overriding the base class. `IsTrustedSourceBB` requires a non-empty `X-Registering-Institution-ID` header in all environments. When `GOVSTACK_REQUIRE_REGISTERED_BB=True` (production), it additionally performs a DB lookup against `GovStackRegisteredBB`.
+**Fix:** Both views now declare `permission_classes = [IsTrustedSourceBB]` explicitly, overriding the base class.
 
 **Resolved:** 2026-07-24 — commit `b919b34` (`govstack_views.py`; four test setUp methods updated to send `HTTP_X_REGISTERING_INSTITUTION_ID='GS-TEST'`; regression guards `test_a13_no_institution_header_returns_401` and `test_a14_no_institution_header_returns_401` added to `test_govstack_beneficiary.py`).
+
+> **⚠ CORRECTION (P0, 2026-07-25).** As originally written, this entry stated that *"`IsTrustedSourceBB` requires a non-empty `X-Registering-Institution-ID` header in all environments."* That was true of the code at the time — and it was a harness-failing bug, not a feature. The live harness step-definition files (`test/openAPI/features/support/g2p_*.js`) never send this header on **any** G2P endpoint, including the smoke tests, so an unconditional requirement would have returned HTTP 401 for every single harness scenario on `register-beneficiary` and `update-beneficiary-details`.
+>
+> `IsTrustedSourceBB` now degrades to `AllowAnyBB`-equivalent behaviour when the header is absent **and** `GOVSTACK_REQUIRE_REGISTERED_BB=False` (the harness/test default), mirroring `HasVoucherJWT`'s existing pattern. Production behaviour (`=True`) is unchanged: header required and whitelist-checked. The same permission class is now applied uniformly to all **5** G2P views, which also closes the `bulk-payment` / `prepayment-validation` under-authentication gap that GAP-C2 did not cover. See §8.1 for the full mode table.
 
 ---
 
@@ -2702,15 +2831,20 @@ Note: `_validate_iso4217()` at lines 253 and 334 (bulk-payment `CreditInstructio
 | GAP-4 | `GovStackRegisteredBB` model + `IsTrustedSourceBB` hardening | P3 | No | multiple files | **DONE** |
 | GAP-5 | Test file naming to match spec §18 | P4 | No | `apps/payments/tests/` | **DONE** |
 | GAP-6 | `voucherStatus` lowercase vs title-case (activation + cancellation responses) | **P0** | **YES — activation + cancellation** | `govstack_views.py` | **DONE** (commit `1b9455f`) |
-| GAP-7 | GET /voucherstatuscheck invalid serial: wrong HTTP status + body shape | **P0** | **YES — status check negative** | `govstack_views.py` | **DONE** (commit `c367d7b`) |
+| GAP-7 | ~~GET /voucherstatuscheck invalid serial: wrong HTTP status + body shape~~ | — | No | `govstack_views.py` | **WITHDRAWN** — claim was backwards (harness expects **456**, not 400); commit `c367d7b`'s change has been reverted |
 | GAP-8 | Missing `test_govstack_models.py` and `test_govstack_services.py` | P3 | No | `apps/payments/tests/` | **DONE** (commit `9ecbb15` — 22 + 37 tests) |
 | GAP-9 | `process_bulk_payment_batch` omits ID Mapper beneficiary lookup | P2 | Unlikely | `govstack_tasks.py` | **DONE** (commits `b4e9da8`, `077c2fa`) |
 | GAP-10 | Voucher `value` / bill `amount` fields serialized as JSON string, spec requires JSON number | **P1** | Maybe | `govstack_views.py` | **DONE** (commits `9b1ac36`, `08b7cb2`, `5b1b2ef`) |
 | GAP-C1 | `voucher_preactivation` returns HTTP 400 instead of 453 for invalid ISO 4217 currency format | **P0** | **YES — preactivation negative scenario** | `govstack_services.py`, `govstack_serializers.py` | **DONE** (commit `b919b34`) |
 | GAP-C2 | `register-beneficiary` and `update-beneficiary-details` used `AllowAnyBB` instead of `IsTrustedSourceBB` — PII endpoints unauthenticated | **P0** | **YES — beneficiary auth** | `govstack_views.py` | **DONE** (commit `b919b34`) |
 
-**All 12 GAPs are resolved as of 2026-07-24. The GovStack Payments BB implementation is harness-ready.**
+**11 of the 12 GAPs are resolved as of 2026-07-24; GAP-7 is withdrawn (its premise was backwards — see its entry above).** A further round on 2026-07-25 (P0/P1/P2 of `PAYMENTS_BB_COMPLETION_PLAN_2026-07-25.md`) fixed three problems that this GAP list did not detect at all: the G2P auth mode bug (see the GAP-C2 correction), the voucher response schemas (§13.1–§13.5), and `Gov_Stack_BB` validation (§13.7).
 
-**Test suite: 1,572 passed, 0 failures** (full `apps/payments/` suite, verified 2026-07-24).
+**Test suite: 1,633 passed, 0 failures** (full `apps/payments/` suite, verified 2026-07-25 after P2).
 
-**Conditional risk (P1):** `IsTrustedSourceBB` on register/update-beneficiary requires the GovStack harness to send `X-Registering-Institution-ID` header (non-empty). The GovStack Payments spec mandates this header for these endpoints so the harness is expected to send it. In `GOVSTACK_REQUIRE_REGISTERED_BB=False` mode (default for testing) any non-empty value passes; in `True` mode (production) a DB lookup against `GovStackRegisteredBB` is performed. Not a code issue — cannot be verified until the harness is actually run.
+**Resolved risk — G2P header (was "Conditional risk (P1)"):** the earlier version of this note said the harness was *expected* to send `X-Registering-Institution-ID` because the formal spec mandates it, and that this "cannot be verified until the harness is actually run." It has since been verified directly against the harness source, and the expectation was wrong: the harness never sends the header on any G2P endpoint. The permission class no longer depends on it in harness mode. See §8.1 and the GAP-C2 correction above.
+
+**Remaining genuinely unverifiable items** (cannot be settled without a live `testing.govstack.global` run):
+- The production-only `Gov_Stack_BB` registry allowlist (§13.7, Layer 2) — no harness scenario exercises it, by design.
+- HTTP `455` (`VoucherGroupExhausted`) — no Gherkin scenario exists for it anywhere upstream.
+- Upstream churn: GovStack's own `ADR-bb-payments-001.md` (merged to `main` 2026-05-01, status OPEN) states the Payments BB is being re-scoped for "GovStack 2.0+". Treat the harness — not the formal `api/*.yml` YAMLs — as the near-term certification target, and expect further upstream change.

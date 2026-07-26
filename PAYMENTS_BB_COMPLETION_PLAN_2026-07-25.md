@@ -54,6 +54,33 @@ Only P3 (mechanical migration cleanup + spec doc update) remains open from this 
 
 ---
 
+## STATUS UPDATE (2026-07-25, same day): P3 — DONE
+
+Implemented after two independent pre-flight audits (one that diffed model source against migration history and ran `sqlmigrate` in an isolated scratch copy to see the real SQL, one that line-by-line audited `SPEC_GOVSTACK_PAYMENTS_BB.md` against the current code). Both audits contradicted this plan's own §P3 text, and both were right.
+
+**§P3.1's own description of the migration was wrong — corrected here.** The plan (§P3.1, line 172 below) calls the pending migration "verbose_name-only drift ... zero data risk." That is only **3 of the 6 operations**. What `0023_alter_govstackbill_created_at_and_more.py` actually contains:
+
+- `GovStackBill.updated_at`, `GovStackBillPayment.updated_at` — genuinely cosmetic. `verbose_name` text only (`"Updated At"` → `"Updated at"`). Confirmed no-op via `sqlmigrate`.
+- `GovStackPaymentAuditEntry.action` — **not `verbose_name`.** The real change is `choices=` gaining `bill_payment_requested` / `bill_paid`, added to the model in an earlier P2G wave but never migrated. Django `choices` is Python-level validation metadata and emits **no** DB-level CHECK constraint on PostgreSQL or SQLite, so this is a no-op at the SQL level — but describing it as "verbose_name-only" was simply inaccurate.
+- `GovStackBill.created_at`, `GovStackBillPayment.created_at`, `GovStackRegisteredBB.created_at` — **also not `verbose_name`-only.** Their original hand-written `CreateModel` migrations omitted `db_index=True`, while the shared `TimestampedModel` base in `apps/core/models.py` sets it. This migration emits a real **`CREATE INDEX`** on all three tables.
+
+**Verdict, and why it was still safe to generate and commit:** additive and non-destructive. No column is dropped, retyped, or made non-nullable; no data is read, written, or moved. The only physical change is three new indexes. But the accurate description is *index additions + a choices-metadata expansion*, not "verbose_name-only" — and the commit message says so. Catching this plan's own wrong description is the same class of error the plan was written to fix, now applied to the plan itself.
+
+**Spec doc (`SPEC_GOVSTACK_PAYMENTS_BB.md`) rewritten** — every section the audit flagged as stale, and nothing that was already accurate:
+
+- **§4.2 / §8.1 / §8.2 / §11.1, plus the GAP-C2 entry and the closing "Conditional risk" paragraph in §22** — the `X-Registering-Institution-ID` requirement was stated as unconditional ("requires a non-empty header in all environments"). Rewritten to the real mode-dependent behaviour per P0, with a two-row mode table in §8.1. GAP-C2's entry now carries a correction box explaining that its own sentence described a harness-failing bug rather than a feature. §8.2's claim that preactivation/activation "use header-based auth" was also wrong (they use `AllowAnyBB`; identity rides on the `Gov_Stack_BB` body field) and is fixed.
+- **§13.1–§13.5** — all four voucher response schemas were still the pre-P1 camelCase shapes from the internal `api/Voucher API YAMLs/`. Rewritten to the shapes the code returns today: preactivation `{voucher_number, voucher_serial_number, expiry_date_time}`; activation and redemption `{result_status}`; GET status check `{voucher_status, voucher_amount}` (string amount, 7-value enum, with the full model→enum mapping table including the `CANCELLED → "Purged"` judgment call); cancellation `{message}` plus the additive `voucherSerialNumber`/`voucherStatus`, and its now-**required** request body. Each carries a short "schema-source correction" note naming the wrong reference document, so no future pass re-trusts it.
+- **§13.1's `Gov_Stack_BB` line** said "accept any non-empty string." Replaced with a new **§13.7** describing both real layers — the always-on sentinel blocklist and the production-only `GovStackRegisteredBB` allowlist — including the honest caveat that the allowlist is not harness-verified and that neither harness positive fixture (`"Gov_Stack_BB"`, `"bb-digital-registries"`) can currently be stored in `GovStackRegisteredBB.bb_id`, per P2's status update above.
+- **New §13.8** records the 462/463 merchant-pair rule from `mockoon-paymentsbbvoucher.json`, so the resolved answer lives in the spec and not only in this plan.
+- **GAP-7 (§22) is now marked ❌ WITHDRAWN, not ✅ RESOLVED.** Its central claim — that the spec and harness require HTTP 400 rather than 456 for an invalid serial on the GET status check — is backwards. Both summary tables were updated to match, and its D8–D11 test list is annotated as asserting the wrong contract.
+- **Consistency follow-through** on sections the audit didn't list but which would otherwise now contradict the rewrites: the §7 error-code table (added 455/458/459/461/462/463-for-redemption and the dual meaning of 463), a §7.2 note naming the six exception classes P1 added, §5.6's action constants (the two P2G actions this very migration records, plus `batch_partial`), §18.2's voucher test checklist, the Wave 4 Definition of Done, §19's migration plan (which still described a `0017` data migration that was deliberately never written), and superseded-scope notes on GAP-6 and GAP-10 whose fixes P1 partly replaced. The 14-endpoint count (5 G2P + 4 P2G + 4 voucher URL patterns covering 5 operations) was re-checked and left unchanged — it is correct.
+
+- `python manage.py check`: 0 issues. `python manage.py test apps.payments`: 1633/1633 passing — **unchanged** from P2, exactly as expected, since P3 changes no runtime behaviour. `python manage.py makemigrations --check --dry-run payments`: now fully clean, no pending changes, for the first time in this session.
+
+All four items of this plan (P0, P1, P2, P3) are complete.
+
+---
+
 ## Why "done" turned into "not done" — the real root cause
 
 Every prior wave (GAP-1 through GAP-9, plus the two "Fresh Payments BB certifiability" agent passes) verified the Payments BB against **CivicOS's own test suite** and **CivicOS's own code comments about what the spec/harness requires**. Both of those are self-referential: the tests were written by the same passes that wrote the code, and the comments were often based on a *reading* of one of several inconsistent upstream documents rather than a fetch of the actual, currently-live harness source. Concretely, this session found three flavors of the same mistake, each confirmed by fetching the real file:
