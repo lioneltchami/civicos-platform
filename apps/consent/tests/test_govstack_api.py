@@ -234,19 +234,34 @@ class ConfigDataAgreementTests(GovStackAPIBase):
         self.assertGreaterEqual(len(r.data["dataAgreement"]), 2)
 
     def test_create_data_agreement(self):
+        """
+        NOTE: the request body uses DataAgreementSerializer's actual bound
+        field names (``purpose``, ``lawfulBasis`` — GovStack spec names, not
+        the CivicOS-internal ``purpose_en``/``lawful_basis`` model field
+        names DRF binds input by field name, not by a field's ``source=``,
+        so a payload key of ``purpose_en`` is silently unmatched and ignored
+        by this serializer. Before purpose/lawfulBasis were made required
+        (see the required-field docstring on those fields), that mismatch
+        was invisible — the category would just silently get created with
+        purpose_en="" (a real PIPEDA 4.2 plain-language-purpose gap). Now
+        that they're required, sending the wrong key names correctly 400s
+        instead of silently succeeding, so this test uses the correct names
+        and also asserts the resulting category actually has that content.
+        """
         self._auth(self.admin)
         r = self.client.post("/api/v1/consent/config/data-agreement/", {
             "dataAgreement": {
                 "slug": "newsletter",
-                "name_en": "Newsletter",
-                "name_fr": "Infolettre",
-                "purpose_en": "Send newsletters",
-                "purpose_fr": "Envoyer des infolettres",
-                "lawful_basis": "consent",
+                "purpose": "Send newsletters",
+                "lawfulBasis": "consent",
+                "dpia": "",
             }
         }, format="json")
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         self.assertIn("dataAgreement", r.data)
+        category = ConsentCategory.objects.get(slug="newsletter")
+        self.assertEqual(category.purpose_en, "Send newsletters")
+        self.assertEqual(category.lawful_basis, "consent")
         self.assertIn("revision", r.data)
 
     def test_read_data_agreement(self):

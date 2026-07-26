@@ -356,3 +356,34 @@ GOVSTACK_REQUIRE_REGISTERED_PAYER_FI = env.bool(
 GOVSTACK_REQUIRE_PLATFORM_TENANT_ID = env.bool(
     "GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", default=True
 )
+
+# ---------------------------------------------------------------------------
+# GOVSTACK_REQUIRE_CONSENT_AUTH
+# ---------------------------------------------------------------------------
+# Gates the small, deliberately narrow set of read-only Consent BB endpoints
+# that the upstream GovStackWorkingGroup/bb-consent reference test harness
+# calls with ZERO auth headers on every request (confirmed by reading
+# test/gherkin/features/environment.py, smoke.py, and data_agreement.py
+# directly — there is no auth setup step anywhere in that harness):
+#
+#   GET /govstack/consent/service/policy/{policyId}/
+#   GET /govstack/consent/config/data-agreement/{dataAgreementId}/
+#
+# Mirrors GOVSTACK_REQUIRE_REGISTERED_BB's mode-gating pattern for the
+# Payments BB. When True (the default here), both endpoints require
+# IsAuthenticated (+ IsConsentAdminUser for the data-agreement endpoint) same
+# as every other Consent view — no PII exposure in production. When False,
+# GET on just these two endpoints is public; every other Consent endpoint
+# (create/update/delete, records, signatures, audit log, PIPEDA export, etc.)
+# is completely unaffected and remains fully authenticated regardless of this
+# flag's value.
+#
+# Production deployments MUST set this to True (the default here).
+# GovStack harness environments set GOVSTACK_REQUIRE_CONSENT_AUTH=False via
+# environment variable, because the harness cannot supply any auth header.
+# Never hardcode False in this file — use the env var for per-environment control.
+#
+# Handled by apps/consent/govstack_views._PublicReadOrAuthenticated.has_permission()
+# and its two subclasses, PublicPolicyReadPermission and
+# PublicDataAgreementReadPermission.
+GOVSTACK_REQUIRE_CONSENT_AUTH = env.bool("GOVSTACK_REQUIRE_CONSENT_AUTH", default=True)

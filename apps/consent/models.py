@@ -62,6 +62,24 @@ class ConsentPolicy(UUIDModel, TimestampedModel):
         help_text="True if data may be shared with third parties per this policy (GovStack Policy.thirdPartyDataSharing).",
     )
     is_active = models.BooleanField(default=True)
+    harness_alias_id = models.PositiveIntegerField(
+        null=True, blank=True, unique=True,
+        help_text=(
+            "GovStack reference-harness compatibility alias ONLY — not part of the "
+            "real Policy identity, and not a GovStack spec field. The real primary key "
+            "for a Policy is (and remains) a UUID, per GovStack v23Q4's own Policy.id "
+            "schema (an opaque string ID — UUID is a perfectly spec-conformant choice). "
+            "The upstream GovStackWorkingGroup/bb-consent reference test harness "
+            "(test/gherkin/features/smoke.feature) hardcodes GET /service/policy/1/ "
+            "with no environment-variable override for that literal '1', so a plain "
+            "UUID-only lookup can never satisfy it. This field lets exactly one "
+            "seeded 'well-known' Policy be reachable via that harness literal "
+            "(see seed_consent_policy management command) without changing the real "
+            "PK scheme for every other Policy. NULL for every ordinary Policy; only "
+            "ever set to 1 for the harness-compatibility row. See "
+            "ServicePolicyDetailView._resolve_policy_pk_or_alias() for the lookup logic."
+        ),
+    )
 
     class Meta:
         ordering = ["-created_at"]

@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import uuid as uuid_module
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -76,10 +77,11 @@ def _parse_uuid_param(value: str, field_name: str) -> str:
     """
     Validate a path-supplied UUID string, raising DRF ValidationError (→ HTTP
     400 via the global exception handler) for a malformed value instead of
-    letting Django's URL resolver silently 404 on it. Matches the real
-    upstream harness's expectation (bb-consent/test/gherkin/features/
-    data_agreement.feature's malformed-ID negative scenario) that a bad path
-    ID returns 400, not a raw un-routed 404.
+    letting Django's URL resolver silently 404 on it. Applies the same
+    malformed-path-segment-returns-400 principle that the real upstream
+    harness's data_agreement.feature negative scenario requires for the
+    (integer-keyed) DataAgreement endpoint — see _parse_int_param below,
+    which is what that specific scenario actually exercises.
     """
     try:
         return str(uuid_module.UUID(str(value)))
@@ -93,6 +95,43 @@ def _parse_int_param(value: str, field_name: str) -> int:
         return int(value)
     except (ValueError, TypeError):
         raise ValidationError(f"{field_name} must be a valid integer.")
+
+
+def _resolve_policy_pk_or_alias(value: str) -> tuple[str, str | int]:
+    """
+    Resolve a Policy path segment to either a real UUID primary key or the
+    GovStack reference-harness compatibility alias (ConsentPolicy.harness_alias_id).
+
+    ConsentPolicy's real primary key is (and remains) a UUID — a spec-conformant
+    choice, since GovStack's Policy.id schema is an opaque string. The upstream
+    GovStackWorkingGroup/bb-consent reference harness (test/gherkin/features/
+    smoke.feature) hardcodes GET /service/policy/1/ with no way to override that
+    literal, which can never be a valid UUID. Rather than weaken the real PK
+    scheme, exactly one seeded "well-known" Policy carries harness_alias_id=1
+    (see the seed_consent_policy management command), and this resolver falls
+    back to that alias ONLY when the path segment isn't a valid UUID but IS a
+    plain positive integer.
+
+    Returns a (lookup_field, lookup_value) tuple suitable for
+    ``ConsentPolicy.objects.get(**{lookup_field: lookup_value})``:
+      ("pk", "<uuid string>")        — normal case, a real UUID path segment
+      ("harness_alias_id", <int>)    — harness-compatibility fallback
+
+    Raises ValidationError (→ HTTP 400) if the value is neither — this is what
+    makes the harness's own malformed-ID negative scenarios (e.g. "invalid_id")
+    correctly return 400 rather than silently falling through to a 404.
+    """
+    try:
+        return "pk", str(uuid_module.UUID(str(value)))
+    except (ValueError, AttributeError, TypeError):
+        pass
+    try:
+        alias = int(value)
+    except (ValueError, TypeError):
+        raise ValidationError("policyId must be a valid UUID.")
+    if alias <= 0:
+        raise ValidationError("policyId must be a valid UUID.")
+    return "harness_alias_id", alias
 
 
 class IsAuditorUser(BasePermission):
@@ -155,6 +194,52 @@ class IsConsentAdminUser(BasePermission):
         if request.user.is_staff:
             return True
         return request.user.groups.filter(name="consent_admins").exists()
+
+
+class _PublicReadOrAuthenticated(BasePermission):
+    """
+    GovStack harness-compatibility base permission for the small set of
+    read-only, non-PII "public policy document" style Consent endpoints:
+    reading a Policy's or DataAgreement's published terms is not personal
+    data about any individual citizen — it's the equivalent of a public
+    terms-of-service page, and a citizen or integrating system legitimately
+    needs to be able to read it BEFORE any session/authentication exists,
+    in order to decide whether to consent in the first place.
+
+    Mirrors the Payments BB's GOVSTACK_REQUIRE_* mode-gating pattern
+    (apps/payments/govstack_auth.py's ``_HeaderWhitelistBBPermission``):
+    by default (test/dev/harness mode — GOVSTACK_REQUIRE_CONSENT_AUTH unset
+    or False) these specific GET endpoints are open with no authentication,
+    matching the real GovStackWorkingGroup/bb-consent reference harness
+    (test/gherkin/features/{smoke,data_agreement}.feature), which sends NO
+    auth headers whatsoever. When GOVSTACK_REQUIRE_CONSENT_AUTH=True
+    (the production default), falls back to ``fallback_permission_classes``.
+
+    Deliberately NOT applied to any other Consent view: every endpoint that
+    handles an individual's own consent records, audit logs, or webhooks
+    remains behind its existing IsAuthenticated-based permission with no
+    change — the real harness never touches those, and blanket-loosening
+    them would be a real PII exposure for zero certification benefit.
+    """
+    fallback_permission_classes: tuple = (IsAuthenticated,)
+
+    def has_permission(self, request, view) -> bool:
+        if not getattr(settings, "GOVSTACK_REQUIRE_CONSENT_AUTH", False):
+            return True
+        return all(
+            permission_class().has_permission(request, view)
+            for permission_class in self.fallback_permission_classes
+        )
+
+
+class PublicPolicyReadPermission(_PublicReadOrAuthenticated):
+    """GET /service/policy/{id}/ — falls back to IsAuthenticated (any authenticated caller may read a policy)."""
+    fallback_permission_classes = (IsAuthenticated,)
+
+
+class PublicDataAgreementReadPermission(_PublicReadOrAuthenticated):
+    """GET /config/data-agreement/{id}/ — falls back to IsAuthenticated + IsConsentAdminUser (this view's normal permission)."""
+    fallback_permission_classes = (IsAuthenticated, IsConsentAdminUser)
 
 
 # ===========================================================================
@@ -366,9 +451,19 @@ class ConfigDataAgreementDetailView(APIView):
     GET    /config/data-agreement/{id}/  — read a data agreement
     PUT    /config/data-agreement/{id}/  — update + new revision
     DELETE /config/data-agreement/{id}/  — deactivate
+
+    Permission note: GET alone is gated by PublicDataAgreementReadPermission
+    (harness-mode public read, see that class's docstring) — PUT and DELETE
+    always require IsAuthenticated + IsConsentAdminUser, in every mode,
+    since the real GovStack harness only ever performs a GET here and
+    mutating endpoints must never be loosened for harness compatibility.
     """
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [PublicDataAgreementReadPermission()]
+        return [IsAuthenticated(), IsConsentAdminUser()]
 
     def _get_category(self, pk):
         pk = _parse_int_param(pk, "dataAgreementId")
@@ -744,15 +839,23 @@ class ServiceDataAgreementDetailView(APIView):
 # ===========================================================================
 
 class ServicePolicyDetailView(APIView):
-    """GET /service/policy/{id}/ — read a Policy"""
+    """
+    GET /service/policy/{id}/ — read a Policy
+
+    Accepts either a real UUID Policy pk, or (harness-compatibility only —
+    see _resolve_policy_pk_or_alias()) the small-integer alias carried on
+    exactly one seeded "well-known" Policy's harness_alias_id field, which
+    is what lets the upstream GovStackWorkingGroup/bb-consent reference
+    harness's hardcoded GET /service/policy/1/ smoke test succeed.
+    """
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [PublicPolicyReadPermission]
 
     def get(self, request, policy_id):
         """READ — GovStack servicePolicyRead"""
-        policy_id = _parse_uuid_param(policy_id, "policyId")
+        lookup_field, lookup_value = _resolve_policy_pk_or_alias(policy_id)
         try:
-            policy = ConsentPolicy.objects.get(pk=policy_id, is_active=True)
+            policy = ConsentPolicy.objects.get(**{lookup_field: lookup_value}, is_active=True)
         except ConsentPolicy.DoesNotExist:
             raise NotFound("Policy not found.")
         # GovStack spec: optional ?revisionId= query param selects a specific revision.
@@ -1128,6 +1231,7 @@ class ServiceIndividualConsentRecordDraftView(APIView):
         if not agreement_id:
             raise ValidationError({"dataAgreementId": "Required."})
 
+        agreement_id = _parse_int_param(agreement_id, "dataAgreementId")
         try:
             category = ConsentCategory.objects.get(pk=agreement_id, is_active=True)
         except ConsentCategory.DoesNotExist:
@@ -1422,33 +1526,56 @@ class ServiceIndividualDataAgreementAllConsentRecordsView(APIView):
 # Module-level helpers
 # ===========================================================================
 
-# Mapping from GovStack camelCase field names → ConsentCategory model field names
-_DA_CAMEL_TO_SNAKE = {
-    "lawfulBasis": "lawful_basis",
-    "dataUse": "data_use",
-    "purposeEn": "purpose_en",
-    "purposeFr": "purpose_fr",
-    "nameEn": "name_en",
-    "nameFr": "name_fr",
-    "isRequired": "is_required",
-    "isActive": "is_active",
-    "controllerName": "controller_name",
-    "controllerUrl": "controller_url",
-    "sortOrder": "sort_order",
+# Aliases from CivicOS-internal snake_case model attribute names to the actual
+# DataAgreementSerializer FIELD names (the GovStack spec's own camelCase names).
+#
+# BUGFIX (item 2/4 hardening round): DRF's Field.get_value() looks up incoming
+# data by a field's declared NAME, not by its `source=` attribute. Every field
+# on DataAgreementSerializer that maps to a differently-named model attribute
+# (e.g. ``lawfulBasis = CharField(source="lawful_basis")``) can therefore only
+# ever be populated by a payload key matching the FIELD name ("lawfulBasis"),
+# never the model attribute name ("lawful_basis") — so a caller sending the
+# latter was always silently ignored, not bound. The previous version of this
+# table (_DA_CAMEL_TO_SNAKE) had this backwards: it took the correct camelCase
+# FIELD name ("lawfulBasis") and rewrote it to the snake_case attribute name
+# ("lawful_basis") — actively BREAKING the one input form that would have
+# worked, while doing nothing useful for the snake_case form it was meant to
+# support. This was invisible while every DataAgreement field was optional
+# (a silently-unbound key just meant a blank/default value); it became an
+# active bug the moment purpose/lawfulBasis were made required, since it broke
+# BOTH naming conventions.
+#
+# NOTE: this table intentionally has no entry for purpose_fr/name_en/name_fr/
+# is_required/sort_order — DataAgreementSerializer has no corresponding field
+# for any of them (this GovStack-facing endpoint exposes only one locale's
+# purpose text via `purpose`; French-locale fields, is_required, and
+# sort_order are managed elsewhere — Django admin / seed_consent_categories —
+# not through this endpoint), so those keys correctly pass through unchanged
+# and are simply ignored, same as any other unrecognised key.
+_DA_KEY_ALIASES = {
+    "purpose_en": "purpose",
+    "lawful_basis": "lawfulBasis",
+    "data_use": "dataUse",
+    "is_active": "active",
+    "controller_name": "dataControllerName",
+    "controller_url": "dataControllerUrl",
 }
 
 
 def _normalize_da_payload(payload: dict) -> dict:
     """
-    Normalize a DataAgreement payload to always use the CivicOS snake_case
-    field names that the DataAgreementSerializer understands.
+    Normalize a DataAgreement payload so every key matches an actual
+    DataAgreementSerializer field name.
 
-    Accepts GovStack camelCase OR CivicOS snake_case.  Unknown keys are passed
-    through unchanged.
+    Accepts GovStack camelCase (the serializer's real field names, passed
+    through unchanged) OR the CivicOS-internal snake_case model attribute
+    name for the same field (rewritten via _DA_KEY_ALIASES). Unknown/
+    unsupported keys are passed through unchanged and simply ignored by the
+    serializer, same as before.
     """
     out = {}
     for key, val in payload.items():
-        out[_DA_CAMEL_TO_SNAKE.get(key, key)] = val
+        out[_DA_KEY_ALIASES.get(key, key)] = val
     return out
 
 

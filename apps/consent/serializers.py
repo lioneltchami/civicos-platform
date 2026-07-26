@@ -227,6 +227,18 @@ class DataAgreementSerializer(serializers.ModelSerializer):
 
     Maps CivicOS ConsentCategory fields to GovStack DataAgreement field names.
     """
+    # GovStack's id is an opaque string in every other object in this API (Policy's
+    # UUID pk already renders as a string) — ConsentCategory's plain AutoField pk
+    # must not be the one exception that renders as a JSON number. This also fixes
+    # a real harness-blocking bug: the upstream bb-consent reference harness's own
+    # positive scenario (data_agreement.feature) asserts
+    # ``response_data["dataAgreement"]["id"] == dataAgreementId`` where
+    # dataAgreementId is always the URL path STRING ("1") — that comparison is
+    # false in Python when the left side is the int 1, so without this override
+    # the harness's own passing-status-code scenario would still fail its data
+    # assertion.
+    id = serializers.CharField(read_only=True)
+
     # Nested policy (read-only summary)
     policy = PolicySerializer(read_only=True)
     policy_id = serializers.PrimaryKeyRelatedField(
@@ -237,11 +249,29 @@ class DataAgreementSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    # GovStack name mapping
-    purpose = serializers.CharField(source="purpose_en", required=False)
-    lawfulBasis = serializers.CharField(source="lawful_basis", required=False)
+    # GovStack name mapping.
+    # purpose/lawfulBasis are required (not required=False): the underlying model
+    # fields (purpose_en, lawful_basis) are themselves non-blank, and the GovStack
+    # DataAgreement schema lists both as required properties. A create request
+    # (ConfigDataAgreementListView.post, full validation) omitting either must be
+    # rejected at the serializer layer rather than silently creating a
+    # ConsentCategory with purpose_en="" — a PIPEDA 4.2 plain-language-purpose
+    # violation. Updates (ConfigDataAgreementDetailView.put) use partial=True,
+    # which already exempts fields absent from the payload from this check, so
+    # this does not break partial updates that omit purpose/lawfulBasis.
+    purpose = serializers.CharField(source="purpose_en")
+    lawfulBasis = serializers.CharField(source="lawful_basis")
     dataUse = serializers.CharField(source="data_use", required=False, allow_blank=True)
-    dpia = serializers.CharField(required=False, allow_blank=True)
+    # dpia: required=True (key must be present on create) matches the live GovStack
+    # v23Q4 DataAgreement schema's own `required: [id, version, purpose, lawfulBasis,
+    # dpia]` list (confirmed by fetching api/consent-openapi.yaml directly) — but
+    # allow_blank=True, NOT allow_blank=False like purpose/lawfulBasis above: the
+    # schema's "required" here only means the key must be present in the payload
+    # (no minLength is declared on this property), and the model field itself is
+    # blank=True by design (not every DataAgreement has a completed DPIA — that's a
+    # legitimate, common state, not an error). Forcing non-blank content here would
+    # be stricter than both the live spec and the model's own truth.
+    dpia = serializers.CharField(required=True, allow_blank=True)
     active = serializers.BooleanField(source="is_active", required=False)
     forgettable = serializers.BooleanField(required=False)
     lifecycle = serializers.CharField(required=False, allow_blank=True)
@@ -387,8 +417,13 @@ class ConsentRecordGovStackSerializer(serializers.ModelSerializer):
     """
     optIn = serializers.BooleanField(source="opt_in", read_only=True)
     state = serializers.CharField()
-    # Flat IDs using GovStack spec field names (no "Id" suffix — matches spec schema)
-    dataAgreement = serializers.PrimaryKeyRelatedField(source="category", read_only=True)
+    # Flat IDs using GovStack spec field names (no "Id" suffix — matches spec schema).
+    # dataAgreement is a SerializerMethodField (not PrimaryKeyRelatedField) so it
+    # renders as a string — ConsentCategory's plain AutoField pk would otherwise
+    # serialize as a JSON number, the one inconsistent ID type in this whole API
+    # (every other ID here — Policy's UUID pk, individual's UUID — is already a
+    # string). See DataAgreementSerializer.id for the same fix applied there.
+    dataAgreement = serializers.SerializerMethodField()
     individual = serializers.UUIDField(source="citizen_id", read_only=True)
     signature = serializers.SerializerMethodField()
     dataAgreementRevision = serializers.SerializerMethodField()
@@ -434,6 +469,11 @@ class ConsentRecordGovStackSerializer(serializers.ModelSerializer):
     def get_dataAgreementRevision(self, obj):
         if obj.data_agreement_revision_id:
             return str(obj.data_agreement_revision_id)
+        return None
+
+    def get_dataAgreement(self, obj):
+        if obj.category_id is not None:
+            return str(obj.category_id)
         return None
 
 
