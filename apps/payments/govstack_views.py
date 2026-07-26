@@ -1039,7 +1039,16 @@ class VoucherStatusCheckView(GovStackAPIView):
       kept additively (see VoucherCancellationResponseSerializer)
 
     GET error codes:
-      400 — malformed input (e.g. an empty/invalid path segment reaching here)
+      400 — malformed input: voucherserialnumber is empty, or contains any
+            non-alphanumeric character (spec §13.5's own documented example
+            is the literal "{}"). Checked via a plain str.isalnum() gate
+            BEFORE the DB lookup. Deliberately NOT a "must be numeric" check
+            — test_d8_unknown_serial_returns_456_not_400 pins down that the
+            purely-alphabetic literal "DOESNOTEXIST" must still get 456, not
+            400, because it's a syntactically plausible (if wrong) serial,
+            not a structurally malformed one like "{}". Narrowing this to
+            "digits only" would break that test and would re-introduce, in a
+            new form, the exact mistake the withdrawn GAP-7 entry made.
       456 — serial not found (InvalidVoucherSerial propagates normally via
             the standard exception handler — there is no HTTP 400 override
             for this case; a prior "GAP-7" comment claiming spec §13.5
@@ -1080,6 +1089,26 @@ class VoucherStatusCheckView(GovStackAPIView):
     def get(self, request: Request, voucherserialnumber: str) -> Response:
         # URL parameter may arrive as an integer string from the harness.
         serial = str(voucherserialnumber).strip()
+
+        # Malformed-input gate (spec §13.5, N2 finding). This is intentionally
+        # an alphanumeric-syntax check, NOT a "must be numeric" check:
+        #   - "{}"          → non-alphanumeric → 400 (the spec's own example)
+        #   - ""            → empty            → 400
+        #   - "DOESNOTEXIST"→ alphanumeric     → falls through to 456 below
+        #   - "999999"      → alphanumeric     → falls through to 456 below
+        # A numeric-only gate would reject "DOESNOTEXIST" with 400, which
+        # test_d8_unknown_serial_returns_456_not_400 explicitly pins down as
+        # WRONG — that would silently re-introduce, in a new form, the exact
+        # mistake the withdrawn GAP-7 entry made (see class docstring above
+        # and SPEC_GOVSTACK_PAYMENTS_BB.md §GAP-7). Only structurally
+        # malformed input (punctuation/braces/whitespace-only) is rejected
+        # here; a syntactically plausible-but-wrong serial is still a 456
+        # "not found", handled by get_status() below exactly as before.
+        if not serial or not serial.isalnum():
+            return Response(
+                {"message": "voucherserialnumber is malformed."},
+                status=400,
+            )
 
         # InvalidVoucherSerial (456), VoucherAlreadyUsed (458), and
         # VoucherExpired (459) are all APIExceptions — DRF catches them via

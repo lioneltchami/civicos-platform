@@ -42,11 +42,19 @@ Security invariants (MUST NEVER be violated)
   ``financial_address``.
 - Only ``batch.pk`` / ``pvr.pk`` / ``instr.pk`` (UUID strings) are used in
   log identifiers.
+- The ``X-Callback-URL`` header is caller-supplied and untrusted.
+  ``_post_callback()`` MUST NOT dispatch a request to a URL that resolves
+  to a private, loopback, link-local (including the cloud metadata address
+  169.254.169.254), multicast, or otherwise non-public IP address, and MUST
+  NOT follow redirects. See ``_is_safe_callback_url()`` below.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
+import socket
 from decimal import Decimal
+from urllib.parse import urlsplit
 
 import requests
 from celery import shared_task
@@ -349,9 +357,99 @@ def validate_prepayment_async(self, pvr_pk: str) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+# Only plain HTTP(S) callback endpoints are ever dispatched to. This blocks
+# scheme-based SSRF tricks such as file://, gopher://, dict://, etc.
+_CALLBACK_ALLOWED_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+
+
+def _is_safe_callback_url(url: str) -> bool:
+    """
+    Defense against SSRF via the caller-supplied ``X-Callback-URL`` header.
+
+    ``callback_url`` on ``BulkPaymentBatch`` / ``PrepaymentValidationRequest``
+    is taken verbatim from a request header supplied by whichever party is
+    calling the G2P endpoints — it is untrusted input. Without this check,
+    ``_post_callback()`` would happily let a caller (in harness/default
+    settings mode, even an unauthenticated one — see ``IsTrustedSourceBB``)
+    make the Celery worker issue an outbound POST to an arbitrary internal
+    address, e.g. a cloud metadata endpoint or an internal admin service.
+
+    This function is checked at the point of use — immediately before the
+    outbound request — rather than at intake, so the guard applies no matter
+    which code path stored the URL, and cannot be bypassed by adding a new
+    caller that skips an intake-time check.
+
+    Rejects:
+      - Any URL that doesn't parse, or has no hostname.
+      - Any scheme other than ``http``/``https``.
+      - Any hostname that is a literal IP address, or that DNS-resolves to
+        one, in a private, loopback, link-local (which includes the
+        169.254.169.254 cloud metadata address), multicast, unspecified, or
+        otherwise reserved range — checked against *every* address the
+        hostname resolves to, not just the first.
+
+    Deliberately does NOT reject a hostname that fails to resolve at all
+    (``socket.gaierror``): if DNS resolution fails here, the subsequent
+    ``requests.post()`` call will fail identically (no network access ever
+    occurs either way), so rejecting up front would add a new class of
+    false-negative test/environment failures without closing any actual
+    SSRF gap. Only affirmatively-unsafe targets are blocked.
+
+    Returns:
+        True if the URL is safe to dispatch to (or safety cannot be
+        determined due to DNS failure — see above); False if it is
+        affirmatively unsafe and must not be dispatched to.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+
+    if parts.scheme not in _CALLBACK_ALLOWED_SCHEMES:
+        return False
+
+    hostname = parts.hostname
+    if not hostname:
+        return False
+
+    try:
+        addrinfo = socket.getaddrinfo(hostname, None)
+    except (socket.gaierror, UnicodeError):
+        # Cannot resolve — allow through; requests.post() will fail the same
+        # way, with no outbound network access ever occurring. See docstring.
+        return True
+
+    for _family, _type, _proto, _canonname, sockaddr in addrinfo:
+        ip_str = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            # Malformed resolved address — fail closed.
+            return False
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_unspecified
+            or ip.is_reserved
+        ):
+            return False
+
+    return True
+
+
 def _post_callback(url: str, payload: dict) -> None:
     """
     POST a GovStack async result callback to the Source BB.
+
+    SSRF guard
+    ----------
+    ``url`` is untrusted (caller-supplied via ``X-Callback-URL``).
+    ``_is_safe_callback_url()`` is checked before dispatch; an unsafe URL is
+    logged and dropped without a network request ever being made. Redirects
+    are not followed (``allow_redirects=False``) so a callback endpoint that
+    is safe at request time cannot 302 the worker into an internal address.
 
     Failure policy
     --------------
@@ -371,11 +469,19 @@ def _post_callback(url: str, payload: dict) -> None:
         Payload contents are NEVER logged (they may contain instruction IDs
         or batch IDs that could be correlated with PII in aggregated logs).
     """
+    if not _is_safe_callback_url(url):
+        logger.warning(
+            "govstack.callback_post_blocked_unsafe_url url=%s",
+            url,
+        )
+        return
+
     try:
         response = requests.post(
             url,
             json=payload,
             timeout=_CALLBACK_TIMEOUT_SECONDS,
+            allow_redirects=False,
         )
         response.raise_for_status()
         logger.info(

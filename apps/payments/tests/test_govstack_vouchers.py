@@ -490,6 +490,41 @@ class VoucherPreactivationHarnessTest(TestCase):
                     f"so _is_numeric_voucher_number() continues to work.",
             )
 
+    def test_a17_null_voucher_amount_returns_452_not_400(self):
+        """
+        Harness-confirmed defect fix: the real harness's "invalid voucher
+        amount" negative scenario (voucher_preactivation.feature) sends a
+        literal JSON `null` for voucher_amount, expecting HTTP 452
+        (InvalidVoucherAmount) from GovStackVoucherService.preactivate().
+
+        Before allow_null=True was added to the DecimalField, DRF rejected
+        the null at the field level with a generic HTTP 400 — before the
+        service's own `voucher_amount is None` check ever ran. This test
+        pins the fix directly against a live GovStack harness finding
+        (do not "fix" this back to 400 — that regresses a confirmed
+        harness-observed failure).
+        """
+        resp = self._post(_preactivation_body(voucher_amount=None))
+        self.assertEqual(resp.status_code, 452, resp.data)
+        self.assertIn("message", resp.data)
+
+    def test_a18_null_voucher_group_returns_454_not_400(self):
+        """
+        Harness-confirmed defect fix: the real harness's "invalid
+        voucher_group" negative scenario sends a literal JSON `null` for
+        voucher_group, expecting HTTP 454 (InvalidVoucherGroup).
+
+        Before allow_null=True was added to the CharField, DRF rejected the
+        null at the field level with a generic HTTP 400. The service's
+        `not voucher_group` check already treats None as falsy, short-
+        circuiting before the .strip() call that would otherwise crash on
+        NoneType — so no service-layer change was needed, only the
+        serializer's allow_null.
+        """
+        resp = self._post(_preactivation_body(voucher_group=None))
+        self.assertEqual(resp.status_code, 454, resp.data)
+        self.assertIn("message", resp.data)
+
 
 # ---------------------------------------------------------------------------
 # B. VoucherActivation view
@@ -575,6 +610,28 @@ class VoucherActivationHarnessTest(TestCase):
             "Gov_Stack_BB": BB_ID,
         })
         self.assertEqual(resp.status_code, 200, resp.data)
+
+    def test_b9_harness_invalid_serial_literal_returns_456_not_400(self):
+        """
+        Harness-confirmed defect fix: the real harness's "invalid
+        voucher_serial_number" negative scenario (voucher_activation.feature)
+        sends the literal 'invalid_voucher_serial_number' (29 characters) and
+        expects HTTP 456 (InvalidVoucherSerial — not found) from
+        GovStackVoucherService.activate().
+
+        Before max_length was widened from 20 to 100 on this field, DRF
+        rejected the 29-char literal at the serializer level with a generic
+        HTTP 400 — before the service's own "not found" lookup ever ran.
+        A 29-char serial can never match a real voucher row (the model
+        field itself is max_length=20), so this always reaches the service's
+        InvalidVoucherSerial(456) path regardless of the wider serializer
+        cap — it never gets a chance to falsely match anything.
+        """
+        literal = "invalid_voucher_serial_number"
+        self.assertEqual(len(literal), 29)
+        resp = self._patch({"voucher_serial_number": literal, "Gov_Stack_BB": BB_ID})
+        self.assertEqual(resp.status_code, 456, resp.data)
+        self.assertIn("message", resp.data)
 
 
 # ---------------------------------------------------------------------------
@@ -925,6 +982,40 @@ class VoucherStatusCheckGetTest(TestCase):
         resp = self.client.get(_status_url(FIXED_SERIAL))
         self.assertEqual(resp.status_code, 200)
 
+    # ------------------------------------------------------------------
+    # D13/D14 — genuinely malformed input returns 400 (spec §13.5, N2 finding)
+    # ------------------------------------------------------------------
+    #
+    # SPEC_GOVSTACK_PAYMENTS_BB.md §13.5 documents voucherserialnumber="{}" as
+    # its own example of input that must be rejected with 400 — distinct from
+    # an unknown-but-syntactically-plausible serial like "DOESNOTEXIST" or
+    # "999999" (test_d4/test_d8 above), which must stay 456. These two tests
+    # pin down the boundary so it can never silently drift back to either
+    # extreme (always-400, which the withdrawn GAP-7 entry did; or the
+    # pre-fix always-456, which left the spec's own documented case
+    # unimplemented).
+
+    def test_d13_literal_curly_braces_returns_400(self):
+        """The spec's own documented malformed-input example: '{}' → 400."""
+        resp = self.client.get(_status_url("{}"))
+        self.assertEqual(resp.status_code, 400, resp.data)
+        self.assertIn("message", resp.data)
+
+    def test_d14_whitespace_only_serial_returns_400(self):
+        resp = self.client.get(_status_url("   "))
+        self.assertEqual(resp.status_code, 400, resp.data)
+
+    def test_d15_alphabetic_unknown_serial_still_returns_456_not_400(self):
+        """
+        Guards the boundary from the other side: an alphanumeric-but-unknown
+        serial must NOT be swept up by the D13/D14 malformed-input fix.
+        Duplicates test_d8's assertion deliberately — this is the exact
+        scenario a careless "digits only" implementation of the malformed
+        gate would break.
+        """
+        resp = self.client.get(_status_url("DOESNOTEXIST"))
+        self.assertEqual(resp.status_code, 456, resp.data)
+
 
 # ---------------------------------------------------------------------------
 # E. VoucherCancellation view — PATCH
@@ -1063,6 +1154,30 @@ class VoucherCancellationHarnessTest(TestCase):
         body = {"voucherserialnumber": FIXED_SERIAL, "Gov_Stack_BB": ""}
         resp = self._patch(FIXED_SERIAL, body=body)
         self.assertEqual(resp.status_code, 400, resp.data)
+
+    def test_e13_harness_invalid_serial_literal_returns_463_not_400(self):
+        """
+        Harness-confirmed defect fix: the real harness's "invalid
+        voucherserialnumber" negative scenario (voucher_cancelation.feature)
+        sends the literal 'invalid_serial_number' (21 characters) — in both
+        the URL path segment and the request body — and expects HTTP 463
+        (InvalidCancellationSerial — not found) from
+        GovStackVoucherService.cancel().
+
+        Before max_length was widened from 20 to 100 on
+        VoucherCancellationRequestSerializer.voucherserialnumber, DRF
+        rejected the 21-char literal in the body at the serializer level
+        with a generic HTTP 400 — before the URL-driven cancel() lookup
+        ever ran. A 21-char serial can never match a real voucher row (the
+        model field itself is max_length=20), so this always reaches the
+        service's InvalidCancellationSerial(463) path regardless of the
+        wider serializer cap.
+        """
+        literal = "invalid_serial_number"
+        self.assertEqual(len(literal), 21)
+        resp = self._patch(literal)
+        self.assertEqual(resp.status_code, 463, resp.data)
+        self.assertIn("message", resp.data)
 
 
 # ---------------------------------------------------------------------------

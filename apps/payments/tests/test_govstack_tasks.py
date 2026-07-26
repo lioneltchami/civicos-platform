@@ -32,10 +32,20 @@ Coverage matrix:
   G14:      validate_prepayment_async callback payload has correct shape (no payee_functional_id)
   G15:      validate_prepayment_async callback POST failure is non-fatal (task still completes)
   G16:      validate_prepayment_async is idempotent (second call is a no-op)
+  G17:      _is_safe_callback_url rejects private/loopback/link-local/multicast IPs
+            and non-http(s) schemes; accepts a normal public https URL
+  G18:      process_bulk_payment_batch does NOT POST when callback_url is an SSRF
+            attempt (literal private/metadata IP) — task still completes normally
+  G19:      validate_prepayment_async does NOT POST when callback_url is an SSRF
+            attempt (literal loopback IP) — task still completes normally
+  G20:      _post_callback disables redirect-following (allow_redirects=False)
 
 Security invariants tested:
   - Task callback payloads never include payee_functional_id (G7, G14)
   - Callback batch payloads never include batch_id raw value — only the batch PK (G7)
+  - The X-Callback-URL-derived callback_url can never be used to make the Celery
+    worker issue a request to a private/loopback/link-local/metadata address,
+    and redirects are never followed (G17–G20)
 
 Harness dispatch identifiers (G1, G9):
   Bulk:   RequestID="RequestID111" SourceBBID="SourceBBID11" BatchID="BatchID11111"
@@ -59,6 +69,7 @@ from apps.payments.govstack_models import (
     PrepaymentValidationRequest,
 )
 from apps.payments.govstack_tasks import (
+    _is_safe_callback_url,
     process_bulk_payment_batch,
     validate_prepayment_async,
 )
@@ -836,4 +847,154 @@ class GovStackCeleryTasksTest(TestCase):
             completed_entries,
             1,
             f"Expected exactly 1 ACTION_VALIDATION_COMPLETED audit entry, found {completed_entries}.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# G17–G20 — SSRF guard on the X-Callback-URL dispatch path
+# ---------------------------------------------------------------------------
+#
+# Payments §24 finding N5: callback_url is taken verbatim from the caller-
+# supplied X-Callback-URL header with no validation, letting a caller make
+# the Celery worker POST to an arbitrary internal address (e.g. the cloud
+# metadata endpoint) once the async task fires. These tests pin down the
+# fix: _is_safe_callback_url() rejects unsafe targets, and _post_callback()
+# never dispatches to one, while an ordinary public callback URL still
+# works exactly as before (G5, G14 etc. above must keep passing unchanged).
+
+class GovStackCallbackSSRFGuardTest(TestCase):
+    """G17–G20: SSRF guard on the async callback dispatch path."""
+
+    # ------------------------------------------------------------------
+    # G17 — _is_safe_callback_url unit-level behaviour
+    # ------------------------------------------------------------------
+
+    def test_g17_is_safe_callback_url_rejects_unsafe_targets(self):
+        unsafe_urls = [
+            "http://127.0.0.1:8000/cb",              # loopback
+            "http://localhost/cb",                    # loopback via hostname
+            "http://169.254.169.254/latest/meta-data/",  # cloud metadata (link-local)
+            "http://10.0.0.5/cb",                      # RFC1918 private
+            "http://172.16.5.5/cb",                    # RFC1918 private
+            "http://192.168.1.1/cb",                   # RFC1918 private
+            "http://[::1]/cb",                         # IPv6 loopback
+            "http://224.0.0.1/cb",                     # multicast
+            "ftp://example.com/cb",                    # disallowed scheme
+            "file:///etc/passwd",                      # disallowed scheme
+            "javascript:alert(1)",                     # disallowed scheme
+            "",                                        # empty
+        ]
+        for url in unsafe_urls:
+            with self.subTest(url=url):
+                self.assertFalse(
+                    _is_safe_callback_url(url),
+                    f"Expected {url!r} to be rejected as an unsafe callback target.",
+                )
+
+    def test_g17b_is_safe_callback_url_accepts_public_https(self):
+        self.assertTrue(
+            _is_safe_callback_url("https://example.com/callback"),
+            "A normal public https callback URL must still be accepted.",
+        )
+
+    # ------------------------------------------------------------------
+    # G18 — process_bulk_payment_batch does not POST on an SSRF attempt
+    # ------------------------------------------------------------------
+
+    def test_g18_process_batch_blocks_ssrf_callback_url(self):
+        """
+        A caller-supplied callback_url pointing at a private/metadata address
+        must never reach requests.post — it is blocked before dispatch — and
+        the batch must still complete normally (blocking the callback is
+        non-fatal, exactly like a network failure).
+        """
+        batch = self._make_batch(
+            batch_id="GBatchIDtaskSSRF1",
+            callback_url="http://169.254.169.254/latest/meta-data/iam/",
+        )
+        with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
+            process_bulk_payment_batch.apply(args=[str(batch.pk)])
+
+        mock_post.assert_not_called()
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_COMPLETED)
+
+    def _make_batch(
+        self,
+        batch_id: str,
+        callback_url: str = "",
+    ) -> BulkPaymentBatch:
+        """Minimal single-instruction, single-beneficiary batch helper (mirrors
+        GovStackCeleryTasksTest._make_batch — duplicated here to keep this test
+        class independently runnable without depending on sibling class internals)."""
+        payee_functional_id = f"deadbeef{abs(hash(batch_id)) % 10**8:08d}"
+        GovStackBeneficiary.objects.create(
+            payee_functional_id=payee_functional_id,
+            source_bb_id="SourceBBID11",
+            is_active=True,
+        )
+        batch = BulkPaymentBatch.objects.create(
+            batch_id=batch_id,
+            source_bb_id="SourceBBID11",
+            request_id="RequestID111",
+            callback_url=callback_url,
+            status=BulkPaymentBatch.STATUS_RECEIVED,
+        )
+        CreditInstruction.objects.create(
+            batch=batch,
+            instruction_id=f"Instr-{batch_id}",
+            payee_functional_id=payee_functional_id,
+            amount=Decimal("50.00"),
+            currency="USD",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        return batch
+
+    # ------------------------------------------------------------------
+    # G19 — validate_prepayment_async does not POST on an SSRF attempt
+    # ------------------------------------------------------------------
+
+    def test_g19_validate_prepayment_blocks_ssrf_callback_url(self):
+        payee_functional_id = "deadbeefssrf19"
+        GovStackBeneficiary.objects.create(
+            payee_functional_id=payee_functional_id,
+            source_bb_id="sourceBBID12",
+            is_active=True,
+        )
+        pvr = PrepaymentValidationRequest.objects.create(
+            request_id="GpvrReqIDSSRF19",
+            source_bb_id="sourceBBID12",
+            batch_id="batchID12345",
+            instruction_id="InstrSSRF19",
+            payee_functional_id=payee_functional_id,
+            amount=Decimal("50.00"),
+            currency="USD",
+            callback_url="http://127.0.0.1:6379/cb",
+            status=PrepaymentValidationRequest.STATUS_PENDING,
+        )
+        with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
+            validate_prepayment_async.apply(args=[str(pvr.pk)])
+
+        mock_post.assert_not_called()
+        pvr.refresh_from_db()
+        self.assertEqual(pvr.status, PrepaymentValidationRequest.STATUS_COMPLETED)
+
+    # ------------------------------------------------------------------
+    # G20 — _post_callback disables redirect-following
+    # ------------------------------------------------------------------
+
+    def test_g20_post_callback_disables_redirects(self):
+        batch = self._make_batch(
+            batch_id="GBatchIDtaskSSRF20",
+            callback_url="https://example.com/callback",
+        )
+        with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
+            mock_post.return_value = MagicMock(status_code=200)
+            process_bulk_payment_batch.apply(args=[str(batch.pk)])
+
+        mock_post.assert_called_once()
+        self.assertEqual(
+            mock_post.call_args[1].get("allow_redirects"),
+            False,
+            "_post_callback must pass allow_redirects=False to requests.post().",
         )

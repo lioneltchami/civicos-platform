@@ -469,7 +469,18 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
     voucher_amount = serializers.DecimalField(
         max_digits=14,
         decimal_places=2,
-        help_text="Voucher face value. Must be positive.",
+        allow_null=True,
+        help_text=(
+            "Voucher face value. Must be positive. "
+            "allow_null=True is intentional: the harness's own negative-test "
+            "fixture sends a literal JSON null for this field and expects "
+            "HTTP 452 (InvalidVoucherAmount) — GovStackVoucherService.preactivate() "
+            "already treats `voucher_amount is None` the same as a non-positive "
+            "value (see its `if voucher_amount is None or voucher_amount <= 0` "
+            "guard), so letting null reach the service was already correct; "
+            "the serializer just needs to stop rejecting it at the door with "
+            "a generic 400 first."
+        ),
     )
     voucher_currency = serializers.CharField(
         max_length=3,
@@ -478,10 +489,16 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
     voucher_group = serializers.CharField(
         max_length=50,
         allow_blank=True,
+        allow_null=True,
         help_text=(
             "Voucher group / program code. "
             "Blank/whitespace triggers InvalidVoucherGroup (454) from the service — "
-            "not a 400 from the serializer — so allow_blank=True is intentional."
+            "not a 400 from the serializer — so allow_blank=True is intentional. "
+            "allow_null=True is intentional for the same reason: the harness's "
+            "negative-test fixture sends a literal JSON null and expects 454, "
+            "and the service's `if not voucher_group or not voucher_group.strip()` "
+            "guard already treats None as falsy and raises InvalidVoucherGroup() "
+            "correctly — short-circuiting before ever calling .strip() on None."
         ),
     )
     Gov_Stack_BB = serializers.CharField(
@@ -494,10 +511,13 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
         ),
     )
 
-    def validate_voucher_amount(self, value) -> Decimal:
+    def validate_voucher_amount(self, value):
         # Non-parseable input (e.g. "abc") is rejected by DecimalField → HTTP 400. Correct.
         # Non-positive values (0 or negative) MUST produce HTTP 452 (InvalidVoucherAmount),
         # not 400.  Pass them through here — the service raises InvalidVoucherAmount(452).
+        # None (allow_null=True) is likewise passed through unchanged: DRF still calls
+        # this method for a null field value when allow_null=True, and the service's
+        # own None-check raises the same InvalidVoucherAmount(452).
         return value
 
     def validate_voucher_currency(self, value: str) -> str:
@@ -511,9 +531,9 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
         # error; HTTP 400 would be a spec violation.
         return value.strip().upper()
 
-    # NOTE: no validate_voucher_group — blank groups reach the service, which raises
-    # InvalidVoucherGroup (454).  Serializer-level rejection would give HTTP 400, which
-    # does not match the GovStack spec for this field.
+    # NOTE: no validate_voucher_group — blank OR null groups reach the service, which
+    # raises InvalidVoucherGroup (454).  Serializer-level rejection would give HTTP 400,
+    # which does not match the GovStack spec for this field.
 
 
 # ---------------------------------------------------------------------------
@@ -568,10 +588,21 @@ class VoucherActivationRequestSerializer(serializers.Serializer):
     NOTE: voucher_serial_number is sent as integer by the harness.
     """
     voucher_serial_number = serializers.CharField(
-        max_length=20,
+        max_length=100,
         help_text=(
             "Voucher serial number (may be sent as int by harness, treated as string). "
-            "max_length=20 matches the model field and prevents unbounded DB queries."
+            "NOTE: the model field itself is max_length=20 — a value longer than "
+            "that can never match a real voucher row, so GovStackVoucherService.activate() "
+            "will always (correctly) raise InvalidVoucherSerial (456) 'not found' for "
+            "it via a plain equality .filter(serial_number=...).first() lookup, which is "
+            "just as cheap for an over-long string as any other value (no unbounded scan — "
+            "it's an indexed equality comparison, not a LIKE). "
+            "max_length is therefore set well above the model's 20-char limit (100, a "
+            "generous DoS-prevention sanity cap only) rather than matching it exactly: "
+            "the harness's own 'invalid voucher_serial_number' negative-test scenario "
+            "sends a deliberately-nonexistent 29-character literal and expects HTTP 456 "
+            "from the service, not a generic HTTP 400 from the serializer intercepting it "
+            "first. A hard cap at 20 here would silently break that scenario."
         ),
     )
     Gov_Stack_BB = serializers.CharField(
@@ -702,11 +733,23 @@ class VoucherCancellationRequestSerializer(serializers.Serializer):
     "no payload at all" case, since request.data then resolves to {}).
     """
     voucherserialnumber = serializers.CharField(
-        max_length=20,
+        max_length=100,
         help_text=(
             "Voucher serial number. Also carried in the URL path — the URL "
             "value is authoritative for the actual lookup; this body field "
-            "is validated for presence only, matching harness behaviour."
+            "is validated for presence only, matching harness behaviour. "
+            "NOTE: the model field itself is max_length=20 — a value longer than "
+            "that can never match a real voucher row, so GovStackVoucherService.cancel() "
+            "will always (correctly) raise InvalidCancellationSerial (463) 'not found' "
+            "for it via a plain equality .filter(serial_number=...).first() lookup (no "
+            "unbounded scan — an indexed equality comparison, not a LIKE). max_length is "
+            "therefore set well above the model's 20-char limit (100, a generous "
+            "DoS-prevention sanity cap only) rather than matching it exactly: the "
+            "harness's own 'invalid voucherserialnumber' negative-test scenario sends a "
+            "deliberately-nonexistent 21-character literal in this body field and expects "
+            "HTTP 463 from the service, not a generic HTTP 400 from the serializer "
+            "intercepting it first. A hard cap at 20 here would silently break that "
+            "scenario."
         ),
     )
     Gov_Stack_BB = serializers.CharField(
