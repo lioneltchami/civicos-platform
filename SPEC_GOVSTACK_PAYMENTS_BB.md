@@ -1,12 +1,13 @@
 # GovStack Payments Building Block — Implementation Specification
 
-**Version:** 1.0.0
-**Date:** 2026-07-19
-**Status:** Approved for Implementation
+**Version:** 1.0.0 (original) — implementation and this document both updated through 2026-07-25
+**Date:** 2026-07-19 (original); last substantively updated 2026-07-25
+**Status:** **Implemented and internally verified.** All 12 post-implementation GAPs (§22) and all 4 items of the follow-up completion plan (P0–P3, §23) are done and committed. Full `apps/payments/` suite: 1,633 tests passing, 0 failures. Not yet run against the live `testing.govstack.global` harness — see §23's "Genuinely unverifiable items" for what a live run would still need to confirm.
 **Author:** CivicOS Architecture Team
 **GovStack spec source:** `github.com/GovStackWorkingGroup/bb-payments` (main branch)
 **Harness features:** 9 Gherkin feature files under `test/openAPI/features/`
 **Predecessor spec:** `payments_bb_spec.docx` (CivicOS internal Payments BB — unchanged, runs in parallel)
+**This is the single authoritative document for the Payments BB.** `PAYMENTS_BB_COMPLETION_PLAN_2026-07-25.md`, which drove the P0–P3 work below, has been deleted after its content was folded in here — see §23 for the full completion log with commit hashes.
 
 ---
 
@@ -33,6 +34,8 @@
 19. [Migrations](#19-migrations)
 20. [File Structure](#20-file-structure)
 21. [Implementation Order and Definition of Done per Wave](#21-implementation-order-and-definition-of-done-per-wave)
+22. [Remaining Work — Post-Implementation Gaps for Harness Certification](#22-remaining-work--post-implementation-gaps-for-harness-certification)
+23. [Completion Log — P0–P3 (2026-07-25)](#23-completion-log--p0p3-2026-07-25)
 
 ---
 
@@ -2848,3 +2851,20 @@ Note: `_validate_iso4217()` at lines 253 and 334 (bulk-payment `CreditInstructio
 - The production-only `Gov_Stack_BB` registry allowlist (§13.7, Layer 2) — no harness scenario exercises it, by design.
 - HTTP `455` (`VoucherGroupExhausted`) — no Gherkin scenario exists for it anywhere upstream.
 - Upstream churn: GovStack's own `ADR-bb-payments-001.md` (merged to `main` 2026-05-01, status OPEN) states the Payments BB is being re-scoped for "GovStack 2.0+". Treat the harness — not the formal `api/*.yml` YAMLs — as the near-term certification target, and expect further upstream change.
+
+---
+
+## 23. Completion Log — P0–P3 (2026-07-25)
+
+This section is the permanent record of the follow-up remediation round that ran after the GAP list above (§22) was believed complete. A master certifiability re-review on 2026-07-25 found that "GAP-1 through GAP-10 done" had not actually meant "harness-conformant" for three areas the GAP list never tested. A dedicated plan (`PAYMENTS_BB_COMPLETION_PLAN_2026-07-25.md`) was written, fully executed as P0–P3 below, and then deleted once every finding in it was folded into this spec — this section, plus the inline corrections scattered through §4, §7, §8, §13, and §22 above, is where that plan's content now lives. Every phase was built by an implementer pass plus two independent verification passes (one re-fetching the live harness from GitHub from scratch, one auditing the rest of the codebase for the same bug class), then personally re-verified (every diff read, `manage.py check`/`test apps.payments`/`makemigrations --check --dry-run` run) before commit.
+
+**Root cause, in one sentence:** every prior GAP-era pass verified Payments against CivicOS's own test suite and CivicOS's own code comments about what the harness requires — both self-referential — instead of the live harness source itself, which is what P0–P3 checked directly.
+
+| Phase | What it fixed | Key finding | Test count after | Commits |
+|---|---|---|---|---|
+| **P0** | `IsTrustedSourceBB` required `X-Registering-Institution-ID` unconditionally in every settings mode. Since the live harness never sends this header on any of the 5 G2P endpoints, this would have rejected every real harness call with 401 — including both smoke tests. Fixed to degrade to `AllowAnyBB`-equivalent behavior when the header is absent and `GOVSTACK_REQUIRE_REGISTERED_BB=False` (harness default), mirroring `HasVoucherJWT`'s existing pattern. | The formal `BulkPayment.yml`/`BulkValidateAccountRequest.yml` YAMLs describe a structurally different API from what the harness actually tests (same "wrong reference document" pattern later confirmed for vouchers). GovStack's own `ADR-bb-payments-001.md` shows the Payments BB is being actively re-scoped upstream. | 1,590 | `8adb3ea` (implementation), `9727758` (plan doc) |
+| **P1** | Rewrote all 4 voucher-engine response bodies to the real harness schema (§13.1–§13.5) and definitively resolved the HTTP 462-vs-463 redemption ambiguity. | The 462/463 disambiguation was believed unresolvable from client-side Gherkin fixtures alone — until `examples/mock-bb-payments/mockoon-paymentsbbvoucher.json` (the GovStack reference/certification mock server config) was found to define the exact `(merchant_name, merchant_bank_details)` rule now in §13.8, corroborated by 3 independent sources. | 1,615 | `cf49bda` (implementation), `021533b` (plan doc) |
+| **P2** | Added the production-only `Gov_Stack_BB` registry allowlist (§13.7, Layer 2) on top of P1's always-on blocklist, gated by `GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB` (default off outside `production.py`). | The harness's own positive `Gov_Stack_BB` fixture values (`"Gov_Stack_BB"`, `"bb-digital-registries"`) cannot currently be stored in `GovStackRegisteredBB.bb_id` — one fails the format validator (underscores), the other exceeds `max_length=20` (21 characters). Documented rather than worked around by weakening the validator; the flag must stay off in any harness-facing environment, which it already does by default. | 1,633 | `b8a3a6c` (implementation), `efc9e01` (plan doc) |
+| **P3** | Committed the pending cosmetic-looking migration and rewrote this spec document section by section to match P0–P2 reality. | The migration wasn't purely cosmetic as the plan itself first claimed — 3 of 6 field changes add real (additive, non-destructive) database indexes and a `choices=` expansion, not just `verbose_name` text. Caught and corrected before committing. | 1,633 (unchanged — no runtime-visible behavior) | `357f1d0` (migration), `6f16bf3` (spec doc rewrite + plan doc closeout) |
+
+**Status: all 4 phases complete.** `python manage.py check` clean, full `apps/payments/` suite at 1,633/1,633, and `makemigrations --check --dry-run payments` reports no pending changes — the first time in this project's history that command has been clean for this app.
