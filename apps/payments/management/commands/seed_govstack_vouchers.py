@@ -12,9 +12,60 @@ Purpose
 The GovStack Voucher harness feature files (voucher_preactivation,
 voucher_activation, voucher_redemption, voucherstatuscheck, cancellation)
 chain test scenarios that reference specific pre-existing serial numbers.
-Those serials must already exist in STATUS_PREACTIVATED state before the
-harness runner fires its first request.  This command seeds them
-idempotently using get_or_create so repeated runs are safe.
+Most of those serials must exist in STATUS_PREACTIVATED state before the
+harness runner fires its first request.  Three serials are deliberately
+seeded in a DIFFERENT state because individual harness scenarios require it
+(see "Special-cased serials" below).  This command seeds all 16 of them
+idempotently using get_or_create so repeated runs are safe — see
+"Idempotency and --reset" below for the exact guarantee that does (and does
+not) provide.
+
+Special-cased serials
+----------------------
+- ``6001`` is seeded already ``STATUS_CONSUMED`` (with ``redeemed_at`` and
+  ``redeemed_merchant_name`` populated for audit-trail coherence), for the
+  voucher-status-check scenario that expects HTTP 458 (VoucherAlreadyUsed).
+- ``6002`` is seeded ``STATUS_ACTIVATED`` with ``expiry_date`` set 30 days in
+  the *past*, for the voucher-status-check scenario that expects HTTP 459
+  (VoucherExpired).  It is deliberately NOT ``STATUS_CONSUMED``:
+  ``get_status()`` checks CONSUMED (→458) before comparing expiry (→459), so
+  a consumed-and-expired voucher would never reach the 459 path (see
+  ``govstack_services.GovStackVoucherService.get_status()``).  There is no
+  ``STATUS_EXPIRED`` value on the model — expiry is purely a date comparison.
+- ``6004`` is seeded already ``STATUS_ACTIVATED`` (not the usual default
+  ``STATUS_PREACTIVATED``), because the redemption smoke-test scenario
+  against this serial calls ``redeem()``, whose ``ALLOWED_TRANSITIONS`` only
+  permit ``ACTIVATED → CONSUMED``.
+
+All other 13 serials keep the default ``STATUS_PREACTIVATED`` / +365 day
+expiry, unchanged from before.
+
+Idempotency and --reset
+------------------------
+The upsert loop uses ``get_or_create()``, NOT ``update_or_create()`` — this
+is a deliberate engineering decision, not an oversight.  Per the "Usage"
+section below, this command is documented to run *once*, immediately before
+a harness submission.  A harness run legitimately mutates these vouchers'
+status as it exercises preactivation → activation → redemption/cancellation
+scenarios.  If the loop instead used ``update_or_create()`` unconditionally,
+re-running this command mid-harness-run (e.g. a CI step retrying it, or an
+operator running it again "just to be safe") would silently reset any
+voucher's status back to its seed default — destroying in-progress harness
+state with no warning.  That risk was judged worse than the convenience of
+auto-repairing a stale row on every plain run, so ``get_or_create()`` is
+kept: it only ever creates rows that do not yet exist and never mutates an
+existing row.
+
+The consequence, and the operational action it requires: a database seeded
+by a version of this command *older* than the 6001/6002/6004 special-casing
+described above (e.g. one where 6004 was created as STATUS_PREACTIVATED, or
+one seeded before 6001/6002 existed in ``_SEED_VOUCHERS`` at all) will NOT
+be self-healed by a plain re-run — a pre-existing 6004 row will remain stuck
+at its old, wrong status forever, because ``get_or_create`` skips rows that
+already exist.  **Operators upgrading an existing environment to this
+version of the command MUST run ``--reset`` once** to delete and recreate
+every seed row in its correct state.  After that one-time repair, plain runs
+are safe again.
 
 Why a management command, not a data migration?
 -----------------------------------------------
@@ -49,10 +100,14 @@ Usage
 -----
 ::
 
-    # Seed all 14 harness vouchers (idempotent):
+    # Seed all 16 harness vouchers (idempotent):
     python manage.py seed_govstack_vouchers
 
-    # Force-recreate all seed rows (e.g. after a harness run consumed them):
+    # Force-recreate all seed rows in their correct seeded state — e.g.
+    # after a harness run consumed/cancelled/activated them, OR as the
+    # REQUIRED one-time repair step when upgrading an environment that was
+    # seeded by a version of this command older than the 6001/6002/6004
+    # special-casing described above (see "Idempotency and --reset"):
     python manage.py seed_govstack_vouchers --reset
 
     # Silent mode (CI pipelines):
@@ -75,39 +130,86 @@ logger = logging.getLogger("apps.payments.management.seed_govstack_vouchers")
 
 
 # ---------------------------------------------------------------------------
-# Seed data — 14 harness-required vouchers
+# Seed data — 16 harness-required vouchers
 # ---------------------------------------------------------------------------
-# Tuple format: (serial_number, group_code, amount_str, currency_iso4217)
+# Tuple format:
+#   (serial_number, group_code, amount_str, currency_iso4217, status,
+#    expiry_offset_days)
+#
+# status and expiry_offset_days are explicit per-row (rather than a blanket
+# default applied uniformly) because 3 of the 16 rows require a non-default
+# seeded state — see "Special-cased serials" in the module docstring:
+#   - 6001: STATUS_CONSUMED   (voucher-status-check → 458 VoucherAlreadyUsed)
+#   - 6002: STATUS_ACTIVATED, expiry_offset_days=-30 (in the past)
+#           (voucher-status-check → 459 VoucherExpired)
+#   - 6004: STATUS_ACTIVATED  (redemption smoke test; ALLOWED_TRANSITIONS
+#           only permits ACTIVATED → CONSUMED)
+# All other 13 rows use the historical default: STATUS_PREACTIVATED,
+# expiry_offset_days=_SEED_EXPIRY_DAYS (+365) — unchanged behavior.
+#
+# status values are plain string literals matching GovStackVoucher.STATUS_*
+# EXACTLY (see govstack_models.py) rather than references to the model
+# class itself — this module deliberately avoids importing GovStackVoucher
+# at module scope (see the lazy import in Command.handle()), so the model's
+# app registry does not need to be ready merely to import this file.
 #
 # Serial numbers use 4-digit and 5-digit values that are permanently outside
 # the auto-generation range (18-digit numeric strings; see
 # _generate_voucher_serial() in govstack_models.py), ensuring they cannot
 # appear in production by accident.  group_code values match the GovStack harness
-# fixture expectations exactly (case-sensitive).
+# fixture expectations exactly (case-sensitive) for the original 14 rows; no
+# harness scenario asserts group_code/amount/currency for 6001 or 6002 (there
+# is no harness-specified value to match), so they use safe, consistent
+# defaults matching the existing FOOD group.
 #
 # amount_str uses string form to ensure exact Decimal conversion without
 # floating-point rounding — never pass a float literal to DecimalField.
 
-_SEED_VOUCHERS: list[tuple[str, str, str, str]] = [
+_SEED_STATUS_PREACTIVATED: str = "preactivated"
+_SEED_STATUS_ACTIVATED: str = "activated"
+_SEED_STATUS_CONSUMED: str = "consumed"
+
+# Expiry duration for freshly created seed vouchers (defined here, ahead of
+# _SEED_VOUCHERS, because the table below references it per-row).
+_SEED_EXPIRY_DAYS: int = 365
+
+_SEED_VOUCHERS: list[tuple[str, str, str, str, str, int]] = [
     # ── Primary FOOD range (serials 5550–5555) ───────────────────────────────
-    ("5550",  "FOOD",      "100.00", "CAD"),
-    ("5551",  "FOOD",      "100.00", "CAD"),
-    ("5552",  "FOOD",      "200.00", "CAD"),
-    ("5553",  "FOOD",      "150.00", "CAD"),
-    ("5554",  "FOOD",      "100.00", "CAD"),
-    ("5555",  "FOOD",      "100.00", "CAD"),
+    ("5550",  "FOOD",      "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5551",  "FOOD",      "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5552",  "FOOD",      "200.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5553",  "FOOD",      "150.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5554",  "FOOD",      "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5555",  "FOOD",      "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
     # ── HEALTH range (serials 5556–5560) ────────────────────────────────────
-    ("5556",  "HEALTH",    "75.00",  "CAD"),
-    ("5557",  "HEALTH",    "75.00",  "CAD"),
-    ("5558",  "HEALTH",    "75.00",  "CAD"),
-    ("5559",  "HEALTH",    "75.00",  "CAD"),
-    ("5560",  "HEALTH",    "75.00",  "CAD"),
-    # ── Alternate-group serial ───────────────────────────────────────────────
-    ("6004",  "HEALTH",    "200.00", "CAD"),
+    ("5556",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5557",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5558",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5559",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5560",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    # ── Special-cased status serials (voucherstatuscheck / redemption smoke) ──
+    # 6001: already CONSUMED → voucherstatuscheck harness scenario expects 458.
+    ("6001",  "FOOD",      "100.00", "CAD", _SEED_STATUS_CONSUMED,    _SEED_EXPIRY_DAYS),
+    # 6002: ACTIVATED but expired 30 days ago (NOT consumed — get_status()
+    # checks CONSUMED/458 before expiry/459, so 458 would win if this were
+    # also CONSUMED and the 459 scenario would never be reachable).
+    ("6002",  "FOOD",      "100.00", "CAD", _SEED_STATUS_ACTIVATED,   -30),
+    # 6004: ACTIVATED (not the usual PREACTIVATED default) — redemption smoke
+    # test calls redeem(), which only permits ACTIVATED → CONSUMED.
+    ("6004",  "HEALTH",    "200.00", "CAD", _SEED_STATUS_ACTIVATED,   _SEED_EXPIRY_DAYS),
     # ── 5-digit TRANSPORT range ──────────────────────────────────────────────
-    ("60000", "TRANSPORT", "50.00",  "CAD"),
-    ("60001", "TRANSPORT", "50.00",  "CAD"),
+    ("60000", "TRANSPORT", "50.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("60001", "TRANSPORT", "50.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
 ]
+
+# Placeholder redemption-metadata value stamped onto any seed row created
+# already STATUS_CONSUMED (currently only 6001), so that a CONSUMED seed
+# voucher's audit-trail fields are populated rather than blank — a CONSUMED
+# row with no redemption metadata looks like a data bug to anyone inspecting
+# the DB later.  Keyed off `status == STATUS_CONSUMED` in the seeding loop
+# below, not off the specific serial, so any future CONSUMED seed row gets
+# the same treatment automatically.
+_SEED_REDEMPTION_MERCHANT_NAME: str = "GS-HARNESS-SEED-MERCHANT"
 
 # Tag used on all rows created by this command.  Allows targeted reset and
 # easy identification in the Django admin / support queries.
@@ -165,16 +267,16 @@ _SEED_REGISTERED_BBS: list[tuple[str, str]] = [
 # certification testing.
 _SEED_REGISTERED_BB_ROLE: str = "admin"
 
-# Expiry duration for freshly created seed vouchers.
-_SEED_EXPIRY_DAYS: int = 365
-
 
 class Command(BaseCommand):
     help = (
         "Seed GovStack Payments BB harness test vouchers (idempotent). "
         "Run immediately before submitting to the GovStack test harness at "
         "testing.govstack.global.  Use --reset to force-recreate all seed "
-        "rows — e.g. after a harness run that consumed or cancelled them."
+        "rows — e.g. after a harness run that consumed, activated, or "
+        "cancelled them, or as a REQUIRED one-time repair step when "
+        "upgrading an environment seeded by an older version of this "
+        "command (see module docstring, 'Idempotency and --reset')."
     )
 
     # ------------------------------------------------------------------
@@ -188,7 +290,9 @@ class Command(BaseCommand):
             default=False,
             help=(
                 "Delete ALL vouchers whose serial_number is in the seed list, "
-                "then recreate them fresh in STATUS_PREACTIVATED. "
+                "then recreate them fresh in each serial's seed-defined "
+                "status (STATUS_PREACTIVATED for most; 6001=CONSUMED, "
+                "6002/6004=ACTIVATED — see _SEED_VOUCHERS). "
                 "Use only in CI / test environments — NEVER in production."
             ),
         )
@@ -205,7 +309,6 @@ class Command(BaseCommand):
         do_reset: bool = options["reset"]
 
         seed_serials: list[str] = [row[0] for row in _SEED_VOUCHERS]
-        expiry = timezone.now() + timedelta(days=_SEED_EXPIRY_DAYS)
 
         # All DB writes (delete + get_or_create loop) are wrapped in a single
         # atomic transaction so that --reset can never leave the seed set in a
@@ -236,27 +339,50 @@ class Command(BaseCommand):
                 )
 
             # ── Idempotent upsert loop ────────────────────────────────────────
+            # Deliberately get_or_create(), NOT update_or_create() — see the
+            # module docstring section "Idempotency and --reset" for the full
+            # reasoning.  In short: this command is documented to run once,
+            # immediately before a harness submission; a harness run
+            # legitimately mutates these vouchers' status afterwards, and an
+            # unconditional update_or_create() would silently revert that
+            # in-progress state on any incidental re-run.  get_or_create()
+            # only ever creates missing rows and never touches an existing
+            # one, so --reset (delete + recreate) is the sole repair path
+            # for rows already seeded in a stale/wrong state.
             created_count = 0
             skipped_count = 0
 
-            for serial, group_code, amount_str, currency in _SEED_VOUCHERS:
+            for serial, group_code, amount_str, currency, status, expiry_offset_days in (
+                _SEED_VOUCHERS
+            ):
+                expiry = timezone.now() + timedelta(days=expiry_offset_days)
+
+                defaults = {
+                    "amount": Decimal(amount_str),
+                    "currency": currency,
+                    "group_code": group_code,
+                    "status": status,
+                    "issuing_bb": _HARNESS_ISSUING_BB,
+                    "expiry_date": expiry,
+                    # Security: payee_functional_id intentionally omitted (no PII).
+                    # voucher_secret intentionally omitted (blank=True on the field;
+                    # an encrypted empty string is stored).
+                    # batch_id, callback_url, registering_institution_id all
+                    # default to "" (blank=True) — no need to set them here.
+                }
+
+                # CONSUMED seed rows must carry redemption audit-trail metadata
+                # — a CONSUMED voucher with blank redemption fields looks like
+                # a data bug to anyone inspecting the DB later.  Keyed off the
+                # row's `status`, not the specific serial, so any future
+                # CONSUMED seed row gets the same treatment automatically.
+                if status == GovStackVoucher.STATUS_CONSUMED:
+                    defaults["redeemed_at"] = timezone.now()
+                    defaults["redeemed_merchant_name"] = _SEED_REDEMPTION_MERCHANT_NAME
+
                 _obj, was_created = GovStackVoucher.objects.get_or_create(
                     serial_number=serial,
-                    defaults={
-                        "amount": Decimal(amount_str),
-                        "currency": currency,
-                        "group_code": group_code,
-                        # Explicit status even though it is the model default —
-                        # avoids silent breakage if the default ever changes.
-                        "status": GovStackVoucher.STATUS_PREACTIVATED,
-                        "issuing_bb": _HARNESS_ISSUING_BB,
-                        "expiry_date": expiry,
-                        # Security: payee_functional_id intentionally omitted (no PII).
-                        # voucher_secret intentionally omitted (blank=True on the field;
-                        # an encrypted empty string is stored).
-                        # batch_id, callback_url, registering_institution_id all
-                        # default to "" (blank=True) — no need to set them here.
-                    },
+                    defaults=defaults,
                 )
 
                 if was_created:
@@ -264,7 +390,7 @@ class Command(BaseCommand):
                     if verbosity >= 2:
                         self.stdout.write(
                             f"  Created  serial={serial!r:>6}  group={group_code!r}  "
-                            f"amount={amount_str}  currency={currency}"
+                            f"amount={amount_str}  currency={currency}  status={status!r}"
                         )
                 else:
                     skipped_count += 1

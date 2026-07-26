@@ -110,11 +110,15 @@ Coverage matrix:
      F30: preactivate() retries on serial collision and succeeds with second serial
 
   F (seed). SeedGovStackVouchersCommandTests — management command unit tests
-     F31: seed command creates all 14 expected serials when DB is empty
+     F31: seed command creates all 16 expected serials when DB is empty
      F32: seed command is idempotent — zero new rows on second run, no IntegrityError
-     F33: all seeded vouchers have STATUS_PREACTIVATED
+     F33: each seeded voucher has its expected per-serial status — 13 rows
+          STATUS_PREACTIVATED, 6001 CONSUMED, 6002/6004 ACTIVATED (6002 also
+          has a past expiry_date; 6001 also has redemption metadata; both are
+          exercised end-to-end via voucherstatuscheck → 458/459)
      F34: serial_number stored as exact string value (no zero-padding, no truncation)
-     F35: --reset flag deletes all seed serials and recreates them in PREACTIVATED state
+     F35: --reset flag deletes all seed serials and recreates them in their
+          expected per-serial states
      F36: issuing_bb is exactly "GS-HARNESS" on all seeded rows
 
   G. Security invariants
@@ -1727,9 +1731,10 @@ class SeedGovStackVouchersCommandTests(TestCase):
     Tests for the ``seed_govstack_vouchers`` management command.
 
     These tests validate that the command:
-      - creates exactly the 14 GovStack harness vouchers (F31)
+      - creates exactly the 16 GovStack harness vouchers (F31)
       - is idempotent on repeated runs (F32)
-      - seeds all rows in STATUS_PREACTIVATED (F33)
+      - seeds each row in its expected per-serial status (F33) — most in
+        STATUS_PREACTIVATED, but 6001=CONSUMED and 6002/6004=ACTIVATED
       - preserves exact serial number strings without padding or truncation (F34)
       - supports --reset to delete and recreate seed rows (F35)
       - tags all rows with issuing_bb == "GS-HARNESS" (F36)
@@ -1744,19 +1749,39 @@ class SeedGovStackVouchersCommandTests(TestCase):
     EXPECTED_SERIALS: list[str] = [
         "5550", "5551", "5552", "5553", "5554", "5555",
         "5556", "5557", "5558", "5559", "5560",
-        "6004",
+        "6001", "6002", "6004",
         "60000", "60001",
     ]
 
-    # Expected group_code + amount_str + currency for spot-check rows
-    # (serial → (group_code, amount_str, currency))
-    _EXPECTED_DATA: dict[str, tuple[str, str, str]] = {
-        "5550":  ("FOOD",      "100.00", "CAD"),
-        "5552":  ("FOOD",      "200.00", "CAD"),
-        "5556":  ("HEALTH",    "75.00",  "CAD"),
-        "6004":  ("HEALTH",    "200.00", "CAD"),
-        "60000": ("TRANSPORT", "50.00",  "CAD"),
-        "60001": ("TRANSPORT", "50.00",  "CAD"),
+    # Expected group_code + amount_str + currency + "expiry must be in the
+    # future" for spot-check rows (serial → (group_code, amount_str,
+    # currency, expiry_in_future)). 6002 is deliberately NOT included here —
+    # its expiry_date is intentionally in the PAST (see test_f33 and the
+    # dedicated 6001/6002 assertions below), so it doesn't fit this table's
+    # "expiry must be in the future" invariant.
+    _EXPECTED_DATA: dict[str, tuple[str, str, str, bool]] = {
+        "5550":  ("FOOD",      "100.00", "CAD", True),
+        "5552":  ("FOOD",      "200.00", "CAD", True),
+        "5556":  ("HEALTH",    "75.00",  "CAD", True),
+        "6001":  ("FOOD",      "100.00", "CAD", True),
+        "6004":  ("HEALTH",    "200.00", "CAD", True),
+        "60000": ("TRANSPORT", "50.00",  "CAD", True),
+        "60001": ("TRANSPORT", "50.00",  "CAD", True),
+    }
+
+    # Per-serial expected status after a plain seed run (F33).
+    # All serials default to STATUS_PREACTIVATED except the 3 special cases.
+    _EXPECTED_STATUS: dict[str, str] = {
+        serial: GovStackVoucher.STATUS_PREACTIVATED
+        for serial in [
+            "5550", "5551", "5552", "5553", "5554", "5555",
+            "5556", "5557", "5558", "5559", "5560",
+            "60000", "60001",
+        ]
+    } | {
+        "6001": GovStackVoucher.STATUS_CONSUMED,
+        "6002": GovStackVoucher.STATUS_ACTIVATED,
+        "6004": GovStackVoucher.STATUS_ACTIVATED,
     }
 
     def _call_seed(self, *, reset: bool = False, verbosity: int = 0) -> str:
@@ -1772,8 +1797,8 @@ class SeedGovStackVouchersCommandTests(TestCase):
 
     # ── F31 ──────────────────────────────────────────────────────────────────
 
-    def test_f31_creates_all_14_serials_when_db_is_empty(self):
-        """Command creates exactly 14 seed vouchers starting from an empty DB."""
+    def test_f31_creates_all_16_serials_when_db_is_empty(self):
+        """Command creates exactly 16 seed vouchers starting from an empty DB."""
         self.assertEqual(GovStackVoucher.objects.count(), 0)
 
         self._call_seed()
@@ -1798,22 +1823,89 @@ class SeedGovStackVouchersCommandTests(TestCase):
 
     # ── F33 ──────────────────────────────────────────────────────────────────
 
-    def test_f33_seeded_vouchers_are_preactivated(self):
-        """All 14 seed vouchers have STATUS_PREACTIVATED after seeding."""
+    def test_f33_seeded_vouchers_have_expected_per_serial_status(self):
+        """
+        Each seed voucher has its EXPECTED per-serial status after seeding —
+        NOT a blanket STATUS_PREACTIVATED for every row.  13 of the 16 rows
+        default to STATUS_PREACTIVATED, but 3 are deliberately special-cased:
+          - 6001 → STATUS_CONSUMED   (voucherstatuscheck harness → 458)
+          - 6002 → STATUS_ACTIVATED, with a past expiry_date (→ 459)
+          - 6004 → STATUS_ACTIVATED  (redemption smoke test needs ACTIVATED,
+                    since redeem() only permits ACTIVATED → CONSUMED)
+        """
         self._call_seed()
 
-        non_preactivated = GovStackVoucher.objects.filter(
-            serial_number__in=self.EXPECTED_SERIALS,
-        ).exclude(status=GovStackVoucher.STATUS_PREACTIVATED)
+        mismatches = []
+        for serial, expected_status in self._EXPECTED_STATUS.items():
+            actual_status = GovStackVoucher.objects.get(serial_number=serial).status
+            if actual_status != expected_status:
+                mismatches.append((serial, expected_status, actual_status))
 
         self.assertEqual(
-            non_preactivated.count(),
-            0,
+            mismatches,
+            [],
             msg=(
-                "Some seed vouchers have unexpected status: "
-                + str(list(non_preactivated.values_list("serial_number", "status")))
+                "Some seed vouchers have unexpected status "
+                "(serial, expected, actual): " + str(mismatches)
             ),
         )
+
+    def test_f33b_serial_6001_is_consumed_with_redemption_metadata_populated(self):
+        """
+        6001 must be seeded STATUS_CONSUMED with redemption audit-trail
+        fields populated (redeemed_at, redeemed_merchant_name) — a CONSUMED
+        row with blank redemption metadata looks like a data bug.
+        """
+        self._call_seed()
+
+        v = GovStackVoucher.objects.get(serial_number="6001")
+        self.assertEqual(v.status, GovStackVoucher.STATUS_CONSUMED)
+        self.assertIsNotNone(
+            v.redeemed_at,
+            msg="6001 is seeded CONSUMED — redeemed_at must be populated.",
+        )
+        self.assertNotEqual(
+            v.redeemed_merchant_name,
+            "",
+            msg="6001 is seeded CONSUMED — redeemed_merchant_name must be populated.",
+        )
+
+    def test_f33c_serial_6002_expiry_date_is_genuinely_in_the_past(self):
+        """
+        6002 must be seeded STATUS_ACTIVATED (not CONSUMED) with a genuinely
+        past expiry_date, so the voucherstatuscheck harness's 459
+        (VoucherExpired) scenario is reachable — get_status() checks CONSUMED
+        (→458) before expiry (→459), so 6002 must not be CONSUMED.
+        """
+        from django.utils import timezone as tz
+
+        self._call_seed()
+
+        v = GovStackVoucher.objects.get(serial_number="6002")
+        self.assertEqual(v.status, GovStackVoucher.STATUS_ACTIVATED)
+        self.assertIsNotNone(v.expiry_date)
+        self.assertLess(
+            v.expiry_date,
+            tz.now(),
+            msg="6002's expiry_date must be in the past.",
+        )
+
+    def test_f33d_status_check_view_returns_458_for_6001_and_459_for_6002(self):
+        """
+        End-to-end confirmation of the actual harness-facing behavior this
+        seed fix exists to enable: GET .../voucherstatuscheck/{serial} must
+        return 458 (VoucherAlreadyUsed) for 6001 and 459 (VoucherExpired) for
+        6002, exercised through the real view/URL — not just raw DB state.
+        """
+        self._call_seed()
+
+        client = APIClient()
+
+        resp_6001 = client.get(_status_url("6001"))
+        self.assertEqual(resp_6001.status_code, 458, resp_6001.data)
+
+        resp_6002 = client.get(_status_url("6002"))
+        self.assertEqual(resp_6002.status_code, 459, resp_6002.data)
 
     # ── F34 ──────────────────────────────────────────────────────────────────
 
@@ -1871,7 +1963,12 @@ class SeedGovStackVouchersCommandTests(TestCase):
 
         Scenario: simulates a harness run that consumed serial 5550 and
         cancelled serial 60001, then the operator runs --reset to restore
-        them before the next harness submission.
+        them before the next harness submission.  Also pre-creates 6004 in
+        the OLD (pre-fix) PREACTIVATED state to simulate a database seeded by
+        an older version of this command — exactly the repair scenario
+        --reset exists to fix (see module docstring, "Idempotency and
+        --reset"): a plain re-run would NOT fix this row (get_or_create only
+        creates missing rows), so --reset is required.
         """
         from datetime import timedelta
         from django.utils import timezone
@@ -1895,12 +1992,22 @@ class SeedGovStackVouchersCommandTests(TestCase):
             issuing_bb="GS-HARNESS",
             expiry_date=timezone.now() + timedelta(days=1),
         )
-        self.assertEqual(GovStackVoucher.objects.count(), 2)
+        # Simulates a pre-fix DB: 6004 sitting at the OLD wrong status.
+        GovStackVoucher.objects.create(
+            serial_number="6004",
+            amount=Decimal("200.00"),
+            currency="CAD",
+            group_code="HEALTH",
+            status=GovStackVoucher.STATUS_PREACTIVATED,
+            issuing_bb="GS-HARNESS",
+            expiry_date=timezone.now() + timedelta(days=1),
+        )
+        self.assertEqual(GovStackVoucher.objects.count(), 3)
 
         # Run seed with --reset
         self._call_seed(reset=True, verbosity=1)
 
-        # All 14 seed rows must now be present
+        # All 16 seed rows must now be present
         self.assertEqual(
             GovStackVoucher.objects.count(),
             len(self.EXPECTED_SERIALS),
@@ -1922,10 +2029,28 @@ class SeedGovStackVouchersCommandTests(TestCase):
         self.assertEqual(v60001.currency, "CAD")
         self.assertEqual(v60001.issuing_bb, "GS-HARNESS")
 
+        # Serial 6004 must be REPAIRED to ACTIVATED by --reset (was PREACTIVATED
+        # pre-fix) — this is the exact repair scenario --reset exists for.
+        v6004 = GovStackVoucher.objects.get(serial_number="6004")
+        self.assertEqual(v6004.status, GovStackVoucher.STATUS_ACTIVATED)
+        self.assertEqual(v6004.group_code, "HEALTH")
+        self.assertEqual(v6004.amount, Decimal("200.00"))
+        self.assertEqual(v6004.currency, "CAD")
+        self.assertEqual(v6004.issuing_bb, "GS-HARNESS")
+
+        # Serials 6001/6002, previously absent entirely, must also be created
+        # fresh by --reset in their special-cased states.
+        v6001 = GovStackVoucher.objects.get(serial_number="6001")
+        self.assertEqual(v6001.status, GovStackVoucher.STATUS_CONSUMED)
+
+        v6002 = GovStackVoucher.objects.get(serial_number="6002")
+        self.assertEqual(v6002.status, GovStackVoucher.STATUS_ACTIVATED)
+        self.assertLess(v6002.expiry_date, timezone.now())
+
     # ── F36 ──────────────────────────────────────────────────────────────────
 
     def test_f36_issuing_bb_is_gs_harness(self):
-        """All 14 seed vouchers have issuing_bb == 'GS-HARNESS'."""
+        """All 16 seed vouchers have issuing_bb == 'GS-HARNESS'."""
         self._call_seed()
 
         wrong_bb = GovStackVoucher.objects.filter(
@@ -1947,17 +2072,20 @@ class SeedGovStackVouchersCommandTests(TestCase):
         """
         Spot-checks that group_code, amount, currency, and expiry_date match
         the expected values from the seed spec for a representative sample of
-        serials.
+        serials — including the new 6001 special-cased serial.
 
-        expiry_date is included here because the harness requires unexpired
-        vouchers — a missing or past expiry would cause harness failures that
-        are hard to diagnose.
+        expiry_date direction is asserted per-row via the 4th element of
+        _EXPECTED_DATA: True means "must be in the future" (the harness needs
+        live, unexpired vouchers for most scenarios), which holds for every
+        row in this table. 6002 is deliberately excluded from this table
+        (see the _EXPECTED_DATA comment) because its expiry is intentionally
+        in the past — that is covered by test_f33c instead.
         """
         from django.utils import timezone as tz
 
         self._call_seed()
 
-        for serial, (expected_group, expected_amount_str, expected_currency) in (
+        for serial, (expected_group, expected_amount_str, expected_currency, expiry_in_future) in (
             self._EXPECTED_DATA.items()
         ):
             v = GovStackVoucher.objects.get(serial_number=serial)
@@ -1976,16 +2104,22 @@ class SeedGovStackVouchersCommandTests(TestCase):
                 expected_currency,
                 msg=f"serial={serial!r}: expected currency={expected_currency!r}",
             )
-            # expiry_date must be set and in the future — harness needs live vouchers.
             self.assertIsNotNone(
                 v.expiry_date,
                 msg=f"serial={serial!r}: expiry_date must not be None.",
             )
-            self.assertGreater(
-                v.expiry_date,
-                tz.now(),
-                msg=f"serial={serial!r}: expiry_date must be in the future.",
-            )
+            if expiry_in_future:
+                self.assertGreater(
+                    v.expiry_date,
+                    tz.now(),
+                    msg=f"serial={serial!r}: expiry_date must be in the future.",
+                )
+            else:
+                self.assertLess(
+                    v.expiry_date,
+                    tz.now(),
+                    msg=f"serial={serial!r}: expiry_date must be in the past.",
+                )
 
     # ── Security invariant: seed rows carry no PII ────────────────────────────
 
