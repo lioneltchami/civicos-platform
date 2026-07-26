@@ -76,13 +76,26 @@ _REQUEST_ID_VALIDATOR = RegexValidator(
 
 def _generate_voucher_serial() -> str:
     """
-    Generate a unique 6-digit numeric serial number for a GovStack voucher.
+    Generate a unique 18-digit numeric serial number for a GovStack voucher.
+
+    The GovStack harness's own JSON schema (test/openAPI/features/support/helpers/
+    helpers.js) requires both `voucher_number` and `voucher_serial_number` to be
+    strings of 16-25 characters. This codebase's own request-side serializers
+    (VoucherActivationRequestSerializer.voucher_serial_number and
+    VoucherRedemptionRequestSerializer.voucher_number, govstack_serializers.py)
+    cap length at max_length=20, so 18 digits sits comfortably inside both
+    constraints (16 <= 18 <= 20 <= 25).
+
+    The value MUST remain purely numeric (digits only): _is_numeric_voucher_number()
+    (govstack_services.py) relies on int() parsing succeeding for legitimate
+    vouchers and failing for the harness's literal "notAnumber" fixture (HTTP 461).
 
     Uniqueness is enforced by the DB unique constraint on GovStackVoucher.serial_number.
     In tests, patch this function to inject deterministic values (e.g. '5550', '6004').
     """
-    # 100000–999999: 6 digits, never starts with 0.
-    return str(secrets.randbelow(900_000) + 100_000)
+    # 100_000_000_000_000_000-999_999_999_999_999_999: exactly 18 digits, never
+    # starts with 0 (str() of a Python int never truncates or pads leading zeros).
+    return str(secrets.randbelow(9 * 10**17) + 10**17)
 
 
 # ---------------------------------------------------------------------------

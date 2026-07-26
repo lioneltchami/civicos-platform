@@ -421,6 +421,17 @@ class VoucherServiceTest(TestCase):
         self.assertEqual(voucher.amount, Decimal("50.00"))
         self.assertEqual(voucher.currency, _CURRENCY)
         self.assertEqual(voucher.group_code, _GROUP)
+        # Regression test for Issue A (SPEC_GOVSTACK_PAYMENTS_BB.md section
+        # 24.1): the real (unpatched) _generate_voucher_serial() output must
+        # satisfy the GovStack harness's own schema (16-25 char string) and
+        # this codebase's own max_length=20 request-serializer ceiling.
+        self.assertIsInstance(voucher.serial_number, str)
+        self.assertTrue(
+            16 <= len(voucher.serial_number) <= 20,
+            f"serial_number {voucher.serial_number!r} length "
+            f"{len(voucher.serial_number)} not in 16-20",
+        )
+        self.assertTrue(voucher.serial_number.isdigit())
 
     def test_s17_preactivate_invalid_amount_raises(self):
         """S17: preactivate() raises InvalidVoucherAmount when amount ≤ 0."""

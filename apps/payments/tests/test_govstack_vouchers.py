@@ -188,10 +188,13 @@ GROUP = "Payment Voucher"
 AMOUNT = "100.00"
 
 # Deterministic serial used in tests that pre-create vouchers.
-# Patched via mock to avoid randomness.
-FIXED_SERIAL = "500001"
-FIXED_SERIAL_2 = "500002"
-FIXED_SERIAL_3 = "500003"
+# Patched via mock to avoid randomness. 18 digits (matching the real
+# _generate_voucher_serial() output format) so that tests exercise the same
+# length the harness's own schema (16-25 chars) and this codebase's
+# max_length=20 request serializers actually enforce in production.
+FIXED_SERIAL = "100000000000000001"
+FIXED_SERIAL_2 = "100000000000000002"
+FIXED_SERIAL_3 = "100000000000000003"
 
 
 def _preactivation_body(
@@ -447,6 +450,42 @@ class VoucherPreactivationHarnessTest(TestCase):
         self.assertNotIn("voucher_secret", raw)
         self.assertNotIn("voucherSecret", raw)
 
+    def test_a16_real_generator_output_satisfies_harness_schema(self):
+        """
+        Regression test for Issue A (SPEC_GOVSTACK_PAYMENTS_BB.md section 24.1):
+        every other preactivation test above patches _generate_voucher_serial()
+        to a fixed value, so none of them ever exercised the REAL generator
+        against the harness's own schema. This test deliberately does NOT
+        patch the generator.
+
+        The harness's authoritative JSON schema (test/openAPI/features/support/
+        helpers/helpers.js) requires voucher_number and voucher_serial_number
+        to be strings of 16-25 characters. This codebase's own request
+        serializers (VoucherActivationRequestSerializer.voucher_serial_number,
+        VoucherRedemptionRequestSerializer.voucher_number) cap max_length=20,
+        so the effective window this codebase must hit is 16-20 inclusive.
+        """
+        resp = self._post(_preactivation_body())
+        self.assertEqual(resp.status_code, 200, resp.data)
+        data = resp.data
+
+        voucher_number = data["voucher_number"]
+        voucher_serial_number = data["voucher_serial_number"]
+
+        for value in (voucher_number, voucher_serial_number):
+            self.assertIsInstance(value, str)
+            self.assertTrue(
+                16 <= len(value) <= 20,
+                msg=f"Generated voucher id {value!r} has length {len(value)}, "
+                    f"expected 16-20 (harness requires 16-25; our serializers "
+                    f"cap max_length=20).",
+            )
+            self.assertTrue(
+                value.isdigit(),
+                msg=f"Generated voucher id {value!r} must be purely numeric "
+                    f"so _is_numeric_voucher_number() continues to work.",
+            )
+
 
 # ---------------------------------------------------------------------------
 # B. VoucherActivation view
@@ -676,6 +715,22 @@ class VoucherRedemptionHarnessTest(TestCase):
         and fully confident per the P1 plan.
         """
         resp = self._post(_redemption_body(voucher_number="notAnumber"))
+        self.assertEqual(resp.status_code, 461)
+        self.assertIn("message", resp.data)
+
+    def test_c14b_non_numeric_voucher_number_same_length_as_new_format_returns_461(self):
+        """
+        Regression test for Issue A (SPEC_GOVSTACK_PAYMENTS_BB.md section 24.1):
+        _generate_voucher_serial() now produces 18-digit numeric strings
+        instead of 6-digit ones. Confirms _is_numeric_voucher_number() still
+        correctly rejects a non-numeric value of the SAME length as the new
+        format (18 chars) — not just the harness's short "notAnumber" literal
+        — so the 461 (InvalidVoucherNumber) path is unaffected by the format
+        change.
+        """
+        non_numeric_18_chars = "notanumbernotanumb"
+        self.assertEqual(len(non_numeric_18_chars), 18)
+        resp = self._post(_redemption_body(voucher_number=non_numeric_18_chars))
         self.assertEqual(resp.status_code, 461)
         self.assertIn("message", resp.data)
 

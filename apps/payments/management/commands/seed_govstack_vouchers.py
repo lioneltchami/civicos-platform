@@ -26,7 +26,10 @@ data (see also: ``setup_periodic_tasks.py``, ``seed_tax_rates.py``).
 
 Serial number range conflict
 ----------------------------
-``_generate_voucher_serial()`` produces 6-digit integers (100,000–999,999).
+``_generate_voucher_serial()`` produces 18-digit numeric strings (the harness's
+own JSON schema requires 16-25 characters; 18 digits sits comfortably inside
+both that range and this codebase's own max_length=20 request-serializer
+ceiling — see govstack_models.py and SPEC_GOVSTACK_PAYMENTS_BB.md section 24.1).
 The harness references 4-digit serials (5550–6004) and 5-digit serials
 (60000–60001), which fall *outside* that range and will NEVER be produced
 by the generator.  This command bypasses the generator entirely and inserts
@@ -77,8 +80,9 @@ logger = logging.getLogger("apps.payments.management.seed_govstack_vouchers")
 # Tuple format: (serial_number, group_code, amount_str, currency_iso4217)
 #
 # Serial numbers use 4-digit and 5-digit values that are permanently outside
-# the auto-generation range (100,000–999,999), ensuring they cannot appear
-# in production by accident.  group_code values match the GovStack harness
+# the auto-generation range (18-digit numeric strings; see
+# _generate_voucher_serial() in govstack_models.py), ensuring they cannot
+# appear in production by accident.  group_code values match the GovStack harness
 # fixture expectations exactly (case-sensitive).
 #
 # amount_str uses string form to ensure exact Decimal conversion without
@@ -213,8 +217,8 @@ class Command(BaseCommand):
                 # Filter by serial_number only (not issuing_bb) so that any row
                 # occupying a seed serial — regardless of how it was created — is
                 # cleared.  Since these serials are outside the auto-generation
-                # range (100,000–999,999), this cannot accidentally delete
-                # production vouchers.
+                # range (18-digit numeric strings), this cannot accidentally
+                # delete production vouchers.
                 deleted_count, _ = GovStackVoucher.objects.filter(
                     serial_number__in=seed_serials,
                 ).delete()

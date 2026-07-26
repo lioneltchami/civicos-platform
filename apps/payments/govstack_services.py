@@ -649,10 +649,11 @@ def _is_numeric_voucher_number(value: str) -> bool:
     Used by GovStackVoucherService.redeem() to validate voucher_number →
     HTTP 461 (InvalidVoucherNumber). The harness sends the literal string
     "notAnumber" to exercise this path, which is unambiguous: any voucher
-    serial number is numeric (see _generate_voucher_serial()), so a
-    non-numeric value can never resolve to a real voucher anyway — reject it
-    at the format level with a specific code rather than falling through to
-    the generic InvalidVoucherSerial (456) "not found" path.
+    serial number is numeric (see _generate_voucher_serial(), an 18-digit
+    numeric string), so a non-numeric value can never resolve to a real
+    voucher anyway — reject it at the format level with a specific code
+    rather than falling through to the generic InvalidVoucherSerial (456)
+    "not found" path.
     """
     if value is None:
         return False
@@ -750,7 +751,7 @@ class GovStackVoucherService:
         """
         Create a GovStackVoucher in PREACTIVATED status.
 
-        Generates a unique 6-digit serial_number with up to 5 collision retries.
+        Generates a unique 18-digit numeric serial_number with up to 5 collision retries.
         Returns the saved GovStackVoucher instance.
 
         Raises:

@@ -876,16 +876,19 @@ class GovStackVoucherService:
 
 ### 9.2 Serial Number Generation
 
-Voucher serial numbers must be unique and numeric (the harness uses numbers like `5550`, `6004`, `60000`). Generate with a sequential counter seeded per group, padded to at minimum 4 digits:
+**Updated per §24.1 (Issue A fix, implemented).** Voucher serial numbers must be unique, purely numeric, and satisfy the harness's own JSON schema (`test/openAPI/features/support/helpers/helpers.js`), which requires `voucher_number`/`voucher_serial_number` to be strings of 16-25 characters on the preactivation response. This codebase's own request-side serializers (`VoucherActivationRequestSerializer.voucher_serial_number`, `VoucherRedemptionRequestSerializer.voucher_number`) cap length at `max_length=20`, so the generator targets 18 digits — comfortably inside both bounds (16 ≤ 18 ≤ 20 ≤ 25):
 
 ```python
 import secrets
 
 def _generate_voucher_serial() -> str:
-    """Generate a unique 6-digit numeric serial number."""
-    # Use random for generation; uniqueness enforced by DB unique constraint
-    return str(secrets.randbelow(900000) + 100000)  # 100000–999999
+    """Generate a unique 18-digit numeric serial number for a GovStack voucher."""
+    # 100_000_000_000_000_000-999_999_999_999_999_999: exactly 18 digits, never
+    # starts with 0 (str() of a Python int never truncates or pads leading zeros).
+    return str(secrets.randbelow(9 * 10**17) + 10**17)
 ```
+
+The value must remain purely numeric (digits only): `_is_numeric_voucher_number()` (`govstack_services.py`) relies on `int()` parsing succeeding for legitimate vouchers and failing for the harness's literal `"notAnumber"` fixture (HTTP 461). Fixed test/seed literals (e.g. `5550`, `6004`, `60000`) are unaffected by this change — they were already outside the old 6-digit generator's range and remain valid fixed fixtures independent of what the live generator produces.
 
 In tests, seed specific serial numbers by patching `_generate_voucher_serial`.
 
@@ -1250,13 +1253,13 @@ This is the largest single wave — 5 features but one unified model.
 **Success response (HTTP 200) — real harness schema, snake_case:**
 ```json
 {
-  "voucher_number": "123456",
-  "voucher_serial_number": "123456",
+  "voucher_number": "123456789012345678",
+  "voucher_serial_number": "123456789012345678",
   "expiry_date_time": "2026-12-31T00:00:00+00:00"
 }
 ```
 
-All three fields are required by the harness schema (`test/openAPI/Payment_BB_Voucher_api_test.json`). `voucher_number` and `voucher_serial_number` carry the same value (the voucher's serial number). `expiry_date_time` is the ISO-8601 rendering of `now() + 90 days` (configurable via `GOVSTACK_VOUCHER_EXPIRY_DAYS`, default 90), or `null` if no expiry is set.
+All three fields are required by the harness schema (`test/openAPI/Payment_BB_Voucher_api_test.json`), which requires `voucher_number`/`voucher_serial_number` to be strings of 16-25 characters (`helpers.js:67-79`) — per §24.1/§9.2, this codebase generates 18-digit numeric strings to satisfy that requirement. `voucher_number` and `voucher_serial_number` carry the same value (the voucher's serial number). `expiry_date_time` is the ISO-8601 rendering of `now() + 90 days` (configurable via `GOVSTACK_VOUCHER_EXPIRY_DAYS`, default 90), or `null` if no expiry is set.
 
 > **Schema-source correction (P1, 2026-07-25):** earlier revisions of this section documented a camelCase body (`voucherNumber` / `voucherSerialNumber` / `voucherGroup` / `expiryDate`). That shape came from `api/Voucher API YAMLs/*.yml`, which is an **internal** Payment-Hub↔Voucher-Engine protocol document, not the certification contract. The harness validates against `test/openAPI/Payment_BB_Voucher_api_test.json` plus the `voucher_*.feature` files, which use snake_case. The snake_case shape above is what `VoucherPreactivationView.post()` actually returns today.
 
@@ -2628,7 +2631,7 @@ Running this command currently fails with `ModuleNotFoundError`.
 4. `GovStackPaymentAuditEntry.save()` blocks update (sets pk → raises PermissionError)
 5. `GovStackPaymentAuditEntry.delete()` raises PermissionError
 6. `GovStackBeneficiary.__str__()` never includes payee_functional_id
-7. `_generate_voucher_serial()` returns 6-digit string in range 100000–999999
+7. `_generate_voucher_serial()` returns 18-digit numeric string (per §24.1 Issue A fix; superseded the original 6-digit design documented here at GAP-8 time)
 8. `BulkPaymentBatch` STATUS constants exist and are used in choices
 9. `CreditInstruction.unique_together` enforces (batch, instruction_id) uniqueness
 10. `GovStackVoucher.expiry_date` is set by service to now + GOVSTACK_VOUCHER_EXPIRY_DAYS
@@ -2897,6 +2900,14 @@ This section is the permanent record of the follow-up remediation round that ran
 - `apps/payments/tests/test_govstack_vouchers.py` — `FIXED_SERIAL`/`FIXED_SERIAL_2`/`FIXED_SERIAL_3` (currently 6-digit literals patched into the generator) need widening to 18-char literals; add a **new, unpatched** preactivation test that asserts the real generator's output satisfies `16 <= len(x) <= 25` — this exact test's absence is why the bug shipped in P1 without being caught (every existing preactivation test mocks the generator, so the real one was never exercised against the schema).
 - `apps/payments/tests/test_govstack_services.py` — fixture literals only, no format assertion currently; add one.
 - Seeded serials (5550–60005) in tests and the seed command itself are explicitly **out of scope** for this change — they're fixed harness literals, not generator output.
+
+**Status: Issue A implemented and closed (2026-07-26).** `_generate_voucher_serial()` now returns an 18-digit numeric string (`str(secrets.randbelow(9 * 10**17) + 10**17)`), verified via 3-agent round (1 implementer, 2 independent verifiers) plus personal spot-check of the generator code and this doc's own stale references:
+- Implemented in `govstack_models.py`, with docstring/comment updates in `govstack_services.py` and the seed command (seeded literals themselves untouched, as designed above).
+- Tests updated: `test_govstack_models.py` (18-char/16–20/numeric/uniqueness assertions), `test_govstack_services.py` (real-generator assertion added), `test_govstack_vouchers.py` (`FIXED_SERIAL*` widened to 18-digit literals; new unpatched `test_a16_real_generator_output_satisfies_harness_schema` added — this is the exact "real generator, unmocked" test whose absence was called out above as the reason the bug shipped originally; also added `test_c14b_non_numeric_voucher_number_same_length_as_new_format_returns_461` to re-confirm HTTP 461 still works at the new length).
+- Full `apps.payments` suite: 1635 tests, 0 failures, 0 errors.
+- Independent live-harness re-verification (fresh clone, commit `4b63a6b5`): confirmed the binding schema is `helpers.js:67-79` (`minLength: 16, maxLength: 25, type: 'string'`, no regex/prefix/checksum), duplicated in `Payment_BB_Voucher_api_test.json:1342-1362`; confirmed the harness's *request*-side schemas type these fields as `integer/int64` (the harness itself sends them back as JSON numbers on activate/redeem — this codebase's serializers already normalize via `str(value).strip()`, unaffected by this change) while the *preactivation response* schema requires `string` — confirmed via direct view-code read (`govstack_views.py:703-713`) that the response is emitted as a Python `str` through `CharField(read_only=True)`, so DRF/JSON renders it as a quoted string, not a number. Verdict: **PASS**, no gaps.
+- Independent codebase scope-completeness audit: swept `admin.py`, every voucher-related serializer, `govstack_views.py`, all seed literals, all test files referencing voucher serials, and confirmed zero `apps/consent/` references. One gap found and fixed: this spec document itself (§9.2, §13.1 example JSON, and a stale GAP-8 checklist line) still described the old 6-digit format — corrected in this edit.
+- Scope discipline confirmed: `git diff --stat` after implementation touched only `apps/payments/` files; zero `apps/consent/` files read, edited, or referenced at any point.
 
 ### 24.2 Issue B — All 4 P2G views are unauthenticated in every environment
 

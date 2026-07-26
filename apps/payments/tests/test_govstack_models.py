@@ -4,8 +4,9 @@ test_govstack_models.py
 Unit tests for GovStack Payments BB model layer (spec §18.1).
 
 Coverage matrix:
-  M1.  _generate_voucher_serial() — 6-digit string in 100000–999999
-  M2.  _generate_voucher_serial() — returns str, not int
+  M1.  _generate_voucher_serial() — 18-digit numeric string, no leading zero
+  M2.  _generate_voucher_serial() — returns str, not int; length is 16-20
+       chars (harness schema 16-25 intersected with our max_length=20)
   M3.  GovStackBeneficiary.__str__() — excludes payee_functional_id (security)
   M4.  GovStackBeneficiary.payee_functional_id — unique constraint enforced
   M5.  BulkPaymentBatch.batch_id — unique constraint enforced
@@ -55,20 +56,36 @@ class GenerateVoucherSerialTest(TestCase):
 
     def test_m1_serial_is_in_range(self):
         """
-        M1: Generated serial is between 100000 and 999999 inclusive.
-        Run several times to reduce the probability of a flaky pass.
+        M1: Generated serial is an 18-digit numeric string with no leading
+        zero — i.e. its integer value is between 10**17 and (10**18 - 1)
+        inclusive. Run several times to reduce the probability of a flaky
+        pass and to sanity-check uniqueness across samples.
         """
+        seen = set()
         for _ in range(20):
             serial = _generate_voucher_serial()
+            self.assertEqual(len(serial), 18, f"Serial {serial!r} is not 18 chars")
+            self.assertTrue(serial.isdigit(), f"Serial {serial!r} is not purely numeric")
+            self.assertNotEqual(serial[0], "0", f"Serial {serial!r} has a leading zero")
             value = int(serial)
-            self.assertGreaterEqual(value, 100_000, f"Serial {serial!r} < 100000")
-            self.assertLessEqual(value, 999_999, f"Serial {serial!r} > 999999")
+            self.assertGreaterEqual(value, 10**17, f"Serial {serial!r} < 10**17")
+            self.assertLessEqual(value, 10**18 - 1, f"Serial {serial!r} > 10**18 - 1")
+            seen.add(serial)
+        self.assertGreater(len(seen), 1, "20 samples produced only 1 unique value — suspiciously non-random")
 
     def test_m2_serial_is_string(self):
-        """M2: _generate_voucher_serial() returns a str, not an int."""
+        """
+        M2: _generate_voucher_serial() returns a str, not an int, and its
+        length (16-20 chars) satisfies both the GovStack harness's own JSON
+        schema (16-25 chars, test/openAPI/features/support/helpers/helpers.js)
+        and this codebase's own max_length=20 request-serializer ceiling
+        (VoucherActivationRequestSerializer.voucher_serial_number,
+        VoucherRedemptionRequestSerializer.voucher_number).
+        """
         serial = _generate_voucher_serial()
         self.assertIsInstance(serial, str)
-        self.assertEqual(len(serial), 6)
+        self.assertTrue(16 <= len(serial) <= 20, f"Serial {serial!r} length {len(serial)} not in 16-20")
+        self.assertEqual(len(serial), 18)
 
 
 # ============================================================================
