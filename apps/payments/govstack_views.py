@@ -86,6 +86,7 @@ from .govstack_services import (
     GovStackP2GService,
     GovStackVoucherService,
     _is_known_invalid_gov_stack_bb,
+    _is_unregistered_gov_stack_bb,
 )
 from .govstack_tasks import process_bulk_payment_batch, validate_prepayment_async
 
@@ -917,7 +918,14 @@ class VoucherStatusCheckView(GovStackAPIView):
             known-invalid sentinel — this endpoint UNIQUELY reuses 463 for
             both conditions (confirmed via the real Gherkin scenarios; every
             other voucher endpoint uses 460 for a bad Gov_Stack_BB — do not
-            "fix" this to 460, the live harness explicitly expects 463 here)
+            "fix" this to 460, the live harness explicitly expects 463 here).
+            Also raised, ONLY when GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True
+            (production; off under `manage.py test` and in every harness
+            environment), when Gov_Stack_BB has no active GovStackRegisteredBB
+            row — see _is_unregistered_gov_stack_bb(). That allowlist layer is
+            production hardening and is NOT harness-verified: the harness only
+            ever sends the fixed "invalid_bb" sentinel on this endpoint, which
+            the unconditional blocklist already rejects.
       464 — voucher already cancelled (idempotent double-cancel)
     """
     # HasVoucherJWT: no-op when GOVSTACK_VOUCHER_REQUIRE_JWT=False (harness mode);
@@ -967,7 +975,16 @@ class VoucherStatusCheckView(GovStackAPIView):
         # This endpoint uniquely reuses 463 (InvalidCancellationSerial) for a
         # bad Gov_Stack_BB too — see class docstring for why this is
         # intentionally NOT 460 like every other voucher endpoint.
+        # Blocklist: unconditional in every settings mode (harness conformance).
         if _is_known_invalid_gov_stack_bb(d["Gov_Stack_BB"]):
+            raise InvalidCancellationSerial()
+        # Allowlist (P2): no-op unless GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True.
+        # Same 463 (not 460) for the same reason as the blocklist branch above.
+        if _is_unregistered_gov_stack_bb(d["Gov_Stack_BB"]):
+            logger.warning(
+                "govstack.voucher_cancel rejected unregistered Gov_Stack_BB=%r",
+                str(d["Gov_Stack_BB"]).strip(),
+            )
             raise InvalidCancellationSerial()
 
         # InvalidCancellationSerial (463) and VoucherAlreadyCancelled (464) are

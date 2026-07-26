@@ -157,8 +157,15 @@ from apps.payments.govstack_exceptions import (
     VoucherAlreadyUsed,
     VoucherExpired,
 )
-from apps.payments.govstack_models import GovStackPaymentAuditEntry, GovStackVoucher
-from apps.payments.govstack_services import GovStackVoucherService
+from apps.payments.govstack_models import (
+    GovStackPaymentAuditEntry,
+    GovStackRegisteredBB,
+    GovStackVoucher,
+)
+from apps.payments.govstack_services import (
+    GovStackVoucherService,
+    _is_unregistered_gov_stack_bb,
+)
 
 # ---------------------------------------------------------------------------
 # URL helpers
@@ -1947,6 +1954,46 @@ class SeedGovStackVouchersCommandTests(TestCase):
             ),
         )
 
+    # ── GovStackRegisteredBB allowlist rows (AUTH-8 / P2) ─────────────────────
+
+    def test_f36d_seed_creates_registered_bb_allowlist_rows_idempotently(self):
+        """
+        AUTH-8 / P2: the command seeds every entry in _SEED_REGISTERED_BBS as an
+        active GovStackRegisteredBB row, and repeated runs neither duplicate nor
+        mutate them. These rows only matter when GOVSTACK_REQUIRE_REGISTERED_BB
+        (G2P header) or GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB (voucher
+        Gov_Stack_BB body field) is True — i.e. in production only.
+        """
+        from apps.payments.management.commands.seed_govstack_vouchers import (
+            _SEED_REGISTERED_BBS,
+        )
+
+        expected_ids = {bb_id for bb_id, _desc in _SEED_REGISTERED_BBS}
+        self.assertIn("GS-HARNESS", expected_ids)
+
+        # verbosity=2 exercises the per-row stdout branch of the seeding loop.
+        out = self._call_seed(verbosity=2)
+        for bb_id in expected_ids:
+            self.assertIn(repr(bb_id), out)
+
+        rows = GovStackRegisteredBB.objects.filter(bb_id__in=expected_ids)
+        self.assertEqual(set(rows.values_list("bb_id", flat=True)), expected_ids)
+        for row in rows:
+            self.assertTrue(row.is_active, f"{row.bb_id} must be seeded active.")
+            self.assertEqual(row.role, "admin")
+            # Every seeded id must satisfy the model's own bb_id validator —
+            # this is what rules out the harness's positive Gov_Stack_BB fixture
+            # values ("Gov_Stack_BB", "bb-digital-registries"). See the comment
+            # block above _SEED_REGISTERED_BBS.
+            row.full_clean()
+
+        # Idempotency: a second run must not duplicate rows.
+        self._call_seed()
+        self.assertEqual(
+            GovStackRegisteredBB.objects.filter(bb_id__in=expected_ids).count(),
+            len(expected_ids),
+        )
+
 
 # ---------------------------------------------------------------------------
 # F37–F40  GOVSTACK_VOUCHER_REQUIRE_JWT enforcement (GAP-3)
@@ -2227,3 +2274,316 @@ class VoucherJWTEnforcementTest(TestCase):
             GovStackVoucher.STATUS_CANCELLED,
             "Voucher must transition to STATUS_CANCELLED after successful unauthenticated PATCH.",
         )
+
+
+# ---------------------------------------------------------------------------
+# G. Gov_Stack_BB production allowlist (P2)
+# ---------------------------------------------------------------------------
+
+class VoucherRegisteredBBAllowlistTest(TestCase):
+    """
+    Tests for the GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB production guard added
+    in P2: an OPTIONAL allowlist check of the ``Gov_Stack_BB`` request-body
+    field against the GovStackRegisteredBB table, layered on top of the
+    always-on sentinel blocklist.
+
+    Affected endpoints (the GET status-check endpoint has no Gov_Stack_BB field
+    at all and is therefore absent from this matrix by design):
+      POST  /govstack/payments/vouchers/voucher_preactivation  → 460 on reject
+      PATCH /govstack/payments/vouchers/voucher_activation     → 460 on reject
+      POST  /govstack/payments/vouchers/voucher_redemption     → 460 on reject
+      PATCH /govstack/payments/vouchers/voucherstatuscheck/{s} → 463 on reject
+        (this endpoint uniquely reuses 463 for BB problems — see
+         VoucherStatusCheckView's docstring; that is deliberate, not a bug)
+
+    Test matrix:
+      G1–G4   flag OFF (test-settings default) → unregistered BB accepted (200)
+              on all 4 endpoints, i.e. the allowlist is a genuine no-op and
+              every pre-existing blocklist test keeps its original meaning.
+      G5      flag OFF → the blocklist sentinels "not_exist" / "invalid_bb" are
+              STILL rejected on all 4 endpoints. This is the regression guard
+              proving blocklist enforcement was NOT made conditional on the new
+              flag: harness conformance must not depend on a production flag.
+      G6–G9   flag ON  → well-formed-but-unregistered BB rejected (460/460/460/463).
+      G10     flag ON  → a registered, active BB is accepted (200) on all 4.
+      G11     flag ON  → a registered but is_active=False row is rejected.
+      G12     flag ON  → the blocklist sentinels are still rejected (both layers
+              active simultaneously; the blocklist fires first).
+
+    HONEST SCOPE NOTE — none of the "unregistered → rejected" behaviour below is
+    harness-verified, and it must never be presented as such. The live GovStack
+    harness has no scenario anywhere that exercises genuine "well-formed but
+    unregistered BB" rejection: every upstream negative Gov_Stack_BB scenario
+    sends one of two fixed sentinel strings, both of which the unconditional
+    blocklist already handles. This is a production-hardening feature only.
+    Conversely, the harness's own POSITIVE fixture values ("Gov_Stack_BB" on
+    preactivation, "bb-digital-registries" elsewhere) cannot even be stored in
+    GovStackRegisteredBB.bb_id today (underscores / 21 chars vs. the field's
+    validator and max_length=20), which is exactly why this flag is absent
+    (→ False) from every non-production settings module.
+    """
+
+    # Well-formed, validator-compatible, on nobody's blocklist, and with no
+    # GovStackRegisteredBB row — the only way to reach the allowlist branch.
+    UNREGISTERED_BB = "UNREGISTERED-BB"
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # The registered/active BB used by the positive-path tests. BB_ID
+        # ("SOCIALWELFARE") is alphanumeric and ≤ 20 chars, so it satisfies
+        # _BB_ID_VALIDATOR — unlike the harness's own fixture values.
+        self.registered = GovStackRegisteredBB.objects.create(
+            bb_id=BB_ID,
+            description="Registered test BB for the P2 allowlist tests.",
+            is_active=True,
+            role="admin",
+        )
+
+        # One voucher per mutating endpoint so the tests never interfere.
+        self.preactivated = _make_voucher(
+            serial=FIXED_SERIAL,
+            status=GovStackVoucher.STATUS_PREACTIVATED,
+        )
+        self.activated = _make_voucher(
+            serial=FIXED_SERIAL_2,
+            status=GovStackVoucher.STATUS_ACTIVATED,
+        )
+        self.cancellable = _make_voucher(
+            serial=FIXED_SERIAL_3,
+            status=GovStackVoucher.STATUS_PREACTIVATED,
+        )
+
+    # ── Request helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _json(body: dict) -> str:
+        return json.dumps(body)
+
+    def _preactivate(self, bb: str):
+        with patch(
+            "apps.payments.govstack_services._generate_voucher_serial",
+            return_value="590001",
+        ):
+            return self.client.post(
+                PREACTIVATION_URL,
+                data=self._json(_preactivation_body(gov_stack_bb=bb)),
+                content_type="application/json",
+            )
+
+    def _activate(self, bb: str):
+        return self.client.patch(
+            ACTIVATION_URL,
+            data=self._json(_activation_body(serial=FIXED_SERIAL, gov_stack_bb=bb)),
+            content_type="application/json",
+        )
+
+    def _redeem(self, bb: str):
+        return self.client.post(
+            REDEMPTION_URL,
+            data=self._json(
+                _redemption_body(voucher_number=FIXED_SERIAL_2, gov_stack_bb=bb)
+            ),
+            content_type="application/json",
+        )
+
+    def _cancel(self, bb: str):
+        return self.client.patch(
+            _status_url(FIXED_SERIAL_3),
+            data=self._json(_cancellation_body(serial=FIXED_SERIAL_3, gov_stack_bb=bb)),
+            content_type="application/json",
+        )
+
+    # ── G1–G4: flag OFF → allowlist is a no-op ───────────────────────────────
+
+    def test_g1_flag_off_unregistered_bb_accepted_on_preactivation(self):
+        """
+        Default test settings leave GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB
+        unset, so getattr(...) resolves False and the allowlist must not fire —
+        even for a Gov_Stack_BB with no GovStackRegisteredBB row at all.
+        """
+        self.assertFalse(
+            GovStackRegisteredBB.objects.filter(bb_id=self.UNREGISTERED_BB).exists(),
+            "Precondition: the test BB must genuinely be unregistered.",
+        )
+        resp = self._preactivate(self.UNREGISTERED_BB)
+        self.assertEqual(resp.status_code, 200, resp.data)
+
+    def test_g2_flag_off_unregistered_bb_accepted_on_activation(self):
+        resp = self._activate(self.UNREGISTERED_BB)
+        self.assertEqual(resp.status_code, 200, resp.data)
+
+    def test_g3_flag_off_unregistered_bb_accepted_on_redemption(self):
+        resp = self._redeem(self.UNREGISTERED_BB)
+        self.assertEqual(resp.status_code, 200, resp.data)
+
+    def test_g4_flag_off_unregistered_bb_accepted_on_cancellation(self):
+        resp = self._cancel(self.UNREGISTERED_BB)
+        self.assertEqual(resp.status_code, 200, resp.data)
+
+    # ── G5: flag OFF → blocklist STILL unconditional (regression guard) ──────
+
+    def test_g5_flag_off_blocklist_sentinels_still_rejected(self):
+        """
+        THE key regression guard for P2: adding the allowlist must not have made
+        blocklist enforcement conditional on the new flag. With the flag OFF
+        (harness mode) the sentinels must still be rejected exactly as they were
+        before P2 — this is the only half of Gov_Stack_BB validation the live
+        GovStack harness actually exercises, so it must never depend on a
+        production-only setting.
+        """
+        self.assertEqual(self._preactivate("not_exist").status_code, 460)
+        self.assertEqual(self._activate("not_exist").status_code, 460)
+        self.assertEqual(self._redeem("invalid_bb").status_code, 460)
+        # Cancellation uniquely uses 463, not 460, for a bad Gov_Stack_BB.
+        self.assertEqual(self._cancel("invalid_bb").status_code, 463)
+
+    # ── G6–G9: flag ON → unregistered rejected ───────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g6_flag_on_unregistered_bb_rejected_on_preactivation(self):
+        resp = self._preactivate(self.UNREGISTERED_BB)
+        self.assertEqual(resp.status_code, 460, resp.data)
+        self.assertIn("message", resp.data)
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g7_flag_on_unregistered_bb_rejected_on_activation(self):
+        resp = self._activate(self.UNREGISTERED_BB)
+        self.assertEqual(resp.status_code, 460, resp.data)
+        # Rejection must happen BEFORE any state change.
+        self.preactivated.refresh_from_db()
+        self.assertEqual(self.preactivated.status, GovStackVoucher.STATUS_PREACTIVATED)
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g8_flag_on_unregistered_bb_rejected_on_redemption(self):
+        resp = self._redeem(self.UNREGISTERED_BB)
+        self.assertEqual(resp.status_code, 460, resp.data)
+        self.activated.refresh_from_db()
+        self.assertEqual(self.activated.status, GovStackVoucher.STATUS_ACTIVATED)
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g9_flag_on_unregistered_bb_rejected_on_cancellation(self):
+        """Cancellation reuses 463 for BB problems — must apply to the allowlist too."""
+        resp = self._cancel(self.UNREGISTERED_BB)
+        self.assertEqual(resp.status_code, 463, resp.data)
+        self.cancellable.refresh_from_db()
+        self.assertEqual(self.cancellable.status, GovStackVoucher.STATUS_PREACTIVATED)
+
+    # ── G10: flag ON → registered BB accepted ────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g10_flag_on_registered_bb_accepted_on_all_four_endpoints(self):
+        """
+        Positive production-path test: an active GovStackRegisteredBB row makes
+        the allowlist transparent, so all 4 endpoints behave exactly as they do
+        with the flag off. Complements G6–G9 by proving the gate is binary
+        rather than a blanket rejection.
+        """
+        self.assertEqual(self._preactivate(BB_ID).status_code, 200)
+        self.assertEqual(self._activate(BB_ID).status_code, 200)
+        self.assertEqual(self._redeem(BB_ID).status_code, 200)
+        self.assertEqual(self._cancel(BB_ID).status_code, 200)
+
+    # ── G11: flag ON → inactive row rejected ─────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g11_flag_on_inactive_registered_bb_rejected(self):
+        """
+        is_active=False must suspend a BB's voucher access without deleting the
+        row, matching IsTrustedSourceBB's treatment of the same column for the
+        G2P header path.
+        """
+        self.registered.is_active = False
+        self.registered.save(update_fields=["is_active"])
+
+        self.assertEqual(self._preactivate(BB_ID).status_code, 460)
+        self.assertEqual(self._activate(BB_ID).status_code, 460)
+        self.assertEqual(self._redeem(BB_ID).status_code, 460)
+        self.assertEqual(self._cancel(BB_ID).status_code, 463)
+
+    # ── G12: flag ON → blocklist still fires ─────────────────────────────────
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g12_flag_on_blocklist_sentinels_still_rejected(self):
+        """Both layers active at once; the blocklist runs first, same codes."""
+        self.assertEqual(self._preactivate("not_exist").status_code, 460)
+        self.assertEqual(self._activate("not_exist").status_code, 460)
+        self.assertEqual(self._redeem("invalid_bb").status_code, 460)
+        self.assertEqual(self._cancel("invalid_bb").status_code, 463)
+
+
+# ---------------------------------------------------------------------------
+# G(b). Gov_Stack_BB allowlist — service-layer helper unit tests (P2)
+# ---------------------------------------------------------------------------
+
+class IsUnregisteredGovStackBBHelperTest(TestCase):
+    """
+    Direct unit tests for govstack_services._is_unregistered_gov_stack_bb().
+
+    Polarity mirrors the blocklist helper: True means "reject this BB".
+    """
+
+    def setUp(self):
+        GovStackRegisteredBB.objects.create(
+            bb_id=BB_ID,
+            is_active=True,
+            role="admin",
+        )
+
+    def test_g13_returns_false_for_everything_when_flag_off(self):
+        """Flag off ⇒ pure no-op, regardless of what the registry contains."""
+        for value in (BB_ID, "UNREGISTERED-BB", "", "   ", None):
+            with self.subTest(value=value):
+                self.assertFalse(_is_unregistered_gov_stack_bb(value))
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g14_flag_on_registered_active_bb_passes(self):
+        self.assertFalse(_is_unregistered_gov_stack_bb(BB_ID))
+        # Surrounding whitespace is stripped before the lookup.
+        self.assertFalse(_is_unregistered_gov_stack_bb(f"  {BB_ID}  "))
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g15_flag_on_unknown_blank_and_inactive_bbs_are_rejected(self):
+        self.assertTrue(_is_unregistered_gov_stack_bb("UNREGISTERED-BB"))
+        self.assertTrue(_is_unregistered_gov_stack_bb(""))
+        self.assertTrue(_is_unregistered_gov_stack_bb("   "))
+        self.assertTrue(_is_unregistered_gov_stack_bb(None))
+
+        GovStackRegisteredBB.objects.filter(bb_id=BB_ID).update(is_active=False)
+        self.assertTrue(_is_unregistered_gov_stack_bb(BB_ID))
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g16_flag_on_lookup_is_case_sensitive(self):
+        """
+        bb_id is documented as case-sensitive on the model. Unlike the
+        blocklist (which lower-cases defensively), the allowlist must NOT
+        silently widen a registered id to its case variants.
+        """
+        self.assertTrue(_is_unregistered_gov_stack_bb(BB_ID.lower()))
+
+    @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
+    def test_g17_harness_positive_fixture_values_are_not_registrable(self):
+        """
+        Documents the P2 limitation discovered while implementing it, so a
+        future pass cannot quietly "fix" the seed data and think it worked:
+        neither of the harness's positive Gov_Stack_BB fixture values can be
+        stored in GovStackRegisteredBB.bb_id as that field is defined today.
+
+        Consequence: GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB must stay False in
+        any environment pointed at the GovStack harness. It is absent (→ False)
+        outside config/settings/production.py, so this holds by default.
+        """
+        from django.core.exceptions import ValidationError
+
+        # Underscores are rejected by _BB_ID_VALIDATOR.
+        with self.assertRaises(ValidationError):
+            GovStackRegisteredBB(bb_id="Gov_Stack_BB").full_clean()
+
+        # 21 chars — exceeds both max_length=20 and the validator's {1,20}.
+        self.assertEqual(len("bb-digital-registries"), 21)
+        with self.assertRaises(ValidationError):
+            GovStackRegisteredBB(bb_id="bb-digital-registries").full_clean()
+
+        # ...and therefore both are rejected by the allowlist at runtime.
+        self.assertTrue(_is_unregistered_gov_stack_bb("Gov_Stack_BB"))
+        self.assertTrue(_is_unregistered_gov_stack_bb("bb-digital-registries"))

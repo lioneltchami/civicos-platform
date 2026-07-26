@@ -230,6 +230,42 @@ GOVSTACK_REQUIRE_REGISTERED_BB = env.bool("GOVSTACK_REQUIRE_REGISTERED_BB", defa
 GOVSTACK_VOUCHER_REQUIRE_JWT = env.bool("GOVSTACK_VOUCHER_REQUIRE_JWT", default=True)
 
 # ---------------------------------------------------------------------------
+# GovStack Payments BB — voucher Gov_Stack_BB registry enforcement (P2)
+# ---------------------------------------------------------------------------
+
+# Controls whether the ``Gov_Stack_BB`` field carried in the REQUEST BODY of the
+# voucher endpoints is additionally validated against the GovStackRegisteredBB
+# table (a real allowlist) on top of the always-on sentinel blocklist:
+#   POST  /govstack/payments/vouchers/voucher_preactivation   → 460 on failure
+#   PATCH /govstack/payments/vouchers/voucher_activation      → 460 on failure
+#   POST  /govstack/payments/vouchers/voucher_redemption      → 460 on failure
+#   PATCH /govstack/payments/vouchers/voucherstatuscheck/{s}  → 463 on failure
+# (The GET status-check endpoint carries no Gov_Stack_BB field at all and is
+#  therefore unaffected.)
+#
+# This is a PRODUCTION-HARDENING control, not a harness-conformance control.
+# The live GovStack harness never exercises genuine "well-formed but
+# unregistered BB" rejection: every negative Gov_Stack_BB scenario upstream
+# uses one of two fixed sentinel strings ("not_exist", "invalid_bb"), both of
+# which are handled unconditionally by the blocklist in
+# apps/payments/govstack_services._is_known_invalid_gov_stack_bb().  So nothing
+# below is harness-verified — do not describe it as such.
+#
+# Production deployments MUST set this to True (the default here).
+# GovStack harness environments set GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=False
+# via environment variable, because the harness's own positive-scenario
+# Gov_Stack_BB fixture values ("Gov_Stack_BB" on preactivation,
+# "bb-digital-registries" elsewhere) cannot be stored in
+# GovStackRegisteredBB.bb_id as that field is currently defined — see the
+# comment block in apps/payments/management/commands/seed_govstack_vouchers.py.
+# Never hardcode False in this file — use the env var for per-environment control.
+#
+# Handled by apps/payments/govstack_services._is_unregistered_gov_stack_bb().
+GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB = env.bool(
+    "GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB", default=True
+)
+
+# ---------------------------------------------------------------------------
 # GovStack Scheduler BB — requestor token enforcement
 # ---------------------------------------------------------------------------
 

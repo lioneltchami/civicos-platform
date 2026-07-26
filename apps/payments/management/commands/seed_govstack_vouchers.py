@@ -1,7 +1,11 @@
 """
 Management command: seed_govstack_vouchers
 
-Seeds GovStack Payments BB harness test vouchers into the database.
+Seeds GovStack Payments BB harness test vouchers into the database, plus the
+GovStackRegisteredBB allowlist rows those flows need when the production-only
+allowlist flags are enabled (see _SEED_REGISTERED_BBS below, which also
+documents which harness Gov_Stack_BB fixture values deliberately CANNOT be
+seeded and why).
 
 Purpose
 -------
@@ -104,6 +108,58 @@ _SEED_VOUCHERS: list[tuple[str, str, str, str]] = [
 # Tag used on all rows created by this command.  Allows targeted reset and
 # easy identification in the Django admin / support queries.
 _HARNESS_ISSUING_BB: str = "GS-HARNESS"
+
+# ---------------------------------------------------------------------------
+# GovStackRegisteredBB rows seeded by this command (P2)
+# ---------------------------------------------------------------------------
+#
+# These matter ONLY when GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True (voucher
+# Gov_Stack_BB body field, see govstack_services._is_unregistered_gov_stack_bb)
+# or GOVSTACK_REQUIRE_REGISTERED_BB=True (G2P X-Registering-Institution-ID
+# header, see govstack_auth.IsTrustedSourceBB).  Both flags default to True only
+# in config/settings/production.py and are absent (→ False) everywhere else, so
+# `manage.py test` and harness runs never consult this table at all.
+#
+# ⚠ The harness's own POSITIVE Gov_Stack_BB fixture values CANNOT be seeded here
+#   as GovStackRegisteredBB.bb_id is currently defined, and are therefore
+#   deliberately omitted rather than forced through:
+#
+#     "Gov_Stack_BB"          — preactivation's positive fixture value (the
+#                               harness really does send the field NAME as the
+#                               value).  Rejected by _BB_ID_VALIDATOR
+#                               (^[a-zA-Z0-9\-]{1,20}$) because of the
+#                               underscores.
+#     "bb-digital-registries" — activation / redemption / cancellation's
+#                               positive fixture value.  21 characters, so it
+#                               exceeds bb_id's max_length=20 AND fails the
+#                               same validator's {1,20} bound.
+#
+#   Storing either would require a model change (widening bb_id.max_length and
+#   relaxing _BB_ID_VALIDATOR) plus a migration — out of scope for P2, and not
+#   worth weakening a security validator for.  A fabricated truncation such as
+#   "bb-digital-reg" is deliberately NOT seeded either: no caller anywhere ever
+#   sends that string, so it would be dead, misleading data.
+#
+#   The practical consequence is narrow but must be respected:
+#   GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB must stay False in ANY environment
+#   pointed at the GovStack harness, otherwise every positive voucher scenario
+#   would 460/463.  It is absent (→ False) outside production.py precisely so
+#   this cannot happen by accident.  Production deployments register their real
+#   BB ids via Django admin (or by extending the list below).
+#
+# Each entry: (bb_id, description).
+_SEED_REGISTERED_BBS: list[tuple[str, str]] = [
+    (
+        _HARNESS_ISSUING_BB,
+        "GovStack test harness institution. "
+        "Created automatically by seed_govstack_vouchers.",
+    ),
+]
+
+# role assigned to every seeded row: the harness/reference BBs must be able to
+# exercise every Scheduler actor role tier (resource/organizer/admin) during
+# certification testing.
+_SEED_REGISTERED_BB_ROLE: str = "admin"
 
 # Expiry duration for freshly created seed vouchers.
 _SEED_EXPIRY_DAYS: int = 365
@@ -213,37 +269,40 @@ class Command(BaseCommand):
                             f"  Skipped  serial={serial!r:>6}  (already exists)"
                         )
 
-            # ── Seed GovStackRegisteredBB harness row ─────────────────────────
-            # Create (or ensure existence of) the harness BB row so that when
-            # GOVSTACK_REQUIRE_REGISTERED_BB=True is enabled, the harness
-            # institution ID "GS-HARNESS" passes IsTrustedSourceBB.has_permission().
-            # This is idempotent: if the row already exists it is left unchanged.
-            _bb_obj, _bb_created = GovStackRegisteredBB.objects.get_or_create(
-                bb_id=_HARNESS_ISSUING_BB,
-                defaults={
-                    "description": (
-                        "GovStack test harness institution. "
-                        "Created automatically by seed_govstack_vouchers."
-                    ),
-                    "is_active": True,
-                    # admin: harness BB must be able to exercise every Scheduler
-                    # actor role tier (resource/organizer/admin) during
-                    # certification testing.
-                    "role": "admin",
-                },
-            )
+            # ── Seed GovStackRegisteredBB allowlist rows ──────────────────────
+            # Create (or ensure existence of) every row in _SEED_REGISTERED_BBS
+            # so that when GOVSTACK_REQUIRE_REGISTERED_BB=True (G2P header) or
+            # GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True (voucher Gov_Stack_BB
+            # body field, P2) is enabled, those ids pass their allowlist check.
+            # Idempotent: rows that already exist are left unchanged.
+            # See the _SEED_REGISTERED_BBS comment block for why the harness's
+            # own positive Gov_Stack_BB fixture values are NOT seedable here.
+            _bb_created_ids: list[str] = []
+            _bb_skipped_ids: list[str] = []
 
-            if verbosity >= 2:
-                action = "Created" if _bb_created else "Skipped"
-                self.stdout.write(
-                    f"  {action}  GovStackRegisteredBB bb_id={_HARNESS_ISSUING_BB!r}"
+            for bb_id, bb_description in _SEED_REGISTERED_BBS:
+                _bb_obj, _bb_row_created = GovStackRegisteredBB.objects.get_or_create(
+                    bb_id=bb_id,
+                    defaults={
+                        "description": bb_description,
+                        "is_active": True,
+                        "role": _SEED_REGISTERED_BB_ROLE,
+                    },
                 )
 
-            logger.info(
-                "seed_govstack_vouchers.registered_bb bb_id=%r created=%s",
-                _HARNESS_ISSUING_BB,
-                _bb_created,
-            )
+                (_bb_created_ids if _bb_row_created else _bb_skipped_ids).append(bb_id)
+
+                if verbosity >= 2:
+                    action = "Created" if _bb_row_created else "Skipped"
+                    self.stdout.write(
+                        f"  {action}  GovStackRegisteredBB bb_id={bb_id!r}"
+                    )
+
+                logger.info(
+                    "seed_govstack_vouchers.registered_bb bb_id=%r created=%s",
+                    bb_id,
+                    _bb_row_created,
+                )
 
             # ── Summary ───────────────────────────────────────────────────────
             total = len(_SEED_VOUCHERS)
@@ -251,8 +310,9 @@ class Command(BaseCommand):
                 f"seed_govstack_vouchers complete — "
                 f"{created_count} created, {skipped_count} already existed "
                 f"(seed set size: {total}). "
-                f"GovStackRegisteredBB({_HARNESS_ISSUING_BB!r}) "
-                f"{'created' if _bb_created else 'already existed'}."
+                f"GovStackRegisteredBB: {len(_bb_created_ids)} created, "
+                f"{len(_bb_skipped_ids)} already existed "
+                f"(allowlist set size: {len(_SEED_REGISTERED_BBS)})."
             )
 
             if verbosity >= 1:

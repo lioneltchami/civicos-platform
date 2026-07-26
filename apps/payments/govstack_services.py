@@ -60,6 +60,7 @@ from apps.payments.govstack_models import (
     GovStackBill,
     GovStackBillPayment,
     GovStackPaymentAuditEntry,
+    GovStackRegisteredBB,
     GovStackVoucher,
     PrepaymentValidationRequest,
     _generate_voucher_serial,
@@ -88,11 +89,10 @@ _ISO4217_RE = re.compile(r"^[A-Z]{3}$")
 # is deliberately a BLOCKLIST of known-bad sentinels (plus blank), not an
 # allowlist of known-good ones.
 #
-# TODO(P2): add a SEPARATE, real production whitelist check against
-# GovStackRegisteredBB, gated behind a settings flag (mirroring
-# GOVSTACK_REQUIRE_REGISTERED_BB), for use when GovStack_BB values must be
-# verified against a registry rather than merely "not a known-bad sentinel".
-# That is out of scope here.
+# P2 (done): the separate, real production allowlist check against
+# GovStackRegisteredBB now lives in _is_unregistered_gov_stack_bb() below. It is
+# gated behind GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB and runs IN ADDITION TO
+# (never instead of) this blocklist, which stays unconditional in every mode.
 _KNOWN_INVALID_GOV_STACK_BB_SENTINELS = frozenset({"not_exist", "invalid_bb"})
 
 
@@ -116,6 +116,64 @@ def _is_known_invalid_gov_stack_bb(value: str | None) -> bool:
     if not value or not value.strip():
         return True
     return value.strip().lower() in _KNOWN_INVALID_GOV_STACK_BB_SENTINELS
+
+
+def _is_unregistered_gov_stack_bb(value: str | None) -> bool:
+    """
+    Production-only ALLOWLIST check for Gov_Stack_BB, layered on top of (never
+    replacing) the always-on blocklist above.  Deliberately mirrors the
+    blocklist helper's polarity: returns True meaning "reject this BB".
+
+    Behaviour:
+      GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB unset/False
+        (base.py, config/settings/test.py, `manage.py test`, harness runs):
+          always returns False — this helper is a no-op and performs NO database
+          query, so the blocklist alone governs, exactly as it did before P2.
+
+      GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True (production default, set in
+      config/settings/production.py):
+          returns True unless an active GovStackRegisteredBB row exists whose
+          bb_id matches the supplied value exactly (case-sensitive, stripped).
+
+    Mirrors the GOVSTACK_REQUIRE_REGISTERED_BB / IsTrustedSourceBB pattern used
+    for the G2P endpoints' X-Registering-Institution-ID header, but applies to
+    the Gov_Stack_BB value carried in the voucher endpoints' request BODY.
+
+    HONEST SCOPE NOTE — this is NOT harness-verified.
+      The live GovStack harness never exercises genuine "well-formed but
+      unregistered BB" rejection anywhere: every upstream negative Gov_Stack_BB
+      scenario sends one of two fixed sentinel strings ("not_exist" on
+      preactivation/activation, "invalid_bb" on redemption/cancellation), and
+      both are already rejected unconditionally by
+      _is_known_invalid_gov_stack_bb().  This helper is therefore a
+      production-hardening control only.  Its rejection semantics have never
+      been, and will never be, validated by a GovStack certification run — do
+      not claim harness conformance for it in any doc or docstring.
+
+      Corollary: the harness's own POSITIVE fixture values cannot currently be
+      registered at all (the literal "Gov_Stack_BB" contains underscores, which
+      _BB_ID_VALIDATOR rejects; "bb-digital-registries" is 21 chars, which
+      exceeds GovStackRegisteredBB.bb_id's max_length=20).  That is harmless
+      today because the flag is off in every harness/test settings module, but
+      it does mean this flag MUST stay off in any environment pointed at the
+      harness.  See seed_govstack_vouchers for the full write-up.
+
+    The caller decides which exception to raise, because the code differs by
+    endpoint: 460 (GovStackBBNotFound) on preactivation/activation/redemption,
+    463 (InvalidCancellationSerial) on cancellation.
+    """
+    if not getattr(settings, "GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB", False):
+        return False
+
+    if not value or not value.strip():
+        # Defensive: the blocklist already rejects blank values before this
+        # helper is reached at every call site. Never issue a DB query for one.
+        return True
+
+    return not GovStackRegisteredBB.objects.filter(
+        bb_id=value.strip(),
+        is_active=True,
+    ).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -699,7 +757,12 @@ class GovStackVoucherService:
             InvalidVoucherAmount (HTTP 452): amount ≤ 0 or zero.
             InvalidVoucherGroup (HTTP 454): group is empty/blank.
             GovStackBBNotFound (HTTP 460): issuing_bb is blank or a known
-                invalid sentinel (see _is_known_invalid_gov_stack_bb()).
+                invalid sentinel (see _is_known_invalid_gov_stack_bb()), or —
+                only when GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True, i.e. in
+                production, never under `manage.py test` or a harness run — it
+                has no active GovStackRegisteredBB row (see
+                _is_unregistered_gov_stack_bb(), which is production hardening
+                and is NOT harness-verified).
 
         Note on 455 (VoucherGroupExhausted): not raised here. There is no
         per-group capacity/quota concept anywhere in this codebase today, so
@@ -707,7 +770,15 @@ class GovStackVoucherService:
         VoucherGroupExhausted's docstring in govstack_exceptions.py.
         """
         # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
+        # Blocklist: unconditional in every settings mode (harness conformance).
         if _is_known_invalid_gov_stack_bb(issuing_bb):
+            raise GovStackBBNotFound()
+        # Allowlist (P2): no-op unless GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True.
+        if _is_unregistered_gov_stack_bb(issuing_bb):
+            logger.warning(
+                "govstack.voucher_preactivate rejected unregistered issuing_bb=%r",
+                issuing_bb.strip() if issuing_bb else issuing_bb,
+            )
             raise GovStackBBNotFound()
 
         # ── Validate amount → 452 ─────────────────────────────────────────────
@@ -799,7 +870,12 @@ class GovStackVoucherService:
 
         Raises:
             GovStackBBNotFound (HTTP 460): issuing_bb is blank or a known
-                invalid sentinel (see _is_known_invalid_gov_stack_bb()).
+                invalid sentinel (see _is_known_invalid_gov_stack_bb()), or —
+                only when GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True, i.e. in
+                production, never under `manage.py test` or a harness run — it
+                has no active GovStackRegisteredBB row (see
+                _is_unregistered_gov_stack_bb(), which is production hardening
+                and is NOT harness-verified).
             InvalidVoucherSerial (HTTP 456): serial not found or invalid transition.
 
         Concurrency: select_for_update() prevents concurrent activations of the same
@@ -807,7 +883,15 @@ class GovStackVoucherService:
         The entire fetch→transition→save→audit sequence is a single atomic unit.
         """
         # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
+        # Blocklist: unconditional in every settings mode (harness conformance).
         if _is_known_invalid_gov_stack_bb(issuing_bb):
+            raise GovStackBBNotFound()
+        # Allowlist (P2): no-op unless GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True.
+        if _is_unregistered_gov_stack_bb(issuing_bb):
+            logger.warning(
+                "govstack.voucher_activate rejected unregistered issuing_bb=%r",
+                issuing_bb.strip() if issuing_bb else issuing_bb,
+            )
             raise GovStackBBNotFound()
 
         # ── Fetch + lock + transition + audit (single atomic block) ──────────
@@ -878,7 +962,12 @@ class GovStackVoucherService:
 
         Raises:
             GovStackBBNotFound (HTTP 460): issuing_bb is blank or a known
-                invalid sentinel (see _is_known_invalid_gov_stack_bb()).
+                invalid sentinel (see _is_known_invalid_gov_stack_bb()), or —
+                only when GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True, i.e. in
+                production, never under `manage.py test` or a harness run — it
+                has no active GovStackRegisteredBB row (see
+                _is_unregistered_gov_stack_bb(), which is production hardening
+                and is NOT harness-verified).
             InvalidVoucherNumber (HTTP 461): voucher_number is not numeric
                 (the harness sends the literal string "notAnumber" to test this).
             InsufficientFunds (HTTP 462) / CannotCreditMerchant (HTTP 463):
@@ -896,7 +985,15 @@ class GovStackVoucherService:
         write's transaction_id, creating an irreconcilable audit inconsistency.
         """
         # ── Validate Gov_Stack_BB → 460 ──────────────────────────────────────
+        # Blocklist: unconditional in every settings mode (harness conformance).
         if _is_known_invalid_gov_stack_bb(issuing_bb):
+            raise GovStackBBNotFound()
+        # Allowlist (P2): no-op unless GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True.
+        if _is_unregistered_gov_stack_bb(issuing_bb):
+            logger.warning(
+                "govstack.voucher_redeem rejected unregistered issuing_bb=%r",
+                issuing_bb.strip() if issuing_bb else issuing_bb,
+            )
             raise GovStackBBNotFound()
 
         # ── Validate voucher_number is numeric → 461 ─────────────────────────
