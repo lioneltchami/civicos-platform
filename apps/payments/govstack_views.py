@@ -58,7 +58,13 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .govstack_auth import AllowAnyBB, HasVoucherJWT, IsTrustedSourceBB
+from .govstack_auth import (
+    AllowAnyBB,
+    HasVoucherJWT,
+    IsTrustedPayerFI,
+    IsTrustedSourceBB,
+    RequirePayerFI,
+)
 from .govstack_exceptions import (
     DuplicateBatchError,
     DuplicateBillPaymentError,
@@ -1026,8 +1032,15 @@ class BillInquiryView(GovStackAPIView):
     Security:
     - bill_id is a government-assigned identifier; not citizen PII.
     - description field is admin-controlled and reviewed before DB insert.
+    - Auth: IsTrustedPayerFI — requires the X-PayerFI-Id header (or accepted
+      variant) in production mode (GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True);
+      the header stays optional in harness/test mode, matching the mode-gated
+      pattern used by IsTrustedSourceBB on the G2P endpoints. See
+      apps.payments.govstack_auth.IsTrustedPayerFI for the full permission
+      matrix (Issue B fix — this endpoint previously used AllowAnyBB with
+      zero caller-identity validation in every settings mode).
     """
-    permission_classes = [AllowAnyBB]
+    permission_classes = [IsTrustedPayerFI]
 
     def get(self, request: Request, bill_id: str) -> Response:
         # BillNotFound (404) is an APIException — handled by govstack_exception_handler.
@@ -1070,8 +1083,17 @@ class BillTransferRequestView(GovStackAPIView):
     - merchant / citizen details are NOT stored here; GovStackBillPayment only
       stores the financial institution ID (payer_fi_id), not citizen data.
     - payer_fi_id is not echoed back in the response.
+    - Auth: IsTrustedPayerFI — requires the X-PayerFI-Id header (or accepted
+      variant) in production mode (GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True);
+      the header stays optional in harness/test mode. This is a SEPARATE,
+      earlier check than the `payer_fi_id` local variable read below — the
+      permission layer only verifies the header's presence/validity for
+      access control, it does not affect what gets stored on the payment
+      record. See apps.payments.govstack_auth.IsTrustedPayerFI (Issue B fix —
+      this endpoint previously used AllowAnyBB with zero caller-identity
+      validation in every settings mode).
     """
-    permission_classes = [AllowAnyBB]
+    permission_classes = [IsTrustedPayerFI]
 
     def post(self, request: Request) -> Response:
         ser = BillTransferRequestSerializer(data=request.data)
@@ -1145,8 +1167,20 @@ class MarkBillPaidView(GovStackAPIView):
     Body: (empty — no body required)
     Response 200: {billId, status, message}
     Response 404: {"message": "Bill not found."}
+
+    Security:
+    - Auth: RequirePayerFI — the fail-closed variant of IsTrustedPayerFI. The
+      X-PayerFI-Id header (or accepted variant) is ALWAYS required here, in
+      every settings mode including harness/test mode — unlike the other 3
+      P2G views, an absent header is never tolerated. This endpoint mutates
+      real bill state outside the normal POST /billTransferRequests flow, has
+      zero harness coverage to protect, and carries no idempotency key of its
+      own, so it fails closed rather than degrading like IsTrustedSourceBB /
+      IsTrustedPayerFI do. See apps.payments.govstack_auth.RequirePayerFI
+      (Issue B fix — this endpoint previously used AllowAnyBB with zero
+      caller-identity validation in every settings mode).
     """
-    permission_classes = [AllowAnyBB]
+    permission_classes = [RequirePayerFI]
 
     def post(self, request: Request, bill_id: str) -> Response:
         # BillNotFound (404) is an APIException — handled automatically.
@@ -1176,8 +1210,16 @@ class TransferRequestStatusView(GovStackAPIView):
 
     Response 200: {requestId, billId, amount, currency, status}
     Response 404: {"message": "Transfer request not found."}
+
+    Security:
+    - Auth: IsTrustedPayerFI — requires the X-PayerFI-Id header (or accepted
+      variant) in production mode (GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True);
+      the header stays optional in harness/test mode. See
+      apps.payments.govstack_auth.IsTrustedPayerFI (Issue B fix — this
+      endpoint previously used AllowAnyBB with zero caller-identity
+      validation in every settings mode).
     """
-    permission_classes = [AllowAnyBB]
+    permission_classes = [IsTrustedPayerFI]
 
     def get(self, request: Request, transfer_request_id: str) -> Response:
         # BillPaymentNotFound (404) is an APIException — handled automatically.

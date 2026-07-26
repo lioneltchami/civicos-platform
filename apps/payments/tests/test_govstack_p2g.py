@@ -134,7 +134,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.db import IntegrityError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from rest_framework.test import APIClient
 
@@ -147,6 +147,7 @@ from apps.payments.govstack_models import (
     GovStackBill,
     GovStackBillPayment,
     GovStackPaymentAuditEntry,
+    GovStackRegisteredBB,
 )
 from apps.payments.govstack_services import GovStackP2GService
 
@@ -499,30 +500,32 @@ class TestMarkBillPaidView(TestCase):
 
     # C1
     def test_known_bill_returns_200(self):
-        resp = self.client.post(_mark_paid_url(BILL_ID))
+        resp = self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
         self.assertEqual(resp.status_code, 200)
 
     # C2
     def test_response_shape(self):
-        resp = self.client.post(_mark_paid_url(BILL_ID))
+        resp = self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
         data = resp.json()
         for key in ("billId", "status", "message"):
             self.assertIn(key, data, f"Missing key: {key}")
 
     # C3
     def test_status_in_response_is_paid(self):
-        resp = self.client.post(_mark_paid_url(BILL_ID))
+        resp = self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
         self.assertEqual(resp.json()["status"], GovStackBill.STATUS_PAID)
 
     # C4
     def test_bill_status_is_paid_in_db(self):
-        self.client.post(_mark_paid_url(BILL_ID))
+        self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
         self.bill.refresh_from_db()
         self.assertEqual(self.bill.status, GovStackBill.STATUS_PAID)
 
     # C5
     def test_unknown_bill_returns_404(self):
-        resp = self.client.post(_mark_paid_url("NO-SUCH-BILL"))
+        resp = self.client.post(
+            _mark_paid_url("NO-SUCH-BILL"), HTTP_X_PAYERFI_ID="FI-TEST"
+        )
         self.assertEqual(resp.status_code, 404)
         data = resp.json()
         self.assertIn("message", data)
@@ -531,13 +534,17 @@ class TestMarkBillPaidView(TestCase):
     # C6
     def test_already_paid_bill_returns_200(self):
         paid_bill = _make_bill(bill_id="BILL-PAID", status=GovStackBill.STATUS_PAID)
-        resp = self.client.post(_mark_paid_url("BILL-PAID"))
+        resp = self.client.post(
+            _mark_paid_url("BILL-PAID"), HTTP_X_PAYERFI_ID="FI-TEST"
+        )
         self.assertEqual(resp.status_code, 200)
 
     # C7
     def test_already_paid_bill_status_still_paid(self):
         paid_bill = _make_bill(bill_id="BILL-PAID2", status=GovStackBill.STATUS_PAID)
-        resp = self.client.post(_mark_paid_url("BILL-PAID2"))
+        resp = self.client.post(
+            _mark_paid_url("BILL-PAID2"), HTTP_X_PAYERFI_ID="FI-TEST"
+        )
         self.assertEqual(resp.json()["status"], GovStackBill.STATUS_PAID)
 
     # C8
@@ -547,7 +554,7 @@ class TestMarkBillPaidView(TestCase):
         GET /bills/{bill_id} URL pattern.  Both routes coexist because
         mark-paid is registered first (more specific) in govstack_urls.py.
         """
-        resp = self.client.post(_mark_paid_url(BILL_ID))
+        resp = self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
         # If routing was wrong, the mark-paid POST would have hit BillInquiryView
         # which does not define post() and would return 405.
         self.assertNotEqual(resp.status_code, 405)
@@ -558,7 +565,7 @@ class TestMarkBillPaidView(TestCase):
         pre_count = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).count()
-        self.client.post(_mark_paid_url(BILL_ID))
+        self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
         post_count = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).count()
@@ -570,12 +577,34 @@ class TestMarkBillPaidView(TestCase):
         pre_count = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).count()
-        self.client.post(_mark_paid_url("BILL-PAID3"))
+        self.client.post(_mark_paid_url("BILL-PAID3"), HTTP_X_PAYERFI_ID="FI-TEST")
         post_count = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).count()
         # No new audit entry for a bill that was already PAID.
         self.assertEqual(post_count, pre_count)
+
+    # C11 — Issue B: mark-paid ALWAYS requires X-PayerFI-Id, even in harness mode
+    def test_no_payer_fi_header_returns_401_even_without_flag(self):
+        """
+        MarkBillPaidView uses RequirePayerFI, the fail-closed permission
+        variant: an absent X-PayerFI-Id header must be rejected with HTTP 401
+        in every settings mode, including harness/test mode where
+        GOVSTACK_REQUIRE_REGISTERED_PAYER_FI is unset (defaults to False).
+
+        Unlike BillInquiryView/BillTransferRequestView/TransferRequestStatusView
+        (which stay permissive by default), this endpoint mutates real bill
+        state with no idempotency key, so it fails closed regardless of mode.
+        """
+        resp = self.client.post(_mark_paid_url(BILL_ID))
+        self.assertEqual(resp.status_code, 401)
+        self.bill.refresh_from_db()
+        self.assertEqual(
+            self.bill.status,
+            GovStackBill.STATUS_UNPAID,
+            "Bill must NOT be marked paid when the request is rejected at "
+            "the permission layer.",
+        )
 
 
 # ===========================================================================
@@ -636,6 +665,75 @@ class TestTransferRequestStatusView(TestCase):
         # This test verifies the strip path by checking a direct service call.
         payment = GovStackP2GService.get_transfer_request(request_id=REQUEST_ID)
         self.assertEqual(payment.request_id, REQUEST_ID)
+
+
+# ===========================================================================
+# D2. IsTrustedPayerFI production-mode enforcement (Issue B)
+#
+#   With GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True, BillInquiryView,
+#   BillTransferRequestView, and TransferRequestStatusView must:
+#     - reject a request with no X-PayerFI-Id header (or accepted variant)
+#       with HTTP 401
+#     - accept a request whose header value matches an active
+#       GovStackRegisteredBB row with HTTP 200
+#
+#   This is the same whitelist table used by IsTrustedSourceBB (G2P), reused
+#   without a new model/migration per the Issue B design.
+# ===========================================================================
+
+_WHITELISTED_PAYER_FI = "FI-WHITELISTED"
+
+
+@override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+class TestPayerFIProductionModeEnforcement(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+        GovStackRegisteredBB.objects.create(
+            bb_id=_WHITELISTED_PAYER_FI, is_active=True
+        )
+
+    # BillInquiryView
+    def test_bill_inquiry_no_header_returns_401_in_production_mode(self):
+        resp = self.client.get(_bill_url(BILL_ID))
+        self.assertEqual(resp.status_code, 401)
+
+    def test_bill_inquiry_whitelisted_header_returns_200_in_production_mode(self):
+        resp = self.client.get(
+            _bill_url(BILL_ID), HTTP_X_PAYERFI_ID=_WHITELISTED_PAYER_FI
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    # BillTransferRequestView
+    def test_bill_transfer_request_no_header_returns_401_in_production_mode(self):
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL, _transfer_body(), format="json"
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_bill_transfer_request_whitelisted_header_returns_200_in_production_mode(
+        self,
+    ):
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL,
+            _transfer_body(),
+            format="json",
+            HTTP_X_PAYERFI_ID=_WHITELISTED_PAYER_FI,
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    # TransferRequestStatusView
+    def test_transfer_status_no_header_returns_401_in_production_mode(self):
+        payment = _make_payment(bill=self.bill)
+        resp = self.client.get(_transfer_status_url(REQUEST_ID))
+        self.assertEqual(resp.status_code, 401)
+
+    def test_transfer_status_whitelisted_header_returns_200_in_production_mode(self):
+        payment = _make_payment(bill=self.bill)
+        resp = self.client.get(
+            _transfer_status_url(REQUEST_ID), HTTP_X_PAYERFI_ID=_WHITELISTED_PAYER_FI
+        )
+        self.assertEqual(resp.status_code, 200)
 
 
 # ===========================================================================

@@ -24,6 +24,48 @@ Coverage matrix:
   AUTH-7: GOVSTACK_REQUIRE_REGISTERED_BB=True + active row + WRONG ID → deny
   AUTH-8: seed_govstack_vouchers creates GovStackRegisteredBB(bb_id="GS-HARNESS")
 
+Also covers IsTrustedPayerFI and RequirePayerFI — the P2G caller-identity
+permission classes added for Issue B (see SPEC_GOVSTACK_PAYMENTS_BB.md §24.2).
+Both reuse the SAME GovStackRegisteredBB whitelist table as IsTrustedSourceBB
+(no new model), gated by a separate settings flag,
+GOVSTACK_REQUIRE_REGISTERED_PAYER_FI:
+
+  PAYERFI-1:  GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True + active row +
+              matching ID → grant
+  PAYERFI-2:  GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True + no row in table
+              → deny
+  PAYERFI-3:  GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True + inactive row +
+              matching ID → deny
+  PAYERFI-4:  missing header + GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True
+              (production mode) → deny
+  PAYERFI-4b: missing header + GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=False
+              (harness mode, the default) → GRANT (mode-gated, mirrors
+              IsTrustedSourceBB's AUTH-4b)
+  PAYERFI-5:  payer_fi_id > 20 chars → deny (matches the live spec's
+              X-PayerFI-Id maxLength: 20)
+  PAYERFI-6:  GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=False (harness mode) +
+              header present → any valid (≤20-char) header value passes
+              without a DB lookup
+  PAYERFI-7:  GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True + active row +
+              WRONG ID → deny
+  PAYERFI-ALT-HEADER: the PayerFI-Id variant (no "X-" prefix) is accepted,
+              mirroring the upstream P2G YAMLs' inconsistent spelling
+
+RequirePayerFI — the fail-closed variant used ONLY by MarkBillPaidView:
+
+  PAYERFI-FC-1: missing header + harness mode (flag False, the default) →
+              DENY (this is the whole point of the fail-closed variant — it
+              does NOT degrade to AllowAnyBB-equivalent behaviour the way
+              IsTrustedPayerFI/IsTrustedSourceBB do)
+  PAYERFI-FC-2: missing header + production mode (flag True) → deny
+  PAYERFI-FC-3: header present + oversized (>20 chars) → deny
+  PAYERFI-FC-4: header present + production mode + whitelist hit → grant
+  PAYERFI-FC-5: header present + production mode + whitelist miss → deny
+  PAYERFI-FC-6: header present + production mode + inactive whitelist row
+              → deny
+  PAYERFI-FC-7: header present + harness mode (flag False) → grant without
+              a DB lookup (only the "header absent" branch is fail-closed)
+
 Test approach:
   AUTH-1 through AUTH-7 call IsTrustedSourceBB.has_permission() directly,
   bypassing the view/URL layer.  This is the correct unit test pattern for
@@ -51,7 +93,11 @@ from django.test import TestCase, override_settings
 from rest_framework.request import Request as DRFRequest
 from rest_framework.test import APIRequestFactory
 
-from apps.payments.govstack_auth import IsTrustedSourceBB
+from apps.payments.govstack_auth import (
+    IsTrustedPayerFI,
+    IsTrustedSourceBB,
+    RequirePayerFI,
+)
 from apps.payments.govstack_models import GovStackRegisteredBB
 
 # ---------------------------------------------------------------------------
@@ -75,6 +121,22 @@ def _make_request(institution_id: str | None = None) -> DRFRequest:
             "/",
             HTTP_X_REGISTERING_INSTITUTION_ID=institution_id,
         )
+    else:
+        raw = factory.post("/")
+    return DRFRequest(raw)
+
+
+def _make_payer_fi_request(payer_fi_id: str | None = None) -> DRFRequest:
+    """
+    Build a DRF Request with an optional X-PayerFI-Id header.
+
+    When payer_fi_id is None, no header is sent (PAYERFI-4 / PAYERFI-FC-1
+    scenarios). Uses POST / — the HTTP method and path do not affect
+    permission logic.
+    """
+    factory = APIRequestFactory()
+    if payer_fi_id is not None:
+        raw = factory.post("/", HTTP_X_PAYERFI_ID=payer_fi_id)
     else:
         raw = factory.post("/")
     return DRFRequest(raw)
@@ -273,6 +335,266 @@ class IsTrustedSourceBBTest(TestCase):
         self.assertTrue(
             self.perm.has_permission(request, None),
             "Expected True: exactly-20-char institution_id must be accepted.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# IsTrustedPayerFI unit tests (PAYERFI-1 through PAYERFI-7) — Issue B
+# ---------------------------------------------------------------------------
+
+_PAYER_FI_VALID_ID = "FI-HARNESS"
+_PAYER_FI_TOO_LONG_ID = "C" * 21  # 21 chars — exceeds the 20-char limit
+
+
+class IsTrustedPayerFITest(TestCase):
+    """
+    Unit tests for IsTrustedPayerFI.has_permission() — the P2G caller-identity
+    permission class added for Issue B. Mirrors IsTrustedSourceBBTest's
+    structure/approach exactly, but against the X-PayerFI-Id header and the
+    GOVSTACK_REQUIRE_REGISTERED_PAYER_FI settings flag.
+
+    Reuses the SAME GovStackRegisteredBB whitelist table as IsTrustedSourceBB
+    (no separate model/migration) — see SPEC_GOVSTACK_PAYMENTS_BB.md §24.2.
+    """
+
+    def setUp(self) -> None:
+        self.perm = IsTrustedPayerFI()
+
+    # ── PAYERFI-1 ────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi1_active_row_matching_id_grants_access(self) -> None:
+        GovStackRegisteredBB.objects.create(bb_id=_PAYER_FI_VALID_ID, is_active=True)
+        request = _make_payer_fi_request(_PAYER_FI_VALID_ID)
+        self.assertTrue(
+            self.perm.has_permission(request, None),
+            "Expected True: active row with matching bb_id must grant access.",
+        )
+
+    # ── PAYERFI-2 ────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi2_no_row_in_table_denies_access(self) -> None:
+        # Deliberately do NOT create any GovStackRegisteredBB row.
+        request = _make_payer_fi_request(_PAYER_FI_VALID_ID)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            "Expected False: no matching row in the whitelist must deny access.",
+        )
+
+    # ── PAYERFI-3 ────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi3_inactive_row_denies_access(self) -> None:
+        GovStackRegisteredBB.objects.create(bb_id=_PAYER_FI_VALID_ID, is_active=False)
+        request = _make_payer_fi_request(_PAYER_FI_VALID_ID)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            "Expected False: inactive row must deny access regardless of bb_id match.",
+        )
+
+    # ── PAYERFI-4 ────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi4_missing_header_denies_access_in_production_mode(self) -> None:
+        request = _make_payer_fi_request(payer_fi_id=None)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            "Expected False: missing header must deny access in production mode.",
+        )
+
+    # ── PAYERFI-5 ────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi5_payer_fi_id_too_long_denies_access(self) -> None:
+        # Length check runs before the DB lookup — no whitelist row needed.
+        request = _make_payer_fi_request(_PAYER_FI_TOO_LONG_ID)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            f"Expected False: {len(_PAYER_FI_TOO_LONG_ID)}-char payer_fi_id must be rejected.",
+        )
+
+    # ── PAYERFI-6 ────────────────────────────────────────────────────────────
+
+    def test_payerfi6_harness_mode_any_valid_header_passes(self) -> None:
+        """
+        GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=False (default, harness mode):
+        any non-empty, ≤ 20-char header value passes without a DB lookup.
+        """
+        # Deliberately leave GovStackRegisteredBB table empty.
+        request = _make_payer_fi_request("ANY-VALID-FI")
+        self.assertTrue(
+            self.perm.has_permission(request, None),
+            "Expected True: harness mode must pass any valid header without DB lookup.",
+        )
+
+    # ── PAYERFI-7 ────────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi7_wrong_id_with_different_active_row_denies_access(self) -> None:
+        GovStackRegisteredBB.objects.create(bb_id="OTHER-FI", is_active=True)
+        request = _make_payer_fi_request(_PAYER_FI_VALID_ID)  # "FI-HARNESS" ≠ "OTHER-FI"
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            "Expected False: non-matching bb_id must be denied even when table is non-empty.",
+        )
+
+    # ── PAYERFI-4b — harness mode ────────────────────────────────────────────
+
+    def test_payerfi4b_missing_header_grants_access_in_harness_mode(self) -> None:
+        """
+        Missing header must GRANT access in harness mode
+        (GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=False, the test/harness default) —
+        IsTrustedPayerFI degrades to AllowAnyBB-equivalent behaviour here,
+        exactly like IsTrustedSourceBB's AUTH-4b. Contrast with
+        RequirePayerFITest's PAYERFI-FC-1, which asserts the opposite for the
+        fail-closed variant used by MarkBillPaidView.
+        """
+        request = _make_payer_fi_request(payer_fi_id=None)
+        self.assertTrue(
+            self.perm.has_permission(request, None),
+            "Expected True: missing header must be tolerated in harness mode.",
+        )
+
+    # ── PAYERFI-5b — harness mode ─────────────────────────────────────────────
+
+    def test_payerfi5b_too_long_id_denies_in_harness_mode(self) -> None:
+        request = _make_payer_fi_request(_PAYER_FI_TOO_LONG_ID)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            f"Expected False: {len(_PAYER_FI_TOO_LONG_ID)}-char payer_fi_id rejected in harness mode.",
+        )
+
+    # ── PAYERFI — exact 20-char boundary ───────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi_boundary_exactly_20_chars_allowed(self) -> None:
+        exactly_20 = "D" * 20
+        GovStackRegisteredBB.objects.create(bb_id=exactly_20, is_active=True)
+        request = _make_payer_fi_request(exactly_20)
+        self.assertTrue(
+            self.perm.has_permission(request, None),
+            "Expected True: exactly-20-char payer_fi_id must be accepted.",
+        )
+
+    # ── PAYERFI-ALT-HEADER ──────────────────────────────────────────────────
+
+    def test_payerfi_alt_header_name_payerfi_id_without_x_prefix_accepted(self) -> None:
+        """
+        The upstream P2G YAMLs spell the header inconsistently — 'PayerFI-Id'
+        (no "X-" prefix) in one file, alongside the more common 'X-PayerFI-Id'.
+        IsTrustedPayerFI must accept both.
+        """
+        factory = APIRequestFactory()
+        raw = factory.post("/", HTTP_PAYERFI_ID="ANY-VALID-FI")
+        request = DRFRequest(raw)
+        self.assertTrue(
+            self.perm.has_permission(request, None),
+            "Expected True: the 'PayerFI-Id' header variant (no X- prefix) must be accepted.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# RequirePayerFI unit tests (PAYERFI-FC-1 through PAYERFI-FC-7) — Issue B
+# ---------------------------------------------------------------------------
+
+class RequirePayerFITest(TestCase):
+    """
+    Unit tests for RequirePayerFI.has_permission() — the fail-closed variant
+    of IsTrustedPayerFI used ONLY by MarkBillPaidView.
+
+    Unlike every other permission class in this module, a missing/empty
+    header is ALWAYS denied here, in every settings mode. When a header IS
+    present, behaviour is identical to IsTrustedPayerFI (length check, and in
+    production mode, the whitelist check).
+    """
+
+    def setUp(self) -> None:
+        self.perm = RequirePayerFI()
+
+    # ── PAYERFI-FC-1 — the defining behaviour of this class ─────────────────
+
+    def test_payerfi_fc1_missing_header_denies_in_harness_mode(self) -> None:
+        """
+        Missing header must DENY access even in harness mode
+        (GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=False, the default) — this is
+        the entire point of the fail-closed variant. Contrast with
+        IsTrustedPayerFITest.test_payerfi4b_missing_header_grants_access_in_harness_mode.
+        """
+        request = _make_payer_fi_request(payer_fi_id=None)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            "Expected False: RequirePayerFI must deny a missing header in every mode.",
+        )
+
+    # ── PAYERFI-FC-2 ─────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi_fc2_missing_header_denies_in_production_mode(self) -> None:
+        request = _make_payer_fi_request(payer_fi_id=None)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            "Expected False: missing header must deny access in production mode.",
+        )
+
+    # ── PAYERFI-FC-3 ─────────────────────────────────────────────────────────
+
+    def test_payerfi_fc3_oversized_header_denies_access(self) -> None:
+        request = _make_payer_fi_request(_PAYER_FI_TOO_LONG_ID)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            f"Expected False: {len(_PAYER_FI_TOO_LONG_ID)}-char payer_fi_id must be rejected.",
+        )
+
+    # ── PAYERFI-FC-4 ─────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi_fc4_whitelist_hit_grants_access(self) -> None:
+        GovStackRegisteredBB.objects.create(bb_id=_PAYER_FI_VALID_ID, is_active=True)
+        request = _make_payer_fi_request(_PAYER_FI_VALID_ID)
+        self.assertTrue(
+            self.perm.has_permission(request, None),
+            "Expected True: active whitelisted row must grant access.",
+        )
+
+    # ── PAYERFI-FC-5 ─────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi_fc5_whitelist_miss_denies_access(self) -> None:
+        # Deliberately do NOT create any GovStackRegisteredBB row.
+        request = _make_payer_fi_request(_PAYER_FI_VALID_ID)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            "Expected False: unwhitelisted payer_fi_id must be denied in production mode.",
+        )
+
+    # ── PAYERFI-FC-6 ─────────────────────────────────────────────────────────
+
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
+    def test_payerfi_fc6_inactive_whitelist_row_denies_access(self) -> None:
+        GovStackRegisteredBB.objects.create(bb_id=_PAYER_FI_VALID_ID, is_active=False)
+        request = _make_payer_fi_request(_PAYER_FI_VALID_ID)
+        self.assertFalse(
+            self.perm.has_permission(request, None),
+            "Expected False: inactive row must deny access regardless of bb_id match.",
+        )
+
+    # ── PAYERFI-FC-7 ─────────────────────────────────────────────────────────
+
+    def test_payerfi_fc7_header_present_in_harness_mode_grants_without_db_lookup(
+        self,
+    ) -> None:
+        """
+        Only the "header absent" branch is fail-closed. When a header IS
+        present and GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=False (harness
+        mode), RequirePayerFI behaves exactly like IsTrustedPayerFI: any
+        valid, ≤20-char header passes without a DB lookup.
+        """
+        request = _make_payer_fi_request("ANY-VALID-FI")
+        self.assertTrue(
+            self.perm.has_permission(request, None),
+            "Expected True: a present header in harness mode must still pass "
+            "(only an absent header is fail-closed).",
         )
 
 

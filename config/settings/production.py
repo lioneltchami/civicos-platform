@@ -282,3 +282,43 @@ GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB = env.bool(
 #
 # Handled by apps/appointments/govstack_auth.GovStackSchedulerAuth.authenticate().
 GOVSTACK_SCHEDULER_REQUIRE_TOKEN = env.bool("GOVSTACK_SCHEDULER_REQUIRE_TOKEN", default=True)
+
+# ---------------------------------------------------------------------------
+# GovStack Payments BB — P2G Payer-FI whitelist enforcement (Issue B)
+# ---------------------------------------------------------------------------
+
+# Controls whether IsTrustedPayerFI.has_permission() validates the
+# X-PayerFI-Id header (or accepted X-PayerFI-ID / PayerFI-Id spelling
+# variants) against the GovStackRegisteredBB database table (whitelist mode,
+# reusing the SAME table as GOVSTACK_REQUIRE_REGISTERED_BB — no separate
+# model) or accepts any non-empty, <= 20-char value. Gates the 4 P2G bill
+# payment endpoints:
+#   GET  /govstack/payments/bills/{bill_id}
+#   POST /govstack/payments/billTransferRequests
+#   POST /govstack/payments/bills/{bill_id}/mark-paid
+#   GET  /govstack/payments/transferRequests/{transfer_request_id}
+#
+# Kept as its own flag rather than reusing GOVSTACK_REQUIRE_REGISTERED_BB so
+# Payer-FI enforcement can be rolled out independently of G2P/voucher
+# enforcement.
+#
+# Production deployments MUST set this to True (the default here).
+# GovStack harness environments set GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=False
+# via environment variable IF the harness sends a non-whitelisted Payer-FI ID.
+# There is currently zero P2G harness coverage (no bill/p2g/transferRequest
+# reference anywhere in test/openAPI/features/), so this flag's harness-mode
+# behaviour is not validated against a real Cucumber harness — it exists to
+# close a real production security gap, not to satisfy harness conformance.
+# Never hardcode False in this file — use the env var for per-environment control.
+#
+# Note: mark-bill-paid uses RequirePayerFI, not IsTrustedPayerFI — it ALWAYS
+# requires the X-PayerFI-Id header regardless of this flag's value, because it
+# mutates real bill state, has zero harness coverage to protect, and carries
+# no idempotency key of its own. This flag still controls whether that
+# endpoint's header is whitelist-checked once present.
+#
+# Handled by apps/payments/govstack_auth.IsTrustedPayerFI.has_permission()
+# (and its fail-closed subclass, apps/payments/govstack_auth.RequirePayerFI).
+GOVSTACK_REQUIRE_REGISTERED_PAYER_FI = env.bool(
+    "GOVSTACK_REQUIRE_REGISTERED_PAYER_FI", default=True
+)
