@@ -2777,7 +2777,11 @@ class GovStackBBCredential(TimestampedModel):
         verbose_name_plural = _("GovStack BB Scheduler Credentials")
 
     def __str__(self) -> str:
-        return f"GovStackBBCredential(bb_id={self.bb_id}, prefix={self.token_prefix}…)"
+        # NOTE: self.bb_id (Django's automatic "<fk name>_id" accessor) is the
+        # FK column's raw integer value (GovStackRegisteredBB's PK) — NOT the
+        # public bb_id string field. Must dereference self.bb.bb_id explicitly
+        # to display what this string actually claims to show.
+        return f"GovStackBBCredential(bb_id={self.bb.bb_id}, prefix={self.token_prefix}…)"
 
     @staticmethod
     def generate_plaintext_token() -> str:
