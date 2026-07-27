@@ -456,12 +456,21 @@ def _scan_with_clamav(*, storage_key: str, civicos: dict) -> str:
     # the daemon is not reachable.
     cd = pyclamd.ClamdNetworkSocket(host=host, port=port, timeout=timeout)
 
-    # Stream file directly from storage into ClamAV via the instream protocol.
+    # Stream file directly from storage into ClamAV via the INSTREAM protocol.
     # django-storages S3 backend implements Django's file storage interface,
     # so default_storage.open() works transparently for both backends.
-    # pyclamd.instream() accepts any file-like object and reads in 8192-byte chunks,
-    # avoiding loading the entire file into memory.
-    # pyclamd.instream() returns:
+    #
+    # NOTE: the real pyClamd 0.4.0 API method is `scan_stream()`, NOT
+    # `instream()` — the two were confused in an earlier version of this
+    # code (there is no `instream` method on ClamdNetworkSocket at all, so
+    # every real scan raised AttributeError, retried until exhaustion, and
+    # quarantined every single document regardless of content). Confirmed
+    # against the actual installed pyclamd package during manual real-S3 +
+    # real-ClamAV verification — a bug the mocked unit tests could not see.
+    #
+    # cd.scan_stream() accepts any file-like object and reads in
+    # `chunk_size`-byte chunks (default 4096), avoiding loading the entire
+    # file into memory. It returns:
     #   None                               → clean file
     #   {"stream": ("FOUND", "VirusName")} → threat detected
     #   {"stream": ("ERROR", "message")}   → clamd error during scan
@@ -478,7 +487,7 @@ def _scan_with_clamav(*, storage_key: str, civicos: dict) -> str:
         ) from exc
 
     with fh:
-        result = cd.instream(fh)
+        result = cd.scan_stream(fh)
 
     if result is None:
         # Clean: clamd found no threat.

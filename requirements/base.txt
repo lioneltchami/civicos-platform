@@ -32,6 +32,11 @@ django-storages[s3]==1.14.4
 Pillow>=11.1.0,<12  # M-I: CVE-2025-27520 heap buffer overflow in TIFF/image parsing fixed in 11.1.0
 boto3==1.35.68
 
+# Documents BB — upload security pipeline (Layers 4/5/5b/8 in apps/documents/services/upload.py)
+pyClamd==0.4.0       # real-time ClamAV daemon scanning (scan_stream() — see apps/documents/tasks.py)
+python-magic==0.4.27  # magic-byte MIME sniffing (Layer 5); requires libmagic1 (see Dockerfile)
+pikepdf==10.10.0      # PDF encryption/structure inspection (Layer 5b, CVE-2024-0450 zip-bomb defense)
+
 # Email / notifications
 django-anymail==12.0
 notifications-python-client==9.0.0

@@ -50,6 +50,28 @@ services:
       retries: 5
 
   # ---------------------------------------------------------------------------
+  # ClamAV — real-time antivirus daemon (Documents BB Layer 8 scan)
+  # Without this service, CLAMAV_HOST below has nothing to connect to and
+  # every upload gets quarantined (or, with CLAMAV_HOST unset, dev-bypassed
+  # with no real scanning at all — see config/settings/base.py comments).
+  # clamav/clamav ships the official upstream ClamAV daemon + freshclam.
+  # First start is slow (~1-2 min) while freshclam downloads virus databases.
+  # ---------------------------------------------------------------------------
+  clamav:
+    image: clamav/clamav:1.4-stable
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    ports:
+      - "3310:3310"
+    healthcheck:
+      test: ["CMD-SHELL", "echo PING | nc -w 3 127.0.0.1 3310 | grep -q PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # ---------------------------------------------------------------------------
   # Django / Wagtail web server
   # ---------------------------------------------------------------------------
   web:
@@ -71,11 +93,15 @@ services:
       DJANGO_DEBUG: "True"
       DJANGO_SECRET_KEY: dev-secret-key-change-in-production
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,web"
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      clamav:
+        condition: service_started
     command: >
       sh -c "
         python manage.py migrate --noinput &&
@@ -101,12 +127,18 @@ services:
       DATABASE_URL: postgres://civicos:civicos@db:5432/civicos
       REDIS_URL: redis://redis:6379/0
       DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      clamav:
+        condition: service_started
     # volunteers queue: shift reminders, expiry checks, impact snapshots (Wave 2+)
+    # documents queue: scan_document() (Layer 8 ClamAV scan) runs here — this
+    # is the worker process that needs CLAMAV_HOST/CLAMAV_PORT above.
     command: celery -A config.celery worker -Q webhooks,default,volunteers,documents --loglevel=info --concurrency=4
 
   # ---------------------------------------------------------------------------
@@ -160,3 +192,4 @@ volumes:
   postgres_data:
   redis_data:
   media_data:
+  clamav_data:

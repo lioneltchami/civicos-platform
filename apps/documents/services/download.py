@@ -351,9 +351,23 @@ def generate_presigned_download_url(
             "generate_presigned_download_url: S3 bucket name not configured. "
             "Set STORAGES['default']['OPTIONS']['bucket_name'] or AWS_STORAGE_BUCKET_NAME."
         )
-    region_name: str = storage_opts.get("region_name", "ca-central-1")
+    # Region + endpoint resolution mirrors
+    # apps.documents.services.upload._resolve_s3_client_kwargs() exactly —
+    # falls back to the real AWS_S3_REGION_NAME/AWS_S3_ENDPOINT_URL Django
+    # settings (not a bare hardcoded region) so this call targets the same
+    # region/endpoint as django-storages and every other raw boto3 call in
+    # apps.documents.services.upload. See that function's docstring for the
+    # full rationale (a prior version of this exact bug: a hardcoded
+    # "ca-central-1" fallback that silently diverged from an overridden
+    # AWS_S3_REGION_NAME).
+    region_name: str = storage_opts.get("region_name") or getattr(
+        settings, "AWS_S3_REGION_NAME", "ca-central-1"
+    )
+    endpoint_url: str | None = storage_opts.get("endpoint_url") or getattr(
+        settings, "AWS_S3_ENDPOINT_URL", None
+    )
 
-    s3_client = boto3.client("s3", region_name=region_name)
+    s3_client = boto3.client("s3", region_name=region_name, endpoint_url=endpoint_url)
     try:
         url = s3_client.generate_presigned_url(
             "get_object",

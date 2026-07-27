@@ -911,7 +911,7 @@ class ScanWithClamavTests(TestCase):
 
     def test_scan_with_clamav_clean_returns_ok(self):
         """
-        When cd.instream() returns None (clean), _scan_with_clamav must return 'OK'.
+        When cd.scan_stream() returns None (clean), _scan_with_clamav must return 'OK'.
         """
         import sys
 
@@ -919,7 +919,7 @@ class ScanWithClamavTests(TestCase):
 
         mock_pyclamd = MagicMock()
         mock_cd = MagicMock()
-        mock_cd.instream.return_value = None  # clean
+        mock_cd.scan_stream.return_value = None  # clean
         mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
@@ -931,7 +931,7 @@ class ScanWithClamavTests(TestCase):
 
     def test_scan_with_clamav_infected_returns_virus_name(self):
         """
-        When cd.instream() returns {"stream": ("FOUND", "Eicar-Test-Signature")},
+        When cd.scan_stream() returns {"stream": ("FOUND", "Eicar-Test-Signature")},
         _scan_with_clamav must return the virus name string.
         """
         import sys
@@ -940,7 +940,7 @@ class ScanWithClamavTests(TestCase):
 
         mock_pyclamd = MagicMock()
         mock_cd = MagicMock()
-        mock_cd.instream.return_value = {"stream": ("FOUND", "Eicar-Test-Signature")}
+        mock_cd.scan_stream.return_value = {"stream": ("FOUND", "Eicar-Test-Signature")}
         mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
@@ -952,7 +952,7 @@ class ScanWithClamavTests(TestCase):
 
     def test_scan_with_clamav_clamd_error_status_raises_runtime(self):
         """
-        When cd.instream() returns {"stream": ("ERROR", "...")}, _scan_with_clamav
+        When cd.scan_stream() returns {"stream": ("ERROR", "...")}, _scan_with_clamav
         must raise RuntimeError so the caller retries rather than permanently
         quarantining a potentially clean file.
         """
@@ -962,7 +962,7 @@ class ScanWithClamavTests(TestCase):
 
         mock_pyclamd = MagicMock()
         mock_cd = MagicMock()
-        mock_cd.instream.return_value = {"stream": ("ERROR", "internal clamd error")}
+        mock_cd.scan_stream.return_value = {"stream": ("ERROR", "internal clamd error")}
         mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
@@ -1010,7 +1010,7 @@ class ScanWithClamavTests(TestCase):
 
         mock_pyclamd = MagicMock()
         mock_cd = MagicMock()
-        mock_cd.instream.return_value = None
+        mock_cd.scan_stream.return_value = None
         mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
@@ -1024,9 +1024,9 @@ class ScanWithClamavTests(TestCase):
             timeout=60,
         )
 
-    def test_scan_with_clamav_streams_file_bytes_to_instream(self):
+    def test_scan_with_clamav_streams_file_bytes_to_scan_stream(self):
         """
-        _scan_with_clamav must stream the file handle directly to cd.instream().
+        _scan_with_clamav must stream the file handle directly to cd.scan_stream().
         The raw file handle from default_storage.open() is passed, not a BytesIO wrapper.
         """
         import sys
@@ -1036,7 +1036,7 @@ class ScanWithClamavTests(TestCase):
 
         mock_pyclamd = MagicMock()
         mock_cd = MagicMock()
-        mock_cd.instream.return_value = None
+        mock_cd.scan_stream.return_value = None
         mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
@@ -1044,12 +1044,12 @@ class ScanWithClamavTests(TestCase):
                 self._mock_storage_open(mock_storage, data=file_data)
                 _scan_with_clamav(storage_key="quarantine/test.bin", civicos=civicos)
 
-        # Verify instream was called once with the file handle from storage.open().
-        # The code does: fh = default_storage.open(...); with fh: cd.instream(fh)
+        # Verify scan_stream was called once with the file handle from storage.open().
+        # The code does: fh = default_storage.open(...); with fh: cd.scan_stream(fh)
         # 'fh' is the return value of open() — the `with` block calls fh.__enter__()
         # internally but the variable 'fh' still refers to the open() return value.
-        mock_cd.instream.assert_called_once()
-        call_args = mock_cd.instream.call_args[0]
+        mock_cd.scan_stream.assert_called_once()
+        call_args = mock_cd.scan_stream.call_args[0]
         self.assertEqual(len(call_args), 1)
         expected_fh = mock_storage.open.return_value
         self.assertIs(call_args[0], expected_fh)

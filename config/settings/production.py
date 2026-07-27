@@ -67,11 +67,50 @@ AWS_S3_SIGNATURE_VERSION = "s3v4"
 AWS_QUERYSTRING_AUTH = True
 AWS_QUERYSTRING_EXPIRE = 3600  # Pre-signed URL validity: 1 hour
 
+# S3 storage — location/prefix note (Documents BB SSRF/storage audit fix):
+#
+# There is intentionally NO "location" (key-prefix) option here. Static files
+# are served by whitenoise from local disk (see "staticfiles" below) — they
+# are never written to this S3 bucket — so there is no other content in the
+# bucket that a "media/" prefix would need to separate from. This bucket is
+# 100% dedicated to apps.documents storage_key-addressed objects.
+#
+# Previously this dict set "location": "media", which caused every
+# django-storages call (default_storage.open/.delete/.url — used by the
+# ClamAV scan task, the quarantine-cleanup delete, retention.hard_delete(),
+# and the citizen HTML download view) to silently resolve to
+# "media/<storage_key>", while every RAW boto3 call in
+# apps/documents/services/upload.py and download.py (the presigned POST the
+# browser actually uploads to, plus head_object/get_object/presigned GET)
+# used the bare, un-prefixed storage_key. The two families of calls were
+# never looking at the same S3 object:
+#   - The ClamAV scan task 404'd on every real upload (default_storage.open()
+#     looked for "media/documents/..." which never existed) and treated that
+#     as a PERMANENT storage failure, immediately quarantining every
+#     document regardless of content.
+#   - The quarantine-cleanup delete and retention.hard_delete() 404'd
+#     silently (S3 DELETE on a non-existent key returns success), so
+#     infected/purged files were NEVER actually removed from the bucket —
+#     the real (un-prefixed) object was left behind indefinitely, a genuine
+#     PIPEDA/Privacy Act disposal-integrity gap, not just a functional bug.
+#   - The citizen HTML download view (both the small-file proxy and the
+#     large-file presigned-redirect code paths) would 404 for every
+#     legitimate ACTIVE document in production.
+#
+# If a shared multi-purpose bucket ever requires a key prefix again, it MUST
+# be applied identically to every raw boto3 call site (see the module
+# docstrings in apps/documents/services/upload.py and download.py for the
+# full list) — ideally via one shared helper, not scattered literals, so
+# this class of bug cannot reoccur.
 STORAGES = {
     "default": {
         "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
         "OPTIONS": {
-            "location": "media",
+            # AWS_S3_ENDPOINT_URL (below) lets this same config point at an
+            # S3-compatible on-prem/staging endpoint (e.g. MinIO) instead of
+            # real AWS S3, without any code changes — used for manual
+            # ClamAV+S3 verification where real AWS access is unavailable.
+            "endpoint_url": env("AWS_S3_ENDPOINT_URL", default=None),
         },
     },
     "staticfiles": {

@@ -661,6 +661,42 @@ def _get_bucket_name(storage_opts: dict) -> str:
     return bucket_name
 
 
+def _resolve_s3_client_kwargs(storage_opts: dict) -> dict:
+    """
+    Resolve the kwargs every raw ``boto3.client("s3", ...)`` call in this
+    module should be constructed with, so all 4 call sites here (and the
+    matching one in services/download.py) stay consistent with each other
+    and with the django-storages S3Boto3Storage backend used everywhere else.
+
+    region_name:
+      Previously hardcoded to a bare ``storage_opts.get("region_name",
+      "ca-central-1")`` fallback. This meant that if an operator overrode
+      AWS_S3_REGION_NAME via env var to a region other than ca-central-1,
+      every raw boto3 call here would silently keep using ca-central-1 while
+      django-storages' own calls correctly used the overridden region — two
+      code paths silently targeting different regions. Now falls back to the
+      real top-level AWS_S3_REGION_NAME Django setting (mirrors django-storages'
+      own get_default_settings() resolution) before the hardcoded default.
+
+    endpoint_url:
+      Not previously supported here at all — these raw calls could only ever
+      target real AWS S3. Reading it from storage_opts (mirroring the new
+      STORAGES['default']['OPTIONS']['endpoint_url'] key added for
+      django-storages, itself driven by the AWS_S3_ENDPOINT_URL env var) lets
+      an operator point every code path — django-storages calls AND these raw
+      boto3 calls — at an S3-compatible on-prem/staging endpoint (e.g. MinIO)
+      via a single setting, with zero effect on real production deployments
+      (defaults to None, in which case boto3 resolves real AWS S3 exactly as
+      before).
+    """
+    return {
+        "region_name": storage_opts.get("region_name")
+        or getattr(settings, "AWS_S3_REGION_NAME", "ca-central-1"),
+        "endpoint_url": storage_opts.get("endpoint_url")
+        or getattr(settings, "AWS_S3_ENDPOINT_URL", None),
+    }
+
+
 def _is_s3_storage() -> bool:
     """
     Return True if the default storage backend is an S3 backend.
@@ -762,7 +798,6 @@ def _generate_s3_presigned_post(
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
     bucket_name: str = _get_bucket_name(storage_opts)
-    region_name: str = storage_opts.get("region_name", "ca-central-1")
     kms_key_id: str = storage_opts.get("object_parameters", {}).get("SSEKMSKeyId", "")
 
     # Determine allowed MIME types for this category
@@ -776,20 +811,42 @@ def _generate_s3_presigned_post(
     # per-user (citizen cap vs staff cap). Do NOT recompute here — recomputing
     # would silently apply the staff cap to all users, defeating the citizen limit.
 
+    fields: dict[str, str] = {}
+
     conditions: list = [
         # Enforce upload to the exact quarantine key (prevents key substitution)
         {"key": doc.storage_key},
         # Allow any content-type in the approved set
         ["content-length-range", 1, max_size],
     ]
-    # Add content-type constraint if only one MIME type is allowed
+    # Add content-type constraint if only one MIME type is allowed.
+    #
+    # CRITICAL: an S3 POST-policy "Content-Type" condition is checked against
+    # the literal "Content-Type" *form field* submitted alongside the file —
+    # NOT against the MIME part header on the "file" field itself, and NOT
+    # inferred from the browser's file picker. If we add this condition to
+    # `conditions` without also adding a matching "Content-Type" entry to
+    # `fields`, the presigned POST becomes impossible to satisfy: the citizen
+    # upload template (upload_presign.html) renders exactly one hidden
+    # <input> per key in `upload_fields` and nothing else, so without this
+    # field every upload to a single-MIME-type category is rejected by S3
+    # with AccessDenied ("Policy Condition failed") — a total upload outage
+    # for that category that unit tests (which mock/skip real S3 policy
+    # enforcement) cannot detect. Confirmed against a real S3-compatible
+    # server (MinIO) during manual verification.
     if len(allowed_mimes) == 1:
         conditions.append({"Content-Type": allowed_mimes[0]})
+        fields["Content-Type"] = allowed_mimes[0]
 
-    # Server-side encryption — Protected B requires KMS
+    # Server-side encryption — Protected B requires KMS.
+    # Same rule as Content-Type above: these are form-field conditions, not
+    # inferred from anything else in the request, so they must ALSO be added
+    # to `fields` or the policy can never be satisfied.
     if kms_key_id:
         conditions.append({"x-amz-server-side-encryption": "aws:kms"})
         conditions.append({"x-amz-server-side-encryption-aws-kms-key-id": kms_key_id})
+        fields["x-amz-server-side-encryption"] = "aws:kms"
+        fields["x-amz-server-side-encryption-aws-kms-key-id"] = kms_key_id
 
     # Inject success_action_redirect so S3 redirects the browser to the confirm
     # view after the upload completes. Without this the browser has no redirect
@@ -797,13 +854,10 @@ def _generate_s3_presigned_post(
     # PENDING_UPLOAD forever (Bug C-4).
     if success_redirect_url:
         conditions.append({"success_action_redirect": success_redirect_url})
-
-    fields: dict[str, str] = {}
-    if success_redirect_url:
         fields["success_action_redirect"] = success_redirect_url
 
     try:
-        s3_client = boto3.client("s3", region_name=region_name)
+        s3_client = boto3.client("s3", **_resolve_s3_client_kwargs(storage_opts))
         presigned = s3_client.generate_presigned_post(
             Bucket=bucket_name,
             Key=doc.storage_key,
@@ -878,9 +932,8 @@ def _verify_s3_object_exists(storage_key: str) -> None:
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
     bucket_name: str = _get_bucket_name(storage_opts)
-    region_name: str = storage_opts.get("region_name", "ca-central-1")
 
-    s3_client = boto3.client("s3", region_name=region_name)
+    s3_client = boto3.client("s3", **_resolve_s3_client_kwargs(storage_opts))
     try:
         s3_client.head_object(Bucket=bucket_name, Key=storage_key)
     except ClientError as exc:
@@ -946,9 +999,8 @@ def _read_s3_first_bytes(storage_key: str, *, length: int) -> bytes:
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
     bucket_name: str = _get_bucket_name(storage_opts)
-    region_name: str = storage_opts.get("region_name", "ca-central-1")
 
-    s3_client = boto3.client("s3", region_name=region_name)
+    s3_client = boto3.client("s3", **_resolve_s3_client_kwargs(storage_opts))
     try:
         resp = s3_client.get_object(
             Bucket=bucket_name,
@@ -1020,9 +1072,8 @@ def _read_full_s3_file(storage_key: str) -> bytes:
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
     bucket_name: str = _get_bucket_name(storage_opts)
-    region_name: str = storage_opts.get("region_name", "ca-central-1")
 
-    s3_client = boto3.client("s3", region_name=region_name)
+    s3_client = boto3.client("s3", **_resolve_s3_client_kwargs(storage_opts))
     try:
         resp = s3_client.get_object(Bucket=bucket_name, Key=storage_key)
         return resp["Body"].read()

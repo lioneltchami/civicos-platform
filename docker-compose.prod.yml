@@ -11,6 +11,31 @@
 services:
 
   # ----------------------------------------------------------------
+  # ClamAV — real-time antivirus daemon (Documents BB Layer 8 scan).
+  # CLAMAV_REQUIRED=True in config/settings/production.py means the app
+  # refuses to start without CLAMAV_HOST configured — this service is not
+  # optional in production. clamav/clamav ships upstream ClamAV + freshclam;
+  # first start is slow (~1-2 min) while freshclam pulls virus databases.
+  # ----------------------------------------------------------------
+  clamav:
+    image: clamav/clamav:1.4-stable
+    restart: always
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "echo PING | nc -w 3 127.0.0.1 3310 | grep -q PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    networks:
+      - civicos_net
+    # Port NOT exposed to host — only web/worker (on civicos_net) need it
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # ----------------------------------------------------------------
   # Nginx — reverse proxy + static file serving
   # ----------------------------------------------------------------
   nginx:
@@ -43,6 +68,8 @@ services:
     env_file: .env.prod
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.production
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
     volumes:
       - static_data:/app/staticfiles
       - media_data:/app/media
@@ -51,6 +78,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      clamav:
+        condition: service_started
       migrate:
         condition: service_completed_successfully
     healthcheck:
@@ -79,9 +108,17 @@ services:
     env_file: .env.prod
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.production
+      # apps.documents.apps AppConfig.ready() enforces CLAMAV_REQUIRED at
+      # startup for every manage.py invocation (not just runserver/gunicorn),
+      # so even this one-shot migrate container needs CLAMAV_HOST reachable
+      # or it fails before the migration runs at all.
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
     depends_on:
       db:
         condition: service_healthy
+      clamav:
+        condition: service_started
     networks:
       - civicos_net
 
@@ -98,6 +135,8 @@ services:
     env_file: .env.prod
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.production
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
     volumes:
       - media_data:/app/media
     depends_on:
@@ -105,6 +144,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      clamav:
+        condition: service_started
       migrate:
         condition: service_completed_successfully
     healthcheck:
@@ -130,11 +171,15 @@ services:
     env_file: .env.prod
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.production
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      clamav:
+        condition: service_started
       migrate:
         condition: service_completed_successfully
     healthcheck:
@@ -196,6 +241,7 @@ volumes:
   redis_data:
   static_data:
   media_data:
+  clamav_data:
 
 networks:
   civicos_net:

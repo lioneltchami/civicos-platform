@@ -47,6 +47,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Runtime system dependencies (includes WeasyPrint GTK/Pango/Cairo stack)
+# libmagic1 — required by python-magic (Documents BB Layer 5 magic-byte MIME
+# sniffing in apps/documents/services/upload.py); python-magic is a ctypes
+# wrapper and does nothing useful without the actual libmagic shared library.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
@@ -57,6 +60,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libgdk-pixbuf-2.0-0 \
     fonts-liberation \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
@@ -94,6 +98,9 @@ RUN groupadd --gid 1001 appgroup && \
     useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
 
 # Runtime system dependencies only (includes WeasyPrint GTK/Pango/Cairo stack)
+# libmagic1 — required by python-magic (Documents BB Layer 5 magic-byte MIME
+# sniffing in apps/documents/services/upload.py); python-magic is a ctypes
+# wrapper and does nothing useful without the actual libmagic shared library.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
@@ -104,6 +111,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libgdk-pixbuf-2.0-0 \
     fonts-liberation \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
