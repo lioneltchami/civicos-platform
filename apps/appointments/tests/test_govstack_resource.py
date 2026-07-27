@@ -590,3 +590,78 @@ class ResourceIdRoundTripTests(ResourceBaseTestCase):
         delete_resp = self._delete(resource_id="S-1")
         self.assertEqual(delete_resp.status_code, 400)
         self.assertEqual(delete_resp.json()["code"], "INVALID_RESOURCE_ID")
+
+
+# ===========================================================================
+# R51-R56: Finding #6 — SSRF hardening on alert_url / status_poll_url
+# ===========================================================================
+
+class ResourceSsrfHardeningTests(ResourceBaseTestCase):
+    """
+    R51-R56: registration-time HTTPS-only validation of alert_url and
+    status_poll_url on POST /resource/new and PUT /resource/modifications.
+    Direct regression coverage for Finding #6 (the 3 SSRF TODOs — resource_create's
+    single combined TODO plus resource_modify's 2 separate alert_url/status_poll_url
+    TODOs — previously left both fields completely unvalidated at registration
+    time). Mirrors the identical precedent already covered for Subscriber's
+    alert_url/status_poll_url fields.
+
+    Note: this is layer 1 of the two-layer SSRF defense (coarse HTTPS-only
+    check at registration time). Layer 2 (DNS-resolution + private/loopback/
+    link-local/reserved/multicast/CGNAT IP blocking at dispatch time) lives in
+    apps/appointments/tasks.py's _is_safe_outbound_url() and was already wired
+    to resource.alert_url before this fix — these tests only need to prove
+    layer 1 is now closed.
+    """
+
+    def test_r51_plain_http_alert_url_rejected_on_create(self):
+        qry = {"resource_details": {"name": "Insecure Room", "alert_url": "http://insecure.example.gov/hook"}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], "CREATE_FAILED")
+        self.assertFalse(Resource.objects.filter(name_en="Insecure Room").exists())
+
+    def test_r52_plain_http_status_poll_url_rejected_on_create(self):
+        qry = {"resource_details": {"name": "Insecure Poll", "status_poll_url": "http://insecure.example.gov/poll"}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], "CREATE_FAILED")
+
+    def test_r53_valid_https_urls_still_succeed_on_create(self):
+        qry = {"resource_details": {
+            "name": "Secure Room",
+            "alert_url": "https://secure.example.gov/hook",
+            "status_poll_url": "https://secure.example.gov/poll",
+        }}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 201)
+        resource_id = resp.json()["resource_id"]
+        resource = Resource.objects.get(pk=resource_id[2:])
+        self.assertEqual(resource.alert_url, "https://secure.example.gov/hook")
+        self.assertEqual(resource.status_poll_url, "https://secure.example.gov/poll")
+
+    def test_r54_plain_http_alert_url_rejected_on_modifications(self):
+        resource = _create_resource()
+        resp = self._put({"details": {"alert_url": "http://insecure.example.gov/hook"}}, resource_id=resource.pk)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], "MODIFY_FAILED")
+        resource.refresh_from_db()
+        self.assertEqual(resource.alert_url, "")
+
+    def test_r55_plain_http_status_poll_url_rejected_on_modifications(self):
+        resource = _create_resource()
+        resp = self._put({"details": {"status_poll_url": "http://insecure.example.gov/poll"}}, resource_id=resource.pk)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], "MODIFY_FAILED")
+        resource.refresh_from_db()
+        self.assertEqual(resource.status_poll_url, "")
+
+    def test_r56_valid_https_url_still_succeeds_on_modifications(self):
+        resource = _create_resource()
+        resp = self._put(
+            {"details": {"alert_url": "https://secure.example.gov/hook-updated"}},
+            resource_id=resource.pk,
+        )
+        self.assertEqual(resp.status_code, 200)
+        resource.refresh_from_db()
+        self.assertEqual(resource.alert_url, "https://secure.example.gov/hook-updated")

@@ -18,9 +18,13 @@ Location placeholder:
   Resource.location is a required FK. GovStack-created resources use a lazily-seeded
   "GovStack System Location" (slug="govstack-system-location") as a placeholder.
 
-SSRF note:
-  alert_url and status_poll_url are stored as-is in Wave B. Wave F alert dispatch
-  MUST validate HTTPS-only and block private IP ranges before calling them.
+SSRF note (Finding #6, fixed):
+  alert_url and status_poll_url are validated HTTPS-only + well-formed at
+  registration time (_validate_url(), below) before ever being persisted.
+  The deeper DNS-resolution + private-IP-block check happens at dispatch
+  time in apps/appointments/tasks.py's _is_safe_outbound_url(), already
+  applied to resource.alert_url since Wave F. See _validate_url()'s
+  docstring for the full two-layer rationale.
 """
 from __future__ import annotations
 
@@ -28,6 +32,8 @@ import itertools
 import logging
 from datetime import datetime
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator as _URLValidator
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_naive
 
@@ -54,6 +60,45 @@ _LIST_PAGE_CAP = 500
 # ---------------------------------------------------------------------------
 
 _VALID_ALERT_PREFS: frozenset[str] = frozenset({"push", "poll", "email", "sms", "none", ""})
+
+# ---------------------------------------------------------------------------
+# SSRF hardening — registration-time URL validation (Finding #6 fix)
+# ---------------------------------------------------------------------------
+#
+# Two-layer defense, matching the identical convention already established
+# in services/govstack_subscriber.py's _validate_url:
+#   1. HERE (registration time): coarse, cheap validation — scheme must be
+#      HTTPS and the URL must be well-formed. Rejects the obviously-wrong
+#      case (http://, javascript:, malformed strings) immediately with a
+#      clear 400 at create/modify time, before anything is ever persisted.
+#   2. apps/appointments/tasks.py's _is_safe_outbound_url (dispatch time,
+#      already fully implemented since Wave F): the TOCTOU-safe layer —
+#      resolves the hostname via DNS and rejects private/loopback/
+#      link-local/reserved/multicast/unspecified/CGNAT/IETF-reserved IPs
+#      immediately before every outbound POST to resource.alert_url (see
+#      tasks.py's dispatch_alert_schedule, which already reads
+#      resource.alert_url and gates it through _is_safe_outbound_url before
+#      sending — this layer was already closed for Resource in Wave F).
+#
+# This function only ever needs to close layer 1 — layer 2 was already
+# closed. Prior to this fix, resource_create()/resource_modify() stored
+# alert_url/status_poll_url completely unvalidated (not even an HTTPS-only
+# check), the only one of the "has an alert_url/status_poll_url field"
+# entity groups (Subscriber, StaffProfile, Resource) missing even this
+# coarse check.
+_https_validator = _URLValidator(schemes=["https"])
+
+
+def _validate_url(url: str, field_name: str) -> None:
+    """Raise ValueError if url is non-empty and is not a valid HTTPS URL."""
+    if url:
+        try:
+            _https_validator(url)
+        except DjangoValidationError:
+            raise ValueError(
+                f"{field_name} must be a valid HTTPS URL. "
+                f"Plain HTTP and malformed URLs are not permitted."
+            )
 
 # ---------------------------------------------------------------------------
 # Category → resource_type mapping
@@ -142,15 +187,21 @@ def resource_create(
     - Creates Resource with name_en = name_fr = name (bilingual stub).
     - Returns the newly created Resource instance.
 
-    SSRF note: alert_url and status_poll_url are stored as-is. Wave F alert
-    dispatch MUST validate HTTPS-only and block private IP ranges.
-    # TODO (Wave F): validate alert_url/status_poll_url: HTTPS-only + private IP block.
+    SSRF note (Finding #6, fixed): alert_url/status_poll_url must be
+    HTTPS-only and well-formed — enforced here via _validate_url() before
+    the row is ever persisted. The deeper DNS-resolution + private-IP-block
+    check happens at dispatch time in tasks.py's _is_safe_outbound_url(),
+    already applied to resource.alert_url since Wave F. See this module's
+    "SSRF hardening" section docstring for the full two-layer rationale.
     """
     if alert_preference and alert_preference not in _VALID_ALERT_PREFS:
         raise ValueError(
             f"Invalid alert_preference {alert_preference!r}. "
             f"Must be one of: push, poll, email, sms, none."
         )
+
+    _validate_url(alert_url, "alert_url")
+    _validate_url(status_poll_url, "status_poll_url")
 
     location = _get_or_create_govstack_location()
     resource_type = _map_category_to_resource_type(category)
@@ -213,7 +264,9 @@ def resource_modify(
         update_fields.append("email")
 
     if alert_url is not None:
-        # TODO (Wave F): validate alert_url: HTTPS-only + private IP block before storing.
+        # Finding #6 fix: see resource_create()'s docstring / this module's
+        # "SSRF hardening" section for the two-layer rationale.
+        _validate_url(alert_url, "alert_url")
         resource.alert_url = alert_url
         update_fields.append("alert_url")
 
@@ -227,7 +280,9 @@ def resource_modify(
         update_fields.append("alert_preference")
 
     if status_poll_url is not None:
-        # TODO (Wave F): validate status_poll_url: HTTPS-only + private IP block before storing.
+        # Finding #6 fix: see resource_create()'s docstring / this module's
+        # "SSRF hardening" section for the two-layer rationale.
+        _validate_url(status_poll_url, "status_poll_url")
         resource.status_poll_url = status_poll_url
         update_fields.append("status_poll_url")
 
