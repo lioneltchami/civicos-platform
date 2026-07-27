@@ -659,10 +659,41 @@ def _make_webhook(**kwargs):
     return ConsentWebhook.objects.create(**defaults)
 
 
-class DispatchConsentWebhookSignatureTests(TestCase):
+# Bug 4 (SSRF hardening): dispatch_consent_webhook now resolves the
+# payload_url's hostname via socket.getaddrinfo() and rejects private/
+# loopback/link-local/reserved/metadata IP ranges immediately before the
+# outbound POST (see tasks._is_safe_outbound_url). Every test below that
+# exercises the transport-layer behaviour (signing, retries, persistence)
+# for a "https://example.com/..." webhook needs that DNS lookup to resolve
+# to a public, routable IP so it isn't itself skipped by the new safety
+# check — the dedicated SSRF behaviour (unsafe URLs actually being skipped)
+# is covered separately by WebhookSSRFProtectionTests below, which mocks
+# getaddrinfo to return private/loopback/link-local/metadata addresses
+# on purpose.
+_GETADDRINFO = "apps.consent.tasks.socket.getaddrinfo"
+_PUBLIC_ADDRINFO = [(2, 1, 6, "", ("93.184.216.34", 0))]  # a public, routable IPv4
+
+
+class _WebhookDispatchTestCase(TestCase):
+    """
+    Base class for webhook dispatch tests that patches socket.getaddrinfo to
+    resolve every hostname to a public IP, so pre-existing tests (written
+    before the Bug 4 SSRF fix) keep exercising transport-layer logic without
+    depending on real DNS or accidentally tripping the new safety check.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._dns_patcher = patch(_GETADDRINFO, return_value=_PUBLIC_ADDRINFO)
+        self._dns_patcher.start()
+        self.addCleanup(self._dns_patcher.stop)
+
+
+class DispatchConsentWebhookSignatureTests(_WebhookDispatchTestCase):
     """HMAC-SHA256 signature computation must match tasks.py's own scheme exactly."""
 
     def setUp(self):
+        super().setUp()
         self.webhook = _make_webhook()
 
     def test_hmac_signature_matches_known_payload_and_secret(self):
@@ -726,10 +757,11 @@ class DispatchConsentWebhookSignatureTests(TestCase):
         self.assertTrue(headers["X-Custom-Signature"].startswith("sha256="))
 
 
-class DispatchConsentWebhookDeliveryPersistenceTests(TestCase):
+class DispatchConsentWebhookDeliveryPersistenceTests(_WebhookDispatchTestCase):
     """last_payload / last_delivery_at / last_delivery_status persistence."""
 
     def setUp(self):
+        super().setUp()
         self.webhook = _make_webhook()
 
     def test_successful_delivery_persists_last_payload_and_status(self):
@@ -801,7 +833,7 @@ class DispatchConsentWebhookDeliveryPersistenceTests(TestCase):
         )
 
 
-class DispatchConsentWebhookDisabledTests(TestCase):
+class DispatchConsentWebhookDisabledTests(_WebhookDispatchTestCase):
     """The task must skip dispatch (no HTTP call) for a disabled webhook."""
 
     def test_disabled_webhook_is_skipped_no_http_call_made(self):
@@ -828,10 +860,11 @@ class DispatchConsentWebhookDisabledTests(TestCase):
         mock_post.assert_called_once()
 
 
-class DispatchConsentWebhookRetryTests(TestCase):
+class DispatchConsentWebhookRetryTests(_WebhookDispatchTestCase):
     """Retry behaviour on requests.exceptions.RequestException."""
 
     def setUp(self):
+        super().setUp()
         self.webhook = _make_webhook()
 
     def test_network_error_triggers_autoretry(self):
@@ -879,3 +912,203 @@ class DispatchConsentWebhookRetryTests(TestCase):
 
         self.webhook.refresh_from_db()
         self.assertIsNone(self.webhook.last_delivery_status)
+
+
+# ===========================================================================
+# Bug 4 (SSRF hardening) — dispatch-time safety check + registration-time
+# HTTPS-only guard.
+# ===========================================================================
+
+class WebhookSSRFProtectionTests(TestCase):
+    """
+    dispatch_consent_webhook must resolve payload_url's hostname via DNS and
+    refuse to POST to any private/loopback/link-local/reserved/metadata
+    address, WITHOUT raising — the task must simply skip dispatch and log a
+    warning, exactly like the disabled-webhook and not-found cases above.
+
+    Deliberately does NOT patch socket.getaddrinfo at the class level (unlike
+    _WebhookDispatchTestCase) — each test below sets its own return_value/
+    side_effect to simulate a specific resolved address.
+    """
+
+    def setUp(self):
+        self.webhook = _make_webhook(payload_url="https://attacker-controlled.example/hook")
+
+    def _dispatch(self):
+        return dispatch_consent_webhook.apply(
+            args=[str(self.webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
+        )
+
+    def test_metadata_ip_is_skipped_without_calling_requests_post(self):
+        """The canonical SSRF target: the cloud metadata endpoint."""
+        with patch(_GETADDRINFO, return_value=[(2, 1, 6, "", ("169.254.169.254", 0))]):
+            with patch(_POST) as mock_post:
+                result = self._dispatch()
+        mock_post.assert_not_called()
+        self.assertEqual(result.result, {"status": "skipped", "reason": "unsafe_url"})
+
+    def test_loopback_ip_is_skipped_without_calling_requests_post(self):
+        with patch(_GETADDRINFO, return_value=[(2, 1, 6, "", ("127.0.0.1", 0))]):
+            with patch(_POST) as mock_post:
+                result = self._dispatch()
+        mock_post.assert_not_called()
+        self.assertEqual(result.result, {"status": "skipped", "reason": "unsafe_url"})
+
+    def test_private_10_range_ip_is_skipped_without_calling_requests_post(self):
+        with patch(_GETADDRINFO, return_value=[(2, 1, 6, "", ("10.0.0.5", 0))]):
+            with patch(_POST) as mock_post:
+                result = self._dispatch()
+        mock_post.assert_not_called()
+        self.assertEqual(result.result, {"status": "skipped", "reason": "unsafe_url"})
+
+    def test_link_local_range_ip_is_skipped_without_calling_requests_post(self):
+        with patch(_GETADDRINFO, return_value=[(2, 1, 6, "", ("169.254.1.1", 0))]):
+            with patch(_POST) as mock_post:
+                result = self._dispatch()
+        mock_post.assert_not_called()
+        self.assertEqual(result.result, {"status": "skipped", "reason": "unsafe_url"})
+
+    def test_dns_resolution_failure_is_skipped_without_calling_requests_post(self):
+        """Fails closed: any DNS error must be treated as unsafe, not crash the task."""
+        with patch(_GETADDRINFO, side_effect=OSError("Name or service not known")):
+            with patch(_POST) as mock_post:
+                result = self._dispatch()
+        mock_post.assert_not_called()
+        self.assertEqual(result.result, {"status": "skipped", "reason": "unsafe_url"})
+
+    def test_unsafe_url_skip_does_not_raise_or_mark_delivery_failed(self):
+        """
+        Skipping an unsafe URL must not be recorded as a delivery failure —
+        it never attempted delivery at all, so last_delivery_status must be
+        left untouched (None), distinguishing "never tried" from "tried and
+        failed".
+        """
+        with patch(_GETADDRINFO, return_value=[(2, 1, 6, "", ("169.254.169.254", 0))]):
+            with patch(_POST) as mock_post:
+                self._dispatch()
+        mock_post.assert_not_called()
+        self.webhook.refresh_from_db()
+        self.assertIsNone(self.webhook.last_delivery_status)
+
+    def test_public_ip_still_dispatches_successfully(self):
+        """A normal public HTTPS URL must still be dispatched (no regression)."""
+        with patch(_GETADDRINFO, return_value=_PUBLIC_ADDRINFO):
+            with patch(_POST) as mock_post:
+                mock_post.return_value = MagicMock(status_code=200, ok=True)
+                result = self._dispatch()
+        mock_post.assert_called_once()
+        self.assertEqual(result.result, {"status": "delivered", "http_status": 200})
+
+    def test_one_unsafe_ip_among_several_resolved_rejects_whole_url(self):
+        """A hostname with multiple A/AAAA records is unsafe if ANY resolved IP is unsafe."""
+        with patch(
+            _GETADDRINFO,
+            return_value=[
+                (2, 1, 6, "", ("93.184.216.34", 0)),
+                (2, 1, 6, "", ("10.0.0.1", 0)),
+            ],
+        ):
+            with patch(_POST) as mock_post:
+                result = self._dispatch()
+        mock_post.assert_not_called()
+        self.assertEqual(result.result, {"status": "skipped", "reason": "unsafe_url"})
+
+    def test_plain_http_url_is_skipped_at_dispatch_time_too(self):
+        """
+        Belt-and-suspenders: even if a non-HTTPS URL somehow made it into the
+        database (e.g. seeded directly, bypassing the serializer), dispatch
+        time must still refuse to POST to it.
+        """
+        webhook = _make_webhook(payload_url="http://example.com/hook", secret_key="s2")
+        with patch(_POST) as mock_post:
+            result = dispatch_consent_webhook.apply(
+                args=[str(webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
+            )
+        mock_post.assert_not_called()
+        self.assertEqual(result.result, {"status": "skipped", "reason": "unsafe_url"})
+
+
+class WebhookDispatchRedirectHandlingTests(TestCase):
+    """
+    Bug 4 (SSRF hardening): redirects must never be followed, and a 3xx
+    response must be treated as a failed delivery (requests.Response.ok is
+    True for any status < 400, including 3xx, so this must be an explicit
+    check — not implicit via resp.ok).
+    """
+
+    def setUp(self):
+        self.webhook = _make_webhook()
+
+    def test_allow_redirects_false_is_passed_to_requests_post(self):
+        with patch(_GETADDRINFO, return_value=_PUBLIC_ADDRINFO):
+            with patch(_POST) as mock_post:
+                mock_post.return_value = MagicMock(status_code=200, ok=True)
+                dispatch_consent_webhook.apply(
+                    args=[str(self.webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
+                )
+        _, call_kwargs = mock_post.call_args
+        self.assertEqual(call_kwargs.get("allow_redirects"), False)
+
+    def test_3xx_response_is_treated_as_failed_delivery(self):
+        with patch(_GETADDRINFO, return_value=_PUBLIC_ADDRINFO):
+            with patch(_POST) as mock_post:
+                # ok=True mirrors real requests.Response.ok semantics for a 3xx
+                # (it only returns False for status codes >= 400) — the fix must
+                # not rely on resp.ok to catch this.
+                mock_post.return_value = MagicMock(status_code=302, ok=True)
+                result = dispatch_consent_webhook.apply(
+                    args=[str(self.webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
+                )
+        self.assertEqual(result.result, {"status": "receiver_error", "http_status": 302})
+        self.webhook.refresh_from_db()
+        self.assertEqual(self.webhook.last_delivery_status, "failed")
+
+
+# ===========================================================================
+# Bug 4 (SSRF hardening) — WebhookSerializer registration-time HTTPS guard.
+# ===========================================================================
+
+class WebhookSerializerHttpsValidationTests(TestCase):
+    """
+    WebhookSerializer.validate_payloadUrl() must reject any non-HTTPS
+    payloadUrl at registration time, before a ConsentWebhook row is ever
+    persisted — the cheap half of the Bug 4 SSRF fix (the expensive
+    DNS-resolution check happens at dispatch time; see
+    WebhookSSRFProtectionTests above).
+    """
+
+    def _valid_payload(self, payload_url: str) -> dict:
+        return {
+            "payloadUrl": payload_url,
+            "contentType": "application/json",
+            "secretKey": "s3cr3t",
+        }
+
+    def test_plain_http_url_is_rejected(self):
+        from apps.consent.serializers import WebhookSerializer
+
+        serializer = WebhookSerializer(data=self._valid_payload("http://example.com/hook"))
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("payloadUrl", serializer.errors)
+
+    def test_malformed_url_is_rejected(self):
+        from apps.consent.serializers import WebhookSerializer
+
+        serializer = WebhookSerializer(data=self._valid_payload("not-a-url"))
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("payloadUrl", serializer.errors)
+
+    def test_valid_https_url_is_accepted(self):
+        from apps.consent.serializers import WebhookSerializer
+
+        serializer = WebhookSerializer(data=self._valid_payload("https://example.com/hook"))
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_rejection_does_not_persist_a_webhook_row(self):
+        """A rejected non-HTTPS registration must never reach the database."""
+        from apps.consent.serializers import WebhookSerializer
+
+        before = ConsentWebhook.objects.count()
+        serializer = WebhookSerializer(data=self._valid_payload("http://example.com/hook"))
+        self.assertFalse(serializer.is_valid())
+        self.assertEqual(ConsentWebhook.objects.count(), before)

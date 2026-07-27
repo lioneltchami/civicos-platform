@@ -248,12 +248,21 @@ class ConfigDataAgreementTests(GovStackAPIBase):
         that they're required, sending the wrong key names correctly 400s
         instead of silently succeeding, so this test uses the correct names
         and also asserts the resulting category actually has that content.
+
+        Bug 8 fix: name_en/name_fr/purpose_fr are now required fields too
+        (see test_create_data_agreement_rejects_blank_bilingual_fields and
+        test_create_data_agreement_persists_bilingual_fields below for
+        dedicated coverage), so this general-purpose test must now also
+        supply them to keep exercising the happy path.
         """
         self._auth(self.admin)
         r = self.client.post("/api/v1/consent/config/data-agreement/", {
             "dataAgreement": {
                 "slug": "newsletter",
+                "name_en": "Newsletter",
+                "name_fr": "Infolettre",
                 "purpose": "Send newsletters",
+                "purpose_fr": "Envoyer des infolettres",
                 "lawfulBasis": "consent",
                 "dpia": "",
             }
@@ -264,6 +273,76 @@ class ConfigDataAgreementTests(GovStackAPIBase):
         self.assertEqual(category.purpose_en, "Send newsletters")
         self.assertEqual(category.lawful_basis, "consent")
         self.assertIn("revision", r.data)
+
+    def _valid_da_payload(self, **overrides):
+        payload = {
+            "slug": "bilingual-da",
+            "name_en": "Bilingual DA",
+            "name_fr": "AD bilingue",
+            "purpose": "Purpose in English",
+            "purpose_fr": "But en français",
+            "lawfulBasis": "consent",
+            "dpia": "",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_create_data_agreement_rejects_blank_bilingual_fields(self):
+        """
+        Bug 8 fix (MEDIUM): POST /config/data-agreement/ with a blank or
+        missing name_en/name_fr/purpose_fr must 400, not silently persist
+        empty strings for the bilingual, human-readable fields the model's
+        own PIPEDA rationale depends on.
+        """
+        self._auth(self.admin)
+
+        # Blank name_en
+        r = self.client.post("/api/v1/consent/config/data-agreement/", {
+            "dataAgreement": self._valid_da_payload(slug="blank-name-en", name_en=""),
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
+
+        # Blank name_fr
+        r = self.client.post("/api/v1/consent/config/data-agreement/", {
+            "dataAgreement": self._valid_da_payload(slug="blank-name-fr", name_fr=""),
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
+
+        # Blank purpose_fr
+        r = self.client.post("/api/v1/consent/config/data-agreement/", {
+            "dataAgreement": self._valid_da_payload(slug="blank-purpose-fr", purpose_fr=""),
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
+
+        # Missing name_en entirely
+        payload = self._valid_da_payload(slug="missing-name-en")
+        del payload["name_en"]
+        r = self.client.post("/api/v1/consent/config/data-agreement/", {
+            "dataAgreement": payload,
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
+
+        self.assertFalse(
+            ConsentCategory.objects.filter(slug__in=[
+                "blank-name-en", "blank-name-fr", "blank-purpose-fr", "missing-name-en",
+            ]).exists()
+        )
+
+    def test_create_data_agreement_persists_bilingual_fields(self):
+        """
+        Bug 8 fix (MEDIUM): a well-formed request with all bilingual fields
+        populated still succeeds and the values are persisted correctly.
+        """
+        self._auth(self.admin)
+        r = self.client.post("/api/v1/consent/config/data-agreement/", {
+            "dataAgreement": self._valid_da_payload(slug="bilingual-happy-path"),
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        category = ConsentCategory.objects.get(slug="bilingual-happy-path")
+        self.assertEqual(category.name_en, "Bilingual DA")
+        self.assertEqual(category.name_fr, "AD bilingue")
+        self.assertEqual(category.purpose_en, "Purpose in English")
+        self.assertEqual(category.purpose_fr, "But en français")
 
     def test_read_data_agreement(self):
         category = _make_category(slug="test-read-da")
@@ -1114,7 +1193,10 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
                 "verificationMethod": "string",
                 "verificationPayload": '{"id": "' + str(self.record.pk) + '"}',
                 "verificationPayloadHash": "abc123",
-                "verificationSignedBy": str(self.citizen.pk),
+                # Deliberately distinct from self.citizen.pk (the record's own
+                # citizen) so Bug 2 regressions (server silently substituting
+                # str(record.citizen_id)) are caught by assertions below.
+                "verificationSignedBy": "external-delegate-signer-77",
                 "timestamp": "2026-07-07T00:00:00Z",
             }
         }
@@ -1160,6 +1242,57 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         r = self.client.post(self._sig_url(), payload, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
+    # --- Bug 2 regression coverage: caller's signature/verificationSignedBy
+    # must be persisted verbatim, not replaced with a server-computed hash /
+    # the record's own citizen_id.
+    def test_create_signature_persists_caller_signature_verbatim(self):
+        self._auth(self.citizen)
+        r = self.client.post(self._sig_url(), self._valid_payload(), format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(r.data["signature"]["signature"], "sha256-fakesig")
+        # Must NOT be a sha256 hex digest silently computed by the server.
+        self.assertNotEqual(len(r.data["signature"]["signature"]), 64)
+
+        from apps.consent.models import ConsentSignature
+        db_sig = ConsentSignature.objects.get(consent_record=self.record)
+        self.assertEqual(db_sig.signature, "sha256-fakesig")
+
+    def test_create_signature_persists_caller_verification_signed_by_verbatim(self):
+        self._auth(self.citizen)
+        r = self.client.post(self._sig_url(), self._valid_payload(), format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(r.data["signature"]["verificationSignedBy"], "external-delegate-signer-77")
+        # Must NOT have been silently replaced with the record's own citizen id.
+        self.assertNotEqual(r.data["signature"]["verificationSignedBy"], str(self.citizen.pk))
+
+        from apps.consent.models import ConsentSignature
+        db_sig = ConsentSignature.objects.get(consent_record=self.record)
+        self.assertEqual(db_sig.verification_signed_by, "external-delegate-signer-77")
+
+    def test_create_signature_missing_signature_field_returns_400(self):
+        self._auth(self.citizen)
+        payload = self._valid_payload()
+        del payload["signature"]["signature"]
+        r = self.client.post(self._sig_url(), payload, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_signature_missing_verification_signed_by_returns_400(self):
+        self._auth(self.citizen)
+        payload = self._valid_payload()
+        del payload["signature"]["verificationSignedBy"]
+        r = self.client.post(self._sig_url(), payload, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # --- Bug 6 regression coverage: spec-conformant flat body (no nested
+    # {"signature": {...}} envelope) must also be accepted.
+    def test_create_signature_accepts_flat_body(self):
+        self._auth(self.citizen)
+        flat_payload = self._valid_payload()["signature"]
+        r = self.client.post(self._sig_url(), flat_payload, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(r.data["signature"]["signature"], "sha256-fakesig")
+        self.assertEqual(r.data["signature"]["verificationSignedBy"], "external-delegate-signer-77")
+
     # --- PUT update ---
     def test_update_signature(self):
         self._auth(self.citizen)
@@ -1175,6 +1308,63 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self._auth(self.citizen)
         r = self.client.put(self._sig_url(), {"signature": {"verificationType": "string"}}, format="json")
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_signature_accepts_flat_body(self):
+        """Bug 6 regression coverage for PUT."""
+        self._auth(self.citizen)
+        self.client.post(self._sig_url(), self._valid_payload(), format="json")
+        r = self.client.put(self._sig_url(), {"verificationMethod": "ed25519"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual(r.data["signature"]["verificationMethod"], "ed25519")
+
+    # --- Bug 3 regression coverage: PUT must create a ConsentRevision and a
+    # ConsentAuditEntry — previously it was a bare ModelSerializer.save()
+    # with no revisioning or audit trail (backdating confirmed live to 1999).
+    def test_update_signature_creates_revision(self):
+        self._auth(self.citizen)
+        self.client.post(self._sig_url(), self._valid_payload(), format="json")
+        rev_count_before = ConsentRevision.objects.filter(schema_name="ConsentSignature").count()
+
+        r = self.client.put(self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+        rev_count_after = ConsentRevision.objects.filter(schema_name="ConsentSignature").count()
+        self.assertEqual(rev_count_after, rev_count_before + 1)
+
+        from apps.consent.models import ConsentSignature
+        db_sig = ConsentSignature.objects.get(consent_record=self.record)
+        latest_rev = ConsentRevision.objects.filter(
+            schema_name="ConsentSignature", object_id=str(db_sig.pk)
+        ).order_by("-timestamp").first()
+        self.assertIsNotNone(latest_rev)
+        self.assertEqual(latest_rev.authorized_by_individual_id, self.citizen.pk)
+
+    def test_update_signature_creates_audit_entry(self):
+        self._auth(self.citizen)
+        self.client.post(self._sig_url(), self._valid_payload(), format="json")
+
+        r = self.client.put(self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+        entries = ConsentAuditEntry.objects.filter(citizen=self.citizen).order_by("-timestamp")
+        self.assertTrue(
+            any(e.details.get("trigger") == "signature_updated" for e in entries),
+            "Expected a ConsentAuditEntry with details.trigger == 'signature_updated' after PUT",
+        )
+
+    def test_update_signature_does_not_overwrite_caller_signature_with_hash(self):
+        """
+        Bug 2/3 combined regression: updating unrelated fields (e.g.
+        verificationMethod) must not disturb the previously-persisted
+        caller-supplied signature/verificationSignedBy values.
+        """
+        self._auth(self.citizen)
+        self.client.post(self._sig_url(), self._valid_payload(), format="json")
+
+        r = self.client.put(self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["signature"]["signature"], "sha256-fakesig")
+        self.assertEqual(r.data["signature"]["verificationSignedBy"], "external-delegate-signer-77")
 
     # --- Response envelope conformance ---
     def test_post_consent_record_includes_signature_key(self):
@@ -1751,3 +1941,269 @@ class ConsentGovStackThrottleScopeTests(TestCase):
         # Sanity check that this loop actually found the views we expect
         # (i.e. this test isn't silently checking zero classes).
         self.assertGreaterEqual(checked, 25)
+
+
+# ===========================================================================
+# Bug 1 fix — Individual detail operations must use the User's actual
+# integer (BigAutoField) primary key, not a UUID.
+#
+# ConfigIndividualDetailView._get_user and ServiceIndividualView.get/.put
+# previously ran individual_id through _parse_uuid_param, so every call to
+# configIndividualRead/Update/Delete and serviceIndividualRead/Update
+# unconditionally raised a ValidationError -> HTTP 400, regardless of
+# whether the pk was otherwise valid. Fixed by switching to
+# _parse_int_param, which matches auth_extension.User's real PK type.
+# ===========================================================================
+
+class ConfigIndividualDetailTests(GovStackAPIBase):
+
+    def test_get_individual_by_valid_int_pk_returns_200(self):
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/config/individual/{self.citizen.pk}/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("individual", r.data)
+        self.assertEqual(str(r.data["individual"]["id"]), str(self.citizen.pk))
+
+    def test_put_individual_by_valid_int_pk_returns_200(self):
+        self._auth(self.admin)
+        r = self.client.put(
+            f"/api/v1/consent/config/individual/{self.citizen.pk}/",
+            {"individual": {"first_name": "Updated"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.citizen.refresh_from_db()
+        self.assertEqual(self.citizen.first_name, "Updated")
+
+    def test_delete_individual_by_valid_int_pk_returns_200(self):
+        self._auth(self.admin)
+        r = self.client.delete(f"/api/v1/consent/config/individual/{self.citizen.pk}/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.citizen.refresh_from_db()
+        self.assertFalse(self.citizen.is_active)
+
+    def test_get_individual_nonexistent_int_pk_returns_404(self):
+        self._auth(self.admin)
+        nonexistent_pk = self.citizen.pk + 999999
+        r = self.client.get(f"/api/v1/consent/config/individual/{nonexistent_pk}/")
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_put_individual_nonexistent_int_pk_returns_404(self):
+        self._auth(self.admin)
+        nonexistent_pk = self.citizen.pk + 999999
+        r = self.client.put(
+            f"/api/v1/consent/config/individual/{nonexistent_pk}/",
+            {"individual": {"first_name": "X"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_individual_nonexistent_int_pk_returns_404(self):
+        self._auth(self.admin)
+        nonexistent_pk = self.citizen.pk + 999999
+        r = self.client.delete(f"/api/v1/consent/config/individual/{nonexistent_pk}/")
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_individual_malformed_pk_returns_400(self):
+        self._auth(self.admin)
+        r = self.client.get("/api/v1/consent/config/individual/not-a-number/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_put_individual_malformed_pk_returns_400(self):
+        self._auth(self.admin)
+        r = self.client.put(
+            "/api/v1/consent/config/individual/not-a-number/",
+            {"individual": {"first_name": "X"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_individual_malformed_pk_returns_400(self):
+        self._auth(self.admin)
+        r = self.client.delete("/api/v1/consent/config/individual/not-a-number/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ServiceIndividualDetailTests(GovStackAPIBase):
+
+    def test_get_own_individual_by_valid_int_pk_returns_200(self):
+        self._auth(self.citizen)
+        r = self.client.get(f"/api/v1/consent/service/individual/{self.citizen.pk}/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("individual", r.data)
+        self.assertEqual(str(r.data["individual"]["id"]), str(self.citizen.pk))
+
+    def test_admin_get_other_individual_by_valid_int_pk_returns_200(self):
+        self._auth(self.admin)
+        r = self.client.get(f"/api/v1/consent/service/individual/{self.citizen.pk}/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_put_own_individual_by_valid_int_pk_returns_200(self):
+        self._auth(self.citizen)
+        r = self.client.put(
+            f"/api/v1/consent/service/individual/{self.citizen.pk}/",
+            {"individual": {"first_name": "SelfUpdated"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.citizen.refresh_from_db()
+        self.assertEqual(self.citizen.first_name, "SelfUpdated")
+
+    def test_get_individual_nonexistent_int_pk_returns_404(self):
+        self._auth(self.admin)
+        nonexistent_pk = self.citizen.pk + 999999
+        r = self.client.get(f"/api/v1/consent/service/individual/{nonexistent_pk}/")
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_put_individual_nonexistent_int_pk_by_admin_returns_404(self):
+        self._auth(self.admin)
+        nonexistent_pk = self.citizen.pk + 999999
+        r = self.client.put(
+            f"/api/v1/consent/service/individual/{nonexistent_pk}/",
+            {"individual": {"first_name": "X"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_individual_malformed_pk_returns_400(self):
+        self._auth(self.citizen)
+        r = self.client.get("/api/v1/consent/service/individual/not-a-number/")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_put_individual_malformed_pk_returns_400(self):
+        self._auth(self.citizen)
+        r = self.client.put(
+            "/api/v1/consent/service/individual/not-a-number/",
+            {"individual": {"first_name": "X"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# ===========================================================================
+# Bug 5 fix — query-param filters on list/detail endpoints must be validated
+# before being passed into .filter()/.get(), so a malformed value raises a
+# clean DRF ValidationError (-> 400) instead of an uncaught ValueError or
+# Django ORM ValidationError escaping as an HTTP 500.
+# ===========================================================================
+
+class ServiceVerificationConsentRecordsMalformedFilterTests(GovStackAPIBase):
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.models import Group
+        self.category = _make_category(slug="verify-malformed-test")
+        self.consumer = _make_citizen(email="verify-malformed-consumer@example.com")
+        group, _ = Group.objects.get_or_create(name="data_consumers")
+        self.consumer.groups.add(group)
+
+    def test_malformed_individual_id_returns_400_not_500(self):
+        self._auth(self.consumer)
+        r = self.client.get(
+            "/api/v1/consent/service/verification/consent-records/?individualId=not-an-int"
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_malformed_data_agreement_id_returns_400_not_500(self):
+        self._auth(self.consumer)
+        r = self.client.get(
+            "/api/v1/consent/service/verification/consent-records/?dataAgreementId=not-an-int"
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_wellformed_nonexistent_individual_id_returns_empty_list(self):
+        """A syntactically valid but nonexistent integer individualId must
+        behave as it did before the fix: 200 with an empty list, not an
+        error."""
+        ConsentService.grant(self.citizen, self.category.slug)
+        self._auth(self.consumer)
+        nonexistent_pk = self.citizen.pk + 999999
+        r = self.client.get(
+            f"/api/v1/consent/service/verification/consent-records/?individualId={nonexistent_pk}"
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["consentRecords"], [])
+
+    def test_wellformed_nonexistent_data_agreement_id_returns_empty_list(self):
+        ConsentService.grant(self.citizen, self.category.slug)
+        self._auth(self.consumer)
+        nonexistent_pk = self.category.pk + 999999
+        r = self.client.get(
+            f"/api/v1/consent/service/verification/consent-records/?dataAgreementId={nonexistent_pk}"
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["consentRecords"], [])
+
+
+class AuditConsentLogMalformedFilterTests(GovStackAPIBase):
+
+    def setUp(self):
+        super().setUp()
+        self.category = _make_category(slug="audit-log-malformed-test")
+        ConsentService.grant(self.citizen, self.category.slug)
+
+    def test_malformed_individual_id_returns_400_not_500(self):
+        self._auth(self.admin)
+        r = self.client.get(
+            "/api/v1/consent/audit/consent-log/?individualId=not-an-int"
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_wellformed_nonexistent_individual_id_returns_empty_list(self):
+        self._auth(self.admin)
+        nonexistent_pk = self.citizen.pk + 999999
+        r = self.client.get(
+            f"/api/v1/consent/audit/consent-log/?individualId={nonexistent_pk}"
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["consentLog"], [])
+
+
+class PolicyDetailMalformedRevisionIdTests(GovStackAPIBase):
+    """
+    ConsentRevision's PK is a UUIDField. Before the fix, a malformed
+    (non-UUID-shaped) revisionId query param raised Django's own
+    ValidationError at the ORM's to_python stage inside
+    ConsentRevision.objects.get(pk=revision_id, ...), which was NOT caught
+    by the surrounding `except ConsentRevision.DoesNotExist` clause and
+    escaped as an HTTP 500. Now validated via _parse_uuid_param first.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.policy, self.rev1 = ConsentService.create_policy(
+            {"name": "Malformed RevId Policy", "version": "1.0", "url": "https://example.com/mrp"},
+            actor=self.admin,
+        )
+
+    def test_config_policy_detail_malformed_revision_id_returns_400_not_500(self):
+        self._auth(self.admin)
+        r = self.client.get(
+            f"/api/v1/consent/config/policy/{self.policy.pk}/?revisionId=not-a-uuid"
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_service_policy_detail_malformed_revision_id_returns_400_not_500(self):
+        self._auth(self.citizen)
+        r = self.client.get(
+            f"/api/v1/consent/service/policy/{self.policy.pk}/?revisionId=not-a-uuid"
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_config_policy_detail_wellformed_nonexistent_revision_id_still_404(self):
+        """Preserve pre-fix behavior for a well-formed-but-nonexistent UUID
+        revisionId (already covered for /config/ by
+        Round9RevisionIdParamTests.test_policy_detail_with_invalid_revision_id_returns_404;
+        re-asserted here alongside the malformed-input case for contrast)."""
+        self._auth(self.admin)
+        r = self.client.get(
+            f"/api/v1/consent/config/policy/{self.policy.pk}/?revisionId={uuid.uuid4()}"
+        )
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_service_policy_detail_wellformed_nonexistent_revision_id_returns_404(self):
+        self._auth(self.citizen)
+        r = self.client.get(
+            f"/api/v1/consent/service/policy/{self.policy.pk}/?revisionId={uuid.uuid4()}"
+        )
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)

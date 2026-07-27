@@ -8,9 +8,12 @@ cleanup_export_files     — marks expired export requests and logs them
 from __future__ import annotations
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 from datetime import timedelta
+from urllib.parse import urlparse
 
 import requests as _requests
 
@@ -24,6 +27,74 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+# Bug 4 (SSRF hardening) — same two extra ranges as
+# apps.appointments.tasks._is_safe_outbound_url (see that module for the full
+# rationale): RFC 6598 Shared Address Space / CGNAT and the IANA IETF
+# Protocol Assignments block are NOT covered by ipaddress.ip_address's
+# is_private/is_loopback/is_link_local/is_reserved/is_multicast/
+# is_unspecified properties, yet are routable inside many cloud VPC /
+# Kubernetes overlay networks and can reach internal infrastructure.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+_IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
+
+
+def _is_safe_outbound_url(url: str) -> bool:
+    """
+    Return True only if ``url`` is safe to issue an outbound HTTP POST to.
+
+    This is a deliberate near-verbatim copy of
+    ``apps.appointments.tasks._is_safe_outbound_url`` (also duplicated as
+    ``apps.payments.govstack_tasks._is_safe_callback_url``) — there is no
+    shared ``apps.core`` helper for this yet (confirmed via repo-wide
+    search), and this per-BB duplication is the established precedent in
+    this codebase for this exact class of check, so a third copy here is
+    consistent rather than inventing a new pattern.
+
+    Checks, in order (fails closed on ANY failure):
+      1. scheme must be exactly "https" and a hostname must be present.
+      2. The hostname is resolved via DNS (socket.getaddrinfo) — this is the
+         TOCTOU-safe step: registration-time validation
+         (``WebhookSerializer.validate_payloadUrl``, which only checks the
+         HTTPS scheme) cannot catch a hostname that resolves to a private IP
+         *at dispatch time*, since DNS can be repointed after registration.
+      3. EVERY resolved IP address (a hostname may have multiple A/AAAA
+         records) must be public and routable. Rejected ranges: private,
+         loopback, link-local, reserved, multicast, and unspecified (the six
+         ipaddress.ip_address properties), PLUS RFC 6598 Shared Address
+         Space / CGNAT (100.64.0.0/10) and the IANA IETF Protocol
+         Assignments block (192.0.0.0/24), which those six properties do
+         NOT cover. A single unsafe address among several resolved
+         addresses is enough to reject the whole URL.
+      4. Any exception at all (malformed URL, DNS resolution failure, no
+         addresses returned) is treated as unsafe.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            return False
+
+        addrinfo = socket.getaddrinfo(parsed.hostname, None)
+        if not addrinfo:
+            return False
+
+        for info in addrinfo:
+            ip = ipaddress.ip_address(info[4][0])
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+                or ip in _SHARED_ADDRESS_SPACE
+                or ip in _IETF_PROTOCOL_ASSIGNMENTS
+            ):
+                return False
+
+        return True
+    except Exception:  # noqa: BLE001 — fail closed on ANY parse/DNS error.
+        return False
 
 
 @shared_task(
@@ -97,6 +168,20 @@ def dispatch_consent_webhook(
         )
         return {"status": "skipped", "reason": "webhook_disabled"}
 
+    # Bug 4 (SSRF hardening): re-validate the destination immediately before
+    # the outbound call, since DNS can be repointed at any time after the
+    # webhook was registered (registration-time validation in
+    # WebhookSerializer.validate_payloadUrl only checks the HTTPS scheme).
+    # A URL that fails this check is skipped — logged as a warning, never
+    # raised — so a malicious/misconfigured webhook cannot crash or retry
+    # the task; it simply never gets dispatched.
+    if not _is_safe_outbound_url(webhook.payload_url):
+        logger.warning(
+            "dispatch_consent_webhook: webhook %s payload_url failed SSRF safety "
+            "check; skipping dispatch.", webhook_pk,
+        )
+        return {"status": "skipped", "reason": "unsafe_url"}
+
     # Build the signed body using the original event timestamp so that the
     # HMAC signature matches what the subscriber would expect regardless of
     # Celery task queue delay.
@@ -125,11 +210,39 @@ def dispatch_consent_webhook(
                 "X-GovStack-Event": event_type,
             },
             timeout=10,
+            # Bug 4 (SSRF hardening): never follow redirects. _is_safe_outbound_url()
+            # only validates the ORIGINAL url's scheme/DNS/IP; it has no visibility
+            # into a response's Location header. Since requests follows redirects
+            # by default, a webhook registered against a public HTTPS host that
+            # passes validation could have that host respond with a 3xx redirecting
+            # to a private IP or the cloud metadata endpoint (169.254.169.254),
+            # transparently defeating the SSRF control. allow_redirects=False closes
+            # this — the redirect is never followed. See the explicit 3xx check
+            # immediately below: requests.Response.ok is True for ANY status code
+            # < 400 (including 3xx — it is not a "2xx only" check), so without
+            # this explicit check a 3xx response would be silently recorded as a
+            # successful delivery, defeating the point of not following it.
+            allow_redirects=False,
         )
     except _requests.exceptions.RequestException:
         # Will be retried via autoretry_for; update status to "failed" only on
         # final exhaustion (handled in on_failure below).
         raise
+
+    if 300 <= resp.status_code < 400:
+        # A validated-safe URL that 3xx-redirects to an internal target must
+        # never be silently treated as delivered — see allow_redirects=False
+        # comment above. resp.ok would NOT catch this (it is only False for
+        # >= 400), so this is deliberately checked before the resp.ok branch.
+        ConsentWebhook.objects.filter(pk=webhook_pk).update(
+            last_delivery_status="failed",
+        )
+        logger.warning(
+            "dispatch_consent_webhook: webhook %s event %s received a %s redirect "
+            "response; not followed (allow_redirects=False), treated as failed.",
+            webhook_pk, event_type, resp.status_code,
+        )
+        return {"status": "receiver_error", "http_status": resp.status_code}
 
     if resp.ok:
         # Persist the last successfully delivered payload for replay via
@@ -586,6 +699,20 @@ def _build_export_payload(user) -> dict:
 
         record_ids = [str(r.pk) for r in consent_records]
         if record_ids:
+            # NOTE (Bug 7, RTBF/PIPEDA erasure): this only queries revisions
+            # for ConsentRecords that STILL EXIST for this citizen. If a
+            # citizen previously exercised their Right to be Forgotten
+            # (ConsentService.right_to_be_forgotten), the underlying
+            # ConsentRecord rows for forgettable categories were deleted, and
+            # any ConsentRevision snapshots that referenced them were
+            # explicitly redacted in place via ConsentRevision.redact_pii()
+            # at RTBF time (their citizen-identifying content was scrubbed,
+            # not the rows themselves — see models.py's redact_pii()
+            # docstring). Those revisions are deliberately excluded here
+            # because there is no more PII left in them to export — the
+            # citizen explicitly requested erasure of exactly that data, not
+            # access to it. Their absence from this export is therefore
+            # correct/expected, not an access-right gap.
             revisions = list(
                 ConsentRevision.objects.filter(
                     schema_name="ConsentRecord", object_id__in=record_ids

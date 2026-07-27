@@ -346,6 +346,7 @@ class ConfigPolicyDetailView(ConsentGovStackAPIView):
         # GovStack spec: optional ?revisionId= query param selects a specific revision.
         revision_id = request.query_params.get("revisionId")
         if revision_id:
+            revision_id = _parse_uuid_param(revision_id, "revisionId")
             try:
                 revision = ConsentRevision.objects.get(
                     pk=revision_id,
@@ -596,7 +597,7 @@ class ConfigIndividualDetailView(ConsentGovStackAPIView):
     permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
     def _get_user(self, individual_id):
-        individual_id = _parse_uuid_param(individual_id, "individualId")
+        individual_id = _parse_int_param(individual_id, "individualId")
         try:
             return User.objects.get(pk=individual_id)
         except (User.DoesNotExist, ValueError):
@@ -765,7 +766,7 @@ class ServiceIndividualView(ConsentGovStackAPIView):
     def get(self, request, individual_id=None):
         """READ — GovStack serviceIndividualRead / serviceIndividualList"""
         if individual_id:
-            individual_id = _parse_uuid_param(individual_id, "individualId")
+            individual_id = _parse_int_param(individual_id, "individualId")
             # Detail view — admin can read any, citizen can only read own
             if request.user.is_staff or str(request.user.pk) == str(individual_id):
                 try:
@@ -808,7 +809,7 @@ class ServiceIndividualView(ConsentGovStackAPIView):
         """UPDATE own individual — limited field set"""
         user = request.user
         if individual_id:
-            individual_id = _parse_uuid_param(individual_id, "individualId")
+            individual_id = _parse_int_param(individual_id, "individualId")
         if individual_id and str(user.pk) != str(individual_id):
             if not request.user.is_staff:
                 raise PermissionDenied("You may only update your own record.")
@@ -895,6 +896,7 @@ class ServicePolicyDetailView(ConsentGovStackAPIView):
         # GovStack spec: optional ?revisionId= query param selects a specific revision.
         revision_id = request.query_params.get("revisionId")
         if revision_id:
+            revision_id = _parse_uuid_param(revision_id, "revisionId")
             try:
                 revision = ConsentRevision.objects.get(
                     pk=revision_id,
@@ -964,10 +966,12 @@ class ServiceVerificationConsentRecordsView(ConsentGovStackAPIView):
 
         individual_id = request.query_params.get("individualId") or request.query_params.get("individual_id")
         if individual_id:
+            individual_id = _parse_int_param(individual_id, "individualId")
             qs = qs.filter(citizen_id=individual_id)
 
         agreement_id = request.query_params.get("dataAgreementId") or request.query_params.get("data_agreement_id")
         if agreement_id:
+            agreement_id = _parse_int_param(agreement_id, "dataAgreementId")
             qs = qs.filter(category_id=agreement_id)
 
         offset = _safe_int(request.query_params.get("offset"), default=0)
@@ -1442,6 +1446,7 @@ class AuditConsentLogView(ConsentGovStackAPIView):
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
         individual_id = request.query_params.get("individualId")
         if individual_id:
+            individual_id = _parse_int_param(individual_id, "individualId")
             qs = qs.filter(citizen_id=individual_id)
         return Response({
             "consentLog": ConsentAuditEntrySerializer(qs[offset: offset + limit], many=True).data,
@@ -1463,7 +1468,21 @@ class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
          UPDATE — replace the existing Signature on a ConsentRecord.
 
     The Consent BB stores whatever signature the caller provides without
-    cryptographic verification — that is the verifier's responsibility.
+    cryptographic verification — that is the verifier's responsibility. This
+    means ``signature`` and ``verificationSignedBy`` are persisted verbatim
+    from the request (Bug 2 fix) and every create/update is revisioned and
+    audited (Bug 3 fix) — see ``ConsentService.attach_signature`` /
+    ``ConsentService.update_signature`` docstrings for details.
+
+    Both POST and PUT accept either shape of request body (Bug 6 fix):
+      * CivicOS-style nested envelope: ``{"signature": {...full object...}}``
+      * Spec-conformant flat body: the Signature object's own fields directly
+        at the top level (``{"payload": ..., "signature": ..., ...}``) — note
+        the GovStack Signature schema's own string field is itself named
+        ``signature``, so a flat body's top-level ``"signature"`` key holds a
+        STRING, not a nested dict. ``_extract_signature_payload`` below
+        distinguishes the two shapes by checking whether the top-level
+        ``"signature"`` key is itself a dict.
     """
     authentication_classes = _AUTH
     permission_classes = [IsAuthenticated]
@@ -1475,21 +1494,45 @@ class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
         except ConsentRecord.DoesNotExist:
             raise NotFound("ConsentRecord not found.")
 
+    @staticmethod
+    def _extract_signature_payload(request_data):
+        """
+        Bug 6 fix: distinguish the CivicOS nested envelope from a spec-
+        conformant flat Signature body.
+
+        ``request_data.get("signature", request_data)`` (the old logic) broke
+        the flat-body case: a flat Signature object's own top-level
+        ``"signature"`` key holds the signature STRING field, not a nested
+        envelope — so the old code handed ``SignatureSerializer`` a bare
+        string instead of a dict, producing "Expected a dictionary, but got
+        str." Only treat ``"signature"`` as a nested envelope when its value
+        is actually a dict; otherwise (string, or key absent) treat the whole
+        body as the flat payload.
+        """
+        nested = request_data.get("signature")
+        if isinstance(nested, dict):
+            return nested
+        return request_data
+
     def post(self, request, consent_record_id):
         """CREATE — GovStack serviceIndividualConsentRecordSignatureCreate"""
         record = self._get_record(request, consent_record_id)
 
-        payload = request.data.get("signature", request.data)
+        payload = self._extract_signature_payload(request.data)
         serializer = SignatureSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
 
         vtype = serializer.validated_data.get("verification_type", "string")
         vpayload = serializer.validated_data.get("verification_payload", payload)
+        signature = serializer.validated_data.get("signature")
+        verification_signed_by = serializer.validated_data.get("verification_signed_by")
 
         sig = ConsentService.attach_signature(
             record=record,
             verification_type=vtype,
             verification_payload=vpayload if isinstance(vpayload, dict) else {"raw": str(vpayload)},
+            signature=signature,
+            verification_signed_by=verification_signed_by,
             request=request,
         )
 
@@ -1504,10 +1547,16 @@ class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
         except ConsentSignature.DoesNotExist:
             raise NotFound("No signature found for this ConsentRecord. Use POST to create one.")
 
-        payload = request.data.get("signature", request.data)
+        payload = self._extract_signature_payload(request.data)
         serializer = SignatureSerializer(sig, data=payload, partial=True)
         serializer.is_valid(raise_exception=True)
-        sig = serializer.save()
+
+        sig = ConsentService.update_signature(
+            record=record,
+            sig=sig,
+            data=serializer.validated_data,
+            request=request,
+        )
 
         return Response({"signature": SignatureSerializer(sig).data}, status=status.HTTP_200_OK)
 
@@ -1579,13 +1628,25 @@ class ServiceIndividualDataAgreementAllConsentRecordsView(ConsentGovStackAPIView
 # active bug the moment purpose/lawfulBasis were made required, since it broke
 # BOTH naming conventions.
 #
-# NOTE: this table intentionally has no entry for purpose_fr/name_en/name_fr/
-# is_required/sort_order — DataAgreementSerializer has no corresponding field
-# for any of them (this GovStack-facing endpoint exposes only one locale's
-# purpose text via `purpose`; French-locale fields, is_required, and
-# sort_order are managed elsewhere — Django admin / seed_consent_categories —
-# not through this endpoint), so those keys correctly pass through unchanged
-# and are simply ignored, same as any other unrecognised key.
+# Bug 8 fix (MEDIUM, MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"):
+# name_en/name_fr/purpose_fr are now required, non-blank DataAgreementSerializer
+# fields (see serializers.py) using their own snake_case model attribute names
+# directly as the FIELD name — matching how every other caller in this codebase
+# (seed_consent_categories, tests, ConsentService.create_data_agreement) already
+# passes these three keys — so no alias entry is needed for them here; they are
+# bound and validated like any other declared field. Previously this table's
+# comment claimed DataAgreementSerializer had "no corresponding field" for
+# these three and that they were "intentionally" left unbound and silently
+# ignored — that was NOT a deliberate design choice, it was the bug itself:
+# ConsentCategory.objects.create(**data) (in create_data_agreement) silently
+# persisted them as blank strings, a real PIPEDA 4.2 plain-language-purpose gap
+# for the bilingual fields the model's own rationale depends on.
+#
+# is_required/sort_order remain intentionally unexposed by this endpoint —
+# they are managed elsewhere (Django admin / seed_consent_categories), and
+# unlike name_en/name_fr/purpose_fr they were never required to satisfy a
+# certifiability finding, so those two keys still correctly pass through
+# unchanged and are simply ignored, same as any other unrecognised key.
 _DA_KEY_ALIASES = {
     "purpose_en": "purpose",
     "lawful_basis": "lawfulBasis",

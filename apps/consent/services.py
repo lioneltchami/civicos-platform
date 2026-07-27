@@ -374,6 +374,8 @@ class ConsentService:
         record,
         verification_type: str,
         verification_payload,
+        signature: str,
+        verification_signed_by: str,
         request=None,
     ):
         """
@@ -385,6 +387,26 @@ class ConsentService:
 
         C-03 fix: previously the /signature/ endpoint set record.state directly
         without writing a revision or audit entry.
+
+        Bug 2 fix (HIGH, MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"): this
+        BB is a caller-opaque signature store — per this view's own docstring,
+        "the Consent BB stores whatever signature the caller provides without
+        cryptographic verification; that is the verifier's responsibility."
+        Previously this method silently discarded the caller's actual
+        ``signature`` and ``verification_signed_by`` values and replaced them
+        with a server-computed SHA-256 hash of the payload and the record's
+        own citizen_id, respectively — which is not a signature and verifies
+        against nothing, and not who actually signed. Both are now required
+        parameters and are persisted verbatim, unmodified.
+
+        Note: ``verification_payload_hash`` is deliberately left as a
+        server-computed SHA-256 hash of the stored ``verification_payload``
+        (unchanged behaviour) rather than the caller-supplied
+        ``verificationPayloadHash`` — this is the BB's own internal
+        integrity-check value, used to detect tampering with
+        ``verification_payload`` at rest. Only ``signature`` and
+        ``verification_signed_by`` were being wrongly overwritten with a
+        server value that stood in for the caller's own assertions.
         """
         import hashlib
         import json as _json
@@ -408,12 +430,21 @@ class ConsentService:
                     "A signature already exists for this ConsentRecord. Use PUT to update."
                 )
 
+            if not signature:
+                from rest_framework.exceptions import ValidationError as DRFValidationError
+                raise DRFValidationError({"signature": "This field is required."})
+            if not verification_signed_by:
+                from rest_framework.exceptions import ValidationError as DRFValidationError
+                raise DRFValidationError({"verificationSignedBy": "This field is required."})
+
             # Normalise verification_payload to a JSON string for storage (TextField)
             if isinstance(verification_payload, dict):
                 vp_str = _json.dumps(verification_payload, sort_keys=True, default=str)
             else:
                 vp_str = str(verification_payload)
 
+            # BB-internal integrity hash of the stored verification_payload —
+            # NOT the caller's signature. See docstring note above.
             payload_hash = hashlib.sha256(vp_str.encode()).hexdigest()
 
             from django.utils import timezone as _tz
@@ -422,11 +453,11 @@ class ConsentService:
             sig = ConsentSignature.objects.create(
                 consent_record=record,
                 payload=vp_str,
-                signature=payload_hash,
+                signature=signature,
                 verification_type=verification_type,
                 verification_payload=vp_str,
                 verification_payload_hash=payload_hash,
-                verification_signed_by=str(record.citizen_id),
+                verification_signed_by=verification_signed_by,
                 timestamp=_now,
                 data_agreement_revision_hash=record.data_agreement_revision_hash or "",
             )
@@ -475,6 +506,101 @@ class ConsentService:
                         request=_request_ref,
                     )
                 )
+
+        return sig
+
+    @staticmethod
+    def update_signature(record, sig, data: dict, request=None):
+        """
+        Update an existing ConsentSignature and create a ConsentRevision +
+        ConsentAuditEntry for the change.
+
+        Bug 3 fix (HIGH, MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"):
+        previously ``ServiceConsentRecordSignatureView.put`` called
+        ``SignatureSerializer(sig, data=payload, partial=True).save()``
+        directly — a bare ModelSerializer save with no revisioning and no
+        audit entry, unlike every other mutation path in this BB. This let a
+        citizen silently rewrite ``timestamp``/``payload``/``signature`` to
+        arbitrary values (live-reproduced: backdating to 1999) with zero
+        trace. This method mirrors ``attach_signature``'s state-transition
+        block: apply the update, then write a ConsentRevision snapshot and a
+        ConsentAuditEntry inside the same transaction.
+
+        ``data`` is the validated_data dict from SignatureSerializer(partial=True)
+        — same caller-opaque persistence discipline as attach_signature: no
+        field the caller explicitly submitted is silently replaced with a
+        server-computed value, EXCEPT verification_payload_hash, which (as in
+        attach_signature) is always recomputed from verification_payload
+        when the caller updates verification_payload — see attach_signature's
+        docstring for the rationale (BB-internal tamper-evidence hash, not a
+        stand-in for the caller's own signature).
+
+        Judgment call: ConsentAuditEntry.action has no dedicated choice for
+        "signature updated" (choices are granted/withdrawn/export_*/rtbf_*),
+        and models.py is out of this fix's ownership so a new choice cannot
+        be added here. "granted" is reused as the closest existing semantic
+        match — the update pertains to the evidence backing an existing
+        grant, not a new grant or a withdrawal — with
+        details.trigger="signature_updated" distinguishing it from the
+        create-time "signature_attached" entry. Flagged for a follow-up
+        model change (add an explicit "signature_updated" action choice).
+        """
+        import hashlib
+        import json as _json
+
+        from apps.consent.models import ConsentAuditEntry, ConsentRevision
+
+        actor_ip = _mask_ip(_get_ip(request) or "")
+
+        with transaction.atomic():
+            for field, value in data.items():
+                if field == "verification_payload":
+                    if isinstance(value, dict):
+                        value = _json.dumps(value, sort_keys=True, default=str)
+                    else:
+                        value = str(value)
+                setattr(sig, field, value)
+
+            if "verification_payload" in data:
+                payload_hash = hashlib.sha256(sig.verification_payload.encode()).hexdigest()
+                sig.verification_payload_hash = payload_hash
+
+            sig.save()
+
+            snapshot = {
+                "id": str(sig.pk),
+                "consentRecord": str(record.pk),
+                "payload": sig.payload,
+                "signature": sig.signature,
+                "verificationMethod": sig.verification_type,
+                "verificationPayload": sig.verification_payload,
+                "verificationPayloadHash": sig.verification_payload_hash,
+                "verificationSignedBy": sig.verification_signed_by,
+                "timestamp": sig.timestamp.isoformat() if sig.timestamp else None,
+            }
+
+            revision = ConsentRevision.create_for(
+                schema_name="ConsentSignature",
+                obj=sig,
+                snapshot=snapshot,
+                authorized_by=record.citizen,
+                authorized_by_other="",
+            )
+
+            ConsentAuditEntry.objects.create(
+                citizen=record.citizen,
+                actor=record.citizen,
+                # Stopgap: no dedicated "signature_updated" action choice exists
+                # yet (see docstring above) — "granted" is the closest existing
+                # match for an update to existing grant evidence.
+                action="granted",
+                category=record.category,
+                actor_ip=actor_ip,
+                details={
+                    "trigger": "signature_updated",
+                    "revision_id": str(revision.pk),
+                },
+            )
 
         return sig
 
@@ -732,7 +858,7 @@ class ConsentService:
 
         Returns a summary dict: {deleted_count, retained_count, category_slugs_deleted}.
         """
-        from apps.consent.models import ConsentAuditEntry, ConsentRecord
+        from apps.consent.models import ConsentAuditEntry, ConsentRecord, ConsentRevision
 
         ip = _mask_ip(_get_ip(request) or "")
 
@@ -748,6 +874,13 @@ class ConsentService:
 
             deleted_slugs = [r.category.slug for r in forgettable_records]
             deleted_count = len(deleted_slugs)
+            # Bug 7 (RTBF/PIPEDA erasure gap): capture the pks of the records
+            # about to be deleted BEFORE deleting them. ConsentRevision rows
+            # reference these records by (schema_name="ConsentRecord",
+            # object_id=<record pk>) — once the ConsentRecord is deleted we
+            # can no longer look up which revisions belonged to it, so the
+            # pks must be captured now.
+            deleted_record_ids = [str(r.pk) for r in forgettable_records]
 
             # Bypass the immutability guard by using QuerySet.delete()
             # (ConsentRecord.delete() raises ValueError but qs.delete() is allowed).
@@ -756,6 +889,25 @@ class ConsentService:
                 category__forgettable=True,
                 category__is_required=False,
             ).delete()
+
+            # Bug 7 (RTBF/PIPEDA erasure gap): deleting the ConsentRecord rows
+            # above does NOT touch the ConsentRevision snapshots that
+            # referenced them — ConsentRevision is deliberately append-only
+            # and non-deletable (see models.py), so those revisions would
+            # otherwise survive forever with the citizen's identifying data
+            # still embedded in serialized_snapshot / authorized_by_individual,
+            # completely defeating the erasure this method exists to perform.
+            # redact_pii() keeps the historical FACT that a consent event
+            # happened (audit integrity preserved) while scrubbing the PII
+            # inside it (erasure compliance satisfied) — see its docstring
+            # in models.py for the full reasoning behind this narrow,
+            # dedicated exception to the append-only invariant.
+            if deleted_record_ids:
+                revisions_to_redact = ConsentRevision.objects.filter(
+                    schema_name="ConsentRecord", object_id__in=deleted_record_ids
+                )
+                for revision in revisions_to_redact:
+                    revision.redact_pii()
 
             retained_count = ConsentRecord.objects.filter(citizen=citizen).count()
 

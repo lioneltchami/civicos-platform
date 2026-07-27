@@ -262,6 +262,28 @@ class DataAgreementSerializer(serializers.ModelSerializer):
     purpose = serializers.CharField(source="purpose_en")
     lawfulBasis = serializers.CharField(source="lawful_basis")
     dataUse = serializers.CharField(source="data_use", required=False, allow_blank=True)
+
+    # Bug 8 fix (MEDIUM, MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"):
+    # name_en/name_fr/purpose_fr previously had NO field at all on this
+    # serializer, so a POST to /config/data-agreement/ could never populate
+    # them — Django's non-null CharField/TextField silently defaults to ""
+    # on ConsentCategory.objects.create(**data) when a kwarg is simply
+    # omitted (blank=False is a serializer/form-level check only, never
+    # enforced by the ORM's .create()), so every DataAgreement created
+    # through this endpoint got permanently blank bilingual name/purpose
+    # fields — a PIPEDA 4.2 plain-language-purpose gap for the exact fields
+    # the model's own rationale depends on. These use their own snake_case
+    # model attribute names directly as the FIELD name (no source= mapping
+    # needed) since that's already the convention every other caller in this
+    # codebase uses for these three keys (seed_consent_categories.py, the
+    # test suite, ConsentService.create_data_agreement's own dict-based
+    # callers) — unlike purpose/lawfulBasis above, there is no GovStack-spec
+    # camelCase name for these CivicOS bilingual extensions. required=True,
+    # allow_blank=False mirrors purpose/lawfulBasis: a create request omitting
+    # or blanking any of the three must 400, not silently persist "".
+    name_en = serializers.CharField(allow_blank=False)
+    name_fr = serializers.CharField(allow_blank=False)
+    purpose_fr = serializers.CharField(allow_blank=False)
     # dpia: required=True (key must be present on create) matches the live GovStack
     # v23Q4 DataAgreement schema's own `required: [id, version, purpose, lawfulBasis,
     # dpia]` list (confirmed by fetching api/consent-openapi.yaml directly) — but
@@ -322,8 +344,11 @@ class DataAgreementSerializer(serializers.ModelSerializer):
             "version",
             "language",
             "lifecycle",
+            "name_en",
+            "name_fr",
             "purpose",
             "purposeDescription",
+            "purpose_fr",
             "lawfulBasis",
             "dataUse",
             "dataUsePurpose",
@@ -481,6 +506,14 @@ class WebhookSerializer(serializers.ModelSerializer):
     """GovStack Webhook object."""
 
     payloadUrl = serializers.URLField(source="payload_url")
+    # Bug 4 (SSRF hardening) cheap registration-time check: reject non-HTTPS
+    # URLs immediately, before any network call is ever made. This mirrors
+    # apps.appointments.services.govstack_subscriber._validate_url /
+    # _https_validator (HTTPS-scheme-only, no DNS resolution here — that is
+    # deliberately deferred to dispatch time in tasks.dispatch_consent_webhook,
+    # where a live network call is already happening and DNS can be checked
+    # against the CURRENT resolution rather than a potentially stale one
+    # captured at registration time). See validate_payloadUrl() below.
     contentType = serializers.CharField(source="content_type")
     # GovStack spec required field: "disabled" (boolean, = is_disabled)
     disabled = serializers.BooleanField(source="is_disabled", required=False, default=False)
@@ -514,6 +547,31 @@ class WebhookSerializer(serializers.ModelSerializer):
             "timeStamp",
         ]
         read_only_fields = ["id", "timeStamp"]
+
+    def validate_payloadUrl(self, value: str) -> str:
+        """
+        Reject any ``payloadUrl`` that is not a well-formed HTTPS URL.
+
+        This is the cheap, registration-time half of the Bug 4 SSRF fix: it
+        catches plain-HTTP and malformed URLs immediately with a 400,
+        before a webhook is ever persisted. It intentionally does NOT
+        attempt DNS resolution / private-IP-range checking — a hostname
+        can be re-pointed via DNS at any time after registration (TOCTOU),
+        so that expensive, authoritative check lives at dispatch time in
+        ``tasks.dispatch_consent_webhook`` / ``_is_safe_outbound_url``,
+        where a live network call is already being made anyway.
+        """
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.core.validators import URLValidator
+
+        https_validator = URLValidator(schemes=["https"])
+        try:
+            https_validator(value)
+        except DjangoValidationError:
+            raise serializers.ValidationError(
+                "payloadUrl must be a valid HTTPS URL. Plain HTTP and malformed URLs are not permitted."
+            )
+        return value
 
 
 class SignatureSerializer(serializers.ModelSerializer):

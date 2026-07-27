@@ -413,6 +413,74 @@ class ConsentRevision(UUIDModel):
     def delete(self, *args, **kwargs):
         raise ValueError("ConsentRevision records cannot be deleted.")
 
+    def redact_pii(self) -> None:
+        """
+        Redact personally-identifying content from this revision, in place,
+        for GovStack Right-to-be-Forgotten / PIPEDA s.4.9 erasure compliance
+        ONLY. Do not call this for any other purpose.
+
+        Why this narrow exception exists: ConsentRevision is deliberately
+        append-only and non-deletable (see save()/delete() above) so the
+        tamper-evident audit trail proves a consent event genuinely happened.
+        RTBF, however, requires the citizen's identifying data to be
+        erasable even though the record of the EVENT itself must survive for
+        the BB's own audit/operational integrity. The standard, defensible
+        resolution to this "erasure vs. immutable audit trail" tension is to
+        keep the historical FACT that a consent event occurred, but scrub
+        the PII embedded inside it. That is exactly what this method does,
+        and nothing more.
+
+        Scope of the append-only bypass: this method calls
+        ``super(ConsentRevision, self).save(...)`` directly — i.e. it skips
+        THIS class's own ``save()`` override entirely, rather than calling
+        ``self.save(update_fields=...)``. That means the append-only guard
+        in ``save()`` above is bypassed ONLY when code explicitly calls
+        ``redact_pii()``. Ordinary application code that calls
+        ``revision.save()`` anywhere else in the codebase is completely
+        unaffected and still hits the original ``ValueError`` guard exactly
+        as before — see the regression test in test_models.py proving this.
+
+        What is redacted:
+          - ``authorized_by_individual`` FK -> None. The field is already
+            nullable with ``on_delete=models.SET_NULL``, so this is a
+            supported, pre-existing state for this field, not a schema
+            change or new invariant.
+          - ``serialized_snapshot["authorizedByIndividual"]`` -> a redaction
+            marker. This is the envelope-level mirror of the FK above (see
+            ``create_for()``'s envelope construction).
+          - ``serialized_snapshot["objectData"]["individual"]`` -> a
+            redaction marker, when present. This is the citizen FK id that
+            ``_consent_record_snapshot()`` (services.py) embeds for
+            ``schema_name="ConsentRecord"`` revisions.
+
+        What is deliberately left untouched: ``schema_name``, ``object_id``,
+        ``serialized_hash``, ``timestamp``, ``predecessor_hash``,
+        ``successor``, and ``authorized_by_other``. These are operational /
+        audit-trail metadata (or, for ``authorized_by_other``, a reference
+        to an admin/system actor, not the citizen) — redacting them would
+        erode the tamper-evidence chain this model exists to provide, for no
+        RTBF benefit.
+        """
+        _REDACTED = "[REDACTED]"
+
+        snapshot = self.serialized_snapshot
+        if isinstance(snapshot, dict):
+            if snapshot.get("authorizedByIndividual") is not None:
+                snapshot["authorizedByIndividual"] = _REDACTED
+            object_data = snapshot.get("objectData")
+            if isinstance(object_data, dict) and object_data.get("individual") is not None:
+                object_data["individual"] = _REDACTED
+
+        self.serialized_snapshot = snapshot
+        self.authorized_by_individual = None
+
+        # Deliberately bypasses THIS class's save() guard — see docstring
+        # above for why this is the one, narrowly-scoped, sanctioned
+        # exception to the append-only invariant.
+        super(ConsentRevision, self).save(
+            update_fields=["serialized_snapshot", "authorized_by_individual"]
+        )
+
     def _compute_hash(self) -> str:
         # SHA-256, not the live spec's literal "SHA-1" — a deliberate, documented
         # security-hardening deviation. See serialized_hash's help_text above for
@@ -790,6 +858,18 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
     payload_url = models.URLField(
         help_text="The URL to which the webhook payload will be POSTed.",
     )
+    # SSRF hardening (Bug 4 of the Consent BB closure plan): this field
+    # deliberately stays a bare URLField at the model layer. The two actual
+    # controls live where they belong:
+    #   - Cheap, registration-time check: WebhookSerializer.validate_payloadUrl()
+    #     (serializers.py) rejects any non-HTTPS URL at creation time.
+    #   - Expensive, dispatch-time check: dispatch_consent_webhook()
+    #     (tasks.py) resolves the hostname via DNS and rejects private/
+    #     loopback/link-local/reserved/metadata IP ranges immediately before
+    #     the outbound POST, since DNS can be repointed after registration
+    #     (TOCTOU) — a model-level or serializer-level check alone cannot
+    #     catch that. See tasks.py's ``_is_safe_outbound_url()`` for the full
+    #     rationale, mirrored from apps.appointments.tasks._is_safe_outbound_url.
     content_type = models.CharField(
         max_length=50,
         choices=CONTENT_TYPE_CHOICES,

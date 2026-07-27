@@ -634,3 +634,118 @@ class GrantIntegrityErrorRecoveryTests(TestCase):
         ):
             with self.assertRaises(IntegrityError):
                 ConsentService.grant(self.citizen, "integrity-race-test")
+
+
+# ===========================================================================
+# Bug 7 (RTBF/PIPEDA erasure gap) — right_to_be_forgotten() must redact the
+# PII embedded in ConsentRevision snapshots for every ConsentRecord it deletes,
+# since ConsentRevision itself is append-only/non-deletable by design.
+# ===========================================================================
+
+class RightToBeForgottenRevisionRedactionTests(TestCase):
+    """
+    ConsentRevision rows referencing a just-deleted, forgettable ConsentRecord
+    must have their citizen-identifying content redacted by
+    right_to_be_forgotten(), not merely orphaned.
+    """
+
+    def setUp(self):
+        from apps.consent.models import ConsentRevision
+
+        self.ConsentRevision = ConsentRevision
+        self.citizen = _make_citizen()
+        self.forgettable_category = _make_category(
+            slug=f"forgettable-{uuid.uuid4().hex[:6]}", is_required=False
+        )
+        self.forgettable_category.forgettable = True
+        self.forgettable_category.save(update_fields=["forgettable"])
+
+        self.required_category = _make_category(
+            slug=f"required-{uuid.uuid4().hex[:6]}", is_required=True
+        )
+        self.required_category.forgettable = True  # contradictory flags — is_required wins
+        self.required_category.save(update_fields=["forgettable"])
+
+    def _revisions_for(self, record_pk):
+        return self.ConsentRevision.objects.filter(
+            schema_name="ConsentRecord", object_id=str(record_pk)
+        )
+
+    def test_revisions_for_deleted_record_are_redacted_not_deleted(self):
+        record = ConsentService.grant(self.citizen, self.forgettable_category.slug)
+        record_pk = record.pk
+        revisions = list(self._revisions_for(record_pk))
+        self.assertEqual(len(revisions), 2, "grant() must produce exactly 2 revisions.")
+        for rev in revisions:
+            self.assertEqual(rev.authorized_by_individual_id, self.citizen.pk)
+            self.assertEqual(
+                rev.serialized_snapshot["objectData"]["individual"], str(self.citizen.pk)
+            )
+            self.assertEqual(
+                rev.serialized_snapshot["authorizedByIndividual"], str(self.citizen.pk)
+            )
+
+        ConsentService.right_to_be_forgotten(self.citizen)
+
+        # The ConsentRecord itself must be gone (existing RTBF behaviour).
+        self.assertFalse(ConsentRecord.objects.filter(pk=record_pk).exists())
+
+        # The revisions must still exist (append-only invariant honoured) —
+        # but with their PII scrubbed.
+        redacted = list(self._revisions_for(record_pk))
+        self.assertEqual(len(redacted), 2, "Revisions must be redacted in place, not deleted.")
+        for rev in redacted:
+            self.assertIsNone(rev.authorized_by_individual_id)
+            self.assertEqual(rev.serialized_snapshot["objectData"]["individual"], "[REDACTED]")
+            self.assertEqual(rev.serialized_snapshot["authorizedByIndividual"], "[REDACTED]")
+
+    def test_non_pii_fields_are_left_untouched_by_rtbf_redaction(self):
+        record = ConsentService.grant(self.citizen, self.forgettable_category.slug)
+        record_pk = record.pk
+        before = list(self._revisions_for(record_pk).order_by("timestamp"))
+        before_ids = [r.pk for r in before]
+        before_schema_names = [r.schema_name for r in before]
+        before_object_ids = [r.object_id for r in before]
+        before_timestamps = [r.timestamp for r in before]
+        before_hashes = [r.serialized_hash for r in before]
+
+        ConsentService.right_to_be_forgotten(self.citizen)
+
+        after = list(self._revisions_for(record_pk).order_by("timestamp"))
+        self.assertEqual([r.pk for r in after], before_ids)
+        self.assertEqual([r.schema_name for r in after], before_schema_names)
+        self.assertEqual([r.object_id for r in after], before_object_ids)
+        self.assertEqual([r.timestamp for r in after], before_timestamps)
+        self.assertEqual([r.serialized_hash for r in after], before_hashes)
+
+    def test_revisions_for_required_non_forgettable_record_are_untouched(self):
+        """
+        A required category's record is never deleted by RTBF (is_required=False
+        is the authoritative guard) — its revisions must therefore be left
+        completely alone, PII included.
+        """
+        record = ConsentService.grant(self.citizen, self.required_category.slug)
+        record_pk = record.pk
+
+        ConsentService.right_to_be_forgotten(self.citizen)
+
+        self.assertTrue(ConsentRecord.objects.filter(pk=record_pk).exists())
+        revisions = list(self._revisions_for(record_pk))
+        self.assertEqual(len(revisions), 2)
+        for rev in revisions:
+            self.assertEqual(rev.authorized_by_individual_id, self.citizen.pk)
+            self.assertEqual(
+                rev.serialized_snapshot["objectData"]["individual"], str(self.citizen.pk)
+            )
+
+    def test_rtbf_with_no_forgettable_records_does_not_touch_any_revision(self):
+        """No forgettable records at all — right_to_be_forgotten() must be a no-op
+        with respect to revisions (nothing to redact)."""
+        record = ConsentService.grant(self.citizen, self.required_category.slug)
+        before = list(self._revisions_for(record.pk).values_list("authorized_by_individual_id", flat=True))
+
+        ConsentService.right_to_be_forgotten(self.citizen)
+
+        after = list(self._revisions_for(record.pk).values_list("authorized_by_individual_id", flat=True))
+        self.assertEqual(before, after)
+        self.assertTrue(all(pk == self.citizen.pk for pk in after))

@@ -17,7 +17,7 @@ Note on ID types:
   - ConsentRecord      → uuid  (extends UUIDModel)
   - ConsentRevision    → uuid  (extends UUIDModel)
   - ConsentWebhook     → uuid  (extends UUIDModel)
-  - User (Individual)  → uuid  (auth_extension User extends UUIDModel)
+  - User (Individual)  → int   (auth_extension User extends AbstractUser; BigAutoField PK)
 """
 from django.urls import path
 

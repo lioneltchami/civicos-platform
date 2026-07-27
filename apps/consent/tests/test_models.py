@@ -19,6 +19,7 @@ from apps.consent.models import (
     ConsentAuditEntry,
     ConsentCategory,
     ConsentRecord,
+    ConsentRevision,
     DataExportRequest,
 )
 
@@ -394,3 +395,165 @@ class ConsentAuditEntryModelTests(TestCase):
             action="export_expired",
         )
         self.assertIsNone(entry.actor)
+
+
+# ===========================================================================
+# Bug 7 (RTBF/PIPEDA erasure gap) — ConsentRevision.redact_pii()
+# ===========================================================================
+
+def _make_consent_record_revision(citizen, category):
+    """
+    Build a minimal ConsentRecord + ConsentRevision pair shaped like the one
+    ConsentService.grant() produces via _consent_record_snapshot(), without
+    pulling in the full service layer (kept model-level, per this file's
+    scope).
+    """
+    record = ConsentRecord.objects.create(
+        citizen=citizen,
+        category=category,
+        status=ConsentRecord.STATUS_GRANTED,
+        state=ConsentRecord.STATE_SIGNED,
+        is_current=True,
+    )
+    return ConsentRevision.create_for(
+        schema_name="ConsentRecord",
+        obj=record,
+        snapshot={
+            "id": str(record.pk),
+            "individual": str(citizen.pk),
+            "dataAgreement": str(category.pk),
+            "dataAgreementRevision": None,
+            "dataAgreementRevisionHash": "",
+            "optIn": True,
+            "state": record.state,
+            "status": record.status,
+            "isCurrent": record.is_current,
+            "consentVersion": "",
+        },
+        authorized_by=citizen,
+        authorized_by_other="",
+    )
+
+
+class ConsentRevisionRedactPiiTests(TestCase):
+    """
+    Direct model-level tests for ConsentRevision.redact_pii() — the narrow,
+    dedicated exception to the append-only invariant added for RTBF/PIPEDA
+    erasure compliance (see the method's docstring in models.py for the
+    full design reasoning).
+    """
+
+    def setUp(self):
+        self.citizen = _make_citizen()
+        self.category = _make_category()
+        self.revision = _make_consent_record_revision(self.citizen, self.category)
+
+    def test_redact_pii_nulls_authorized_by_individual(self):
+        self.assertEqual(self.revision.authorized_by_individual_id, self.citizen.pk)
+        self.revision.redact_pii()
+        self.assertIsNone(self.revision.authorized_by_individual_id)
+        self.revision.refresh_from_db()
+        self.assertIsNone(self.revision.authorized_by_individual_id)
+
+    def test_redact_pii_redacts_object_data_individual_key(self):
+        self.assertEqual(
+            self.revision.serialized_snapshot["objectData"]["individual"], str(self.citizen.pk)
+        )
+        self.revision.redact_pii()
+        self.assertEqual(
+            self.revision.serialized_snapshot["objectData"]["individual"], "[REDACTED]"
+        )
+        self.revision.refresh_from_db()
+        self.assertEqual(
+            self.revision.serialized_snapshot["objectData"]["individual"], "[REDACTED]"
+        )
+
+    def test_redact_pii_redacts_envelope_authorized_by_individual_key(self):
+        self.assertEqual(
+            self.revision.serialized_snapshot["authorizedByIndividual"], str(self.citizen.pk)
+        )
+        self.revision.redact_pii()
+        self.assertEqual(self.revision.serialized_snapshot["authorizedByIndividual"], "[REDACTED]")
+
+    def test_redact_pii_leaves_non_pii_fields_untouched(self):
+        """
+        schema_name, object_id, serialized_hash, timestamp, predecessor_hash
+        must be byte-for-byte identical before and after redact_pii() — only
+        the two PII-bearing keys/field are touched.
+        """
+        before = {
+            "schema_name": self.revision.schema_name,
+            "object_id": self.revision.object_id,
+            "serialized_hash": self.revision.serialized_hash,
+            "timestamp": self.revision.timestamp,
+            "predecessor_hash": self.revision.predecessor_hash,
+        }
+        self.revision.redact_pii()
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.schema_name, before["schema_name"])
+        self.assertEqual(self.revision.object_id, before["object_id"])
+        self.assertEqual(self.revision.serialized_hash, before["serialized_hash"])
+        self.assertEqual(self.revision.timestamp, before["timestamp"])
+        self.assertEqual(self.revision.predecessor_hash, before["predecessor_hash"])
+
+    def test_redact_pii_on_revision_with_no_authorized_by_individual_is_safe(self):
+        """
+        A revision created with authorized_by=None (e.g. a system/admin
+        DataAgreement revision) must not error when redact_pii() is called —
+        there is nothing to null out, and the snapshot may not even carry an
+        "individual" key (e.g. DataAgreement snapshots don't).
+        """
+        category2 = _make_category()
+        revision = ConsentRevision.create_for(
+            schema_name="DataAgreement",
+            obj=category2,
+            snapshot={"slug": category2.slug},
+            authorized_by=None,
+            authorized_by_other="system",
+        )
+        self.assertIsNone(revision.authorized_by_individual_id)
+        revision.redact_pii()  # must not raise
+        self.assertIsNone(revision.authorized_by_individual_id)
+        self.assertIsNone(revision.serialized_snapshot.get("authorizedByIndividual"))
+
+    def test_plain_save_on_existing_revision_still_raises_append_only_guard(self):
+        """
+        REGRESSION GUARD: redact_pii() must be the ONLY sanctioned way to
+        bypass the append-only guard. A plain revision.save() call (not
+        via redact_pii()) on an already-persisted ConsentRevision must still
+        raise ValueError exactly as before — proving the general invariant
+        was not accidentally weakened by adding redact_pii().
+        """
+        with self.assertRaises(ValueError):
+            self.revision.save()
+
+    def test_plain_save_with_disallowed_update_fields_still_raises(self):
+        """
+        Further regression guard: passing update_fields that include the
+        redaction fields directly to the ordinary save() (bypassing
+        redact_pii() entirely) must still be rejected — only redact_pii()'s
+        internal super().save() call is allowed to write those fields.
+        """
+        self.revision.serialized_snapshot = {"objectData": {"individual": "tampered"}}
+        with self.assertRaises(ValueError):
+            self.revision.save(update_fields=["serialized_snapshot"])
+
+    def test_delete_on_revision_still_raises_after_redact_pii_added(self):
+        """Regression guard: delete() must remain fully blocked, unaffected by redact_pii()."""
+        with self.assertRaises(ValueError):
+            self.revision.delete()
+        self.revision.redact_pii()
+        with self.assertRaises(ValueError):
+            self.revision.delete()
+
+    def test_successor_only_update_still_allowed(self):
+        """Regression guard: the pre-existing successor-only save() allowance is unaffected."""
+        successor = ConsentRevision.objects.create(
+            schema_name="ConsentRecord",
+            object_id=self.revision.object_id,
+            serialized_snapshot={"objectData": {}},
+        )
+        self.revision.successor = successor
+        self.revision.save(update_fields=["successor"])  # must not raise
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.successor_id, successor.pk)
