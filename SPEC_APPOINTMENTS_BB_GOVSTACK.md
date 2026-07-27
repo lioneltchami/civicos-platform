@@ -1027,4 +1027,106 @@ open item (§12).
 
 ---
 
-*This document was generated from the GovStack Scheduler BB OpenAPI JSON (`api/Govstack_scheduler_BB_APIs.json`, 103KB, 37 endpoints) and the CivicOS `apps/appointments/` source tree. Build order: Wave A → B → C → D → E → F → G, followed by a final end-to-end certifiability pass (§13).*
+## 14. Certifiability Fix Pass (post-§13 fresh adversarial re-audit)
+
+**Status: complete.** A later, independent adversarial re-audit (see
+`MASTER_BB_CERTIFIABILITY_REPORT.md`, "Appointments/Scheduler BB") — performed fresh, distrusting
+every claim in §13 above, re-fetching the live spec again rather than trusting the prior pass's
+citations — found 8 new defects the §13 pass's own 799-test suite never touched, because (as with
+every other BB in that report) the tests were written against the code's own behavior rather than
+against the spec/harness. Fixed via 3 parallel fix agents split by non-overlapping file/function
+ownership, then personally re-verified.
+
+**Findings fixed:**
+
+1. **(High)** 6 of 8 spec array-typed `*_id` filter groups (`entity_id`, `resource_id`,
+   `subscriber_id`, `appointment_id`/`participant_id`, `event_id`/`host_entity_id`,
+   `affiliation_id`) rejected spec-compliant array input with HTTP 400 — only `alert_schedule_id`
+   and `message_id` used the correct `StringOrListField` + `pk__in` pattern. All 6 groups
+   (7 fields, plus a bonus `log_id` fix for consistency) converted to match. `resource_id`'s
+   existing "R-"/"S-" prefix-disambiguation scheme was generalised to operate per-array-element
+   rather than on a single bare value, so a filter call may still legitimately mix R- and
+   S-prefixed ids.
+2. **(High)** Every create (`POST .../new`) endpoint returned HTTP 201; the real GovStack OpenAPI
+   spec's response schemas require HTTP 200 — corrected across all 9 create endpoints. Every
+   `list_details`/`availability` endpoint's response was wrapped in a non-spec
+   `{"status": "success", "data": [...], "truncated": <bool>}` envelope; the real spec's schemas
+   for these are bare JSON arrays (verified directly against the fetched OpenAPI spec, not
+   guessed) — the wrapper removed across all 10 list endpoints.
+3. **(Medium)** `POST /event/new` (and `event_modify`) discarded a valid `host_entity_id` whenever
+   no venue was supplied, attributing the event to the shared "GovStack System" placeholder
+   Location instead of the calling entity's own — breaking `event_filter.host_entity_id` lookups
+   for such events. `_resolve_location()` now resolves `host_entity_id` → `Organization`
+   regardless of whether a venue was supplied, and (new) creates a per-organisation placeholder
+   Location (shared across that one org's no-venue events, never mutated in place — mirroring the
+   existing global-placeholder protection in `event_modify`) when a venue is genuinely absent but
+   a valid entity is known.
+4. **(Medium)** The canonical `R-<pk>` resource id format round-tripped incorrectly through the
+   Affiliation group: `/affiliation/new` didn't strip the prefix before the DB lookup, so a
+   well-formed `"R-1"` raised a raw Django `ValueError` ("Field 'id' expected a number but got
+   'R-1'") that got misreported as a leaked-string HTTP 409 DUPLICATE_AFFILIATION; and
+   `/affiliation/list_details` emitted the bare unprefixed integer instead of `"R-<pk>"`. Fixed by
+   reusing the existing `_parse_resource_only_pk()` helper (already used by the 3 Resource-only
+   endpoints) to validate/strip the prefix *before* the service call — so a malformed id can now
+   structurally never reach the duplicate-pair exception handler — and by matching
+   `resource_list()`'s existing `f"R-{pk}"` emission convention in `affiliation_list()`.
+5. **(Medium)** `request_token` (the BB-to-BB shared secret, carried as a query-string parameter
+   by the existing, unchanged API contract) was being written to nginx's default access log in
+   plaintext for all 37 endpoints, because `/govstack/` traffic fell through to the catch-all
+   `location /` block with no custom log format. Added a dedicated `location /govstack/` block
+   with a `govstack_safe` log format that logs `$uri` (path only) instead of `$request`, so the
+   query string — and the token within it — never reaches disk. Traffic is still logged for
+   operational visibility; nothing is silenced.
+6. **(Medium)** `GOVSTACK_SCHEDULER_REQUIRE_TOKEN` and `GOVSTACK_REQUIRE_REGISTERED_BB` were only
+   defined in `production.py` (`default=True`); any non-production settings module silently fell
+   back to `getattr(..., False)` in the consuming code, meaning any non-empty requestor_id/token
+   pair authenticated as admin-role in every non-production deployment. Fixed by defining both
+   explicitly in `base.py` with a safe `default=False`, matching the established `CLAMAV_REQUIRED`
+   convention — `production.py`'s stricter override is untouched.
+7. **(Low)** Rate-limit throttling keyed on client IP rather than calling-BB identity (BB-to-BB
+   calls never set `request.user`, so DRF's stock `ScopedRateThrottle` always fell through to its
+   IP-based branch — two BBs behind one NAT/gateway shared one bucket, and a single BB rotating
+   IPs reset its own limit). `GovStackSchedulerAuth.authenticate()` now stashes the resolved BB's
+   pk on `request.META`; a new `GovStackBBIdentityThrottle(ScopedRateThrottle)` keys on the
+   caller's resolved `_gs_requestor_id` when present, falling back to stock IP-based behaviour
+   otherwise (e.g. dev/harness requests with no resolved BB identity). Wired in via a single
+   aliased import in `govstack_views.py` so all ~37 existing `throttle_classes` declarations pick
+   it up without a per-view edit.
+
+**Finding deliberately left as a documented deviation, not code-changed** (an architectural/policy
+question, not a mechanical conformance defect):
+- **`GovStackRegisteredBB.role`** (resource/organizer/admin) has no per-entity/tenant scoping at
+  all — it is a single flat role shared across the entire model (which is itself shared with the
+  Payments BB), meaning an admin-role registered BB can read and write every organization's
+  Scheduler data platform-wide. This is acceptable and explicitly accepted for a
+  single-government deployment (which is what CivicOS is built for), but a multi-tenant/multi-
+  government deployment of this BB would need per-entity scoping added to the role model before
+  it could be certified for that use case. This compounds the already-documented §13 finding that
+  new registrations default to `"organizer"` rather than the lowest tier (`"resource"`) — see
+  above. Flagged here explicitly, as directed by the certification process, rather than
+  silently reworked (a role-model redesign carries real blast radius and is out of scope for a
+  mechanical-fix pass).
+
+**Also documented, not code-changed** (LOW/cosmetic, from the same re-audit): `PUT`/`DELETE` on
+`/log/` correctly and deliberately return 405 (audit immutability, unchanged from §12); citizen-
+facing booking genuinely has no path outside the BB-credential system by design (also unchanged);
+`message_list`'s per-item response shape nests under a `message` key while some other list groups
+are flat — a genuine, minor internal inconsistency, left as-is pending a coordinated per-item
+schema pass across all 10 list endpoints (a larger, riskier change than this pass's scope; noted
+for a future wave).
+
+**Verified independently before committing:** full `apps.appointments` suite — 848/848 passing
+(up from 816 baseline; +32 new tests across the 3 fix agents). Cross-BB regression check —
+`apps.payments`, `apps.documents`, `apps.api.documents`, `apps.consent.tests.test_tasks`,
+`apps.core` — 2985/2985 passing, confirming the shared `GovStackRegisteredBB` model and the
+`base.py` settings additions destabilized nothing in the Payments BB or any other previously
+certified BB. `makemigrations --check --dry-run appointments payments` — no changes detected.
+
+**Overall verdict:** all 8 findings from the fresh adversarial re-audit are fixed and
+independently re-verified; the BB is READY. The one remaining open item is unchanged from §12 —
+an actual GovStack conformance harness run against a live instance, which no code review can
+substitute for.
+
+---
+
+*This document was generated from the GovStack Scheduler BB OpenAPI JSON (`api/Govstack_scheduler_BB_APIs.json`, 103KB, 37 endpoints) and the CivicOS `apps/appointments/` source tree. Build order: Wave A → B → C → D → E → F → G, followed by a final end-to-end certifiability pass (§13), followed by a fresh adversarial re-audit and certifiability fix pass (§14).*

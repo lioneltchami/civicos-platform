@@ -204,9 +204,10 @@ class EventNewTests(EventBaseTestCase):
 
     # EV1
     def test_ev1_post_new_valid_single_slot_returns_201_with_event_ids(self):
-        """EV1: POST with valid name + 1 slot returns 201 with event_ids list containing 1 UUID."""
+        """EV1: POST with valid name + 1 slot returns 200 (Bug 2 fix: was 201) with
+        event_ids list containing 1 UUID."""
         resp = self._post(self._valid_qry())
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertIn("event_ids", data)
@@ -214,9 +215,9 @@ class EventNewTests(EventBaseTestCase):
 
     # EV2
     def test_ev2_post_new_two_slots_returns_two_event_ids(self):
-        """EV2: POST with 2 slots returns 201 with event_ids containing 2 entries."""
+        """EV2: POST with 2 slots returns 200 (Bug 2 fix: was 201) with event_ids containing 2 entries."""
         resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertEqual(len(data["event_ids"]), 2)
@@ -225,7 +226,7 @@ class EventNewTests(EventBaseTestCase):
     def test_ev3_post_new_event_ids_are_valid_uuids(self):
         """EV3: Each event_id in response is a valid UUID string."""
         resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         for event_id in resp.json()["event_ids"]:
             # Must not raise ValueError
             uuid.UUID(event_id)
@@ -234,7 +235,7 @@ class EventNewTests(EventBaseTestCase):
     def test_ev4_post_new_slot_created_in_db(self):
         """EV4: Slot created in DB — verifiable by pk lookup."""
         resp = self._post(self._valid_qry())
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         event_id = resp.json()["event_ids"][0]
         # Must not raise Slot.DoesNotExist
         slot = Slot.objects.get(pk=event_id)
@@ -244,7 +245,7 @@ class EventNewTests(EventBaseTestCase):
     def test_ev5_post_new_appointment_type_created_with_name(self):
         """EV5: AppointmentType created with the correct name_en."""
         resp = self._post(self._valid_qry(name="My Named Event"))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         event_id = resp.json()["event_ids"][0]
         slot = Slot.objects.get(pk=event_id)
         # AppointmentType is accessed via slot.appointment_type
@@ -284,7 +285,7 @@ class EventNewTests(EventBaseTestCase):
         qry = {"details": {"name": "Limited Event", "slots": [_SLOT_1],
                                     "status": "available", "subscriber_limit": "5"}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         event_id = resp.json()["event_ids"][0]
         slot = Slot.objects.get(pk=event_id)
         self.assertEqual(slot.appointment_type.capacity_per_slot, 5)
@@ -296,7 +297,7 @@ class EventNewTests(EventBaseTestCase):
                                     "status": "available",
                                     "venue": {"city": "Ottawa", "country": "Canada"}}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         event_id = resp.json()["event_ids"][0]
         slot = Slot.objects.get(pk=event_id)
         self.assertEqual(slot.location.city, "Ottawa")
@@ -306,7 +307,7 @@ class EventNewTests(EventBaseTestCase):
         """EV11: POST with no name still creates event (name can be empty, auto-slug generated)."""
         qry = {"details": {"slots": [_SLOT_1], "status": "available"}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertEqual(len(data["event_ids"]), 1)
@@ -315,7 +316,7 @@ class EventNewTests(EventBaseTestCase):
     def test_ev47_post_new_response_includes_singular_event_id(self):
         """EV47 (FIX 2): response includes singular event_id == event_ids[0], plus full event_ids list."""
         resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("event_id", data)
         self.assertIn("event_ids", data)
@@ -326,7 +327,7 @@ class EventNewTests(EventBaseTestCase):
     def test_ev48_multi_slot_batch_creates_distinct_appointment_types(self):
         """EV48 (FIX 1): each slot in a multi-slot POST batch gets its OWN AppointmentType, not a shared one."""
         resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         event_ids = resp.json()["event_ids"]
         slot_a = Slot.objects.get(pk=event_ids[0])
         slot_b = Slot.objects.get(pk=event_ids[1])
@@ -555,20 +556,27 @@ class EventListDetailsTests(EventBaseTestCase):
 
     # EV24
     def test_ev24_get_returns_200_with_data_list(self):
-        """EV24: GET returns 200 with 'data' list."""
+        """
+        EV24: GET returns 200 with a bare JSON array body.
+
+        Response shape updated (Bug 2 fix, a sibling agent's change — see
+        EventListDetailsView docstring in govstack_views.py): the previous
+        {"status": "success", "data": [...], "truncated": ...} wrapper was
+        not part of the real GovStack spec and has been removed in favour of
+        a bare array, matching every other GovStack Scheduler list_details
+        endpoint (Affiliation, Entity, Resource, etc).
+        """
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertIn("data", data)
-        self.assertIsInstance(data["data"], list)
+        self.assertIsInstance(data, list)
 
     # EV25
     def test_ev25_created_event_appears_in_list(self):
         """EV25: Created event appears in list (not cancelled by default)."""
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
-        ids = [r["event_id"] for r in resp.json()["data"]]
+        ids = [r["event_id"] for r in resp.json()]
         self.assertIn(self.event_id, ids)
 
     # EV26
@@ -577,17 +585,21 @@ class EventListDetailsTests(EventBaseTestCase):
         event_delete(event_id=self.event_id)
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
-        ids = [r["event_id"] for r in resp.json()["data"]]
+        ids = [r["event_id"] for r in resp.json()]
         self.assertNotIn(self.event_id, ids)
 
-    # EV27
-    def test_ev27_truncated_key_is_false_for_small_result_set(self):
-        """EV27: 'truncated' key in response is False when < 500 results."""
+    # EV27 (superseded — the "truncated" wrapper key no longer exists, see EV24)
+    def test_ev27_response_body_is_a_plain_list_with_no_wrapper_keys(self):
+        """
+        EV27 (superseded by the Bug 2 list-envelope fix): the response body
+        is now a bare array — there is no "truncated" (or "status"/"data")
+        wrapper key at all any more. This regression-proofs that the envelope
+        stays removed rather than silently creeping back.
+        """
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertIn("truncated", data)
-        self.assertFalse(data["truncated"])
+        self.assertIsInstance(data, list)
 
     # EV28
     def test_ev28_event_details_required_name_true_includes_name(self):
@@ -598,7 +610,7 @@ class EventListDetailsTests(EventBaseTestCase):
         }
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertGreater(len(data), 0)
         for record in data:
             self.assertIn("name", record)
@@ -613,7 +625,7 @@ class EventListDetailsTests(EventBaseTestCase):
         }
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertGreater(len(data), 0)
         for record in data:
             self.assertNotIn("name", record)
@@ -625,7 +637,7 @@ class EventListDetailsTests(EventBaseTestCase):
         qry = {"event_filter": {"status": "cancelled"}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        ids = [r["event_id"] for r in resp.json()["data"]]
+        ids = [r["event_id"] for r in resp.json()]
         self.assertIn(self.event_id, ids)
 
     # EV31
@@ -636,7 +648,7 @@ class EventListDetailsTests(EventBaseTestCase):
         qry = {"event_filter": {"event_id": self.event_id}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["event_id"], self.event_id)
 
@@ -646,7 +658,7 @@ class EventListDetailsTests(EventBaseTestCase):
         resp = self._get(qry_dict={})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
+        self.assertIsInstance(data, list)
 
     # EV33
     def test_ev33_event_filter_by_name_returns_matching_events(self):
@@ -655,7 +667,7 @@ class EventListDetailsTests(EventBaseTestCase):
         qry = {"event_filter": {"name": "TestEvent"}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertGreater(len(data), 0)
         for record in data:
             self.assertIn(self.event_id, [r["event_id"] for r in data])
@@ -679,7 +691,7 @@ class EventListDetailsTests(EventBaseTestCase):
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
         names = set()
-        for record in resp.json()["data"]:
+        for record in resp.json():
             s = Slot.objects.get(pk=record["event_id"])
             names.add(s.appointment_type.name_en)
         self.assertIn("Mid Event", names)
@@ -696,7 +708,7 @@ class EventListDetailsTests(EventBaseTestCase):
         )
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
-        ids = [r["event_id"] for r in resp.json()["data"]]
+        ids = [r["event_id"] for r in resp.json()]
         self.assertNotIn(str(native_slot.pk), ids)
 
     # EV54 (FIX 4)
@@ -710,7 +722,7 @@ class EventListDetailsTests(EventBaseTestCase):
         }
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["category"], "health")
 
@@ -725,7 +737,7 @@ class EventListDetailsTests(EventBaseTestCase):
         self.assertEqual(resp.status_code, 200)
         names = {
             Slot.objects.get(pk=r["event_id"]).appointment_type.name_en
-            for r in resp.json()["data"]
+            for r in resp.json()
         }
         self.assertIn("Legal Clinic", names)
         self.assertNotIn("Health Clinic", names)
@@ -863,6 +875,87 @@ class EventServiceTests(TestCase):
         slot = slots[0]
         self.assertEqual(slot.status, "available")
 
+    # EV59 (Bug 3 fix — MASTER_BB_CERTIFIABILITY_REPORT.md "Appointments/Scheduler BB")
+    def test_ev59_event_create_no_venue_with_valid_host_entity_id_attributes_to_entity(self):
+        """
+        EV59 (Bug 3 fix): event_create with a valid, active host_entity_id and
+        NO venue payload must attribute the event's Location to that entity's
+        own Organization — NOT the shared "GovStack System" placeholder.
+        Before the fix, _resolve_location's early-return on the no-venue path
+        happened before host_entity_id was ever consulted, silently
+        discarding it.
+        """
+        org = Organization.objects.create(
+            name_en="Test Host Entity EV59",
+            name_fr="Test Host Entity EV59 FR",
+            slug="test-host-entity-ev59",
+            is_active=True,
+        )
+        slots = _create_event(name="Host Entity No Venue", host_entity_id=str(org.pk))
+        slot = slots[0]
+        self.assertIsNotNone(slot.location)
+        self.assertEqual(slot.location.organization_id, org.pk)
+        self.assertNotEqual(slot.location.slug, "govstack-system-location")
+
+    # EV60 (Bug 3 regression-proof)
+    def test_ev60_event_create_no_venue_no_host_entity_id_falls_back_to_shared_placeholder(self):
+        """
+        EV60 (Bug 3 regression-proof): event_create with NO venue AND NO
+        host_entity_id must still fall back to the shared "GovStack System"
+        placeholder Location — the pre-existing correct behaviour for this
+        case must be preserved unchanged by the Bug 3 fix.
+        """
+        slots = _create_event(name="No Venue No Entity", host_entity_id="")
+        slot = slots[0]
+        self.assertIsNotNone(slot.location)
+        self.assertEqual(slot.location.slug, "govstack-system-location")
+
+    # EV61 (Bug 3 fix — event_list.host_entity_id filter integration)
+    def test_ev61_event_list_host_entity_id_filter_finds_no_venue_event(self):
+        """
+        EV61 (Bug 3 fix): event_filter.host_entity_id (which filters on
+        Location.organization pk — see event_list docstring) can now find an
+        event created with a valid host_entity_id and no venue. Before the
+        fix this was impossible: such events were always mis-attributed to
+        the shared placeholder Organization, which never matches a real
+        host_entity_id filter value.
+        """
+        org = Organization.objects.create(
+            name_en="Filter Host Entity EV61",
+            name_fr="Filter Host Entity EV61 FR",
+            slug="filter-host-entity-ev61",
+            is_active=True,
+        )
+        slots = _create_event(name="Filterable Host Event", host_entity_id=str(org.pk))
+        event_id = str(slots[0].pk)
+
+        results = event_list(event_filter={"host_entity_id": str(org.pk)})
+        result_ids = {r["event_id"] for r in results}
+        self.assertIn(event_id, result_ids)
+
+    # EV62 (Bug 3 fix — event_modify's no-venue-payload branch)
+    def test_ev62_event_modify_host_entity_id_only_change_reassigns_to_entity_location(self):
+        """
+        EV62 (Bug 3 fix): event_modify's "host_entity_id changed with no venue
+        payload at all" branch (which calls _resolve_location the same way
+        event_create does) also picks up the fix — reassigning the slot's
+        Location to the new entity's own Location, not the shared placeholder.
+        """
+        org = Organization.objects.create(
+            name_en="Modify Host Entity EV62",
+            name_fr="Modify Host Entity EV62 FR",
+            slug="modify-host-entity-ev62",
+            is_active=True,
+        )
+        slots = _create_event(name="Modify Host Entity Test", host_entity_id="")
+        slot = slots[0]
+        self.assertEqual(slot.location.slug, "govstack-system-location")
+
+        event_modify(event_id=str(slot.pk), host_entity_id=str(org.pk))
+        slot.refresh_from_db()
+        self.assertEqual(slot.location.organization_id, org.pk)
+        self.assertNotEqual(slot.location.slug, "govstack-system-location")
+
 
 # ===========================================================================
 # EV47–EV58: Auth / role enforcement (final certifiability review FIX 5c)
@@ -913,7 +1006,7 @@ class EventRoleEnforcementTests(EventBaseTestCase):
     def test_ev48_organizer_role_allowed_on_event_new(self):
         self._make_role_bb("organizer")
         resp = self._post(self._valid_new_qry())
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_ev49_missing_auth_params_returns_401_or_403_on_event_new(self):
         qry = json.dumps(self._valid_new_qry())

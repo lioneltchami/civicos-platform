@@ -59,6 +59,11 @@ logger = logging.getLogger("civicos.appointments.services.govstack_event")
 _GS_SLUG_PREFIX = "gs-"
 _GOVSTACK_SYSTEM_EMAIL = "govstack-system-staff@civicos.internal"
 _GOVSTACK_SYSTEM_LOCATION_SLUG = "govstack-system-location"
+# Per-organisation placeholder Location used when a valid host_entity_id is
+# supplied but no venue — shared across every no-venue event for that SAME
+# organisation (analogous to _GOVSTACK_SYSTEM_LOCATION_SLUG's global sharing),
+# never mutated in place (see event_modify's is_shared_placeholder check).
+_GOVSTACK_ORG_LOCATION_SLUG_PREFIX = "govstack-event-loc-org-"
 _MAX_SLUG_RETRIES = 9   # suffix counters 2..9 (8 retries beyond first attempt)
 _MAX_CAPACITY = 100
 _MIN_CAPACITY = 1
@@ -385,11 +390,20 @@ def _resolve_location(venue: dict | None, appt_type_slug: str, host_entity_id: s
     available of: city, building, or the fallback "GovStack Event Location".
 
     The owning Organization is looked up by ``host_entity_id`` (treated as
-    Organization PK); if not found or not supplied, the GovStack system org
-    is used.
+    Organization PK) REGARDLESS of whether a venue was supplied — a valid,
+    active ``host_entity_id`` must always be attributed to that entity's own
+    Location, not the shared "GovStack System" placeholder, so that
+    event_filter.host_entity_id lookups (which filter on Location.organization)
+    can find the event (see Bug 3 in MASTER_BB_CERTIFIABILITY_REPORT.md).
 
-    If ``venue`` is absent or contains no non-empty string values, returns the
-    shared GovStack system location placeholder.
+    If ``venue`` is absent or contains no non-empty string values:
+      - and ``host_entity_id`` resolves to a real, active Organization, this
+        returns a per-organisation placeholder Location (shared across every
+        no-venue event for THAT organisation, slug
+        ``govstack-event-loc-org-{org.pk}``) — never the global shared
+        placeholder.
+      - otherwise (no host_entity_id, or it doesn't resolve), returns the
+        shared GovStack system location placeholder, exactly as before.
 
     Create-oriented: since FIX 1 each Slot has its own AppointmentType (and
     thus its own unique appt_type_slug), this naturally gives each event its
@@ -402,16 +416,32 @@ def _resolve_location(venue: dict | None, appt_type_slug: str, host_entity_id: s
     has_venue = venue and any(
         isinstance(v, str) and v.strip() for v in venue.values()
     )
-    if not has_venue:
-        return _get_or_create_govstack_location()
 
-    # Determine owning organization.
+    # Determine owning organization — consulted regardless of has_venue so a
+    # valid host_entity_id is never silently discarded on the no-venue path.
     org: Organization | None = None
     if host_entity_id:
         try:
             org = Organization.objects.filter(pk=int(host_entity_id), is_active=True).first()
         except (ValueError, TypeError):
             org = None
+
+    if not has_venue:
+        if org is None:
+            return _get_or_create_govstack_location()
+        loc_slug = f"{_GOVSTACK_ORG_LOCATION_SLUG_PREFIX}{org.pk}"[:80]
+        location, _ = Location.objects.get_or_create(
+            slug=loc_slug,
+            defaults={
+                "organization": org,
+                "name_en": "GovStack Event Location",
+                "name_fr": "Emplacement d'événement GovStack",
+                "is_virtual": True,
+                "timezone": "UTC",
+            },
+        )
+        return location
+
     if org is None:
         org = _get_or_create_govstack_org()
 
@@ -918,6 +948,7 @@ def event_modify(
                 is_shared_placeholder = (
                     current_location is None
                     or current_location.slug == _GOVSTACK_SYSTEM_LOCATION_SLUG
+                    or current_location.slug.startswith(_GOVSTACK_ORG_LOCATION_SLUG_PREFIX)
                 )
                 if not is_shared_placeholder:
                     # FIX 6: this Location already belongs exclusively to this

@@ -138,7 +138,7 @@ class ResourceNewTests(ResourceBaseTestCase):
             "status_poll_url": "https://example.gov/poll/room1",
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         # Finding #3 fix: resource_id is "R-<pk>"-prefixed (matches
@@ -173,7 +173,7 @@ class ResourceNewTests(ResourceBaseTestCase):
     def test_r5_category_maps_to_resource_type(self):
         qry = {"resource_details": {"name": "Video Suite", "category": "video"}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         # Finding #3 fix: resource_id is now "R-<pk>"-prefixed (matches
         # list_details/availability) — strip the prefix to look up the row.
         resource_id_str = resp.json()["resource_id"]
@@ -183,7 +183,7 @@ class ResourceNewTests(ResourceBaseTestCase):
 
     def test_r6_blank_details_still_creates_resource(self):
         resp = self._post({"resource_details": {}})
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_r7_invalid_json_qry_returns_400(self):
         params = urlencode({**_AUTH, "qry": "{not valid json"})
@@ -299,14 +299,18 @@ class ResourceListDetailsTests(ResourceBaseTestCase):
     """R22-R28: GET /resource/list_details"""
 
     def test_r22_happy_path_no_filter_returns_all(self):
+        """
+        Bug 2 fix: the response body is now a bare JSON array (matches the
+        real GovStack OpenAPI spec's resource_list schema exactly) — no more
+        {"status": "success", "data": [...], "truncated": ...} wrapper.
+        """
         _create_resource(name="Room A")
         _create_resource(name="Room B")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertGreaterEqual(len(data["data"]), 2)
-        self.assertIn("truncated", data)
+        self.assertIsInstance(data, list)
+        self.assertGreaterEqual(len(data), 2)
 
     def test_r23_filter_by_category(self):
         """
@@ -320,7 +324,7 @@ class ResourceListDetailsTests(ResourceBaseTestCase):
         _create_resource(name="Video Room", category="video")
         _create_resource(name="Phone Booth", category="phone")
         resp = self._get({"resource_filter": {"category": "virtual"}})
-        data = resp.json()["data"]
+        data = resp.json()
         names = [r["name"] for r in data]
         self.assertIn("Video Room", names)
         self.assertNotIn("Phone Booth", names)
@@ -329,14 +333,51 @@ class ResourceListDetailsTests(ResourceBaseTestCase):
         resource = _create_resource()
         _create_resource()
         resp = self._get({"resource_filter": {"resource_id": f"R-{resource.pk}"}})
-        data = resp.json()["data"]
+        data = resp.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["resource_id"], f"R-{resource.pk}")
+
+    def test_r24b_filter_by_resource_id_array_matches_multiple(self):
+        """
+        Bug 1 fix: resource_id is array-typed per the real GovStack spec — a
+        JSON array of 2+ (R-prefixed) ids returns all matching records.
+        """
+        r1 = _create_resource(name="Array Match 1")
+        r2 = _create_resource(name="Array Match 2")
+        _create_resource(name="Not Matched")
+        resp = self._get({"resource_filter": {"resource_id": [f"R-{r1.pk}", f"R-{r2.pk}"]}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        returned_ids = {item["resource_id"] for item in data}
+        self.assertEqual(returned_ids, {f"R-{r1.pk}", f"R-{r2.pk}"})
+
+    def test_r24c_filter_by_resource_id_single_string_still_works(self):
+        """Bug 1 fix: backward compatibility — a single bare-string resource_id still works."""
+        resource = _create_resource(name="Single String Filter")
+        _create_resource(name="Other")
+        resp = self._get({"resource_filter": {"resource_id": f"R-{resource.pk}"}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(len(data), 1)
+
+    def test_r24d_filter_by_resource_id_invalid_entry_is_skipped(self):
+        """
+        Bug 1 fix: an invalid/non-numeric entry in the resource_id array is
+        silently skipped (matches this function's pre-existing per-id
+        "malformed -> no match" convention) rather than raising — the other,
+        valid entries in the array still match.
+        """
+        resource = _create_resource(name="Valid Entry")
+        resp = self._get({"resource_filter": {"resource_id": [f"R-{resource.pk}", "R-not-a-number"]}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["resource_id"], f"R-{resource.pk}")
 
     def test_r25_response_excludes_email_and_alert_fields_by_default(self):
         resource = _create_resource(email="hide@example.gov", alert_url="https://hide.example.gov")
         resp = self._get({"resource_filter": {"resource_id": f"R-{resource.pk}"}})
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertNotIn("email", item)
         self.assertNotIn("alert_url", item)
 
@@ -346,13 +387,13 @@ class ResourceListDetailsTests(ResourceBaseTestCase):
             "resource_filter": {"resource_id": f"R-{resource.pk}"},
             "resource_details_required": {"email": True},
         })
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertEqual(item["email"], "show@example.gov")
 
     def test_r27_no_matches_returns_empty_list(self):
         resp = self._get({"resource_filter": {"category": "definitely-does-not-exist"}})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["data"], [])
+        self.assertEqual(resp.json(), [])
 
     def test_r28_missing_auth_params_returns_401_or_403(self):
         resp = self.client.get(LIST_URL)
@@ -367,14 +408,17 @@ class ResourceAvailabilityTests(ResourceBaseTestCase):
     """R29-R35: GET /resource/availability"""
 
     def test_r29_happy_path_returns_available_slot(self):
+        """
+        Bug 2 fix: the response body is now a bare JSON array — no more
+        {"status": "success", "data": [...], "truncated": ...} wrapper.
+        """
         resource = _create_resource()
         slot = _create_slot_for_resource(resource)
         resp = self._availability({"free_resource_filter": {"resource_id": f"R-{resource.pk}"}})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertIn("truncated", data)
-        slot_ids = [item["slot_id"] for item in data["data"]]
+        self.assertIsInstance(data, list)
+        slot_ids = [item["slot_id"] for item in data]
         self.assertIn(str(slot.id), slot_ids)
 
     def test_r30_filter_by_entity_id_via_affiliation(self):
@@ -383,7 +427,7 @@ class ResourceAvailabilityTests(ResourceBaseTestCase):
         affiliation_create(resource_id=resource.pk, entity_id=org.pk)
         slot = _create_slot_for_resource(resource)
         resp = self._availability({"free_resource_filter": {"Entity_id": str(org.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         slot_ids = [item["slot_id"] for item in data]
         self.assertIn(str(slot.id), slot_ids)
 
@@ -399,7 +443,7 @@ class ResourceAvailabilityTests(ResourceBaseTestCase):
             "resource_id": f"R-{resource.pk}",
             "from": "2027-01-01T00:00:00Z", "to": "2027-12-31T00:00:00Z",
         }})
-        slot_ids = [item["slot_id"] for item in resp.json()["data"]]
+        slot_ids = [item["slot_id"] for item in resp.json()]
         self.assertIn(str(in_range.id), slot_ids)
         self.assertNotIn(str(out_of_range.id), slot_ids)
 
@@ -415,7 +459,7 @@ class ResourceAvailabilityTests(ResourceBaseTestCase):
     def test_r34_no_matches_returns_empty_list(self):
         resp = self._availability({"free_resource_filter": {"resource_id": "R-999999"}})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["data"], [])
+        self.assertEqual(resp.json(), [])
 
     def test_r35_missing_auth_params_returns_401_or_403(self):
         resp = self.client.get(AVAILABILITY_URL)
@@ -465,7 +509,7 @@ class ResourceRoleEnforcementTests(ResourceBaseTestCase):
     def test_r37_admin_role_allowed_on_resource_new(self):
         self._make_role_bb("admin")
         resp = self._post({"resource_details": {"name": "X"}})
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_r38_organizer_role_denied_on_resource_modifications(self):
         self._make_role_bb("organizer")
@@ -536,13 +580,13 @@ class ResourceIdRoundTripTests(ResourceBaseTestCase):
         """The resource_id returned by POST /new can be used verbatim as the
         resource_id filter on GET /list_details."""
         resp = self._post({"resource_details": {"name": "Round Trip Room"}})
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         resource_id = resp.json()["resource_id"]
         self.assertTrue(resource_id.startswith("R-"))
 
         list_resp = self._get({"resource_filter": {"resource_id": resource_id}})
         self.assertEqual(list_resp.status_code, 200)
-        data = list_resp.json()["data"]
+        data = list_resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["resource_id"], resource_id)
 
@@ -634,7 +678,7 @@ class ResourceSsrfHardeningTests(ResourceBaseTestCase):
             "status_poll_url": "https://secure.example.gov/poll",
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         resource_id = resp.json()["resource_id"]
         resource = Resource.objects.get(pk=resource_id[2:])
         self.assertEqual(resource.alert_url, "https://secure.example.gov/hook")

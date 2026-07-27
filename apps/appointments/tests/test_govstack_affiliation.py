@@ -128,7 +128,7 @@ class AffiliationNewTests(AffiliationBaseTestCase):
             "work_days_hours": {"monday": {"from": "09:00", "to": "17:00"}},
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         aff = GovStackAffiliation.objects.get(pk=data["affiliation_id"])
@@ -195,6 +195,102 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         }})
         resp = self.client.post(NEW_URL + f"?qry={qry}")
         self.assertIn(resp.status_code, (401, 403))
+
+    # ---------------------------------------------------------------------
+    # Bug 4a: resource_id "R-" prefix handling (MASTER_BB_CERTIFIABILITY_REPORT.md)
+    # ---------------------------------------------------------------------
+
+    def test_aff38_well_formed_r_prefixed_resource_id_succeeds(self):
+        """
+        AFF38 (Bug 4a regression-proof): a well-formed "R-<pk>" resource_id —
+        the canonical externally-visible form used everywhere else in this
+        BB (e.g. /resource/list_details, /resource/new) — must be accepted
+        and correctly stripped/resolved, not misinterpreted as malformed.
+        """
+        resource = _create_resource()
+        entity = _create_entity()
+        qry = {"affiliation_details": {
+            "resource_id": f"R-{resource.pk}", "entity_id": str(entity.pk),
+        }}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "success")
+        aff = GovStackAffiliation.objects.get(pk=data["affiliation_id"])
+        self.assertEqual(aff.resource_id, resource.pk)
+
+    def test_aff39_s_prefixed_resource_id_returns_400_not_409(self):
+        """
+        AFF39 (Bug 4a): an "S-" prefixed resource_id (StaffProfile id form) is
+        rejected with a clean 400 — Affiliation.resource is a Resource FK and
+        NEVER links to StaffProfile — never a leaked exception, never 409.
+        """
+        entity = _create_entity()
+        qry = {"affiliation_details": {"resource_id": "S-1", "entity_id": str(entity.pk)}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertNotEqual(data.get("code"), "DUPLICATE_AFFILIATION")
+        self.assertEqual(data["code"], "INVALID_RESOURCE_ID")
+
+    def test_aff40_non_numeric_resource_id_returns_400_not_409(self):
+        """
+        AFF40 (Bug 4a): a non-numeric, non-"R-"-prefixed resource_id like
+        "R-abc" must return a clean 400 (bad format) — never a raw Django
+        ValueError string leaked into a 409 DUPLICATE_AFFILIATION body (the
+        original bug: any ValueError from affiliation_create was
+        unconditionally interpreted as a duplicate-pair signal).
+        """
+        entity = _create_entity()
+        qry = {"affiliation_details": {"resource_id": "R-abc", "entity_id": str(entity.pk)}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertNotEqual(resp.status_code, 409)
+        self.assertNotIn("expected a number", data.get("message", ""))
+
+    def test_aff41_r_prefixed_nonexistent_resource_id_returns_404_not_409(self):
+        """
+        AFF41 (Bug 4a): a well-formed but nonexistent "R-<pk>" resource_id
+        must return 404 RESOURCE_NOT_FOUND — never 409.
+        """
+        entity = _create_entity()
+        qry = {"affiliation_details": {"resource_id": "R-999999", "entity_id": str(entity.pk)}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json()["code"], "RESOURCE_NOT_FOUND")
+
+    def test_aff42_r_prefixed_duplicate_pair_still_returns_409(self):
+        """
+        AFF42 (Bug 4a): a well-formed, EXISTING, active "R-<pk>" resource_id
+        that already has an affiliation with the given entity must still
+        correctly return 409 DUPLICATE_AFFILIATION — the fix must not
+        over-correct and break the genuine duplicate-pair signal.
+        """
+        resource = _create_resource()
+        entity = _create_entity()
+        _create_affiliation(resource=resource, entity=entity)
+        qry = {"affiliation_details": {
+            "resource_id": f"R-{resource.pk}", "entity_id": str(entity.pk),
+        }}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(resp.json()["code"], "DUPLICATE_AFFILIATION")
+
+    def test_aff43_bare_int_resource_id_still_succeeds(self):
+        """
+        AFF43 (Bug 4a — backward compat): a bare, non-prefixed integer
+        resource_id must still be accepted (matching _parse_resource_only_pk's
+        established backward-compatibility behaviour for the 3 Resource-only
+        endpoints), not treated as malformed.
+        """
+        resource = _create_resource()
+        entity = _create_entity()
+        qry = {"affiliation_details": {
+            "resource_id": str(resource.pk), "entity_id": str(entity.pk),
+        }}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 200)
 
 
 # ===========================================================================
@@ -292,7 +388,7 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
         _create_affiliation(resource_category="something-else")
         resp = self._get({"affiliation_filter": {"category": "unique-cat-20"}})
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["affiliation_id"], str(aff.pk))
         # Response field itself is still "resource_category" (unchanged).
@@ -313,7 +409,7 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
             "from": "2025-01-01T00:00:00Z", "to": "2099-12-31T00:00:00Z",
         }})
         self.assertEqual(resp.status_code, 200)
-        ids = [item["affiliation_id"] for item in resp.json()["data"]]
+        ids = [item["affiliation_id"] for item in resp.json()]
         self.assertIn(str(in_range.pk), ids)
         self.assertNotIn(str(out_of_range.pk), ids)
 
@@ -326,24 +422,30 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
             "affiliation_filter": {"affiliation_id": str(aff.pk)},
             "affiliation_details_required": {"category": False},
         })
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertNotIn("resource_category", item)
 
     def test_aff23_happy_path_no_filter_returns_all(self):
+        """
+        AFF23: response body is a bare JSON array (Bug 2 fix, a sibling
+        agent's change — see AffiliationListDetailsView docstring in
+        govstack_views.py: the previous {"status": "success", "data": [...],
+        "truncated": ...} wrapper was not part of the real GovStack spec and
+        has been removed).
+        """
         _create_affiliation()
         _create_affiliation()
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertGreaterEqual(len(data["data"]), 2)
-        self.assertIn("truncated", data)
+        self.assertIsInstance(data, list)
+        self.assertGreaterEqual(len(data), 2)
 
     def test_aff24_filter_by_affiliation_id(self):
         aff = _create_affiliation()
         _create_affiliation()
         resp = self._get({"affiliation_filter": {"affiliation_id": str(aff.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["affiliation_id"], str(aff.pk))
 
@@ -352,7 +454,7 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
         aff = _create_affiliation(entity=entity)
         _create_affiliation()  # different entity
         resp = self._get({"affiliation_filter": {"entity_id": str(entity.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["affiliation_id"], str(aff.pk))
 
@@ -361,24 +463,41 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
         aff = _create_affiliation(resource=resource)
         _create_affiliation()  # different resource
         resp = self._get({"affiliation_filter": {"resource_id": str(resource.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["affiliation_id"], str(aff.pk))
 
     def test_aff27_work_days_hours_excluded_by_default(self):
         aff = _create_affiliation(work_days_hours={"monday": {"from": "09:00", "to": "17:00"}})
         resp = self._get({"affiliation_filter": {"affiliation_id": str(aff.pk)}})
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertNotIn("work_days_hours", item)
 
     def test_aff28_no_matches_returns_empty_list(self):
         resp = self._get({"affiliation_filter": {"category": "definitely-does-not-exist"}})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["data"], [])
+        self.assertEqual(resp.json(), [])
 
     def test_aff29_missing_auth_params_returns_401_or_403(self):
         resp = self.client.get(LIST_URL)
         self.assertIn(resp.status_code, (401, 403))
+
+    def test_aff44_resource_id_emitted_in_r_prefixed_form(self):
+        """
+        AFF44 (Bug 4b): affiliation_list()'s "resource_id" field must be
+        emitted in the canonical "R-<pk>" externally-visible form — matching
+        the exact pattern used by services.govstack_resource.resource_list()
+        — not the bare FK integer. Round-tripping this value straight back
+        into POST /affiliation/new's resource_id (which now expects "R-<pk>",
+        see Bug 4a) must work without the caller needing to manually add the
+        prefix themselves.
+        """
+        resource = _create_resource()
+        aff = _create_affiliation(resource=resource)
+        resp = self._get({"affiliation_filter": {"affiliation_id": str(aff.pk)}})
+        self.assertEqual(resp.status_code, 200)
+        item = resp.json()[0]
+        self.assertEqual(item["resource_id"], f"R-{resource.pk}")
 
 
 # ===========================================================================
@@ -429,7 +548,7 @@ class AffiliationRoleEnforcementTests(AffiliationBaseTestCase):
             "resource_id": str(resource.pk), "entity_id": str(entity.pk),
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_aff32_organizer_role_denied_on_affiliation_modifications(self):
         self._make_role_bb("organizer")

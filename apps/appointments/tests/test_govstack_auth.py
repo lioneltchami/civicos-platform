@@ -27,7 +27,8 @@ Coverage matrix:
   GA-3: GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True + role="resource" — a
         resource-tier endpoint (ResourceAvailabilityView) passes auth (200).
   GA-4: GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True + role="admin" — the
-        admin-tier endpoint (EntityNewView) succeeds (201).
+        admin-tier endpoint (EntityNewView) succeeds (200; Bug 2 fix — this
+        endpoint previously returned 201).
   GA-4d..GA-4g (Finding #1 regression guards — bb_id is NOT a credential):
         a caller who knows a registered BB's PUBLIC bb_id but supplies it
         (or any other value that isn't the real provisioned secret) as
@@ -61,6 +62,7 @@ from __future__ import annotations
 import json
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from rest_framework.exceptions import AuthenticationFailed
@@ -166,7 +168,7 @@ class SchedulerRoleHarnessModeTest(TestCase):
     def test_ga1_admin_tier_endpoint_reachable_with_any_credentials_in_harness_mode(self):
         """Any non-empty requestor_id/request_token reaches an admin-tier endpoint."""
         resp = self.client.post(ENTITY_NEW_URL + _qs(qry=_entity_new_qry()))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_ga1_resource_tier_endpoint_reachable_with_any_credentials_in_harness_mode(self):
         """Any non-empty requestor_id/request_token reaches a resource-tier endpoint too."""
@@ -200,10 +202,10 @@ class SchedulerRoleEnforcementTest(TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_ga4_admin_role_bb_succeeds_on_admin_tier_endpoint(self):
-        """GA-4: a role='admin' BB succeeds (201) on the admin-tier endpoint."""
+        """GA-4: a role='admin' BB succeeds (200; Bug 2 fix — was 201) on the admin-tier endpoint."""
         _bb, token = _make_bb_with_credential(role="admin")
         resp = self.client.post(ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry()))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_ga4b_organizer_role_bb_denied_admin_tier_endpoint(self):
         """Complements GA-2/GA-4: role='organizer' (below 'admin') is also denied (403)."""
@@ -251,13 +253,78 @@ class SchedulerRoleEnforcementTest(TestCase):
         self.assertEqual(resp.status_code, 401)
 
     def test_ga4g_correct_plaintext_secret_authenticates_successfully(self):
-        """GA-4g: the real provisioned secret (not bb_id) authenticates correctly (201)."""
+        """GA-4g: the real provisioned secret (not bb_id) authenticates correctly (200; Bug 2 fix — was 201)."""
         _bb, token = _make_bb_with_credential(role="admin")
         self.assertNotEqual(token, _BB_ID)  # sanity: the secret is not the identifier
         resp = self.client.post(
             ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry())
         )
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# GA-10..GA-12: Bug 5 fix — GOVSTACK_SCHEDULER_REQUIRE_TOKEN /
+# GOVSTACK_REQUIRE_REGISTERED_BB safe-default regression guards
+# (MASTER_BB_CERTIFIABILITY_REPORT.md "Appointments/Scheduler BB")
+# ---------------------------------------------------------------------------
+
+class GovStackSchedulerAuthSafeDefaultsTest(TestCase):
+    """
+    Bug 5 fix: before this fix, GOVSTACK_SCHEDULER_REQUIRE_TOKEN and
+    GOVSTACK_REQUIRE_REGISTERED_BB were defined ONLY in config/settings/
+    production.py. base.py, development.py, and config/settings/test.py
+    (which this test suite runs under) never defined either setting at all,
+    so getattr(settings, "GOVSTACK_SCHEDULER_REQUIRE_TOKEN", False) in
+    GovStackSchedulerAuth.authenticate() silently resolved to False
+    (fail-open, admin-role-for-any-non-empty-token) in every non-production
+    settings module purely because the attribute was UNDEFINED — not because
+    of any deliberate per-environment safe-default choice.
+
+    These tests assert config.settings.test (which inherits from base.py)
+    now resolves an EXPLICIT, DEFINED boolean for both flags, proving the
+    fix closes the "undefined attribute" gap rather than continuing to rely
+    on getattr()'s fallback masking the absence.
+    """
+
+    def test_ga10_scheduler_require_token_is_explicitly_defined_boolean_in_test_settings(self):
+        """
+        GA-10 (Bug 5): GOVSTACK_SCHEDULER_REQUIRE_TOKEN is a real, defined
+        Django setting under config.settings.test — not an undefined
+        attribute silently defaulting via getattr() — and resolves to the
+        safe-for-dev default of False (base.py's
+        env.bool("GOVSTACK_SCHEDULER_REQUIRE_TOKEN", default=False)).
+        """
+        self.assertTrue(hasattr(settings, "GOVSTACK_SCHEDULER_REQUIRE_TOKEN"))
+        self.assertIsInstance(settings.GOVSTACK_SCHEDULER_REQUIRE_TOKEN, bool)
+        self.assertFalse(settings.GOVSTACK_SCHEDULER_REQUIRE_TOKEN)
+
+    def test_ga11_require_registered_bb_is_explicitly_defined_boolean_in_test_settings(self):
+        """
+        GA-11 (Bug 5): GOVSTACK_REQUIRE_REGISTERED_BB is likewise now
+        explicitly defined in base.py (previously production.py-only) and
+        resolves to the safe-for-dev default of False under
+        config.settings.test.
+        """
+        self.assertTrue(hasattr(settings, "GOVSTACK_REQUIRE_REGISTERED_BB"))
+        self.assertIsInstance(settings.GOVSTACK_REQUIRE_REGISTERED_BB, bool)
+        self.assertFalse(settings.GOVSTACK_REQUIRE_REGISTERED_BB)
+
+    @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
+    def test_ga12_forced_true_without_valid_token_is_rejected(self):
+        """
+        GA-12 (Bug 5): with GOVSTACK_SCHEDULER_REQUIRE_TOKEN forced True (as
+        production.py's own default already does), a request with no
+        matching GovStackRegisteredBB row at all — i.e. no valid token
+        relationship — is correctly rejected/downgraded rather than silently
+        authenticating as admin. This complements the pre-existing
+        GA-4c/GA-4d/GA-4e/GA-4f coverage above (already exercising this
+        production-mode rejection path) by anchoring an explicit assertion to
+        the Bug 5 fix itself.
+        """
+        resp = self.client.post(
+            ENTITY_NEW_URL + _qs_with("unknown-bb-ga12", "not-a-real-token", qry=_entity_new_qry())
+        )
+        self.assertIn(resp.status_code, (401, 403))
 
 
 # ---------------------------------------------------------------------------

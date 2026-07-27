@@ -261,7 +261,7 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
         }}
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         alert_schedule = GovStackAlertSchedule.objects.get(pk=data["alert_schedule_id"])
@@ -523,19 +523,24 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
         ), org
 
     def test_as25_happy_path_no_filter_returns_all(self):
+        """
+        Bug 2 fix: the response body is now a bare JSON array (matches the
+        real GovStack OpenAPI spec's alert_schedule_list schema exactly) —
+        no more {"status": "success", "data": [...], "truncated": ...} wrapper.
+        """
         self._create_alert_schedule()
         self._create_alert_schedule()
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertGreaterEqual(len(data["data"]), 2)
+        self.assertIsInstance(data, list)
+        self.assertGreaterEqual(len(data), 2)
 
     def test_as26_filter_by_alert_schedule_id(self):
         alert_schedule, _ = self._create_alert_schedule()
         self._create_alert_schedule()
         resp = self._get({"alert_schedule_filter": {"alert_schedule_id": str(alert_schedule.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["alert_schedule_id"], str(alert_schedule.pk))
 
@@ -554,7 +559,7 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
             }
         })
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(
             {item["alert_schedule_id"] for item in data},
             {str(alert_schedule1.pk), str(alert_schedule2.pk)},
@@ -564,7 +569,7 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
         alert_schedule, org = self._create_alert_schedule()
         self._create_alert_schedule()
         resp = self._get({"alert_schedule_filter": {"entity_id": str(org.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["details"]["entity_id"], str(org.pk))
 
@@ -580,7 +585,7 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
         in_range, _ = self._create_alert_schedule(alert_datetime=_FUTURE_DT)
         out_of_range, _ = self._create_alert_schedule(alert_datetime="2027-12-25T00:00:00Z")
         resp = self._get({"alert_schedule_filter": {"from": "2027-05-01T00:00:00Z", "to": "2027-06-15T00:00:00Z"}})
-        data = resp.json()["data"]
+        data = resp.json()
         ids = [item["alert_schedule_id"] for item in data]
         self.assertIn(str(in_range.pk), ids)
         self.assertNotIn(str(out_of_range.pk), ids)
@@ -588,7 +593,7 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
     def test_as29_response_shape_and_target_category_always_present(self):
         alert_schedule, org = self._create_alert_schedule(target_category="subscriber")
         resp = self._get({"alert_schedule_filter": {"alert_schedule_id": str(alert_schedule.pk)}})
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertIn("alert_schedule_id", item)
         self.assertIn("details", item)
         self.assertEqual(item["details"]["entity_id"], str(org.pk))
@@ -655,7 +660,7 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
         }}
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_as33_organizer_role_allowed_on_alert_schedule_list(self):
         self._make_role_bb("organizer")
@@ -721,7 +726,7 @@ class AlertScheduleSpecWireFormatTests(AlertScheduleBaseTestCase):
         }
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._post(spec_literal_qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertTrue(GovStackAlertSchedule.objects.filter(pk=data["alert_schedule_id"]).exists())

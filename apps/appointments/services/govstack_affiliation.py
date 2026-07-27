@@ -248,7 +248,13 @@ def affiliation_list(
         record: dict = {"affiliation_id": str(aff.pk)}  # always included
 
         if required.get("resource_id", True):
-            record["resource_id"] = str(aff.resource_id)
+            # FIX (Bug 4b): emit the canonical "R-<pk>" externally-visible form
+            # — matching the exact f"R-{resource.pk}" pattern used throughout
+            # services.govstack_resource.resource_list() — instead of the bare
+            # FK integer, so round-tripping this id back into
+            # AffiliationNewView.post's resource_id (which expects "R-<pk>")
+            # works correctly.
+            record["resource_id"] = f"R-{aff.resource_id}"
 
         if required.get("entity_id", True):
             record["entity_id"] = str(aff.entity_id)

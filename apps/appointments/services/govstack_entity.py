@@ -206,7 +206,11 @@ def entity_list(
     Return filtered list of active Organization records as GovStack Entity dicts.
 
     Applies optional filter parameters from entity_filter:
-      entity_id   — exact match on PK
+      entity_id   — array-typed per the real GovStack spec (entity_id[]);
+                    matches ANY of the given ids (pk__in). EntityFilterSerializer's
+                    StringOrListField normalizes a single bare string into a
+                    1-element list, so this is always list-shaped by the time
+                    it reaches this function (Bug 1 fix).
       category    — case-insensitive contains on organization_type
       name        — case-insensitive contains on name_en
       phone       — case-insensitive contains on phone
@@ -221,9 +225,16 @@ def entity_list(
     qs = Organization.objects.filter(is_active=True)
 
     # --- apply filters ---
-    entity_id_filter = (entity_filter or {}).get("entity_id", "")
+    # Bug 1 fix: entity_id is array-typed per the real spec — pk__in= is
+    # always the correct application now that StringOrListField guarantees a
+    # list shape (even for a single-value caller). A non-numeric entry raises
+    # ValueError when the queryset is evaluated below, which the view layer's
+    # generic except Exception clause maps to a 400 — identical convention to
+    # services.govstack_alert_schedule.alert_schedule_list's alert_schedule_id
+    # handling.
+    entity_id_filter = (entity_filter or {}).get("entity_id")
     if entity_id_filter:
-        qs = qs.filter(pk=entity_id_filter)
+        qs = qs.filter(pk__in=entity_id_filter)
 
     category_filter = (entity_filter or {}).get("category", "")
     if category_filter:

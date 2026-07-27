@@ -255,11 +255,18 @@ class AppointmentNewTests(AppointmentBaseTestCase):
         return {"appointment_details": details}
 
     # AP1
-    def test_ap1_post_new_valid_single_event_id_returns_201(self):
-        """AP1: POST with valid participant + 1 event_id returns 201 with appointment_id + appointment_ids."""
+    def test_ap1_post_new_valid_single_event_id_returns_200(self):
+        """
+        AP1: POST with valid participant + 1 event_id returns 200 with
+        appointment_id + appointment_ids.
+
+        Bug 2 fix: previously asserted 201 — the real GovStack OpenAPI spec
+        (and its own example Gherkin fixture) define 200 as the success
+        status for this operation.
+        """
         slots = _create_event(slots=[_SLOT_1])
         resp = self._post(self._valid_qry(event_ids=[str(slots[0].pk)]))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertIn("appointment_id", data)
@@ -275,7 +282,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
         resp = self._post(
             self._valid_qry(event_ids=[str(slots1[0].pk), str(slots2[0].pk)])
         )
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(len(data["appointment_ids"]), 2)
         bookings = Booking.objects.filter(pk__in=data["appointment_ids"])
@@ -288,7 +295,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
         """AP3: appointment_id in response is a valid UUID string."""
         slots = _create_event(slots=[_SLOT_1])
         resp = self._post(self._valid_qry(event_ids=[str(slots[0].pk)]))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         uuid.UUID(resp.json()["appointment_id"])  # must not raise
 
     # AP4
@@ -297,7 +304,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
         slots = _create_event(slots=[_SLOT_1])
         slot = slots[0]
         resp = self._post(self._valid_qry(event_ids=[str(slot.pk)]))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         booking = Booking.objects.get(pk=resp.json()["appointment_id"])
         self.assertEqual(booking.slot_id, slot.pk)
 
@@ -361,7 +368,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
         slots = _create_event(slots=[_SLOT_1])
         slot = slots[0]
         resp = self._post(self._valid_qry(event_ids=[str(slot.pk)], exclusive=True))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         slot.refresh_from_db()
         self.assertEqual(slot.status, "blocked")
 
@@ -371,7 +378,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
         slots = _create_event(slots=[_SLOT_1])
         slot = slots[0]
         resp = self._post(self._valid_qry(event_ids=[str(slot.pk)]))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         slot.refresh_from_db()
         self.assertNotEqual(slot.status, "blocked")
 
@@ -394,7 +401,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
                 event_ids=[str(slots[0].pk)], participant_entity_id=str(org.pk)
             )
         )
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         booking = Booking.objects.get(pk=resp.json()["appointment_id"])
         self.assertEqual(booking.govstack_participant_entity_id, str(org.pk))
 
@@ -692,19 +699,23 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
 
     # AP33
     def test_ap33_list_returns_200_with_data_list(self):
-        """AP33: returns 200, data is a list, truncated: false."""
+        """
+        AP33: returns 200, body is a bare JSON array.
+
+        Bug 2 fix: the response body is now a bare JSON array (matches the
+        real GovStack OpenAPI spec's appointment_list schema exactly) — no
+        more {"status": "success", "data": [...], "truncated": ...} wrapper.
+        """
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertIsInstance(data["data"], list)
-        self.assertFalse(data["truncated"])
+        self.assertIsInstance(data, list)
 
     # AP34
     def test_ap34_created_appointment_appears_in_list(self):
         """AP34: created appointment appears in the list with correct appointment_id."""
         resp = self._get()
-        ids = [r["appointment_id"] for r in resp.json()["data"]]
+        ids = [r["appointment_id"] for r in resp.json()]
         self.assertIn(self.appointment_id, ids)
 
     # AP35
@@ -719,9 +730,48 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
         )
         qry = {"appointment_filter": {"participant_id": str(self.citizen.pk)}}
         resp = self._get(qry)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["appointment_id"], self.appointment_id)
+
+    # AP35b
+    def test_ap35b_participant_id_array_matches_multiple(self):
+        """
+        Bug 1 bonus fix: participant_id is declared array-typed in this
+        codebase (a robustness/consistency enhancement — the real GovStack
+        spec types appointment_filter.participant_id as a plain string, not
+        an array). A JSON array of 2+ participant ids returns all matching
+        appointments (citizen_id__in).
+        """
+        other_citizen = _create_citizen()
+        other_slots = _create_event(name="Other Event AP35b", slots=[_SLOT_2])
+        other_bookings = appointment_create(
+            event_ids=[str(other_slots[0].pk)],
+            participant_type="subscriber",
+            participant_id=str(other_citizen.pk),
+        )
+        qry = {
+            "appointment_filter": {
+                "participant_id": [str(self.citizen.pk), str(other_citizen.pk)]
+            }
+        }
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        ids = {r["appointment_id"] for r in resp.json()}
+        self.assertEqual(ids, {self.appointment_id, str(other_bookings[0].pk)})
+
+    # AP35c
+    def test_ap35c_participant_id_invalid_entry_returns_empty_list(self):
+        """
+        Bug 1 bonus fix: an invalid/non-numeric entry in the participant_id
+        array is handled the same way this function's pre-existing
+        single-value convention does — returning an empty result set rather
+        than raising.
+        """
+        qry = {"appointment_filter": {"participant_id": [str(self.citizen.pk), "not-a-number"]}}
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
 
     # AP36
     def test_ap36_status_filters_correctly(self):
@@ -729,7 +779,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
         appointment_modify(appointment_id=self.appointment_id, status_id="confirmed")
         qry = {"appointment_filter": {"status": "confirmed"}}
         resp = self._get(qry)
-        data = resp.json()["data"]
+        data = resp.json()
         ids = [r["appointment_id"] for r in data]
         self.assertIn(self.appointment_id, ids)
         for record in data:
@@ -746,9 +796,34 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
         )
         qry = {"appointment_filter": {"appointment_id": self.appointment_id}}
         resp = self._get(qry)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["appointment_id"], self.appointment_id)
+
+    # AP37b
+    def test_ap37b_appointment_id_array_matches_multiple(self):
+        """
+        Bug 1 bonus fix: appointment_id is declared array-typed in this
+        codebase (a robustness/consistency enhancement — the real GovStack
+        spec types appointment_filter.appointment_id as a plain string, not
+        an array). A JSON array of 2+ appointment ids returns all matching
+        records (pk__in).
+        """
+        other_slots = _create_event(name="Second Event AP37b", slots=[_SLOT_2])
+        other_bookings = appointment_create(
+            event_ids=[str(other_slots[0].pk)],
+            participant_type="subscriber",
+            participant_id=str(self.citizen.pk),
+        )
+        qry = {
+            "appointment_filter": {
+                "appointment_id": [self.appointment_id, str(other_bookings[0].pk)]
+            }
+        }
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        ids = {r["appointment_id"] for r in resp.json()}
+        self.assertEqual(ids, {self.appointment_id, str(other_bookings[0].pk)})
 
     # AP38
     def test_ap38_event_details_true_includes_nested_event_details(self):
@@ -758,7 +833,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
             "appointment_details_required": {"event_details": True},
         }
         resp = self._get(qry)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertIn("event_details", data[0])
         self.assertIn("event_id", data[0]["event_details"])
@@ -770,7 +845,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
         """AP39: appointment_details_required.exclusive=false (default) — 'exclusive' key absent from results."""
         qry = {"appointment_filter": {"appointment_id": self.appointment_id}}
         resp = self._get(qry)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertNotIn("exclusive", data[0])
 
@@ -780,7 +855,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
         qry = {"appointment_filter": {"participant_type": "resource"}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["data"], [])
+        self.assertEqual(resp.json(), [])
 
     # AP41
     def test_ap41_from_to_filters_by_slot_date_range(self):
@@ -801,7 +876,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
             }
         }
         resp = self._get(qry)
-        ids = [r["appointment_id"] for r in resp.json()["data"]]
+        ids = [r["appointment_id"] for r in resp.json()]
         self.assertIn(self.appointment_id, ids)
         self.assertNotIn(str(far_bookings[0].pk), ids)
 
@@ -815,7 +890,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
             "appointment_details_required": {"status": False},
         }
         resp = self._get(qry)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertNotIn("status_id", data[0])
 
@@ -831,7 +906,7 @@ class AppointmentListDetailsTests(AppointmentBaseTestCase):
         )
         qry = {"appointment_filter": {"exclusive": True}}
         resp = self._get(qry)
-        ids = [r["appointment_id"] for r in resp.json()["data"]]
+        ids = [r["appointment_id"] for r in resp.json()]
         self.assertIn(self.appointment_id, ids)
         self.assertNotIn(str(other_bookings[0].pk), ids)
 
@@ -939,7 +1014,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
         resp = self.client.post(
             NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
         )
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         booking = Booking.objects.get(pk=resp.json()["appointment_id"])
         self.assertEqual(booking.citizen_id, self.citizen.pk)
 
@@ -955,7 +1030,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
         resp = self.client.post(
             NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
         )
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     # AP55
     def test_ap55_citizen_jwt_create_with_other_participant_id_returns_403(self):
@@ -1020,7 +1095,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
         )
         resp = self.client.get(LIST_URL + _qs(), **_jwt_header(self.citizen))
         self.assertEqual(resp.status_code, 200)
-        participant_ids = {r["participant_id"] for r in resp.json()["data"]}
+        participant_ids = {r["participant_id"] for r in resp.json()}
         self.assertEqual(participant_ids, {str(self.citizen.pk)})
 
     # AP59
@@ -1040,7 +1115,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
         qry = {"appointment_filter": {"participant_id": str(self.other_citizen.pk)}}
         resp = self.client.get(LIST_URL + _qry_qs(qry), **_jwt_header(self.citizen))
         self.assertEqual(resp.status_code, 200)
-        participant_ids = {r["participant_id"] for r in resp.json()["data"]}
+        participant_ids = {r["participant_id"] for r in resp.json()}
         self.assertEqual(participant_ids, {str(self.citizen.pk)})
 
     # AP66 (service-level)
@@ -1105,7 +1180,7 @@ class AppointmentBBRoleGatingTests(TestCase):
         }
         qry = {"appointment_details": details}
         resp = self.client.post(NEW_URL + _qry_qs(qry))
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     # AP61
     def test_ap61_organizer_role_bb_can_delete_arbitrary_appointment(self):
@@ -1131,7 +1206,7 @@ class AppointmentBBRoleGatingTests(TestCase):
         qry = {"appointment_filter": {"participant_id": str(self.citizen.pk)}}
         resp = self.client.get(LIST_URL + _qry_qs(qry))
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()["data"]), 1)
+        self.assertEqual(len(resp.json()), 1)
 
     # AP63
     def test_ap63_resource_role_bb_denied_create(self):

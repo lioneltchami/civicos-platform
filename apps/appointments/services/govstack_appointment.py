@@ -724,11 +724,27 @@ def appointment_list(
 
     appointment_filter keys
     ────────────────────────
-    appointment_id         — exact match (Booking pk)
+    appointment_id         — array-typed (Bug 1 bonus fix — a robustness/
+                              consistency enhancement, not a literal spec
+                              conformance fix: the real GovStack spec types
+                              appointment_filter.appointment_id as a plain
+                              string, not an array, unlike entity_id/
+                              resource_id/subscriber_id/log_id, which the
+                              spec does type as arrays). AppointmentFilterSerializer's
+                              StringOrListField normalizes a single bare
+                              string into a 1-element list, so this is always
+                              list-shaped by the time it reaches this
+                              function; matches ANY of the given ids (pk__in).
     participant_type       — if supplied and not "subscriber" (case-sensitive),
                               returns [] immediately (no other participant
                               types exist in this system)
-    participant_id          — exact match (Booking.citizen_id)
+    participant_id          — array-typed, same Bug 1 bonus-fix rationale as
+                              appointment_id above (matches ANY of the given
+                              ids, citizen_id__in). A non-numeric entry
+                              causes an empty result set to be returned —
+                              preserves this function's pre-existing
+                              single-value convention of returning [] on a
+                              malformed participant_id rather than raising.
     participant_entity_id   — exact match (Booking.govstack_participant_entity_id)
     status                  — exact match against Booking.STATUS_CHOICES values
                               (already align 1:1 with the GovStack status
@@ -773,14 +789,14 @@ def appointment_list(
         appointment_filter = {k: v for k, v in appointment_filter.items() if k != "participant_id"}
 
     if appointment_filter.get("appointment_id"):
-        qs = qs.filter(pk=appointment_filter["appointment_id"])
+        qs = qs.filter(pk__in=appointment_filter["appointment_id"])
 
     if appointment_filter.get("participant_id"):
         try:
-            citizen_pk = int(appointment_filter["participant_id"])
+            citizen_pks = [int(pid) for pid in appointment_filter["participant_id"]]
         except (ValueError, TypeError):
             return []
-        qs = qs.filter(citizen_id=citizen_pk)
+        qs = qs.filter(citizen_id__in=citizen_pks)
 
     if appointment_filter.get("participant_entity_id"):
         qs = qs.filter(

@@ -337,7 +337,18 @@ def resource_list(
       - status_poll_url = staffprofile.gs_status_poll_url
 
     Filter by:
-      - resource_id: "R-<int>" → Resources only; "S-<int>" → StaffProfiles only; else both
+      - resource_id: array-typed per the real GovStack spec
+        (resource_filter.resource_id[]) — Bug 1 fix. Each element may
+        independently carry the "R-"/"S-" prefix (or none): "R-<int>" routes
+        to Resources only, "S-<int>" routes to StaffProfiles only, and an
+        unprefixed bare int is tried against both models — exactly like the
+        pre-existing single-value semantics, generalised per-element so a
+        single call may mix R- and S- prefixed ids. ResourceFilterSerializer's
+        StringOrListField normalizes a single bare string into a 1-element
+        list, so this is always list-shaped by the time it reaches this
+        function. An element that fails to parse to an int after its prefix
+        is stripped is silently skipped (matches this function's pre-existing
+        "malformed -> no match" convention — see below).
       - category: icontains on resource_type for Resources; "staff" substring for StaffProfiles
       - name: icontains on name_en / display_name_en
       - phone: icontains on phone / gs_phone
@@ -351,40 +362,67 @@ def resource_list(
     rf = resource_filter or {}
     dr = resource_details_required or {}
 
-    rid_filter = rf.get("resource_id", "")
+    # Bug 1 fix: resource_id is array-typed per the real GovStack spec
+    # (resource_filter.resource_id[]) — ResourceFilterSerializer's
+    # StringOrListField normalizes a single bare string into a 1-element
+    # list, so rid_filter is always list-shaped (or falsy/empty) here.
+    rid_filter = rf.get("resource_id") or []
     category_filter = rf.get("category", "")
     name_filter = rf.get("name", "")
     phone_filter = rf.get("phone", "")
     email_filter = rf.get("email", "")
 
-    # Determine which models to query based on resource_id prefix.
+    # Determine which models to query and which pks to filter by, based on
+    # each resource_id element's "R-"/"S-" prefix (or lack thereof). An array
+    # may legitimately mix R- and S- prefixed values, so each element is
+    # parsed independently and routed into its own model's pk__in list — the
+    # array-aware generalisation of the previous single-value branch. An
+    # element that doesn't parse to an int after its prefix is stripped is
+    # silently skipped (not raised as an error): the pre-existing
+    # single-value convention was to fall back to qs.none() on a malformed
+    # id; skipping the element here has the identical net effect, since
+    # filter(pk__in=[]) (or a list missing that entry) matches nothing for it.
     query_resources = True
     query_staff = True
-    resource_id_int_filter: str | None = None
-    staff_id_int_filter: str | None = None
+    resource_pks: list[int] = []
+    staff_pks: list[int] = []
 
     if rid_filter:
-        if rid_filter.startswith("R-"):
-            query_staff = False
-            resource_id_int_filter = rid_filter[2:]
-        elif rid_filter.startswith("S-"):
-            query_resources = False
-            staff_id_int_filter = rid_filter[2:]
-        else:
-            # No prefix — try matching as bare integer against both models.
-            resource_id_int_filter = rid_filter
-            staff_id_int_filter = rid_filter
+        resource_targeted = False
+        staff_targeted = False
+        for rid in rid_filter:
+            if rid.startswith("R-"):
+                resource_targeted = True
+                try:
+                    resource_pks.append(int(rid[2:]))
+                except (ValueError, TypeError):
+                    pass
+            elif rid.startswith("S-"):
+                staff_targeted = True
+                try:
+                    staff_pks.append(int(rid[2:]))
+                except (ValueError, TypeError):
+                    pass
+            else:
+                # No prefix — try matching as bare integer against both models.
+                resource_targeted = True
+                staff_targeted = True
+                try:
+                    bare_pk = int(rid)
+                except (ValueError, TypeError):
+                    continue
+                resource_pks.append(bare_pk)
+                staff_pks.append(bare_pk)
+        query_resources = resource_targeted
+        query_staff = staff_targeted
 
     # -- Resource queryset --
     resource_records: list[dict] = []
     if query_resources:
         qs = Resource.objects.filter(is_active=True)
 
-        if resource_id_int_filter:
-            try:
-                qs = qs.filter(pk=int(resource_id_int_filter))
-            except (ValueError, TypeError):
-                qs = qs.none()
+        if rid_filter:
+            qs = qs.filter(pk__in=resource_pks)
 
         if category_filter:
             qs = qs.filter(resource_type__icontains=category_filter)
@@ -431,11 +469,8 @@ def resource_list(
         if include_staff:
             sqs = StaffProfile.objects.filter(is_accepting_bookings=True)
 
-            if staff_id_int_filter:
-                try:
-                    sqs = sqs.filter(pk=int(staff_id_int_filter))
-                except (ValueError, TypeError):
-                    sqs = sqs.none()
+            if rid_filter:
+                sqs = sqs.filter(pk__in=staff_pks)
 
             if name_filter:
                 sqs = sqs.filter(display_name_en__icontains=name_filter)

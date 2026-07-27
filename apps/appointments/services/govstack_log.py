@@ -112,15 +112,17 @@ including Spec Quirk #1 (log_filter's field is "category", not
 verified directly against the real fetched GovStack OpenAPI spec JSON and
 preserved here exactly as specified, not "fixed".
 
-Known, deliberately-deferred cross-wave limitation:
-  log_filter.log_id is an array in the real spec, but — matching the SAME
-  established, documented convention already used for every other `*_id[]`
-  array filter in this codebase (Message/AlertSchedule/Event all implement
-  these as single-value exact-match, NOT `__in`; see Wave F's deep-review
-  commit message for the rationale) — log_id is implemented here as a
-  single-value exact-match filter for consistency. Fixing this only for Log
-  while leaving the identical limitation everywhere else would make the
-  codebase MORE inconsistent, not less.
+Bug 1 fix (formerly a documented cross-wave limitation, now closed):
+  log_filter.log_id is array-typed in the real spec (log_id[]) — verified
+  directly against the fetched GovStack OpenAPI spec. LogFilterSerializer's
+  StringOrListField normalizes a single bare string into a 1-element list, so
+  log_list() below applies it via `pk__in=` uniformly, matching the
+  already-correct precedent of alert_schedule_id/message_id/entity_id/
+  resource_id/subscriber_id. log_filter.entity_id, by contrast, is verified
+  to be a plain `string` (not an array) in the same fetched spec — it is
+  deliberately NOT converted, matching the identical, already-correct
+  precedent of alert_schedule_filter.entity_id (also a derived,
+  single-value-only filter).
 
 PIPEDA:
   No PII is logged at any level in this module. Log statements use PKs
@@ -362,9 +364,11 @@ def log_list(
 
     log_filter keys
     ────────────────
-    log_id     — exact match on PK. Single-value exact-match, NOT an array
-                 lookup — see module docstring "Known, deliberately-deferred
-                 cross-wave limitation".
+    log_id     — array-typed per the real GovStack spec (log_id[]); matches
+                 ANY of the given ids (pk__in). LogFilterSerializer's
+                 StringOrListField normalizes a single bare string into a
+                 1-element list, so this is always list-shaped by the time
+                 it reaches this function (Bug 1 fix — see module docstring).
     entity_id  — exact match against the DERIVED owning Organization
                  (booking.slot.location.organization_id) — BookingAuditLog
                  has no stored entity/organization column of its own.
@@ -406,7 +410,7 @@ def log_list(
     filter_data = log_filter or {}
 
     if filter_data.get("log_id"):
-        qs = qs.filter(pk=filter_data["log_id"])
+        qs = qs.filter(pk__in=filter_data["log_id"])
 
     if filter_data.get("category"):
         qs = qs.filter(action=filter_data["category"])

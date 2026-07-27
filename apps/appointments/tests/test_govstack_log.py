@@ -146,7 +146,7 @@ class LogNewTests(LogBaseTestCase):
             "log_data": log_data,
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
 
@@ -181,7 +181,7 @@ class LogNewTests(LogBaseTestCase):
             }
         }
         resp = self._post(spec_literal_qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertTrue(BookingAuditLog.objects.filter(pk=data["log_id"]).exists())
@@ -293,7 +293,7 @@ class LogNewTests(LogBaseTestCase):
             "log_data": _log_data_for(slot, citizen),
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_log14_caller_supplied_datetime_is_not_stored(self):
         """
@@ -313,7 +313,7 @@ class LogNewTests(LogBaseTestCase):
         before = timezone.now()
         resp = self._post(qry)
         after = timezone.now()
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         entry = BookingAuditLog.objects.get(pk=resp.json()["log_id"])
         self.assertNotEqual(entry.timestamp, parse_datetime(backdated))
         self.assertGreaterEqual(entry.timestamp, before)
@@ -405,7 +405,7 @@ class LogListDetailsTests(LogBaseTestCase):
         }
         details.update(overrides)
         resp = self._post({"log_details": details})
-        assert resp.status_code == 201, resp.content
+        assert resp.status_code == 200, resp.content
         entry = BookingAuditLog.objects.get(pk=resp.json()["log_id"])
         return entry, org
 
@@ -416,28 +416,55 @@ class LogListDetailsTests(LogBaseTestCase):
         return entry, org
 
     def test_log19_happy_path_no_filter_returns_all(self):
+        """
+        Bug 2 fix: the response body is now a bare JSON array (matches the
+        real GovStack OpenAPI spec's log_list schema exactly) — no more
+        {"status": "success", "data": [...], "truncated": ...} wrapper.
+        """
         self._create_log_entry()
         self._create_log_entry()
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertGreaterEqual(len(data["data"]), 2)
-        self.assertIn("truncated", data)
+        self.assertIsInstance(data, list)
+        self.assertGreaterEqual(len(data), 2)
 
     def test_log20_filter_by_log_id(self):
         entry, _ = self._create_log_entry()
         self._create_log_entry()
         resp = self._get({"log_filter": {"log_id": str(entry.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["log_id"], str(entry.pk))
+
+    def test_log20b_filter_by_log_id_array_matches_multiple(self):
+        """
+        Bug 1 fix: log_id is array-typed per the real GovStack spec — a
+        JSON array of 2+ ids returns all matching records (pk__in).
+        """
+        entry1, _ = self._create_log_entry()
+        entry2, _ = self._create_log_entry()
+        resp = self._get({"log_filter": {"log_id": [str(entry1.pk), str(entry2.pk)]}})
+        self.assertEqual(resp.status_code, 200)
+        returned_ids = {item["log_id"] for item in resp.json()}
+        self.assertEqual(returned_ids, {str(entry1.pk), str(entry2.pk)})
+
+    def test_log20c_filter_by_log_id_invalid_entry_returns_400(self):
+        """
+        Bug 1 fix: an invalid/non-numeric id in the array is handled the same
+        way the reference implementation (alert_schedule_id/message_id) does
+        — the malformed pk__in lookup raises, and the view's generic
+        exception handler maps it to a 400.
+        """
+        entry, _ = self._create_log_entry()
+        resp = self._get({"log_filter": {"log_id": [str(entry.pk), "not-a-number"]}})
+        self.assertEqual(resp.status_code, 400)
 
     def test_log21_filter_by_category(self):
         entry, _ = self._create_log_entry(log_category="unique-cat-21")
         self._create_log_entry(log_category="something-else")
         resp = self._get({"log_filter": {"category": "unique-cat-21"}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["details"]["log_category"], "unique-cat-21")
 
@@ -445,7 +472,7 @@ class LogListDetailsTests(LogBaseTestCase):
         entry, org = self._create_log_entry()
         self._create_log_entry()  # different org
         resp = self._get({"log_filter": {"entity_id": str(org.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["details"]["entity_id"], str(org.pk))
 
@@ -462,7 +489,7 @@ class LogListDetailsTests(LogBaseTestCase):
         resp = self._get({"log_filter": {
             "from": "2027-01-01T00:00:00Z", "to": "2027-12-31T00:00:00Z",
         }})
-        data = resp.json()["data"]
+        data = resp.json()
         ids = [item["log_id"] for item in data]
         self.assertIn(str(in_range.pk), ids)
         self.assertNotIn(str(out_of_range.pk), ids)
@@ -470,7 +497,7 @@ class LogListDetailsTests(LogBaseTestCase):
     def test_log24_response_shape_log_id_and_details(self):
         entry, org = self._create_log_entry(logger_role="resource")
         resp = self._get({"log_filter": {"log_id": str(entry.pk)}})
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertIn("log_id", item)
         self.assertIn("details", item)
         self.assertEqual(item["details"]["logger_role"], "resource")
@@ -486,13 +513,13 @@ class LogListDetailsTests(LogBaseTestCase):
             "log_filter": {"log_id": str(entry.pk)},
             "log_details_required": {"logger_category": False},
         })
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertNotIn("logger_role", item["details"])
 
     def test_log26_log_data_excluded_by_default(self):
         entry, _ = self._create_log_entry()
         resp = self._get({"log_filter": {"log_id": str(entry.pk)}})
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertNotIn("log_data", item["details"])
 
     def test_log27_log_data_included_when_required_flag_true(self):
@@ -501,7 +528,7 @@ class LogListDetailsTests(LogBaseTestCase):
             "log_filter": {"log_id": str(entry.pk)},
             "log_details_required": {"log_data": True},
         })
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertIn("log_data", item["details"])
         parsed = json.loads(item["details"]["log_data"])
         self.assertIn("detail", parsed)
@@ -513,7 +540,7 @@ class LogListDetailsTests(LogBaseTestCase):
     def test_log28_no_matches_returns_empty_list(self):
         resp = self._get({"log_filter": {"category": "definitely-does-not-exist"}})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["data"], [])
+        self.assertEqual(resp.json(), [])
 
     def test_log29_malformed_from_returns_400(self):
         resp = self._get({"log_filter": {"from": "not-a-date"}})
@@ -523,7 +550,7 @@ class LogListDetailsTests(LogBaseTestCase):
     def test_log30_entity_id_and_log_id_both_present_at_top_level(self):
         entry, _ = self._create_log_entry()
         resp = self._get({"log_filter": {"log_id": str(entry.pk)}})
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertEqual(item["log_id"], str(entry.pk))
         self.assertEqual(item["details"]["log_id"], str(entry.pk))
 
@@ -577,7 +604,7 @@ class LogRoleEnforcementTests(LogBaseTestCase):
             "log_data": _log_data_for(slot, citizen),
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_log33_organizer_role_denied_on_log_modifications(self):
         self._make_role_bb("organizer")

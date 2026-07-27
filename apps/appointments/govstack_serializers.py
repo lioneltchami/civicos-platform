@@ -147,9 +147,20 @@ class EntityDetailsSerializer(serializers.Serializer):
 
 
 class EntityFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /entity/list_details."""
+    """
+    Filter parameters for GET /entity/list_details.
 
-    entity_id = serializers.CharField(required=False, allow_blank=True)
+    Bug 1 fix (verified directly against the fetched real GovStack OpenAPI
+    spec's components.schemas.entity_filter): entity_id is array-typed
+    (entity_id[]) — a caller may filter for MULTIPLE ids in one call.
+    StringOrListField accepts either a bare string (backward compatible) or
+    a JSON array, always normalizing to a list so the service layer can
+    apply pk__in= uniformly — identical technique already established by
+    AlertScheduleFilterSerializer.alert_schedule_id /
+    MessageFilterSerializer.message_id (see StringOrListField's docstring).
+    """
+
+    entity_id = StringOrListField(required=False)
     category = serializers.CharField(required=False, allow_blank=True)
     name = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
@@ -223,9 +234,20 @@ class ResourceDetailsSerializer(serializers.Serializer):
 
 
 class ResourceFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /resource/list_details."""
+    """
+    Filter parameters for GET /resource/list_details.
 
-    resource_id = serializers.CharField(required=False, allow_blank=True)
+    Bug 1 fix (verified directly against the fetched real GovStack OpenAPI
+    spec's components.schemas.resource_filter): resource_id is array-typed
+    (resource_id[]) — a caller may filter for MULTIPLE ids in one call.
+    StringOrListField accepts either a bare string (backward compatible) or
+    a JSON array, always normalizing to a list. Each element may still carry
+    the CivicOS "R-"/"S-" prefix (Resource vs StaffProfile) — see
+    services.govstack_resource.resource_list's docstring for how the array is
+    split into independent per-prefix pk__in lists before querying.
+    """
+
+    resource_id = StringOrListField(required=False)
     name = serializers.CharField(required=False, allow_blank=True)
     category = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
@@ -351,9 +373,18 @@ class SubscriberDetailsSerializer(serializers.Serializer):
 
 
 class SubscriberFilterSerializer(serializers.Serializer):
-    """Filter parameters for GET /subscriber/list_details."""
+    """
+    Filter parameters for GET /subscriber/list_details.
 
-    subscriber_id = serializers.CharField(required=False, allow_blank=True)
+    Bug 1 fix (verified directly against the fetched real GovStack OpenAPI
+    spec's components.schemas.subscriber_filter): subscriber_id is
+    array-typed (subscriber_id[]) — a caller may filter for MULTIPLE ids in
+    one call. StringOrListField accepts either a bare string (backward
+    compatible) or a JSON array, always normalizing to a list so the service
+    layer can apply user_id__in= uniformly.
+    """
+
+    subscriber_id = StringOrListField(required=False)
     name = serializers.CharField(required=False, allow_blank=True)
     category = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
@@ -837,11 +868,21 @@ class AppointmentFilterSerializer(serializers.Serializer):
     — this mirrors the identical technique already used and tested in
     EventFilterSerializer (see govstack_serializers.py's Event section and
     test_govstack_event.py's EV52 for the pattern this replicates).
+
+    Bug 1 bonus fix — NOTE (verified directly against the fetched real
+    GovStack OpenAPI spec's components.schemas.appointment_filter):
+    appointment_id and participant_id are typed as plain `string` there, NOT
+    arrays (unlike entity_id/resource_id/subscriber_id/log_id, which the spec
+    does type as arrays). Declaring them as StringOrListField here is
+    therefore a defensive robustness/consistency enhancement rather than a
+    literal spec-conformance fix — it is fully backward compatible (a bare
+    string filter still works exactly as before) and matches this codebase's
+    established `pk__in=` idiom used everywhere else an `*_id` filter exists.
     """
 
-    appointment_id = serializers.CharField(required=False, allow_blank=True)
+    appointment_id = StringOrListField(required=False)
     participant_type = serializers.CharField(required=False, allow_blank=True)
-    participant_id = serializers.CharField(required=False, allow_blank=True)
+    participant_id = StringOrListField(required=False)
     participant_entity_id = serializers.CharField(required=False, allow_blank=True)
     status = serializers.CharField(required=False, allow_blank=True)
     exclusive = serializers.BooleanField(required=False)
@@ -1178,9 +1219,25 @@ class LogFilterSerializer(serializers.Serializer):
     EventFilterSerializer / AppointmentFilterSerializer /
     AlertScheduleFilterSerializer above — "from" is a Python reserved word
     and cannot be a class attribute.
+
+    Bug 1 bonus fix (verified directly against the fetched real GovStack
+    OpenAPI spec's components.schemas.log_filter): log_id IS array-typed
+    there (log_id[]) — the exact same latent bug already fixed for
+    alert_schedule_id/message_id/entity_id/resource_id/subscriber_id.
+    StringOrListField accepts either a bare string (backward compatible) or
+    a JSON array, always normalizing to a list so the service layer can
+    apply pk__in= uniformly.
+
+    entity_id here is DELIBERATELY left as a plain CharField (NOT converted)
+    — verified directly against the same fetched spec, log_filter.entity_id
+    is typed as a plain `string`, not an array (unlike log_id). Converting it
+    would introduce a spec deviation rather than fix one; it matches the
+    identical, already-correct precedent of
+    AlertScheduleFilterSerializer.entity_id, which is also a derived
+    single-value filter and was likewise never converted.
     """
 
-    log_id = serializers.CharField(required=False, allow_blank=True)
+    log_id = StringOrListField(required=False)
     entity_id = serializers.CharField(required=False, allow_blank=True)
     category = serializers.CharField(required=False, allow_blank=True)
     from_ = serializers.CharField(required=False, allow_blank=True)

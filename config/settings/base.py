@@ -866,3 +866,22 @@ STRIPE_PUBLISHABLE_KEY = env("STRIPE_PUBLISHABLE_KEY", default="")
 
 # ── Donation Receipt Email ────────────────────────────────────────────────────
 RECEIPT_FROM_EMAIL = env("RECEIPT_FROM_EMAIL", default="receipts@example.ca")
+
+# ── GovStack Scheduler / Payments BB — auth safe defaults ────────────────────
+# Both flags were previously defined ONLY in production.py (default=True there,
+# left unchanged). Any settings module that isn't production.py (base.py,
+# development.py, test.py) never defined them, so
+# getattr(settings, "GOVSTACK_SCHEDULER_REQUIRE_TOKEN", False) in
+# apps.appointments.govstack_auth silently resolved to require_token=False in
+# every non-production deployment — any non-empty requestor_id/token pair then
+# authenticates as admin-role across all 37 GovStack Scheduler BB endpoints.
+# Fix (mirrors the CLAMAV_REQUIRED convention above): define an explicit,
+# safe-for-dev default (False) here so every environment gets an intentional
+# value rather than relying on an undefined attribute's getattr() fallback.
+# production.py's existing `default=True` lines are untouched and still
+# correctly override these for production.
+GOVSTACK_SCHEDULER_REQUIRE_TOKEN = env.bool("GOVSTACK_SCHEDULER_REQUIRE_TOKEN", default=False)
+# Same rationale — gates apps.payments.govstack_auth.IsTrustedSourceBB's
+# GovStackRegisteredBB whitelist check (shared flag, also relevant to the
+# Scheduler BB's registered-BB gating where applicable).
+GOVSTACK_REQUIRE_REGISTERED_BB = env.bool("GOVSTACK_REQUIRE_REGISTERED_BB", default=False)

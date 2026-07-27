@@ -104,7 +104,7 @@ class MessageNewTests(MessageBaseTestCase):
             "entity_id": str(org.pk), "category": "reminder", "message_body": "Your appointment is tomorrow.",
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertTrue(GovStackMessage.objects.filter(pk=data["message_id"]).exists())
@@ -153,7 +153,7 @@ class MessageNewTests(MessageBaseTestCase):
         org = _create_org()
         qry = {"message_details": {"entity_id": str(org.pk)}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
 
 # ===========================================================================
@@ -273,13 +273,18 @@ class MessageListDetailsTests(MessageBaseTestCase):
     """MSG22-MSG28: GET /message/list_details"""
 
     def test_msg22_happy_path_no_filter_returns_all(self):
+        """
+        Bug 2 fix: the response body is now a bare JSON array (matches the
+        real GovStack OpenAPI spec's message_list schema exactly) — no more
+        {"status": "success", "data": [...], "truncated": ...} wrapper.
+        """
         _create_message(category="a")
         _create_message(category="b")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertGreaterEqual(len(data["data"]), 2)
+        self.assertIsInstance(data, list)
+        self.assertGreaterEqual(len(data), 2)
 
     def test_msg23_filter_by_entity_id(self):
         org = _create_org()
@@ -287,14 +292,14 @@ class MessageListDetailsTests(MessageBaseTestCase):
         _create_message()  # different org
         resp = self._get({"message_filter": {"entity_id": str(org.pk)}})
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["message_id"], str(msg.pk))
 
     def test_msg24_filter_by_category(self):
         _create_message(category="unique-cat-24")
         resp = self._get({"message_filter": {"category": "unique-cat-24"}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["details"]["category"], "unique-cat-24")
 
@@ -302,7 +307,7 @@ class MessageListDetailsTests(MessageBaseTestCase):
         msg = _create_message()
         _create_message()
         resp = self._get({"message_filter": {"message_id": str(msg.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["message_id"], str(msg.pk))
 
@@ -317,7 +322,7 @@ class MessageListDetailsTests(MessageBaseTestCase):
         _create_message()  # not included in the filter — must be excluded
         resp = self._get({"message_filter": {"message_id": [str(msg1.pk), str(msg2.pk)]}})
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(
             {item["message_id"] for item in data},
             {str(msg1.pk), str(msg2.pk)},
@@ -326,7 +331,7 @@ class MessageListDetailsTests(MessageBaseTestCase):
     def test_msg26_response_shape_message_id_and_details(self):
         msg = _create_message(category="shape-test", message_body="body text")
         resp = self._get({"message_filter": {"message_id": str(msg.pk)}})
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertIn("message_id", item)
         self.assertIn("details", item)
         self.assertEqual(item["details"]["entity_id"], str(msg.entity_id))
@@ -340,13 +345,13 @@ class MessageListDetailsTests(MessageBaseTestCase):
             "message_filter": {"message_id": str(msg.pk)},
             "message_details_required": {"message_body": True},
         })
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertEqual(item["details"]["message_body"], "secret template text")
 
     def test_msg28_no_matches_returns_empty_list(self):
         resp = self._get({"message_filter": {"category": "definitely-does-not-exist"}})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["data"], [])
+        self.assertEqual(resp.json(), [])
 
 
 # ===========================================================================
@@ -395,7 +400,7 @@ class MessageRoleEnforcementTests(MessageBaseTestCase):
         org = _create_org()
         qry = {"message_details": {"entity_id": str(org.pk)}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_msg31_organizer_role_allowed_on_message_list(self):
         self._make_role_bb("organizer")
@@ -445,7 +450,7 @@ class MessageSpecWireFormatTests(MessageBaseTestCase):
             }
         }
         resp = self._post(spec_literal_qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertTrue(GovStackMessage.objects.filter(pk=data["message_id"]).exists())

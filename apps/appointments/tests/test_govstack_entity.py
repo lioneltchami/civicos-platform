@@ -103,7 +103,7 @@ class EntityNewTests(EntityBaseTestCase):
             "website": "https://moh.example.gov",
         }}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         org = Organization.objects.get(pk=data["entity_id"])
@@ -126,11 +126,11 @@ class EntityNewTests(EntityBaseTestCase):
     def test_e4_blank_details_still_creates_entity(self):
         """E4: all fields optional per the loose GovStack string typing — blank name is allowed."""
         resp = self._post({"details": {}})
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_e5_category_maps_to_organization_type(self):
         resp = self._post({"details": {"name": "Federal Dept", "category": "federal"}})
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         org = Organization.objects.get(pk=resp.json()["entity_id"])
         self.assertEqual(org.organization_type, "government_federal")
 
@@ -138,7 +138,7 @@ class EntityNewTests(EntityBaseTestCase):
         """E6: entity_create() generates a unique slug even for a duplicate name (no 400)."""
         self._post({"details": {"name": "Duplicate Org"}})
         resp = self._post({"details": {"name": "Duplicate Org"}})
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_e7_missing_auth_params_returns_401_or_403(self):
         qry = json.dumps({"details": {"name": "No Auth"}})
@@ -249,20 +249,24 @@ class EntityListDetailsTests(EntityBaseTestCase):
     """E21-E28: GET /entity/list_details"""
 
     def test_e21_happy_path_no_filter_returns_all(self):
+        """
+        Bug 2 fix: the response body is now a bare JSON array (matches the
+        real GovStack OpenAPI spec's entity_list schema exactly) — no more
+        {"status": "success", "data": [...], "truncated": ...} wrapper.
+        """
         _create_entity(name="A")
         _create_entity(name="B")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        self.assertGreaterEqual(len(data["data"]), 2)
-        self.assertIn("truncated", data)
+        self.assertIsInstance(data, list)
+        self.assertGreaterEqual(len(data), 2)
 
     def test_e22_filter_by_category(self):
         _create_entity(name="Health Dept", category="health")
         _create_entity(name="Legal Dept", category="legal")
         resp = self._get({"entity_filter": {"category": "health"}})
-        data = resp.json()["data"]
+        data = resp.json()
         names = [r["name"] for r in data]
         self.assertIn("Health Dept", names)
         self.assertNotIn("Legal Dept", names)
@@ -271,20 +275,55 @@ class EntityListDetailsTests(EntityBaseTestCase):
         org = _create_entity()
         _create_entity()
         resp = self._get({"entity_filter": {"entity_id": str(org.pk)}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["entity_id"], str(org.pk))
+
+    def test_e23b_filter_by_entity_id_array_matches_multiple(self):
+        """
+        Bug 1 fix: entity_id is array-typed per the real GovStack spec — a
+        JSON array of 2+ ids returns all matching records (pk__in).
+        """
+        org1 = _create_entity(name="Array Match 1")
+        org2 = _create_entity(name="Array Match 2")
+        _create_entity(name="Not Matched")
+        resp = self._get({"entity_filter": {"entity_id": [str(org1.pk), str(org2.pk)]}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        returned_ids = {item["entity_id"] for item in data}
+        self.assertEqual(returned_ids, {str(org1.pk), str(org2.pk)})
+
+    def test_e23c_filter_by_entity_id_single_string_still_works(self):
+        """Bug 1 fix: backward compatibility — a single bare-string entity_id still works."""
+        org = _create_entity(name="Single String Filter")
+        _create_entity(name="Other")
+        resp = self._get({"entity_filter": {"entity_id": str(org.pk)}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["entity_id"], str(org.pk))
+
+    def test_e23d_filter_by_entity_id_invalid_entry_returns_400(self):
+        """
+        Bug 1 fix: an invalid/non-numeric id in the array is handled the same
+        way the reference implementation (alert_schedule_id/message_id) does
+        — the malformed pk__in lookup raises, and the view's generic
+        exception handler maps it to a 400.
+        """
+        org = _create_entity()
+        resp = self._get({"entity_filter": {"entity_id": [str(org.pk), "not-a-number"]}})
+        self.assertEqual(resp.status_code, 400)
 
     def test_e24_filter_by_name(self):
         _create_entity(name="Unique Name 24")
         resp = self._get({"entity_filter": {"name": "Unique Name 24"}})
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
 
     def test_e25_response_excludes_phone_email_website_by_default(self):
         org = _create_entity(phone="+15005550000", email="hide@example.gov")
         resp = self._get({"entity_filter": {"entity_id": str(org.pk)}})
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertNotIn("phone", item)
         self.assertNotIn("email", item)
         self.assertNotIn("website", item)
@@ -295,13 +334,13 @@ class EntityListDetailsTests(EntityBaseTestCase):
             "entity_filter": {"entity_id": str(org.pk)},
             "entity_details_required": {"phone": True},
         })
-        item = resp.json()["data"][0]
+        item = resp.json()[0]
         self.assertEqual(item["phone"], "+15005550042")
 
     def test_e27_no_matches_returns_empty_list(self):
         resp = self._get({"entity_filter": {"category": "definitely-does-not-exist"}})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["data"], [])
+        self.assertEqual(resp.json(), [])
 
     def test_e28_missing_auth_params_returns_401_or_403(self):
         resp = self.client.get(LIST_URL)
@@ -347,7 +386,7 @@ class EntityRoleEnforcementTests(EntityBaseTestCase):
     def test_e30_admin_role_allowed_on_entity_new(self):
         self._make_role_bb("admin")
         resp = self._post({"details": {"name": "Allowed Org"}})
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
 
     def test_e31_organizer_role_denied_on_entity_modifications(self):
         self._make_role_bb("organizer")

@@ -219,6 +219,18 @@ class GovStackSchedulerAuth(BaseAuthentication):
                     "requestor_id is invalid or the requesting BB is not registered."
                 )
 
+            # Stash the resolved GovStackRegisteredBB row's own pk on the request
+            # (Bug 7 fix — see GovStackBBIdentityThrottle in govstack_throttling.py).
+            # Rate-limit throttling must key on calling-BB identity, not client IP:
+            # DRF's stock ScopedRateThrottle falls back to client IP whenever
+            # request.user is falsy, which it always is here (BB-to-BB calls are
+            # never tied to a Django user) — so two different BBs behind the same
+            # NAT/gateway would share one throttle bucket, and a single BB
+            # switching IPs would reset its own limit. Stored on META (not a
+            # public DRF request attribute) alongside _gs_requestor_id /
+            # _gs_resolved_role below, following the same pattern.
+            request.META["_gs_bb_pk"] = bb.pk
+
             credential = GovStackBBCredential.objects.filter(bb=bb).first()
             if credential is None or not credential.check_token(request_token):
                 logger.warning(

@@ -43,9 +43,24 @@ Request data convention (GovStack Scheduler BB):
     affiliation_id (required for PUT/DELETE affiliation)
 
 Response envelope:
-  Success create/modify/delete → {"status": "success", "<entity>_id": "<pk>"}
-  Success list                 → {"status": "success", "data": [...]}
+  Success create/modify/delete → {"status": "success", "<entity>_id": "<pk>"}, HTTP 200
+  Success list                 → a bare JSON array (e.g. [ {...}, {...} ]), HTTP 200 — see
+                                  Bug 2 fix below; the real GovStack OpenAPI spec's
+                                  *_list schemas are all `{"type": "array", ...}`, not
+                                  an object wrapper.
   Error                        → {"status": "error", "code": "...", "message": "..."}
+
+Bug 2 fix (final certifiability pass): every create endpoint previously
+returned HTTP 201; verified directly against the fetched real GovStack
+OpenAPI spec (and its own example Gherkin fixture), the correct success
+status for all 9 create endpoints is HTTP 200 — corrected across the 8
+endpoints in this module's Bug 2 scope (Entity, Resource, Subscriber, Event,
+Appointment, AlertSchedule, Message, Log; Affiliation is out of this pass's
+scope). Separately, every list_details endpoint previously wrapped its
+response in a non-spec {"status": "success", "data": [...], "truncated":
+<bool>} envelope — verified against the fetched spec, the correct response
+body for all 10 list_details endpoints (including resource/availability) is
+a bare JSON array with no wrapper object at all; corrected here.
 
 Actor roles:
   All Wave B views declare a class-level gs_actor_role attribute so the role is
@@ -74,7 +89,14 @@ from django.db import transaction
 from django.db.models import ProtectedError
 
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
+# Bug 7 fix: aliased import — this is NOT the real DRF ScopedRateThrottle.
+# GovStackBBIdentityThrottle keys the throttle cache on the calling BB's
+# resolved identity (request.META["_gs_requestor_id"]) instead of client IP,
+# falling back to stock ScopedRateThrottle behaviour when no BB identity is
+# resolved. Aliasing lets all ~37 `throttle_classes = [ScopedRateThrottle]`
+# usages below pick up the fix without editing each view. See
+# apps/appointments/govstack_throttling.py for the full rationale.
+from apps.appointments.govstack_throttling import GovStackBBIdentityThrottle as ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.appointments.govstack_auth import (
@@ -321,8 +343,13 @@ class EntityNewView(APIView):
                            "email": "...", "website": "..."}}}
 
     Returns:
-      201 {"status": "success", "entity_id": "<pk>"}
+      200 {"status": "success", "entity_id": "<pk>"}
       400 on validation or creation failure
+
+    Bug 2 fix: this endpoint previously returned HTTP 201; the real GovStack
+    OpenAPI spec (and its own example Gherkin fixture) define 200 as the
+    success status for this operation — verified directly against the
+    fetched spec's components.responses for POST /entity/new.
     """
 
     gs_actor_role = "admin"                           # visible during check_permissions()
@@ -375,7 +402,7 @@ class EntityNewView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "entity_id": str(org.pk)}, status=201)
+        return Response({"status": "success", "entity_id": str(org.pk)}, status=200)
 
 
 class EntityModificationsView(APIView):
@@ -532,8 +559,14 @@ class EntityListDetailsView(APIView):
       }
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"entity_id": "...", "name": "...", ...}, ... ]  (bare array — see Bug 2 fix below)
       400 on missing/invalid params
+
+    Bug 2 fix: the response body is now a bare JSON array, matching the real
+    GovStack OpenAPI spec exactly (GET /entity/list_details's "200" response
+    schema is `{"type": "array", "items": {"$ref": ".../entity_list"}}`) — the
+    previous {"status": "success", "data": [...], "truncated": ...} wrapper
+    was not part of the spec and has been removed.
     """
 
     gs_actor_role = "admin"
@@ -569,14 +602,13 @@ class EntityListDetailsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": data,
-                "truncated": len(data) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's entity_list response
+        # schema is a bare JSON array — verified directly against the
+        # fetched spec's GET /entity/list_details "200" response (schema:
+        # {"type": "array", "items": {"$ref": "#/components/schemas/entity_list"}}).
+        # The previous {"status": "success", "data": [...], "truncated": ...}
+        # envelope is not part of the spec and has been removed.
+        return Response(data, status=200)
 
 
 # ===========================================================================
@@ -601,8 +633,12 @@ class ResourceNewView(APIView):
     location association happens via Affiliation).
 
     Returns:
-      201 {"status": "success", "resource_id": "R-<pk>"}
+      200 {"status": "success", "resource_id": "R-<pk>"}
       400 on validation or creation failure
+
+    Bug 2 fix: this endpoint previously returned HTTP 201; the real GovStack
+    OpenAPI spec (and its own example Gherkin fixture) define 200 as the
+    success status for this operation.
 
     Finding #3 fix: resource_id is now always emitted "R-<pk>"-prefixed,
     matching /resource/list_details and /resource/availability, so a
@@ -651,7 +687,7 @@ class ResourceNewView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "resource_id": f"R-{resource.pk}"}, status=201)
+        return Response({"status": "success", "resource_id": f"R-{resource.pk}"}, status=200)
 
 
 class ResourceModificationsView(APIView):
@@ -824,8 +860,13 @@ class ResourceListDetailsView(APIView):
     set by staff for GovStack callbacks) is exposed.
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"resource_id": "...", "name": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on invalid params
+
+    Bug 2 fix: the response body is now a bare JSON array, matching the real
+    GovStack OpenAPI spec's resource_list schema exactly — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed.
     """
 
     gs_actor_role = "organizer"
@@ -864,20 +905,12 @@ class ResourceListDetailsView(APIView):
                 status=400,
             )
 
-        # resource_list() is a union of two independently-capped querysets
-        # (Resource + StaffProfile, each capped at 500 — see
-        # services.govstack_resource._LIST_PAGE_CAP), so "truncated" here
-        # means "at least one of the two underlying querysets may have been
-        # cut off", signalled conservatively by the combined length reaching
-        # the theoretical max of 1000.
-        return Response(
-            {
-                "status": "success",
-                "data": data,
-                "truncated": len(data) >= 1000,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's resource_list response
+        # schema is a bare JSON array (GET /resource/list_details's "200"
+        # response: {"type": "array", "items": {"$ref": ".../resource_list"}})
+        # — the previous {"status": "success", "data": [...], "truncated":
+        # ...} wrapper was not part of the spec and has been removed.
+        return Response(data, status=200)
 
 
 class ResourceAvailabilityView(APIView):
@@ -899,8 +932,15 @@ class ResourceAvailabilityView(APIView):
     invalid strings return 400.
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"slot_id": "...", "resource_id": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on invalid params or datetime format error
+
+    Bug 2 fix: the response body is now a bare JSON array — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed. (The per-item shape here still
+    differs from the spec's free_resource_list/free_resource_details
+    grouping-by-resource schema — a separate, larger data-model change left
+    out of scope for this envelope-only fix.)
     """
 
     gs_actor_role = "resource"
@@ -947,14 +987,15 @@ class ResourceAvailabilityView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": slots,
-                "truncated": len(slots) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's free_resource_list
+        # response schema is a bare JSON array — the previous
+        # {"status": "success", "data": [...], "truncated": ...} wrapper was
+        # not part of the spec and has been removed. (The per-item shape of
+        # `slots` still differs from the spec's free_resource_details
+        # grouping-by-resource schema — a separate, larger data-model change
+        # left out of scope for this envelope-only fix; see the final report
+        # for details.)
+        return Response(slots, status=200)
 
 
 # ===========================================================================
@@ -975,8 +1016,10 @@ class AffiliationNewView(APIView):
                            "resource_category": "...", "work_days_hours": {...}}}}
 
     Returns:
-      201 {"status": "success", "affiliation_id": "<pk>"}
-      400 on validation or creation failure
+      200 {"status": "success", "affiliation_id": "<pk>"}
+      400 on validation or creation failure (including a malformed/wrong-prefix
+          resource_id — e.g. missing "R-" prefix, non-numeric, or "S-" prefixed;
+          Affiliation.resource is a Resource FK and NEVER links to StaffProfile)
       404 if resource_id or entity_id do not resolve to active records
       409 on duplicate (resource, entity) pair
     """
@@ -999,10 +1042,10 @@ class AffiliationNewView(APIView):
             return _validation_error(ser)
 
         details = ser.validated_data["affiliation_details"]
-        resource_id = details.get("resource_id", "")
+        resource_id_str = details.get("resource_id", "").strip()
         entity_id = details.get("entity_id", "")
 
-        if not resource_id:
+        if not resource_id_str:
             return Response(
                 {
                     "status": "error",
@@ -1021,6 +1064,21 @@ class AffiliationNewView(APIView):
                 status=400,
             )
 
+        # Bug 4a fix: GovStackAffiliation.resource is a ForeignKey to Resource
+        # ONLY — it never links to StaffProfile (confirmed against
+        # apps.appointments.models.GovStackAffiliation) — so this reuses the
+        # same "R-"/"S-" prefix-stripping/validation helper the 3 Resource-only
+        # endpoints use, rejecting "S-" ids and malformed input with a clean
+        # 400 here, BEFORE ever calling affiliation_create(). This guarantees a
+        # malformed/non-numeric/wrong-prefix resource_id can never reach the
+        # `except ValueError` below — that clause is reserved exclusively for
+        # affiliation_create's own duplicate-(resource, entity)-pair signal
+        # (an IntegrityError it wraps as ValueError), so it no longer risks
+        # misreporting a bad input as a leaked 409 DUPLICATE_AFFILIATION.
+        resource_id, err = _parse_resource_only_pk(resource_id_str)
+        if err:
+            return err
+
         try:
             aff = affiliation_create(
                 resource_id=resource_id,
@@ -1033,7 +1091,7 @@ class AffiliationNewView(APIView):
                 {
                     "status": "error",
                     "code": "RESOURCE_NOT_FOUND",
-                    "message": f"No active resource with id={resource_id}.",
+                    "message": f"No active resource with id={resource_id_str}.",
                 },
                 status=404,
             )
@@ -1048,6 +1106,8 @@ class AffiliationNewView(APIView):
             )
         except ValueError as exc:
             # Duplicate (resource, entity) pair — service raises ValueError wrapping IntegrityError.
+            # (resource_id is guaranteed a well-formed int by this point — see comment above —
+            # so this can only be the service's own duplicate-pair signal.)
             return Response(
                 {
                     "status": "error",
@@ -1069,7 +1129,7 @@ class AffiliationNewView(APIView):
 
         return Response(
             {"status": "success", "affiliation_id": str(aff.pk)},
-            status=201,
+            status=200,
         )
 
 
@@ -1244,8 +1304,12 @@ class AffiliationListDetailsView(APIView):
     unchanged.
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"affiliation_id": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on missing/invalid params (e.g. malformed from/to datetimes)
+
+    Bug 2 fix: the response body is now a bare JSON array — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed. (View-layer-only change.)
     """
 
     gs_actor_role = "admin"
@@ -1299,14 +1363,13 @@ class AffiliationListDetailsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": data,
-                "truncated": len(data) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's affiliation_list
+        # response schema is a bare JSON array — the previous
+        # {"status": "success", "data": [...], "truncated": ...} wrapper was
+        # not part of the spec and has been removed. (This is a view-layer-only
+        # change — services.govstack_affiliation.affiliation_list's own
+        # per-item shape is unowned/untouched here.)
+        return Response(data, status=200)
 
 
 # ===========================================================================
@@ -1328,8 +1391,12 @@ class SubscriberNewView(APIView):
                            "alert_preference": "...", "status_poll_url": "..."}}}
 
     Returns:
-      201 {"status": "success", "subscriber_id": "<user_pk>"}
+      200 {"status": "success", "subscriber_id": "<user_pk>"}
       400 on validation or creation failure
+
+    Bug 2 fix: this endpoint previously returned HTTP 201; the real GovStack
+    OpenAPI spec (and its own example Gherkin fixture) define 200 as the
+    success status for this operation.
 
     PIPEDA: subscriber PII (name, email, phone) must NOT appear in log messages.
     """
@@ -1383,7 +1450,7 @@ class SubscriberNewView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "subscriber_id": str(profile.user_id)}, status=201)
+        return Response({"status": "success", "subscriber_id": str(profile.user_id)}, status=200)
 
 
 class SubscriberModificationsView(APIView):
@@ -1558,8 +1625,13 @@ class SubscriberListDetailsView(APIView):
       }
 
     Returns:
-      200 {"status": "success", "data": [...]}
+      200 [ {"subscriber_id": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on invalid params
+
+    Bug 2 fix: the response body is now a bare JSON array, matching the real
+    GovStack OpenAPI spec's subscriber_list schema exactly — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed.
 
     PIPEDA: email, phone, and name are only returned when explicitly requested via
     subscriber_details_required. subscriber_id is always included.
@@ -1608,14 +1680,11 @@ class SubscriberListDetailsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": results,
-                "truncated": len(results) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's subscriber_list response
+        # schema is a bare JSON array — the previous {"status": "success",
+        # "data": [...], "truncated": ...} wrapper was not part of the spec
+        # and has been removed.
+        return Response(results, status=200)
 
 
 # ===========================================================================
@@ -1635,8 +1704,12 @@ class EventNewView(APIView):
                            "status": "available", ...}}}
 
     Returns:
-      201 {"status": "success", "event_id": "<first-slot-pk>", "event_ids": ["<slot_pk>", ...]}
+      200 {"status": "success", "event_id": "<first-slot-pk>", "event_ids": ["<slot_pk>", ...]}
       400 on validation or creation failure
+
+    Bug 2 fix: this endpoint previously returned HTTP 201; the real GovStack
+    OpenAPI spec (and its own example Gherkin fixture) define 200 as the
+    success status for this operation.
 
     Response field convention (dual-field, per Wave D review FIX 2):
       "event_id" (singular) is the spec-compliant primary field — every other
@@ -1704,7 +1777,7 @@ class EventNewView(APIView):
         event_ids = [str(s.pk) for s in created_slots]
         return Response(
             {"status": "success", "event_id": event_ids[0], "event_ids": event_ids},
-            status=201,
+            status=200,
         )
 
 
@@ -1873,8 +1946,13 @@ class EventListDetailsView(APIView):
       }
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"event_id": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on invalid params
+
+    Bug 2 fix: the response body is now a bare JSON array — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed. (View-layer-only change —
+    services.govstack_event's own per-item shape is unowned/untouched here.)
     """
 
     gs_actor_role = "organizer"
@@ -1923,14 +2001,12 @@ class EventListDetailsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": results,
-                "truncated": len(results) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's event_list response
+        # schema is a bare JSON array — the previous {"status": "success",
+        # "data": [...], "truncated": ...} wrapper was not part of the spec
+        # and has been removed. (View-layer-only change — services.govstack_event's
+        # own per-item shape is unowned/untouched here.)
+        return Response(results, status=200)
 
 
 # ===========================================================================
@@ -1954,10 +2030,14 @@ class AppointmentNewView(APIView):
                                         "participant_entity_id": "..."}}}
 
     Returns:
-      201 {"status": "success", "appointment_id": "<first-booking-pk>",
+      200 {"status": "success", "appointment_id": "<first-booking-pk>",
            "appointment_ids": ["<booking_pk>", ...]}
       400 on validation or creation failure
       404 if participant_id or any event_id does not resolve
+
+    Bug 2 fix: this endpoint previously returned HTTP 201; the real GovStack
+    OpenAPI spec (and its own example Gherkin fixture) define 200 as the
+    success status for this operation.
 
     Response field convention (dual-field, matching EventNewView's
     event_id/event_ids precedent from the Wave D review): "appointment_id"
@@ -2108,7 +2188,7 @@ class AppointmentNewView(APIView):
                 "appointment_id": appointment_ids[0],
                 "appointment_ids": appointment_ids,
             },
-            status=201,
+            status=200,
         )
 
 
@@ -2373,8 +2453,13 @@ class AppointmentListDetailsView(APIView):
       }
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"appointment_id": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on invalid filter parameters (e.g. malformed from/to datetimes)
+
+    Bug 2 fix: the response body is now a bare JSON array, matching the real
+    GovStack OpenAPI spec's appointment_list schema exactly — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed.
 
     Dual-path access (GAP: appointment ownership / IDOR fix): a citizen JWT
     caller only ever sees their OWN appointments — any participant_id filter
@@ -2442,14 +2527,11 @@ class AppointmentListDetailsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": results,
-                "truncated": len(results) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's appointment_list
+        # response schema is a bare JSON array — the previous
+        # {"status": "success", "data": [...], "truncated": ...} wrapper was
+        # not part of the spec and has been removed.
+        return Response(results, status=200)
 
 
 # ===========================================================================
@@ -2524,10 +2606,14 @@ class AlertScheduleNewView(APIView):
                            "message_id": "...", "alert_datetime": "2026-08-01T09:00:00Z"}}}
 
     Returns:
-      201 {"status": "success", "alert_schedule_id": "<pk>"}
+      200 {"status": "success", "alert_schedule_id": "<pk>"}
       400 on invalid target_category, unparseable/past alert_datetime, or
           other validation failure
       404 if event_id (Slot) or message_id (GovStackMessage) does not resolve
+
+    Bug 2 fix: this endpoint previously returned HTTP 201; the real GovStack
+    OpenAPI spec (and its own example Gherkin fixture) define 200 as the
+    success status for this operation.
 
     On success, the Celery ETA dispatch task is enqueued via
     transaction.on_commit() — see _enqueue_alert_dispatch().
@@ -2600,7 +2686,7 @@ class AlertScheduleNewView(APIView):
         _eta = alert_schedule.alert_datetime
         transaction.on_commit(lambda: _enqueue_alert_dispatch(_pk, _eta))
 
-        return Response({"status": "success", "alert_schedule_id": _pk}, status=201)
+        return Response({"status": "success", "alert_schedule_id": _pk}, status=200)
 
 
 class AlertScheduleModificationsView(APIView):
@@ -2819,8 +2905,13 @@ class AlertScheduleListDetailsView(APIView):
       }
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"alert_schedule_id": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on invalid filter parameters (e.g. malformed from/to datetimes)
+
+    Bug 2 fix: the response body is now a bare JSON array, matching the real
+    GovStack OpenAPI spec's alert_schedule_list schema exactly — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed.
     """
 
     gs_actor_role = "organizer"
@@ -2877,14 +2968,11 @@ class AlertScheduleListDetailsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": results,
-                "truncated": len(results) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's alert_schedule_list
+        # response schema is a bare JSON array — the previous
+        # {"status": "success", "data": [...], "truncated": ...} wrapper was
+        # not part of the spec and has been removed.
+        return Response(results, status=200)
 
 
 # ===========================================================================
@@ -2904,9 +2992,13 @@ class MessageNewView(APIView):
                            "message_body": "Your appointment is tomorrow."}}}
 
     Returns:
-      201 {"status": "success", "message_id": "<pk>"}
+      200 {"status": "success", "message_id": "<pk>"}
       400 on validation failure (e.g. category exceeds 50 characters)
       404 if entity_id does not resolve to an active Organization
+
+    Bug 2 fix: this endpoint previously returned HTTP 201; the real GovStack
+    OpenAPI spec (and its own example Gherkin fixture) define 200 as the
+    success status for this operation.
     """
 
     gs_actor_role = "organizer"
@@ -2963,7 +3055,7 @@ class MessageNewView(APIView):
             )
 
         return Response(
-            {"status": "success", "message_id": str(message.pk)}, status=201
+            {"status": "success", "message_id": str(message.pk)}, status=200
         )
 
 
@@ -3153,8 +3245,13 @@ class MessageListDetailsView(APIView):
       }
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"message_id": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on invalid filter parameters
+
+    Bug 2 fix: the response body is now a bare JSON array, matching the real
+    GovStack OpenAPI spec's message_list schema exactly — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed.
     """
 
     gs_actor_role = "organizer"
@@ -3202,14 +3299,11 @@ class MessageListDetailsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": results,
-                "truncated": len(results) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's message_list response
+        # schema is a bare JSON array — the previous {"status": "success",
+        # "data": [...], "truncated": ...} wrapper was not part of the spec
+        # and has been removed.
+        return Response(results, status=200)
 
 
 # ===========================================================================
@@ -3251,13 +3345,17 @@ class LogNewView(APIView):
     direct GovStack field naming a specific booking).
 
     Returns:
-      201 {"status": "success", "log_id": "<pk>"}
+      200 {"status": "success", "log_id": "<pk>"}
       400 on invalid logger_role, missing/blank log_category, unparseable
           log_data (missing event_id/subscriber_id), non-integer
           subscriber_id, or a supplied entity_id that does not match the
           resolved booking's organization
       404 if event_id/subscriber_id (parsed from log_data) do not resolve to
           an existing Booking
+
+    Bug 2 fix: this endpoint previously returned HTTP 201; the real GovStack
+    OpenAPI spec (and its own example Gherkin fixture) define 200 as the
+    success status for this operation.
 
     The caller-supplied `datetime` value is intentionally never stored —
     BookingAuditLog.timestamp has auto_now_add=True (see services.govstack_log
@@ -3342,7 +3440,7 @@ class LogNewView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "log_id": str(entry.pk)}, status=201)
+        return Response({"status": "success", "log_id": str(entry.pk)}, status=200)
 
 
 class LogModificationsView(APIView):
@@ -3435,8 +3533,13 @@ class LogListDetailsView(APIView):
     docstrings for the full rationale.
 
     Returns:
-      200 {"status": "success", "data": [...], "truncated": <bool>}
+      200 [ {"log_id": "...", ...}, ... ]  (bare array — see Bug 2 fix)
       400 on invalid filter parameters (e.g. malformed from/to datetimes)
+
+    Bug 2 fix: the response body is now a bare JSON array, matching the real
+    GovStack OpenAPI spec's log_list schema exactly — the previous
+    {"status": "success", "data": [...], "truncated": ...} wrapper was not
+    part of the spec and has been removed.
     """
 
     gs_actor_role = "admin"
@@ -3491,11 +3594,8 @@ class LogListDetailsView(APIView):
                 status=400,
             )
 
-        return Response(
-            {
-                "status": "success",
-                "data": results,
-                "truncated": len(results) == 500,
-            },
-            status=200,
-        )
+        # Bug 2 fix: the real GovStack OpenAPI spec's log_list response
+        # schema is a bare JSON array — the previous {"status": "success",
+        # "data": [...], "truncated": ...} wrapper was not part of the spec
+        # and has been removed.
+        return Response(results, status=200)

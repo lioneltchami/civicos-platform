@@ -106,13 +106,19 @@ class SubscriberNewTests(SubscriberBaseTestCase):
     """S1–S7: POST /subscriber/new"""
 
     # S1
-    def test_s1_post_new_returns_201_with_subscriber_id(self):
-        """S1: POST /subscriber/new returns 201 with subscriber_id."""
+    def test_s1_post_new_returns_200_with_subscriber_id(self):
+        """
+        S1: POST /subscriber/new returns 200 with subscriber_id.
+
+        Bug 2 fix: previously asserted 201 — the real GovStack OpenAPI spec
+        (and its own example Gherkin fixture) define 200 as the success
+        status for this operation.
+        """
         qry = {"subscriber_details": {"name": "Bob Jones", "email": "bob@example.com",
                                     "category": "individual", "phone": "+15005550002",
                                     "alert_preference": "email"}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertIn("subscriber_id", data)
@@ -158,7 +164,7 @@ class SubscriberNewTests(SubscriberBaseTestCase):
         qry = {"subscriber_details": {"name": "Carol Doe", "email": "carol@example.com",
                                     "category": "individual", "alert_preference": "sms"}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         subscriber_id = int(resp.json()["subscriber_id"])
 
         user = User.objects.get(pk=subscriber_id)
@@ -310,7 +316,7 @@ class SubscriberSpecWireFormatTests(SubscriberBaseTestCase):
             }
         }
         resp = self._post(spec_literal_qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "success")
         self.assertTrue(
@@ -466,12 +472,18 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
 
     # S18
     def test_s18_list_returns_all_active_subscribers(self):
-        """S18: GET /subscriber/list_details returns all active subscribers."""
+        """
+        S18: GET /subscriber/list_details returns all active subscribers.
+
+        Bug 2 fix: the response body is now a bare JSON array (matches the
+        real GovStack OpenAPI spec's subscriber_list schema exactly) — no
+        more {"status": "success", "data": [...], "truncated": ...} wrapper.
+        """
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(data["status"], "success")
-        ids = [r["subscriber_id"] for r in data["data"]]
+        self.assertIsInstance(data, list)
+        ids = [r["subscriber_id"] for r in data]
         self.assertIn(str(self.p1.user_id), ids)
         self.assertIn(str(self.p2.user_id), ids)
 
@@ -481,9 +493,32 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         qry = {"subscriber_filter": {"subscriber_id": str(self.p1.user_id)}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["subscriber_id"], str(self.p1.user_id))
+
+    # S19b
+    def test_s19b_list_with_subscriber_id_array_matches_multiple(self):
+        """
+        Bug 1 fix: subscriber_id is array-typed per the real GovStack spec —
+        a JSON array of 2+ ids returns all matching records (user_id__in).
+        """
+        qry = {"subscriber_filter": {"subscriber_id": [str(self.p1.user_id), str(self.p2.user_id)]}}
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        returned_ids = {r["subscriber_id"] for r in resp.json()}
+        self.assertEqual(returned_ids, {str(self.p1.user_id), str(self.p2.user_id)})
+
+    # S19c
+    def test_s19c_list_with_subscriber_id_invalid_entry_returns_400(self):
+        """
+        Bug 1 fix: an invalid/non-numeric id in the array is handled the same
+        way this function's pre-existing single-value convention does —
+        raising ValueError, mapped to 400 by the view.
+        """
+        qry = {"subscriber_filter": {"subscriber_id": [str(self.p1.user_id), "not-a-number"]}}
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 400)
 
     # S20
     def test_s20_list_with_email_filter_returns_matching(self):
@@ -494,7 +529,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         }
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["subscriber_id"], str(self.p1.user_id))
 
@@ -504,7 +539,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         subscriber_delete(subscriber_id=self.p1.user_id)
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
-        ids = [r["subscriber_id"] for r in resp.json()["data"]]
+        ids = [r["subscriber_id"] for r in resp.json()]
         self.assertNotIn(str(self.p1.user_id), ids)
         self.assertIn(str(self.p2.user_id), ids)
 
@@ -517,7 +552,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         }
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertIn("email", data[0])
         self.assertEqual(data[0]["email"], "alice@list.com")
@@ -528,7 +563,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         qry = {"subscriber_details_required": {}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        for record in resp.json()["data"]:
+        for record in resp.json():
             self.assertIn("subscriber_id", record)
 
     # S24
@@ -536,8 +571,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         """S24: GET /subscriber/list_details with empty qry does not return 400."""
         resp = self._get(qry_dict={})
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()
-        self.assertEqual(data["status"], "success")
+        self.assertIsInstance(resp.json(), list)
 
     # S25 — PIPEDA
     def test_s25_pipeda_list_without_email_flag_omits_email(self):
@@ -548,7 +582,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         }
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        data = resp.json()["data"]
+        data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertNotIn("email", data[0])
 
@@ -557,7 +591,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         """S26: PIPEDA — POST /subscriber/new response body does not contain email."""
         qry = {"subscriber_details": {"email": "pipeda@example.com", "name": "Privacy User"}}
         resp = self._post(qry)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 200)
         resp_data = resp.json()
         # Only subscriber_id and status should be present — no PII
         self.assertNotIn("email", resp_data)
@@ -570,7 +604,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         _create_subscriber(email="pii_test@example.com", name="PII Test User")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
-        for record in resp.json()["data"]:
+        for record in resp.json():
             self.assertNotIn("email", record)
             self.assertNotIn("phone", record)
             self.assertNotIn("name", record)
@@ -588,7 +622,7 @@ class SubscriberListDetailsTests(SubscriberBaseTestCase):
         resp = self._get({"subscriber_filter": {"alert_url": "https://notregistered.example.com/hook"}})
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        self.assertEqual(len(data["data"]), 0)  # filter actually applied
+        self.assertEqual(len(data), 0)  # filter actually applied
 
 
 # ===========================================================================

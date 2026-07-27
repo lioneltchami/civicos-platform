@@ -355,7 +355,15 @@ def subscriber_list(
     Return a filtered list of active Subscriber records as GovStack dicts.
 
     Applies optional filter parameters from subscriber_filter:
-      subscriber_id     — exact match on User PK
+      subscriber_id     — array-typed per the real GovStack spec
+                          (subscriber_filter.subscriber_id[]); matches ANY of
+                          the given ids (user_id__in). SubscriberFilterSerializer's
+                          StringOrListField normalizes a single bare string
+                          into a 1-element list, so this is always
+                          list-shaped by the time it reaches this function
+                          (Bug 1 fix). A non-numeric entry raises ValueError
+                          — matches this function's pre-existing
+                          single-value convention of raising on a malformed id.
       name              — case-insensitive contains on first_name OR last_name
       phone             — case-insensitive contains on phone_number
       email             — case-insensitive contains on email
@@ -390,13 +398,19 @@ def subscriber_list(
 
     filter_data = subscriber_filter or {}
 
-    subscriber_id_filter = filter_data.get("subscriber_id", "")
+    # Bug 1 fix: subscriber_id is array-typed per the real spec —
+    # user_id__in= is always the correct application now that
+    # StringOrListField guarantees a list shape (even for a single-value
+    # caller). Preserves the pre-existing convention of raising ValueError
+    # (rather than silently skipping) on a non-numeric entry — matches
+    # SubscriberListDetailsView's existing `except ValueError` -> 400 handling.
+    subscriber_id_filter = filter_data.get("subscriber_id")
     if subscriber_id_filter:
         try:
-            subscriber_id_int = int(subscriber_id_filter)
+            subscriber_id_ints = [int(sid) for sid in subscriber_id_filter]
         except (ValueError, TypeError):
-            raise ValueError("subscriber_id filter must be an integer.")
-        qs = qs.filter(user_id=subscriber_id_int)
+            raise ValueError("subscriber_id filter must contain only integers.")
+        qs = qs.filter(user_id__in=subscriber_id_ints)
 
     name_filter = filter_data.get("name", "")
     if name_filter:
