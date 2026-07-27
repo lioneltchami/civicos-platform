@@ -2125,6 +2125,18 @@ class BookingAuditLog(models.Model):
     ACTION_CONSENT_RECORDED = "consent_recorded"
     ACTION_DATA_PURGED = "data_purged"
 
+    # GovStack Scheduler BB — Round 2 certifiability re-audit fix (MEDIUM):
+    # non-booking administrative mutations (Entity/Resource/Affiliation
+    # create/update/delete, and BB-credential create/rotate) previously left
+    # NO audit trail anywhere in this BB. These four actions are the
+    # "non-booking" counterpart to the booking-lifecycle actions above — see
+    # the "booking" field's docstring below for why BookingAuditLog (rather
+    # than a new model) was reused for this.
+    ACTION_ADMIN_ENTITY_MUTATED = "admin_entity_mutated"
+    ACTION_ADMIN_RESOURCE_MUTATED = "admin_resource_mutated"
+    ACTION_ADMIN_AFFILIATION_MUTATED = "admin_affiliation_mutated"
+    ACTION_ADMIN_CREDENTIAL_MUTATED = "admin_credential_mutated"
+
     ACTION_CHOICES = [
         (ACTION_CREATED, _("Booking Created")),
         (ACTION_CONFIRMED, _("Confirmed")),
@@ -2142,6 +2154,10 @@ class BookingAuditLog(models.Model):
         (ACTION_PAYMENT_RECEIVED, _("Payment Received")),
         (ACTION_CONSENT_RECORDED, _("Consent Recorded")),
         (ACTION_DATA_PURGED, _("Data Purged")),
+        (ACTION_ADMIN_ENTITY_MUTATED, _("Entity Created/Updated/Deleted (admin)")),
+        (ACTION_ADMIN_RESOURCE_MUTATED, _("Resource Created/Updated/Deleted (admin)")),
+        (ACTION_ADMIN_AFFILIATION_MUTATED, _("Affiliation Created/Updated/Deleted (admin)")),
+        (ACTION_ADMIN_CREDENTIAL_MUTATED, _("BB Credential Created/Rotated (admin)")),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -2149,7 +2165,24 @@ class BookingAuditLog(models.Model):
         Booking,
         on_delete=models.CASCADE,
         related_name="audit_log",
+        null=True,
+        blank=True,
         verbose_name=_("Booking"),
+        help_text=_(
+            "Null for non-booking administrative events (Entity/Resource/"
+            "Affiliation mutations, BB-credential create/rotate — see "
+            "ACTION_ADMIN_* actions above). DESIGN CHOICE (Round 2 "
+            "certifiability re-audit): rather than add a second, parallel "
+            "audit model for these BB-to-BB admin actions, this FK was made "
+            "nullable so the SAME immutable, tamper-evident, append-only "
+            "table — already relied on by GET /log (services.govstack_log."
+            "log_list) — can also carry them. The alternative (a brand-new "
+            "generic audit model) was rejected as unnecessary duplication: "
+            "this model's actor_id/actor_ip/actor_role/detail/timestamp "
+            "columns already capture everything a non-booking admin event "
+            "needs, and reusing it means GET /log surfaces these events "
+            "for free rather than requiring a second read path."
+        ),
     )
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name=_("Timestamp"))
     action = models.CharField(max_length=30, choices=ACTION_CHOICES, verbose_name=_("Action"))

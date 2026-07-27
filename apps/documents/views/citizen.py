@@ -60,6 +60,45 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _record_access_denied(*, requested_pk, requesting_user) -> None:
+    """
+    Write an AuditEventType.ACCESS_DENIED entry for a denied (IDOR) access
+    attempt — spec §13.1 "Access denied (non-owned PK)".
+
+    Only call this when the requested pk genuinely belongs to someone else
+    (the document exists but is not owned by requesting_user) — this is
+    audit-only and never changes the view's Http404 response.
+
+    PIPEDA: event_detail contains ONLY requested_pk and requesting_user_pk —
+    no filename, storage_key, or other PII (spec §13.2). Duplicated (rather
+    than imported) from the near-identical helper in
+    apps.api.documents.views / apps.documents.services.download — matches
+    this codebase's established convention of keeping small private helpers
+    local to each module.
+    """
+    from apps.audit.models import AuditEventType
+    from apps.audit.services import record_event
+
+    try:
+        record_event(
+            event_type=AuditEventType.ACCESS_DENIED,
+            actor_id=str(requesting_user.pk),
+            resource_type="documents.Document",
+            resource_id=str(requested_pk),
+            event_detail={
+                "requested_pk": str(requested_pk),
+                "requesting_user_pk": str(requesting_user.pk),
+            },
+        )
+    except Exception:
+        logger.exception(
+            "_record_access_denied: audit write failed for requested_pk=%s "
+            "requesting_user_pk=%s",
+            requested_pk,
+            requesting_user.pk,
+        )
+
+
 def _get_client_ip(request: HttpRequest) -> str | None:
     """
     Extract the client IP from ``REMOTE_ADDR``.
@@ -185,6 +224,11 @@ class DocumentDetailView(LoginRequiredMixin, View):
             .first()
         )
         if doc is None:
+            # Audit trail (spec §13): only a genuine IDOR-deny (pk exists,
+            # owned by someone else) is audit-worthy — a bare "doesn't exist"
+            # 404 carries no security signal. Audit-only; response unchanged.
+            if Document.objects.filter(pk=pk, deleted_at__isnull=True).exists():
+                _record_access_denied(requested_pk=pk, requesting_user=request.user)
             raise Http404
 
         return render(
@@ -380,6 +424,14 @@ class DocumentDownloadView(LoginRequiredMixin, View):
             .first()
         )
         if doc is None:
+            # Audit trail (spec §13): only a genuine IDOR-deny (pk exists,
+            # owned by someone else) is audit-worthy — a bare "doesn't exist"
+            # 404 (or a not-yet-ACTIVE own document) carries no such signal.
+            # Audit-only; response unchanged.
+            if Document.objects.filter(pk=pk, deleted_at__isnull=True).exclude(
+                uploaded_by=request.user
+            ).exists():
+                _record_access_denied(requested_pk=pk, requesting_user=request.user)
             raise Http404
 
         try:

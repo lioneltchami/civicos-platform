@@ -1241,6 +1241,12 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
       - Add new BB entries before enabling GOVSTACK_REQUIRE_REGISTERED_BB=True.
       - Deactivate BBs by unchecking is_active (no data loss).
       - View the bb_id and description.
+      - Set allowed_platform_tenant_ids to opt a registered BB into P2G
+        tenant-registry binding (certifiability-audit fix, Round 2 — HIGH
+        finding): once non-empty, GovStackAPIView._validate_platform_tenant_id()
+        rejects any X-Platform-TenantId this BB declares that isn't in the
+        list. Leave empty (the default) for unrestricted, back-compat
+        behaviour.
 
     bb_id is immutable after creation (it is the lookup key used in HTTP
     headers — changing it would silently break the calling BB).
@@ -1261,6 +1267,10 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
     list_filter = ["is_active", "role"]
     search_fields = ["bb_id", "description"]
     ordering = ["bb_id"]
+    # allowed_platform_tenant_ids intentionally NOT in list_display — it's a
+    # JSON list, unsuited to the list view; it is editable via the change
+    # form's fieldset below (certifiability-audit fix, Round 2 — HIGH
+    # finding: opt-in tenant-registry binding for P2G endpoints).
 
     def get_readonly_fields(self, request, obj=None):
         # Timestamps are always auto-set — show as read-only on both forms.
@@ -1280,6 +1290,18 @@ class GovStackRegisteredBBAdmin(admin.ModelAdmin):
             None,
             {
                 "fields": ["bb_id", "description", "is_active", "role"],
+            },
+        ),
+        (
+            "P2G Tenant Scoping",
+            {
+                "fields": ["allowed_platform_tenant_ids"],
+                "description": (
+                    "Opt-in tenant-registry binding for P2G endpoints "
+                    "(certifiability-audit fix). Leave empty for unrestricted "
+                    "(back-compat) behaviour — only a non-empty list of "
+                    "X-Platform-TenantId values enforces binding for this BB."
+                ),
             },
         ),
         (

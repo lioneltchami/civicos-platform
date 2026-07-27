@@ -262,6 +262,27 @@ class CitizenDocumentDetailTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_detail_other_user_doc_writes_access_denied_audit_event(self) -> None:
+        """
+        FIX 2: an IDOR attempt on the citizen HTML detail view must write an
+        AuditEventType.ACCESS_DENIED event (spec §13.1); response is unchanged.
+        """
+        from apps.audit.models import AuditEventType, AuditLogEntry
+
+        other_doc = make_document(self.other, self.category)
+        response = self.client.get(
+            reverse("documents:detail", args=[other_doc.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+        event = AuditLogEntry.objects.filter(
+            event_type=AuditEventType.ACCESS_DENIED,
+            resource_id=str(other_doc.pk),
+        ).first()
+        self.assertIsNotNone(event)
+        self.assertEqual(event.event_detail["requested_pk"], str(other_doc.pk))
+        self.assertEqual(event.event_detail["requesting_user_pk"], str(self.user.pk))
+
     def test_detail_404_for_nonexistent(self) -> None:
         response = self.client.get(
             reverse("documents:detail", args=[uuid.uuid4()])
@@ -572,6 +593,28 @@ class CitizenDownloadTests(TestCase):
         other_doc = make_document(self.other, self.category)
         response = self.client.get(self._url(pk=other_doc.pk))
         self.assertEqual(response.status_code, 404)
+
+    def test_download_other_user_doc_writes_access_denied_audit_event(self) -> None:
+        """
+        FIX 2: an IDOR attempt on the citizen HTML download view must write an
+        AuditEventType.ACCESS_DENIED event (spec §13.1); response is unchanged.
+        """
+        from apps.audit.models import AuditEventType, AuditLogEntry
+        from apps.documents.models import Document
+
+        other_doc = make_document(
+            self.other, self.category, scan_status=Document.ScanStatus.ACTIVE
+        )
+        response = self.client.get(self._url(pk=other_doc.pk))
+        self.assertEqual(response.status_code, 404)
+
+        event = AuditLogEntry.objects.filter(
+            event_type=AuditEventType.ACCESS_DENIED,
+            resource_id=str(other_doc.pk),
+        ).first()
+        self.assertIsNotNone(event)
+        self.assertEqual(event.event_detail["requested_pk"], str(other_doc.pk))
+        self.assertEqual(event.event_detail["requesting_user_pk"], str(self.user.pk))
 
     def test_download_nonexistent_doc_404(self) -> None:
         response = self.client.get(self._url(pk=uuid.uuid4()))

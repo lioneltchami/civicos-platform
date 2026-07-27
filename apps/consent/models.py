@@ -968,6 +968,20 @@ class ConsentAuditEntry(models.Model):
         ("export_marked_delivered", "Marked Delivered by Staff"),
         ("rtbf_requested", "Right to Be Forgotten Requested"),
         ("rtbf_completed", "Right to Be Forgotten Completed"),
+        # Round 2 Fix 2/Fix 3 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"):
+        # config-level (BB-wide, not citizen-scoped) mutations previously wrote
+        # a ConsentRevision snapshot but never a ConsentAuditEntry, so none of
+        # these changes were visible through AuditConsentLogView. These entries
+        # use citizen=None (see the ``citizen`` field's null=True below) since
+        # they are not tied to any individual citizen's consent — ``actor`` is
+        # the staff/admin user who made the change.
+        ("policy_created", "Policy Created"),
+        ("policy_updated", "Policy Updated"),
+        ("data_agreement_created", "Data Agreement Created"),
+        ("data_agreement_updated", "Data Agreement Updated"),
+        ("webhook_created", "Webhook Created"),
+        ("webhook_updated", "Webhook Updated"),
+        ("webhook_deleted", "Webhook Deleted"),
     ]
 
     citizen = models.ForeignKey(
@@ -1016,6 +1030,9 @@ class ConsentAuditEntry(models.Model):
                     "export_delivered", "export_expired", "export_failed",
                     "export_downloaded", "export_marked_delivered",
                     "rtbf_requested", "rtbf_completed",
+                    "policy_created", "policy_updated",
+                    "data_agreement_created", "data_agreement_updated",
+                    "webhook_created", "webhook_updated", "webhook_deleted",
                 ]),
                 name="consent_audit_valid_action",
             )

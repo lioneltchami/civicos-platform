@@ -637,6 +637,160 @@ class GrantIntegrityErrorRecoveryTests(TestCase):
 
 
 # ===========================================================================
+# Round 2 Fix 4 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"):
+# attach_signature()/update_signature() previously had no select_for_update()
+# on the ConsentRecord (or ConsentSignature) row, unlike grant()/withdraw()
+# above — so two concurrent signature mutations on the same record could both
+# read the same "latest" ConsentRevision predecessor before either commits,
+# forking the tamper-evidence chain's single-latest invariant.
+# ===========================================================================
+
+class SignatureLockingTests(TestCase):
+    """
+    Deterministic, SQLite-safe coverage that attach_signature()/
+    update_signature() actually acquire the row lock — decoupled from
+    ConcurrentSignatureUpdateTests below (which proves the lock actually
+    prevents a fork, but requires PostgreSQL for real semantics).
+    """
+
+    def setUp(self):
+        self.citizen = _make_citizen()
+        self.category = _make_category(slug=f"lock-test-{uuid.uuid4().hex[:6]}")
+
+    def test_attach_signature_locks_consent_record_row(self):
+        from django.db.models.query import QuerySet
+
+        record = ConsentService.get_or_create_record(self.citizen, self.category)
+        original = QuerySet.select_for_update
+
+        with patch.object(QuerySet, "select_for_update", autospec=True) as mocked:
+            mocked.side_effect = lambda self_qs, *a, **kw: original(self_qs, *a, **kw)
+            ConsentService.attach_signature(
+                record=record,
+                verification_type="string",
+                verification_payload={"a": 1},
+                signature="sig-1",
+                verification_signed_by="signer-1",
+            )
+
+        self.assertTrue(
+            mocked.called,
+            "attach_signature() must call select_for_update() on the ConsentRecord "
+            "row, mirroring grant()'s existing locking pattern.",
+        )
+
+    def test_update_signature_locks_consent_record_and_signature_rows(self):
+        from django.db.models.query import QuerySet
+
+        record = ConsentService.get_or_create_record(self.citizen, self.category)
+        sig = ConsentService.attach_signature(
+            record=record,
+            verification_type="string",
+            verification_payload={"a": 1},
+            signature="sig-1",
+            verification_signed_by="signer-1",
+        )
+        original = QuerySet.select_for_update
+
+        with patch.object(QuerySet, "select_for_update", autospec=True) as mocked:
+            mocked.side_effect = lambda self_qs, *a, **kw: original(self_qs, *a, **kw)
+            ConsentService.update_signature(
+                record=record,
+                sig=sig,
+                data={"verification_type": "rs256"},
+            )
+
+        self.assertTrue(
+            mocked.called,
+            "update_signature() must call select_for_update() on the ConsentRecord "
+            "and/or ConsentSignature row before mutating, mirroring grant()'s "
+            "existing locking pattern.",
+        )
+        # Both the record and the signature row must be locked — two separate
+        # select_for_update() queryset calls are expected.
+        self.assertGreaterEqual(mocked.call_count, 2)
+
+
+@unittest.skipIf(
+    connection.vendor == "sqlite",
+    "Same two permanent SQLite limitations as ConcurrentFirstGrantTests above: "
+    "(1) sqlite3's has_select_for_update is False, so select_for_update() is a "
+    "silent no-op — the row lock this test exists to exercise simply isn't "
+    "taken; (2) this project's test settings use NAME=':memory:', and each "
+    "thread opens its own independent, unshared in-memory database, so the "
+    "two threads below would not even observe each other's writes. Real "
+    "concurrency + real row locking requires PostgreSQL. SignatureLockingTests "
+    "above exercises the same locking CODE deterministically on every backend.",
+)
+class ConcurrentSignatureUpdateTests(TransactionTestCase):
+    """
+    Two concurrent ConsentService.update_signature() calls on the SAME
+    ConsentSignature must not fork the ConsentRevision chain: exactly one
+    revision with successor=None (the "latest") must survive, never two,
+    regardless of thread interleaving.
+    """
+
+    def setUp(self):
+        self.citizen = _make_citizen()
+        self.category = _make_category(slug=f"lock-race-{uuid.uuid4().hex[:6]}")
+        record = ConsentService.get_or_create_record(self.citizen, self.category)
+        sig = ConsentService.attach_signature(
+            record=record,
+            verification_type="string",
+            verification_payload={"seed": 1},
+            signature="seed-sig",
+            verification_signed_by="seed-signer",
+        )
+        self.record_pk = record.pk
+        self.sig_pk = sig.pk
+
+    def test_concurrent_updates_do_not_fork_the_revision_chain(self):
+        from apps.consent.models import ConsentRecord, ConsentRevision, ConsentSignature
+
+        errors = []
+        lock = threading.Lock()
+
+        def _update(verification_method):
+            try:
+                record = ConsentRecord.objects.get(pk=self.record_pk)
+                sig = ConsentSignature.objects.get(pk=self.sig_pk)
+                ConsentService.update_signature(
+                    record=record,
+                    sig=sig,
+                    data={"verification_type": verification_method},
+                )
+            except Exception as exc:  # pragma: no cover - failure path under test
+                with lock:
+                    errors.append(exc)
+            finally:
+                connection.close()
+
+        t1 = threading.Thread(target=_update, args=("rs256",))
+        t2 = threading.Thread(target=_update, args=("ed25519",))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        self.assertEqual(
+            errors, [], f"update_signature() must not raise under concurrency: {errors}"
+        )
+
+        latest_count = ConsentRevision.objects.filter(
+            schema_name="ConsentSignature",
+            object_id=str(self.sig_pk),
+            successor__isnull=True,
+        ).count()
+        self.assertEqual(
+            latest_count, 1,
+            f"Expected exactly 1 'latest' ConsentRevision (successor=None) for "
+            f"the signature after concurrent updates; got {latest_count} — the "
+            f"row lock failed to serialize the two update_signature() calls, "
+            f"forking the tamper-evidence chain.",
+        )
+
+
+# ===========================================================================
 # Bug 7 (RTBF/PIPEDA erasure gap) — right_to_be_forgotten() must redact the
 # PII embedded in ConsentRevision snapshots for every ConsentRecord it deletes,
 # since ConsentRevision itself is append-only/non-deletable by design.

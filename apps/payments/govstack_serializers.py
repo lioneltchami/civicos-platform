@@ -882,19 +882,27 @@ class BillInquiryResponseSerializer(serializers.Serializer):
     """
     Response shape for GET /govstack/payments/bills/{bill_id} → HTTP 202.
 
-    Live-spec fidelity (certifiability-audit fix): billInquiryRequest.yml's
-    response schema is `{responseCode, reason, requestID}` at HTTP 202 (not
-    200). This class documents responseCode/reason/requestID as the
-    spec-required envelope, plus the existing billId/amount/currency/
-    description/status/dueDate fields kept as additional properties (none of
-    the fetched schemas set `additionalProperties: false`). The endpoint
-    remains synchronous by deliberate, documented choice — see
-    BillInquiryView's docstring for the full rationale.
+    Live-spec fidelity (certifiability-audit fix, Round 2 — HIGH finding):
+    billInquiryRequest.yml's response schema uses lowercase-d `requestId`,
+    NOT `requestID` (capital D), at HTTP 202 (not 200) for BOTH the success
+    and 400 cases. This is the ONE exception among the 4 P2G endpoints —
+    the other 3 (BillTransferResponseSerializer, MarkBillPaidResponseSerializer,
+    TransferRequestStatusSerializer) all correctly use `requestID`. A prior
+    fix pass got this wrong by citing `billInquiryResponse.yml` — a
+    DIFFERENT, reverse-direction endpoint (the Payments BB calling OUT to the
+    Payer FI) that does use `requestID`, but is not what BillInquiryView
+    implements. See BillInquiryView's docstring for the full rationale. This
+    class documents responseCode/reason/requestId as the spec-required
+    envelope, plus the existing billId/amount/currency/description/status/
+    dueDate fields kept as additional properties (none of the fetched
+    schemas set `additionalProperties: false`). The endpoint remains
+    synchronous by deliberate, documented choice — see BillInquiryView's
+    docstring for the full rationale.
     Schema documentation only — the view Response() dict is the source of truth.
     """
     responseCode = serializers.CharField(read_only=True, max_length=2)   # "00" | "01"
     reason = serializers.CharField(read_only=True, max_length=200)
-    requestID = serializers.CharField(read_only=True, max_length=12)
+    requestId = serializers.CharField(read_only=True, max_length=12)
     billId = serializers.CharField(read_only=True)
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     currency = serializers.CharField(read_only=True)

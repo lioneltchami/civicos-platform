@@ -1007,11 +1007,14 @@ class GovStackBill(TimestampedModel):
     )
     bill_id = models.CharField(
         max_length=100,
-        unique=True,  # unique already creates an index
+        db_index=True,  # no longer globally unique — see gs_bill_tenant_billid_uniq below
         verbose_name=_("Bill ID"),
         help_text=_(
             "Government-assigned bill identifier. Used as the {bill_id} URL parameter. "
-            "Safe to expose in API responses."
+            "Safe to expose in API responses. Uniqueness is enforced PER TENANT "
+            "(see Meta.constraints' gs_bill_tenant_billid_uniq), not globally — "
+            "see that constraint's docstring note for the certifiability-audit "
+            "rationale (Round 2, MEDIUM finding)."
         ),
     )
     amount = models.DecimalField(
@@ -1074,6 +1077,21 @@ class GovStackBill(TimestampedModel):
                 check=models.Q(amount__gt=0),
                 name="gs_bill_amount_positive",
             ),
+            # Certifiability-audit fix (Round 2 — MEDIUM finding): bill_id was
+            # globally unique=True, but tenant-scoping (added in a prior
+            # round) means two DIFFERENT tenants sharing one deployment could
+            # coincidentally collide on the same bill_id string, incorrectly
+            # rejecting the second tenant's legitimate bill as a duplicate of
+            # the first's. Scoping uniqueness to (platform_tenant_id, bill_id)
+            # instead preserves today's behaviour for blank-tenant records
+            # (platform_tenant_id="" — two blank-tenant bills still can't
+            # collide with each other, matching pre-fix behaviour exactly)
+            # while allowing two different tenants to legitimately reuse the
+            # same bill_id string.
+            models.UniqueConstraint(
+                fields=["platform_tenant_id", "bill_id"],
+                name="gs_bill_tenant_billid_uniq",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -1124,11 +1142,14 @@ class GovStackBillPayment(TimestampedModel):
     )
     request_id = models.CharField(
         max_length=100,
-        unique=True,  # unique already creates an index; enforces idempotency
+        db_index=True,  # no longer globally unique — see gs_billpayment_tenant_requestid_uniq below
         verbose_name=_("Request ID"),
         help_text=_(
             "Caller-supplied idempotency key. Duplicate request_ids return HTTP 400 "
-            "instead of creating duplicate payment records."
+            "instead of creating duplicate payment records. Uniqueness is enforced "
+            "PER TENANT (see Meta.constraints' gs_billpayment_tenant_requestid_uniq), "
+            "not globally — see that constraint's docstring note for the "
+            "certifiability-audit rationale (Round 2, MEDIUM finding)."
         ),
     )
     bill = models.ForeignKey(
@@ -1199,6 +1220,16 @@ class GovStackBillPayment(TimestampedModel):
             models.CheckConstraint(
                 check=models.Q(amount__gt=0),
                 name="gs_billpay_amount_positive",
+            ),
+            # Certifiability-audit fix (Round 2 — MEDIUM finding): request_id
+            # was globally unique=True — same rationale as
+            # GovStackBill.gs_bill_tenant_billid_uniq above. Scoping to
+            # (platform_tenant_id, request_id) preserves today's behaviour for
+            # blank-tenant records while letting two different tenants
+            # legitimately reuse the same request_id idempotency-key string.
+            models.UniqueConstraint(
+                fields=["platform_tenant_id", "request_id"],
+                name="gs_billpayment_tenant_requestid_uniq",
             ),
         ]
 
@@ -1278,6 +1309,34 @@ class GovStackRegisteredBB(TimestampedModel):
             "citizen access token (JWT) instead of a bb_id role."
         ),
     )
+    allowed_platform_tenant_ids = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Allowed Platform Tenant IDs"),
+        help_text=_(
+            "List of X-Platform-TenantId values this registered BB may declare "
+            "on P2G calls. An EMPTY list means unrestricted (back-compat default "
+            "for BBs not yet assigned tenant restrictions) — only a non-empty "
+            "list enforces binding."
+        ),
+    )
+    # Design note (certifiability-audit fix, Round 2 — HIGH finding): this
+    # field is a MINIMAL, OPT-IN tenant-registry binding, not a full
+    # multi-tenant data-isolation redesign. A fresh, adversarial re-audit
+    # found that X-Platform-TenantId tenant-scoping (added in a prior round)
+    # was a self-asserted claim with no verification that the calling,
+    # whitelisted BB was actually entitled to declare a given tenant ID — a
+    # caller who simply knew or guessed another tenant's ID string got full
+    # cross-tenant read/write access. Defaulting this field to "deny
+    # everything" (i.e. requiring every BB to have a non-empty allow-list
+    # before any P2G call succeeds) was deliberately rejected: there is no
+    # existing tenant-registry data to migrate, and a hard-deny default would
+    # break every current caller with zero migration path. The empty-list
+    # default is unrestricted (identical to today's behaviour) so operators
+    # can adopt this opt-in hardening per-BB, at their own pace, once they
+    # know which tenant IDs a given BB is entitled to declare. See
+    # apps.payments.govstack_views.GovStackAPIView._validate_platform_tenant_id()
+    # for the enforcement logic.
 
     class Meta:
         verbose_name = _("GovStack Registered BB")

@@ -10,6 +10,10 @@ Certifiability-audit fix (CRITICAL + 3 HIGH findings):
     live-spec envelope {responseCode, reason, requestID}; error responses
     (400) also use this envelope instead of the old ad hoc {"message"} shape.
     404s are UNCHANGED (no live-spec 404 schema exists).
+    NOTE (Round 2 certifiability-audit fix): BillInquiryView is the ONE
+    exception — its live spec (billInquiryRequest.yml) uses lowercase-d
+    "requestId", not "requestID". The other 3 P2G views correctly use
+    "requestID" — see section A2 and BillInquiryView's own docstring.
   - BillInquiryView now requires the `fields=inquiry` query param.
   - billInquiryRequestId/paymentReferenceID are now REQUIRED on
     POST /billTransferRequests (previously optional).
@@ -18,11 +22,25 @@ Certifiability-audit fix (CRITICAL + 3 HIGH findings):
   - mark_bill_paid()'s audit entry now records the real caller identity
     (X-PayerFI-Id) instead of a hardcoded "".
 
+Round 2 certifiability-audit fix (fresh adversarial re-audit, 2026-07-27):
+  - BillInquiryView's response envelope casing fixed: "requestId" (lowercase
+    d), not "requestID" — see section A2.
+  - GovStackRegisteredBB.allowed_platform_tenant_ids: opt-in tenant-registry
+    binding closing the "tenant scoping is a self-asserted claim" gap — see
+    section D3.
+  - GovStackBill.bill_id / GovStackBillPayment.request_id are no longer
+    globally unique=True — uniqueness is now scoped per platform_tenant_id
+    via composite UniqueConstraints — see sections F9/F10, G5/G6.
+  - mark_bill_paid() now writes an audit entry for the already-PAID no-op
+    case too (details.trigger="already_paid_noop") — see sections C10, E18.
+
 Coverage matrix:
   A. BillInquiry view (GET /bills/{bill_id}?fields=inquiry)
      A1:  Known bill → HTTP 202
-     A2:  Response shape: {responseCode, reason, requestID, billId, amount,
-          currency, description, status, dueDate}
+     A2:  Response shape: {responseCode, reason, requestId, billId, amount,
+          currency, description, status, dueDate} — NOTE: lowercase-d
+          "requestId", the one exception among the 4 P2G endpoints (Round 2
+          certifiability-audit fix)
      A3:  amount is a JSON number (float) in the response — spec §14.2
      A4:  dueDate is an ISO date string when set
      A5:  dueDate is null when not set
@@ -68,7 +86,8 @@ Coverage matrix:
      C7:  Already-paid bill → status still "paid" in response
      C8:  mark-paid URL routes correctly (not consumed by bill_inquiry URL)
      C9:  Audit entry created when bill transitions unpaid → paid
-     C10: No duplicate audit entry when marking already-paid bill
+     C10: Audit entry IS created (no-op variant) when marking already-paid
+          bill (Round 2 LOW-finding fix — details.trigger="already_paid_noop")
      C11: X-PayerFI-Id always required (fail-closed), even in harness mode
      C12: Audit entry records the real caller identity (actor_bb_id)
 
@@ -105,7 +124,9 @@ Coverage matrix:
           + pins details shape: bill_pk present, bill_id absent (M-NEW-1)
      E17b: ACTION_BILL_PAID and ACTION_BILL_PAYMENT_REQUESTED both use "bill_pk"
            in details — no schema drift between the two write paths (M-NEW-1)
-     E18: mark_bill_paid() does NOT create audit entry when already PAID
+     E18: mark_bill_paid() on an already-PAID bill DOES create an audit entry
+          (Round 2 LOW-finding fix — details.trigger="already_paid_noop")
+     E18b: ...and the bill's status/response remain unchanged in that case
      E19: get_transfer_request() returns GovStackBillPayment with related bill
      E20: get_transfer_request() raises BillPaymentNotFound for unknown request_id
      E21: get_bill() tenant scoping (wrong/matching/absent tenant)
@@ -311,12 +332,16 @@ class TestBillInquiryView(TestCase):
 
     # A2
     def test_response_shape(self):
+        # BillInquiryView is the ONE P2G view whose live spec
+        # (billInquiryRequest.yml) uses lowercase-d "requestId" — see the
+        # certifiability-audit fix (Round 2) noted on BillInquiryView's
+        # docstring. The other 3 P2G views correctly use "requestID".
         resp = self.client.get(_bill_url(BILL_ID))
         data = resp.json()
         for key in (
             "responseCode",
             "reason",
-            "requestID",
+            "requestId",
             "billId",
             "amount",
             "currency",
@@ -325,6 +350,13 @@ class TestBillInquiryView(TestCase):
             "dueDate",
         ):
             self.assertIn(key, data, f"Missing key: {key}")
+        self.assertNotIn(
+            "requestID",
+            data,
+            "BillInquiryView must use lowercase-d 'requestId', not 'requestID' "
+            "— its live spec (billInquiryRequest.yml) is the one exception "
+            "among the 4 P2G endpoints.",
+        )
         self.assertEqual(data["responseCode"], "00")
 
     # A3
@@ -705,18 +737,34 @@ class TestMarkBillPaidView(TestCase):
         ).count()
         self.assertEqual(post_count, pre_count + 1)
 
-    # C10
-    def test_no_duplicate_audit_entry_for_already_paid_bill(self):
+    # C10 — certifiability-audit fix (Round 2 — LOW finding): a mark-paid call
+    # against an already-PAID bill now DOES write an audit entry (previously
+    # wrote none), distinguished from the real-transition entry via
+    # details.trigger="already_paid_noop". This flips the prior "no new entry"
+    # assertion, since that prior behaviour was the audit-trail gap this fix
+    # closes.
+    def test_audit_entry_created_for_already_paid_bill_noop(self):
         paid_bill = _make_bill(bill_id="BILL-PAID3", status=GovStackBill.STATUS_PAID)
         pre_count = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).count()
-        self.client.post(_mark_paid_url("BILL-PAID3"), HTTP_X_PAYERFI_ID="FI-TEST")
+        resp = self.client.post(_mark_paid_url("BILL-PAID3"), HTTP_X_PAYERFI_ID="FI-TEST")
+        self.assertEqual(resp.status_code, 202)
         post_count = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).count()
-        # No new audit entry for a bill that was already PAID.
-        self.assertEqual(post_count, pre_count)
+        # A new (no-op) audit entry IS created for a bill that was already PAID.
+        self.assertEqual(post_count, pre_count + 1)
+
+        entry = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).latest("created_at")
+        self.assertEqual(entry.details.get("trigger"), "already_paid_noop")
+        self.assertEqual(entry.actor_bb_id, "FI-TEST")
+
+        # The bill's status must remain unchanged (idempotent — see C6/C7).
+        paid_bill.refresh_from_db()
+        self.assertEqual(paid_bill.status, GovStackBill.STATUS_PAID)
 
     # C11 — Issue B: mark-paid ALWAYS requires X-PayerFI-Id, even in harness mode
     def test_no_payer_fi_header_returns_401_even_without_flag(self):
@@ -1121,6 +1169,124 @@ class TestPlatformTenantIdProductionModeEnforcement(TestCase):
 
 
 # ===========================================================================
+# D3. Platform-tenant-id REGISTRY BINDING (certifiability-audit fix, Round 2
+#     — HIGH finding)
+#
+#   Tenant scoping (D2/D4) only verifies presence/length of X-Platform-TenantId
+#   and scopes reads/writes by whatever value the caller declares — it never
+#   verified the caller was actually ENTITLED to declare that value. This
+#   section pins GovStackRegisteredBB.allowed_platform_tenant_ids, an opt-in
+#   binding: a caller resolved to a GovStackRegisteredBB row (via
+#   IsTrustedPayerFI/X-PayerFI-Id) whose own allowed_platform_tenant_ids list
+#   is non-empty may ONLY declare a tenant id in that list. An empty list (the
+#   default) remains fully unrestricted — no behaviour change for any BB an
+#   operator hasn't explicitly restricted, and no behaviour change at all
+#   outside production mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True) or
+#   without a resolved caller identity.
+# ===========================================================================
+
+@override_settings(
+    GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True,
+    GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True,
+)
+class TestPlatformTenantIdRegistryBinding(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.bill = _make_bill()
+        self.bill.platform_tenant_id = "TENANT-ALLOWED"
+        self.bill.save(update_fields=["platform_tenant_id"])
+
+        self.restricted_fi = "FI-RESTRICTED"
+        GovStackRegisteredBB.objects.create(
+            bb_id=self.restricted_fi,
+            is_active=True,
+            allowed_platform_tenant_ids=["TENANT-ALLOWED"],
+        )
+
+        self.unrestricted_fi = "FI-UNRESTRICTED"
+        GovStackRegisteredBB.objects.create(
+            bb_id=self.unrestricted_fi,
+            is_active=True,
+            # allowed_platform_tenant_ids left at its default ([]) — unrestricted.
+        )
+
+    # (a) A restricted caller declaring a tenant id NOT in its allow-list is
+    # rejected with HTTP 400, in production mode.
+    def test_restricted_caller_declaring_disallowed_tenant_returns_400(self):
+        resp = self.client.get(
+            _bill_url(BILL_ID),
+            HTTP_X_PAYERFI_ID=self.restricted_fi,
+            HTTP_X_PLATFORM_TENANTID="TENANT-NOT-ALLOWED",
+        )
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertEqual(data["responseCode"], "01")
+        self.assertIn("not authorized", data["reason"])
+        self.assertIn("requestId", data)
+
+    # (b) The SAME restricted caller succeeds when declaring a tenant id that
+    # IS in its allow-list.
+    def test_restricted_caller_declaring_allowed_tenant_returns_202(self):
+        resp = self.client.get(
+            _bill_url(BILL_ID),
+            HTTP_X_PAYERFI_ID=self.restricted_fi,
+            HTTP_X_PLATFORM_TENANTID="TENANT-ALLOWED",
+        )
+        self.assertEqual(resp.status_code, 202)
+
+    # (c) A caller with an EMPTY (default) allowed_platform_tenant_ids list
+    # remains unrestricted — same as today, for any tenant id.
+    def test_unrestricted_caller_with_empty_allow_list_is_unaffected(self):
+        other_bill = _make_bill(bill_id="BILL-OTHER-TENANT")
+        other_bill.platform_tenant_id = "TENANT-ANYTHING"
+        other_bill.save(update_fields=["platform_tenant_id"])
+        resp = self.client.get(
+            _bill_url("BILL-OTHER-TENANT"),
+            HTTP_X_PAYERFI_ID=self.unrestricted_fi,
+            HTTP_X_PLATFORM_TENANTID="TENANT-ANYTHING",
+        )
+        self.assertEqual(resp.status_code, 202)
+
+    # (d) When no caller identity has been resolved (IsTrustedPayerFI in
+    # harness/permissive mode — no X-PayerFI-Id header sent at all), the
+    # tenant-registry check is skipped entirely, even though
+    # GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True at the class level. This is
+    # the harness/test-mode-compatible codepath and must remain unaffected
+    # by this fix.
+    @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=False)
+    def test_no_resolved_caller_identity_skips_tenant_registry_check(self):
+        resp = self.client.get(
+            _bill_url(BILL_ID),
+            HTTP_X_PLATFORM_TENANTID="TENANT-ALLOWED",
+            # No X-PayerFI-Id header at all — IsTrustedPayerFI grants access
+            # without resolving/stashing a caller identity in this mode.
+        )
+        self.assertEqual(resp.status_code, 202)
+
+    # Bonus: an inactive registered BB row must not be treated as a resolvable
+    # identity for this check either (mirrors the whitelist's own is_active
+    # gate — a suspended BB shouldn't retain its tenant allow-list privileges,
+    # though in practice an inactive BB is already rejected earlier at the
+    # IsTrustedPayerFI permission layer with HTTP 401, so this never reaches
+    # the tenant check in the first place).
+    def test_inactive_registered_bb_rejected_before_reaching_tenant_check(self):
+        inactive_fi = "FI-INACTIVE"
+        GovStackRegisteredBB.objects.create(
+            bb_id=inactive_fi,
+            is_active=False,
+            allowed_platform_tenant_ids=["TENANT-ALLOWED"],
+        )
+        resp = self.client.get(
+            _bill_url(BILL_ID),
+            HTTP_X_PAYERFI_ID=inactive_fi,
+            HTTP_X_PLATFORM_TENANTID="TENANT-ALLOWED",
+        )
+        # Rejected at the permission layer (401), never reaches the tenant
+        # registry check at all.
+        self.assertEqual(resp.status_code, 401)
+
+
+# ===========================================================================
 # D4. Cross-tenant data isolation (certifiability-audit fix — CRITICAL finding)
 #
 #   A bill/payment created under one declared tenant must NOT be readable or
@@ -1440,6 +1606,11 @@ class TestGovStackP2GService(TestCase):
             "create_transfer_request()).",
         )
 
+        # Certifiability-audit fix (Round 2 — LOW finding): the real
+        # UNPAID→PAID transition entry is disambiguated from the
+        # already-paid no-op entry (see E18b) via details.trigger.
+        self.assertEqual(entry.details.get("trigger"), "status_transition")
+
     # E17b — M-NEW-1: audit details consistency between the two write paths
     def test_mark_bill_paid_audit_details_consistent_with_create_transfer_request(self):
         """
@@ -1484,17 +1655,37 @@ class TestGovStackP2GService(TestCase):
         self.assertNotIn("bill_id", payment_entry.details)
         self.assertNotIn("bill_id", paid_entry.details)
 
-    # E18
-    def test_mark_bill_paid_no_audit_entry_when_already_paid(self):
+    # E18 — certifiability-audit fix (Round 2 — LOW finding): mark_bill_paid()
+    # on an already-PAID bill now DOES write an audit entry (previously wrote
+    # none at all — the exact gap this fix closes), distinguished from the
+    # real-transition entry via details.trigger="already_paid_noop".
+    def test_mark_bill_paid_creates_noop_audit_entry_when_already_paid(self):
         paid_bill = _make_bill(bill_id="BILL-NO-AUDIT", status=GovStackBill.STATUS_PAID)
         pre_count = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).count()
-        GovStackP2GService.mark_bill_paid(bill_id="BILL-NO-AUDIT")
+        GovStackP2GService.mark_bill_paid(
+            bill_id="BILL-NO-AUDIT", actor_payer_fi_id="FI-NOOP"
+        )
         post_count = GovStackPaymentAuditEntry.objects.filter(
             action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
         ).count()
-        self.assertEqual(post_count, pre_count)
+        self.assertEqual(post_count, pre_count + 1)
+
+        entry = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).latest("created_at")
+        self.assertEqual(entry.details.get("trigger"), "already_paid_noop")
+        self.assertEqual(entry.details.get("bill_pk"), str(paid_bill.pk))
+        self.assertEqual(entry.actor_bb_id, "FI-NOOP")
+
+    # E18b — the bill's status must remain unchanged by the no-op audit write.
+    def test_mark_bill_paid_status_unchanged_when_already_paid(self):
+        paid_bill = _make_bill(bill_id="BILL-NO-AUDIT-2", status=GovStackBill.STATUS_PAID)
+        result = GovStackP2GService.mark_bill_paid(bill_id="BILL-NO-AUDIT-2")
+        self.assertEqual(result.status, GovStackBill.STATUS_PAID)
+        paid_bill.refresh_from_db()
+        self.assertEqual(paid_bill.status, GovStackBill.STATUS_PAID)
 
     # E19
     def test_get_transfer_request_returns_payment_with_related_bill(self):
@@ -1606,9 +1797,56 @@ class TestGovStackP2GService(TestCase):
 class TestGovStackBillModel(TestCase):
     # F1
     def test_bill_id_unique_constraint(self):
+        # Both bills use the default (blank "") platform_tenant_id — this
+        # pins the certifiability-audit fix (Round 2, MEDIUM finding)'s
+        # explicit back-compat requirement: two blank-tenant bills must
+        # still collide with each other exactly like before, even though
+        # bill_id itself is no longer globally unique=True (see
+        # gs_bill_tenant_billid_uniq on GovStackBill.Meta.constraints).
         _make_bill()
         with self.assertRaises(IntegrityError):
             _make_bill()  # same BILL_ID
+
+    # F9 — certifiability-audit fix (Round 2, MEDIUM finding)
+    def test_bill_id_duplicate_same_non_blank_tenant_raises_integrity_error(self):
+        """Same tenant, same bill_id → still rejected (idempotency-key semantics preserved)."""
+        GovStackBill.objects.create(
+            bill_id="BILL-TENANT-DUP",
+            amount=Decimal("10.00"),
+            currency="USD",
+            platform_tenant_id="TENANT-X",
+        )
+        with self.assertRaises(IntegrityError):
+            GovStackBill.objects.create(
+                bill_id="BILL-TENANT-DUP",
+                amount=Decimal("20.00"),
+                currency="USD",
+                platform_tenant_id="TENANT-X",
+            )
+
+    # F10 — certifiability-audit fix (Round 2, MEDIUM finding)
+    def test_bill_id_reused_across_different_tenants_is_allowed(self):
+        """
+        Two DIFFERENT tenants may legitimately reuse the same bill_id string
+        — this is the exact scenario the global unique=True constraint used
+        to incorrectly reject before this fix.
+        """
+        bill_a = GovStackBill.objects.create(
+            bill_id="BILL-SHARED-ID",
+            amount=Decimal("10.00"),
+            currency="USD",
+            platform_tenant_id="TENANT-A",
+        )
+        bill_b = GovStackBill.objects.create(
+            bill_id="BILL-SHARED-ID",
+            amount=Decimal("20.00"),
+            currency="USD",
+            platform_tenant_id="TENANT-B",
+        )
+        self.assertNotEqual(bill_a.pk, bill_b.pk)
+        self.assertEqual(
+            GovStackBill.objects.filter(bill_id="BILL-SHARED-ID").count(), 2
+        )
 
     # F2
     def test_amount_check_constraint_zero(self):
@@ -1686,10 +1924,59 @@ class TestGovStackBillPaymentModel(TestCase):
 
     # G1
     def test_request_id_unique_constraint(self):
+        # Both payments use the default (blank "") platform_tenant_id — pins
+        # the certifiability-audit fix (Round 2, MEDIUM finding)'s back-compat
+        # requirement: two blank-tenant payments must still collide, even
+        # though request_id is no longer globally unique=True (see
+        # gs_billpayment_tenant_requestid_uniq on GovStackBillPayment.Meta.constraints).
         _make_payment(bill=self.bill)
         bill2 = _make_bill(bill_id="BILL-G1")
         with self.assertRaises(IntegrityError):
             _make_payment(request_id=REQUEST_ID, bill=bill2)
+
+    # G5 — certifiability-audit fix (Round 2, MEDIUM finding)
+    def test_request_id_duplicate_same_non_blank_tenant_raises_integrity_error(self):
+        bill_x1 = _make_bill(bill_id="BILL-G5-1")
+        bill_x2 = _make_bill(bill_id="BILL-G5-2")
+        GovStackBillPayment.objects.create(
+            request_id="REQ-TENANT-DUP",
+            bill=bill_x1,
+            amount=Decimal("10.00"),
+            currency="USD",
+            platform_tenant_id="TENANT-X",
+        )
+        with self.assertRaises(IntegrityError):
+            GovStackBillPayment.objects.create(
+                request_id="REQ-TENANT-DUP",
+                bill=bill_x2,
+                amount=Decimal("20.00"),
+                currency="USD",
+                platform_tenant_id="TENANT-X",
+            )
+
+    # G6 — certifiability-audit fix (Round 2, MEDIUM finding)
+    def test_request_id_reused_across_different_tenants_is_allowed(self):
+        """Two DIFFERENT tenants may legitimately reuse the same request_id idempotency key."""
+        bill_a = _make_bill(bill_id="BILL-G6-A")
+        bill_b = _make_bill(bill_id="BILL-G6-B")
+        payment_a = GovStackBillPayment.objects.create(
+            request_id="REQ-SHARED-ID",
+            bill=bill_a,
+            amount=Decimal("10.00"),
+            currency="USD",
+            platform_tenant_id="TENANT-A",
+        )
+        payment_b = GovStackBillPayment.objects.create(
+            request_id="REQ-SHARED-ID",
+            bill=bill_b,
+            amount=Decimal("20.00"),
+            currency="USD",
+            platform_tenant_id="TENANT-B",
+        )
+        self.assertNotEqual(payment_a.pk, payment_b.pk)
+        self.assertEqual(
+            GovStackBillPayment.objects.filter(request_id="REQ-SHARED-ID").count(), 2
+        )
 
     # G2
     def test_amount_check_constraint_zero(self):

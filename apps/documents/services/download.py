@@ -129,6 +129,10 @@ def issue_access_token(
     # under the lock below (defence-in-depth against TOCTOU).
     # Raises Http404 (not 403) for IDOR compliance.
     if not _user_may_download(user=user, document=document):
+        # Audit trail (spec §13, AuditEventType.ACCESS_DENIED): the document
+        # is already fetched (it exists), so this is a genuine IDOR-deny, not
+        # a bare "not found". Audit-only — the 404 below is unchanged.
+        _record_access_denied(requested_pk=document.pk, requesting_user=user)
         raise Http404
 
     # ── IP masking (no I/O, safe to do before the lock) ──────────────────────
@@ -238,71 +242,109 @@ def consume_access_token(
 
     masked_redemption_ip = _mask_ip(ip_address)
 
+    # Set when the cross-user check below fails. The ACCESS_DENIED audit
+    # write for that case is deliberately deferred until AFTER the
+    # `with transaction.atomic()` block below exits (see the comment at that
+    # check for why): writing it inside the block and then raising Http404
+    # from within the SAME block would roll the write back together with
+    # everything else, because this atomic() call is a SAVEPOINT nested
+    # inside the request-level (or test-harness) transaction — an exception
+    # escaping it rolls back to that savepoint, undoing any nested savepoint
+    # (e.g. record_event()'s own atomic() call) along with it.
+    _cross_user_denied_document_pk = None
+
     # ── Atomic single-use enforcement ─────────────────────────────────────────
     # select_for_update() prevents two concurrent requests from both seeing
     # used_at=None and both succeeding. The second request will block until the
     # first commits used_at, then see the token as already used.
-    with transaction.atomic():
-        try:
-            token = (
-                DocumentAccessToken.objects
-                .select_for_update(of=("self",))
-                .select_related("document", "issued_to")
-                .get(token=token_value)
+    #
+    # The whole block is wrapped in try/except Http404 so that the
+    # ACCESS_DENIED audit write for the cross-user case (below) can happen
+    # AFTER this atomic() block has actually exited and rolled back its
+    # savepoint — see _cross_user_denied_document_pk's comment above.
+    try:
+        with transaction.atomic():
+            try:
+                token = (
+                    DocumentAccessToken.objects
+                    .select_for_update(of=("self",))
+                    .select_related("document", "issued_to")
+                    .get(token=token_value)
+                )
+            except DocumentAccessToken.DoesNotExist:
+                # 404: token not found. IDOR: never reveal whether the token exists.
+                raise Http404
+
+            # ── Cross-user isolation ───────────────────────────────────────────
+            # A token issued to user A cannot be redeemed by user B.
+            # Use 404 not 403 (IDOR: 403 confirms the token exists).
+            if token.issued_to_id != user.pk:
+                # Audit trail (spec §13, AuditEventType.ACCESS_DENIED): the
+                # token (and its document) genuinely exist — this is a real
+                # IDOR-deny, not a bare "not found". The write itself is
+                # deferred to AFTER this atomic() block exits (see
+                # _cross_user_denied_document_pk's comment above) — only the
+                # pk is captured here.
+                _cross_user_denied_document_pk = token.document_id
+                raise Http404
+
+            # ── Validity check (under lock) ────────────────────────────────────
+            # Re-evaluate under the lock to guard against race conditions.
+            # Split into two cases so the view can return the correct HTTP status:
+            #
+            #   already used  → Http404  (IDOR: same status as "not found")
+            #   expired        → TokenExpiredError  → view maps to HTTP 410 Gone
+            #                    (GovStack spec §18 endpoint 7.5 requirement)
+            #
+            # Order matters: check used_at first because a token can technically
+            # be both used and expired — "already used" should win for IDOR safety.
+            if token.used_at is not None:
+                raise Http404
+
+            if token.expires_at <= timezone.now():
+                raise TokenExpiredError()
+
+            # ── Mark as used (single-use enforcement) ─────────────────────────
+            token.used_at = timezone.now()
+            token.save(update_fields=["used_at"])
+
+            # ── Audit log (inside atomic — PIPEDA 4.5.3) ───────────────────────
+            # PIPEDA: event_detail contains only doc_pk, token_pk — no PII.
+            # Audit failure must NOT prevent the citizen's download from completing.
+            try:
+                record_event(
+                    event_type=AuditEventType.RECORD_VIEWED,
+                    actor_id=str(user.pk),
+                    resource_type="documents.Document",
+                    resource_id=str(token.document_id),
+                    event_detail={
+                        "document_pk": str(token.document_id),
+                        "token_pk": str(token.pk),
+                        "ip_masked": masked_redemption_ip or "",
+                        "action": "token_redeemed",
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "consume_access_token: audit write failed for doc pk=%s token pk=%s; "
+                    "download unaffected.",
+                    token.document_id,
+                    token.pk,
+                )
+    except Http404:
+        # This atomic() block's savepoint has now fully unwound. Only NOW is
+        # it safe to write the cross-user ACCESS_DENIED audit event — writing
+        # it any earlier (inside the block above) would have been rolled
+        # back together with the savepoint when Http404 propagated out of
+        # it. Every OTHER Http404 branch above (token not found, already
+        # used) leaves _cross_user_denied_document_pk as None, so this is a
+        # no-op for those cases — this except clause exists purely to defer
+        # the one audit write that must survive the rollback.
+        if _cross_user_denied_document_pk is not None:
+            _record_access_denied(
+                requested_pk=_cross_user_denied_document_pk, requesting_user=user
             )
-        except DocumentAccessToken.DoesNotExist:
-            # 404: token not found. IDOR: never reveal whether the token exists.
-            raise Http404
-
-        # ── Cross-user isolation ───────────────────────────────────────────────
-        # A token issued to user A cannot be redeemed by user B.
-        # Use 404 not 403 (IDOR: 403 confirms the token exists).
-        if token.issued_to_id != user.pk:
-            raise Http404
-
-        # ── Validity check (under lock) ────────────────────────────────────────
-        # Re-evaluate under the lock to guard against race conditions.
-        # Split into two cases so the view can return the correct HTTP status:
-        #
-        #   already used  → Http404  (IDOR: same status as "not found")
-        #   expired        → TokenExpiredError  → view maps to HTTP 410 Gone
-        #                    (GovStack spec §18 endpoint 7.5 requirement)
-        #
-        # Order matters: check used_at first because a token can technically
-        # be both used and expired — "already used" should win for IDOR safety.
-        if token.used_at is not None:
-            raise Http404
-
-        if token.expires_at <= timezone.now():
-            raise TokenExpiredError()
-
-        # ── Mark as used (single-use enforcement) ─────────────────────────────
-        token.used_at = timezone.now()
-        token.save(update_fields=["used_at"])
-
-        # ── Audit log (inside atomic — PIPEDA 4.5.3) ──────────────────────────
-        # PIPEDA: event_detail contains only doc_pk, token_pk — no PII.
-        # Audit failure must NOT prevent the citizen's download from completing.
-        try:
-            record_event(
-                event_type=AuditEventType.RECORD_VIEWED,
-                actor_id=str(user.pk),
-                resource_type="documents.Document",
-                resource_id=str(token.document_id),
-                event_detail={
-                    "document_pk": str(token.document_id),
-                    "token_pk": str(token.pk),
-                    "ip_masked": masked_redemption_ip or "",
-                    "action": "token_redeemed",
-                },
-            )
-        except Exception:
-            logger.exception(
-                "consume_access_token: audit write failed for doc pk=%s token pk=%s; "
-                "download unaffected.",
-                token.document_id,
-                token.pk,
-            )
+        raise
 
     return token.document
 
@@ -386,6 +428,45 @@ def generate_presigned_download_url(
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _record_access_denied(*, requested_pk, requesting_user) -> None:
+    """
+    Write an AuditEventType.ACCESS_DENIED entry for a denied (IDOR) access
+    attempt — spec §13.1 "Access denied (non-owned PK)".
+
+    Only call this when the requested document/token genuinely exists (i.e.
+    the caller already holds a real, fetched object) — this is audit-only
+    and never changes the caller's Http404 response.
+
+    PIPEDA: event_detail contains ONLY requested_pk and requesting_user_pk —
+    no filename, storage_key, or other PII (spec §13.2). Duplicated (rather
+    than imported) from the near-identical helper in
+    apps.api.documents.views — matches this codebase's established
+    convention of keeping small private helpers local to each module.
+    """
+    from apps.audit.models import AuditEventType
+    from apps.audit.services import record_event
+
+    try:
+        record_event(
+            event_type=AuditEventType.ACCESS_DENIED,
+            actor_id=str(requesting_user.pk),
+            resource_type="documents.Document",
+            resource_id=str(requested_pk),
+            event_detail={
+                "requested_pk": str(requested_pk),
+                "requesting_user_pk": str(requesting_user.pk),
+            },
+        )
+    except Exception:
+        # Audit failure must NEVER cause the citizen's request to fail.
+        logger.exception(
+            "_record_access_denied: audit write failed for requested_pk=%s "
+            "requesting_user_pk=%s",
+            requested_pk,
+            requesting_user.pk,
+        )
 
 
 def _mask_ip(ip_address: str | None) -> str | None:

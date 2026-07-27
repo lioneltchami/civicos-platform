@@ -69,7 +69,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         # Lazy imports — avoid model loading before the app registry is ready.
-        from apps.appointments.models import GovStackBBCredential  # noqa: PLC0415
+        import getpass  # noqa: PLC0415
+
+        from apps.appointments.models import BookingAuditLog, GovStackBBCredential  # noqa: PLC0415
+        from apps.appointments.services.govstack_log import record_admin_audit_event  # noqa: PLC0415
         from apps.payments.govstack_models import GovStackRegisteredBB  # noqa: PLC0415
 
         bb_id: str = options["bb_id"]
@@ -98,6 +101,24 @@ class Command(BaseCommand):
             credential.save()
 
         action = "Rotated" if existing is not None else "Created"
+
+        # Round 2 certifiability re-audit fix (MEDIUM): every BB-credential
+        # create/rotate must leave a real, queryable, tamper-evident record
+        # of who did it and when — this is an operator-run management
+        # command, not an HTTP request, so there is no requestor_id/resolved
+        # role to attribute; the OS user running the command is the closest
+        # available identity (never the plaintext secret itself — that is
+        # never logged anywhere, see module docstring). See
+        # services.govstack_log.record_admin_audit_event's docstring for the
+        # full BookingAuditLog(booking=None) design rationale.
+        record_admin_audit_event(
+            action=BookingAuditLog.ACTION_ADMIN_CREDENTIAL_MUTATED,
+            resource_pk=bb.bb_id,
+            operation="rotate" if existing is not None else "create",
+            actor_id=f"cli:{getpass.getuser()}",
+            actor_role="admin",
+        )
+
         self.stdout.write(self.style.SUCCESS(f"{action} credential for bb_id={bb_id!r}."))
         self.stdout.write("")
         self.stdout.write(self.style.WARNING(

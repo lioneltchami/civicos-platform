@@ -544,12 +544,56 @@ class DocumentDetailAPITests(TestCase):
         # Must be 404 — not 403 (403 reveals document existence)
         self.assertEqual(response.status_code, 404)
 
+    def test_s4_404_wrong_owner_writes_access_denied_audit_event(self):
+        """
+        FIX 2: a cross-user (IDOR) access attempt must write an
+        AuditEventType.ACCESS_DENIED event (spec §13.1), while the response
+        behaviour is unchanged (still 404, never 403).
+        """
+        from apps.audit.models import AuditEventType, AuditLogEntry
+
+        attacker = _make_user()
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(attacker))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 404)
+
+        event = AuditLogEntry.objects.filter(
+            event_type=AuditEventType.ACCESS_DENIED,
+            resource_id=str(self.doc.pk),
+        ).first()
+        self.assertIsNotNone(event, "Expected an ACCESS_DENIED audit event to be written")
+        self.assertEqual(event.event_detail["requested_pk"], str(self.doc.pk))
+        self.assertEqual(event.event_detail["requesting_user_pk"], str(attacker.pk))
+        # PIPEDA (spec §13.2): no filename/storage_key/other PII in event_detail.
+        self.assertNotIn("original_filename", event.event_detail)
+        self.assertNotIn("storage_key", event.event_detail)
+
     def test_404_not_found(self):
         """Non-existent UUID → 404."""
         url = reverse("api-v1:document-detail", args=[uuid.uuid4()])
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
         response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
+
+    def test_404_not_found_does_not_write_access_denied_audit_event(self):
+        """
+        FIX 2: a bare non-existent pk (no real IDOR signal) must NOT write an
+        ACCESS_DENIED event — only genuine cross-user access attempts do.
+        """
+        from apps.audit.models import AuditEventType, AuditLogEntry
+
+        bogus_pk = uuid.uuid4()
+        url = reverse("api-v1:document-detail", args=[bogus_pk])
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+        self.assertFalse(
+            AuditLogEntry.objects.filter(
+                event_type=AuditEventType.ACCESS_DENIED,
+                resource_id=str(bogus_pk),
+            ).exists()
+        )
 
     def test_a5_401_unauthenticated(self):
         """A5: No credentials → 401."""
@@ -653,6 +697,32 @@ class DocumentDownloadInitAPITests(TestCase):
         """A5: No credentials → 401."""
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, 401)
+
+    def test_ip_address_ignores_spoofed_x_forwarded_for(self):
+        """
+        FIX 1: _get_client_ip() must use ONLY REMOTE_ADDR — HTTP_X_FORWARDED_FOR
+        is never trusted at this layer (gunicorn's forwarded_allow_ips="*" +
+        nginx's append-not-replace X-Forwarded-For behaviour make the raw
+        header attacker-controlled by the time Django sees it).
+
+        A citizen who sends a spoofed HTTP_X_FORWARDED_FOR on their own
+        download-initiation request must NOT be able to inject that value
+        into DocumentAccessToken.ip_address.
+        """
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.post(
+            self.url,
+            HTTP_X_FORWARDED_FOR="203.0.113.99, 10.0.0.1",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        token = DocumentAccessToken.objects.get(document=self.doc)
+        # Django's test client defaults REMOTE_ADDR to "127.0.0.1"; masked
+        # (last IPv4 octet zeroed) that becomes "127.0.0.0".
+        self.assertEqual(token.ip_address, "127.0.0.0")
+        # The attacker-supplied front-of-list value must never be recorded.
+        self.assertNotEqual(token.ip_address, "203.0.113.0")
+        self.assertNotIn("203.0.113", token.ip_address or "")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -795,6 +865,30 @@ class DocumentTokenRedeemAPITests(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION=_token_auth(other_user))
         response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
+
+    def test_wrong_user_writes_access_denied_audit_event(self):
+        """
+        FIX 2: redeeming another user's token must write an
+        AuditEventType.ACCESS_DENIED event (spec §13.1), while the response
+        behaviour is unchanged (still 404).
+        """
+        from apps.audit.models import AuditEventType, AuditLogEntry
+
+        other_user = _make_user()
+        token = _make_access_token(self.user, self.small_doc)
+        url = reverse("api-v1:api-token-redeem", args=[token.token])
+
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(other_user))
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+        event = AuditLogEntry.objects.filter(
+            event_type=AuditEventType.ACCESS_DENIED,
+            resource_id=str(self.small_doc.pk),
+        ).first()
+        self.assertIsNotNone(event, "Expected an ACCESS_DENIED audit event to be written")
+        self.assertEqual(event.event_detail["requested_pk"], str(self.small_doc.pk))
+        self.assertEqual(event.event_detail["requesting_user_pk"], str(other_user.pk))
 
     def test_a5_401_unauthenticated(self):
         """A5: No credentials → 401."""

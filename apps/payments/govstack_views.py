@@ -153,7 +153,7 @@ class GovStackAPIView(APIView):
         return ""
 
     def _validate_platform_tenant_id(
-        self, request: Request
+        self, request: Request, request_id_key: str = "requestID"
     ) -> tuple[str, Response | None]:
         """
         Validate the X-Platform-TenantId / Platform-TenantId header.
@@ -162,6 +162,20 @@ class GovStackAPIView(APIView):
         absent and tolerated (harness/test mode, see below). Returns
         ("", Response(...)) when validation fails; the caller MUST return
         that Response immediately without proceeding.
+
+        Args:
+            request_id_key: the key name used for the echoed request-id field
+                in this method's own 400-shaped error bodies. Defaults to
+                "requestID" (capital D), which is correct for 3 of the 4 P2G
+                views (billPaymentRequest.yml, rtpStatusUpdateRequest.yml,
+                markBillPpaymentRequest.yml all use `requestID`). BillInquiryView
+                is the sole exception — its live spec (billInquiryRequest.yml)
+                uses lowercase-d `requestId` — so BillInquiryView.get() passes
+                request_id_key="requestId" explicitly. This parameter exists
+                specifically so this shared helper can serve both casings
+                without duplicating its validation logic per-view. See
+                BillInquiryView's own docstring for the full spec-fidelity
+                rationale on why bill-inquiry alone differs.
 
         Design rationale (deliberately NOT the IsTrustedPayerFI pattern):
           X-Platform-TenantId is a tenant-SCOPING header (which tenant's data
@@ -172,18 +186,36 @@ class GovStackAPIView(APIView):
             - Failure mode is HTTP 400 (bad/incomplete request), not 401/403
               (auth failure) — an unscoped request is a validation problem,
               not proof the caller is untrusted.
-            - There is no whitelist/registry table analogous to
-              GovStackRegisteredBB for tenant IDs in this codebase, and adding
-              one would be speculative over-engineering for a header whose
-              only live-spec constraint is presence + maxLength: 20 — not
-              "is this a known/registered tenant". If CivicOS later needs a
-              real multi-tenant registry, that is a materially bigger feature
-              (data isolation, per-tenant querysets, etc.) than this header
-              validation, and is explicitly out of scope here.
             - Implemented as a plain helper (not a permission class) so it
               composes cleanly with IsTrustedPayerFI/RequirePayerFI without
               stacking two permission classes per view for two genuinely
               different concerns.
+
+        Tenant-registry binding (certifiability-audit fix, Round 2 — HIGH
+        finding): earlier revisions of this docstring argued against building
+        any whitelist/registry table for X-Platform-TenantId, on the grounds
+        that it would be "speculative over-engineering" for a header whose
+        only live-spec constraint is presence + maxLength: 20. A fresh,
+        adversarial re-audit determined that reasoning under-weighted a real,
+        exploitable gap: nothing verified that the CALLER declaring a given
+        platform_tenant_id was actually entitled to declare it — a caller who
+        simply knew or guessed another tenant's ID string got full cross-
+        tenant read/write access, the same class of bug the tenant-scoping
+        fix below was meant to close, just requiring one extra guessable
+        string instead of zero. Rather than build a full multi-tenant
+        registry/data-isolation redesign (a materially bigger feature, still
+        out of scope here), this method now performs a MINIMAL, OPT-IN,
+        backward-compatible binding: if the caller has already been resolved
+        to a known, whitelisted GovStackRegisteredBB identity (via
+        _HeaderWhitelistBBPermission, stashed at request.META["_gs_payer_identity"])
+        AND that BB's own `allowed_platform_tenant_ids` list is non-empty, the
+        declared platform_tenant_id must appear in that list. An EMPTY list
+        (the default for every existing/not-yet-configured BB row) is unrestricted
+        — this is deliberately opt-in, not a breaking change, because there is
+        no existing tenant-registry data to migrate and defaulting to
+        "deny everything" would break every current caller with zero
+        migration path. See GovStackRegisteredBB.allowed_platform_tenant_ids
+        for the field-level rationale.
 
         Mode gating (mirrors _HeaderWhitelistBBPermission's shape, but is NOT
         that class — no whitelist lookup is ever performed here):
@@ -225,11 +257,14 @@ class GovStackAPIView(APIView):
                 # view classes' docstrings for the full envelope rationale.
                 # This method has no other callers anywhere in the codebase
                 # (confirmed), so this shape change is safely contained to P2G.
+                # request_id_key defaults to "requestID" (capital D), matching
+                # every P2G view except BillInquiryView (see this method's
+                # docstring / the request_id_key parameter).
                 return "", Response(
                     {
                         "responseCode": "01",
                         "reason": "Missing required X-Platform-TenantId header.",
-                        "requestID": "",
+                        request_id_key: "",
                     },
                     status=400,
                 )
@@ -248,10 +283,56 @@ class GovStackAPIView(APIView):
                         "X-Platform-TenantId header exceeds maximum length "
                         f"({self._PLATFORM_TENANT_ID_MAX_LENGTH})."
                     ),
-                    "requestID": "",
+                    request_id_key: "",
                 },
                 status=400,
             )
+
+        # ── Tenant-registry binding (certifiability-audit fix, Round 2) ────
+        # Only enforced in production mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID
+        # =True) AND only when the caller has already been resolved to a
+        # known, whitelisted BB identity by _HeaderWhitelistBBPermission (i.e.
+        # a view using IsTrustedPayerFI/RequirePayerFI/IsTrustedBiller granted
+        # access and stashed request.META["_gs_payer_identity"]). If no such
+        # identity is present (harness/test mode, or a caller that hasn't been
+        # through one of those permission classes at all), this check is
+        # skipped entirely — unrestricted, exactly like today. Similarly, if
+        # the resolved identity has no matching, still-active
+        # GovStackRegisteredBB row, or that row's allowed_platform_tenant_ids
+        # is empty (the default), this check is skipped — opt-in hardening
+        # only for BBs an operator has explicitly restricted.
+        if require_tenant_id:
+            resolved_caller_id = request.META.get("_gs_payer_identity")
+            if resolved_caller_id:
+                from apps.payments.govstack_models import (  # noqa: PLC0415
+                    GovStackRegisteredBB,
+                )
+
+                registered_bb = GovStackRegisteredBB.objects.filter(
+                    bb_id=resolved_caller_id, is_active=True
+                ).first()
+                if (
+                    registered_bb is not None
+                    and registered_bb.allowed_platform_tenant_ids
+                    and value not in registered_bb.allowed_platform_tenant_ids
+                ):
+                    logger.warning(
+                        "govstack.p2g.platform_tenant_id_not_authorized "
+                        "caller_id=%r path=%s",
+                        resolved_caller_id,
+                        request.path,
+                    )
+                    return "", Response(
+                        {
+                            "responseCode": "01",
+                            "reason": (
+                                "X-Platform-TenantId is not authorized for "
+                                "this caller."
+                            ),
+                            request_id_key: "",
+                        },
+                        status=400,
+                    )
 
         return value, None
 
@@ -1216,22 +1297,33 @@ class BillInquiryView(GovStackAPIView):
       live spec (`required: true, enum: ["inquiry"]`). Missing or any other
       value returns HTTP 400.
 
-    Response 202: {responseCode, reason, requestID, billId, amount, currency,
+    Response 202: {responseCode, reason, requestId, billId, amount, currency,
       description, status, dueDate}
-    Response 400: {responseCode, reason, requestID} (missing/invalid `fields`,
+    Response 400: {responseCode, reason, requestId} (missing/invalid `fields`,
       or a tenant-scoping validation failure — see below)
     Response 404: {"message": "Bill not found."} (unchanged — none of the 3
       real P2G request YAMLs define a 404 response schema, so there is nothing
       to conform to here; this propagates via govstack_exception_handler,
       which is shared with G2P/Voucher endpoints outside this fix's scope)
 
-    Live-spec fidelity (certifiability-audit fix — HIGH finding):
-      billInquiryRequest.yml's response schema is `{responseCode, reason,
-      requestID}` at HTTP 202 for BOTH the success and 400 cases — not the
-      HTTP 200 + ad hoc shape this endpoint previously returned. The existing
-      billId/amount/currency/description/status/dueDate fields are kept as
-      additional properties in the same body (none of the fetched schemas set
-      `additionalProperties: false`).
+    Live-spec fidelity (certifiability-audit fix — HIGH finding, Round 2):
+      This endpoint's response envelope uses lowercase-d `requestId`, NOT
+      `requestID` (capital D) — the ONE exception among the 4 P2G endpoints,
+      which otherwise all use `requestID`. A prior fix pass got this wrong by
+      citing the wrong spec file: `billInquiryRequest.yml` (the actual
+      PayerFI→PBB `GET /bills/{billId}` spec THIS view implements) uses
+      lowercase-d `requestId` in its response schema at both 202 and 400 —
+      confirmed by a fresh fetch of that file. `billInquiryResponse.yml` is a
+      DIFFERENT, reverse-direction endpoint (`POST /bills/{billId}`, the
+      Payments BB calling OUT to the Payer FI as an async callback — see
+      below) that DOES use `requestID` (capital D); the earlier fix
+      mistakenly matched this view's casing against that unrelated file. The
+      other 3 P2G endpoints (billPaymentRequest.yml, rtpStatusUpdateRequest.yml,
+      markBillPpaymentRequest.yml) correctly use `requestID` and are
+      unaffected by this correction — see
+      GovStackAPIView._validate_platform_tenant_id()'s `request_id_key`
+      parameter for how the shared tenant-validation helper accommodates both
+      casings without duplicating its logic.
 
       This endpoint remains SYNCHRONOUS by deliberate, documented choice, not
       because the spec's implied async pattern was overlooked:
@@ -1272,7 +1364,13 @@ class BillInquiryView(GovStackAPIView):
     permission_classes = [IsTrustedPayerFI]
 
     def get(self, request: Request, bill_id: str) -> Response:
-        tenant_id, tenant_error = self._validate_platform_tenant_id(request)
+        # request_id_key="requestId" (lowercase d) — this is the ONE P2G view
+        # whose live spec (billInquiryRequest.yml) uses this casing; see the
+        # class docstring's "Live-spec fidelity" section for the full
+        # rationale on why this differs from the other 3 P2G views.
+        tenant_id, tenant_error = self._validate_platform_tenant_id(
+            request, request_id_key="requestId"
+        )
         if tenant_error is not None:
             return tenant_error
 
@@ -1284,7 +1382,7 @@ class BillInquiryView(GovStackAPIView):
                 {
                     "responseCode": "01",
                     "reason": "Missing or invalid required query parameter: fields=inquiry.",
-                    "requestID": request.headers.get("X-CorrelationID", "").strip() or "",
+                    "requestId": request.headers.get("X-CorrelationID", "").strip() or "",
                 },
                 status=400,
             )
@@ -1299,7 +1397,7 @@ class BillInquiryView(GovStackAPIView):
             {
                 "responseCode": "00",
                 "reason": "Bill retrieved successfully.",
-                "requestID": request.headers.get("X-CorrelationID", "").strip() or "",
+                "requestId": request.headers.get("X-CorrelationID", "").strip() or "",
                 # Existing useful fields kept as additional properties — see class
                 # docstring note on why this endpoint stays synchronous.
                 "billId": bill.bill_id,

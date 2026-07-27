@@ -136,6 +136,34 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         self.assertEqual(aff.entity_id, entity.pk)
         self.assertEqual(aff.resource_category, "nurse")
 
+    def test_aff1b_creates_admin_audit_event(self):
+        """
+        Round 2 certifiability re-audit fix (MEDIUM): POST /affiliation/new
+        must leave a real, queryable, tamper-evident BookingAuditLog entry
+        (booking=None) recording who created the affiliation and when.
+        """
+        from apps.appointments.models import BookingAuditLog
+
+        resource = _create_resource()
+        entity = _create_entity()
+        qry = {"affiliation_details": {
+            "resource_id": str(resource.pk),
+            "entity_id": str(entity.pk),
+        }}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 200)
+        affiliation_id = resp.json()["affiliation_id"]
+
+        event = BookingAuditLog.objects.filter(
+            action=BookingAuditLog.ACTION_ADMIN_AFFILIATION_MUTATED,
+            detail__resource_pk=affiliation_id,
+        ).first()
+        self.assertIsNotNone(event)
+        self.assertIsNone(event.booking)
+        self.assertEqual(event.detail["operation"], "create")
+        # _AUTH["requestor_id"] == "test-bb" (see module constants above).
+        self.assertEqual(event.actor_id, "test-bb")
+
     def test_aff2_old_wrong_details_key_returns_400(self):
         """AFF2: the OLD (pre-FIX-1) wrapper key "details" is no longer
         recognised — the required "affiliation_details" inner field is
@@ -448,6 +476,54 @@ class AffiliationListDetailsTests(AffiliationBaseTestCase):
         data = resp.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["affiliation_id"], str(aff.pk))
+
+    # Round 2 certifiability re-audit fix — affiliation_id array support
+    def test_aff24b_filter_by_affiliation_id_array_matches_multiple(self):
+        """
+        Round 2 fix: affiliation_id is array-typed per the real GovStack
+        spec — a JSON array of 2+ ids returns all matching records (pk__in).
+        """
+        aff1 = _create_affiliation()
+        aff2 = _create_affiliation()
+        _create_affiliation()  # not matched
+        resp = self._get({
+            "affiliation_filter": {"affiliation_id": [str(aff1.pk), str(aff2.pk)]}
+        })
+        self.assertEqual(resp.status_code, 200)
+        returned_ids = {item["affiliation_id"] for item in resp.json()}
+        self.assertEqual(returned_ids, {str(aff1.pk), str(aff2.pk)})
+
+    def test_aff24c_filter_by_affiliation_id_single_string_still_works(self):
+        """Round 2 fix: backward compatibility — a bare-string affiliation_id still works."""
+        aff = _create_affiliation()
+        _create_affiliation()
+        resp = self._get({"affiliation_filter": {"affiliation_id": str(aff.pk)}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["affiliation_id"], str(aff.pk))
+
+    def test_aff24d_filter_by_affiliation_id_invalid_entry_returns_400(self):
+        """
+        Round 2 fix: an invalid (non-numeric) id in the array is handled the
+        same way as the reference implementation (entity_id/resource_id) —
+        the malformed pk__in lookup raises at queryset evaluation, and the
+        view's generic exception handler maps it to a 400.
+        """
+        aff = _create_affiliation()
+        resp = self._get({
+            "affiliation_filter": {"affiliation_id": [str(aff.pk), "not-a-number"]}
+        })
+        self.assertEqual(resp.status_code, 400)
+
+    def test_aff24e_filter_by_affiliation_id_absent_returns_everything(self):
+        """Round 2 fix: an absent affiliation_filter.affiliation_id still returns everything."""
+        _create_affiliation()
+        _create_affiliation()
+        resp = self._get()
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertGreaterEqual(len(data), 2)
 
     def test_aff25_filter_by_entity_id(self):
         entity = _create_entity()

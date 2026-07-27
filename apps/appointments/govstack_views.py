@@ -377,6 +377,8 @@ class EntityNewView(APIView):
                 phone=details.get("phone", ""),
                 email=details.get("email", ""),
                 website=details.get("website", ""),
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
             )
         except RuntimeError:
             logger.exception("entity_create: slug generation failed")
@@ -460,6 +462,8 @@ class EntityModificationsView(APIView):
                 phone=details.get("phone"),
                 email=details.get("email"),
                 website=details.get("website"),
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
             )
         except Organization.DoesNotExist:
             return Response(
@@ -521,7 +525,11 @@ class EntityDeleteView(APIView):
             return err
 
         try:
-            entity_delete(entity_id)
+            entity_delete(
+                entity_id,
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
+            )
         except Organization.DoesNotExist:
             return Response(
                 {
@@ -665,7 +673,11 @@ class ResourceNewView(APIView):
 
         details = ser.validated_data["resource_details"]
         try:
-            resource = resource_create(**details)
+            resource = resource_create(
+                **details,
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
+            )
         except ValueError as exc:
             # Service-layer validation error (e.g. invalid alert_preference) — safe to surface.
             return Response(
@@ -743,7 +755,12 @@ class ResourceModificationsView(APIView):
 
         details = ser.validated_data["details"]
         try:
-            resource = resource_modify(resource_id=resource_id, **details)
+            resource = resource_modify(
+                resource_id=resource_id,
+                **details,
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
+            )
         except Resource.DoesNotExist:
             return Response(
                 {
@@ -820,7 +837,11 @@ class ResourceDeleteView(APIView):
             return err
 
         try:
-            resource_delete(resource_id=resource_id)
+            resource_delete(
+                resource_id=resource_id,
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
+            )
         except Resource.DoesNotExist:
             return Response(
                 {
@@ -1085,6 +1106,8 @@ class AffiliationNewView(APIView):
                 entity_id=entity_id,
                 resource_category=details.get("resource_category", ""),
                 work_days_hours=details.get("work_days_hours"),
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
             )
         except Resource.DoesNotExist:
             return Response(
@@ -1188,6 +1211,8 @@ class AffiliationModificationsView(APIView):
                 affiliation_id=affiliation_id,
                 resource_category=details.get("resource_category"),
                 work_days_hours=details.get("work_days_hours"),
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
             )
         except GovStackAffiliation.DoesNotExist:
             return Response(
@@ -1254,7 +1279,11 @@ class AffiliationDeleteView(APIView):
             return err
 
         try:
-            affiliation_delete(affiliation_id)
+            affiliation_delete(
+                affiliation_id,
+                actor_id=request.META.get("_gs_requestor_id", ""),
+                actor_role=request.META.get("_gs_resolved_role", ""),
+            )
         except GovStackAffiliation.DoesNotExist:
             return Response(
                 {

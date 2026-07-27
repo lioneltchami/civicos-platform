@@ -111,15 +111,31 @@ _AUTH = [CivicOSTokenAuthentication, JWTAuthentication]
 
 def _get_client_ip(request) -> str | None:
     """
-    Extract the originating client IP address.
+    Extract the originating client IP from REMOTE_ADDR only.
 
-    Honours X-Forwarded-For for reverse-proxy deployments.  The download
-    service will mask the last octet (IPv4) or /48 prefix (IPv6) for PIPEDA
-    before persisting it.
+    HTTP_X_FORWARDED_FOR is intentionally NEVER consulted here. In this
+    deployment, gunicorn.conf.py sets forwarded_allow_ips="*" and nginx
+    APPENDS to (rather than replaces) X-Forwarded-For — so by the time
+    Django sees the request, HTTP_X_FORWARDED_FOR still contains whatever
+    the client originally sent, with the real IP appended at the END of the
+    list. Code that reads ``HTTP_X_FORWARDED_FOR.split(",")[0]`` therefore
+    picks the attacker-controlled FRONT of the list, not the real client
+    IP — letting any citizen inject an arbitrary IP into their own
+    download's audit trail (``DocumentAccessToken.ip_address`` and the
+    ``RECORD_VIEWED`` event's ``ip_masked`` field) with one request header.
+
+    REMOTE_ADDR is the only trustworthy source at this layer: gunicorn's
+    forwarded_allow_ips="*" already resolves REMOTE_ADDR to the real client
+    IP for legitimate proxied requests, so there is nothing left for the
+    application layer to correctly do with X-Forwarded-For — trusting the
+    raw header here is never correct in this deployment. Mirrors the
+    identical rule and rationale already established in
+    apps.consent.services._get_ip() and this same BB's sibling view,
+    apps.documents.views.citizen._get_client_ip().
+
+    The download service masks the last octet (IPv4) or /48 prefix (IPv6)
+    for PIPEDA before persisting the value returned here.
     """
-    xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if xff:
-        return xff.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR")
 
 
@@ -156,6 +172,43 @@ def _convert_django_exceptions(exc: Exception) -> None:
         raise ValidationError({"non_field_errors": [str(exc)]})
 
 
+def _record_access_denied(*, requested_pk, requesting_user) -> None:
+    """
+    Write an AuditEventType.ACCESS_DENIED entry for a denied (IDOR) access
+    attempt — spec §13.1 "Access denied (non-owned PK)".
+
+    Only call this when the requested pk genuinely belongs to someone else
+    (i.e. the document exists). This is audit-only: it never changes the
+    HTTP response, which remains 404 either way (403 would leak existence).
+
+    PIPEDA: event_detail contains ONLY requested_pk and requesting_user_pk —
+    no filename, storage_key, or other PII (spec §13.2).
+    """
+    from apps.audit.models import AuditEventType
+    from apps.audit.services import record_event
+
+    try:
+        record_event(
+            event_type=AuditEventType.ACCESS_DENIED,
+            actor_id=str(requesting_user.pk),
+            resource_type="documents.Document",
+            resource_id=str(requested_pk),
+            event_detail={
+                "requested_pk": str(requested_pk),
+                "requesting_user_pk": str(requesting_user.pk),
+            },
+        )
+    except Exception:
+        # Audit failure must never surface to the caller — the 404 response
+        # this accompanies is unaffected either way.
+        logger.exception(
+            "_record_access_denied: audit write failed for requested_pk=%s "
+            "requesting_user_pk=%s",
+            requested_pk,
+            requesting_user.pk,
+        )
+
+
 def _get_document_for_user(
     request,
     doc_id,
@@ -173,6 +226,12 @@ def _get_document_for_user(
     Non-owned, non-existent, or deleted documents all return 404.  This is
     intentional: 403 would reveal that a document with that PK exists, which
     is an IDOR information leak.
+
+    Audit trail (spec §13): when a citizen (non-coordinator) requests a pk
+    that exists but belongs to another user, an AuditEventType.ACCESS_DENIED
+    event is written before the 404 is raised — see _record_access_denied().
+    A pk that does not exist at all (e.g. a typo'd UUID) is NOT audited: it
+    carries no IDOR signal and would only add noise to the log.
 
     Args:
         request:              DRF request (request.user must be authenticated).
@@ -196,8 +255,16 @@ def _get_document_for_user(
         return get_object_or_404(Document, **filters)
 
     # Citizen (or staff without coordinator perm): own documents only.
-    filters["uploaded_by"] = request.user
-    return get_object_or_404(Document, **filters)
+    owner_filters = dict(filters)
+    owner_filters["uploaded_by"] = request.user
+    try:
+        return Document.objects.get(**owner_filters)
+    except Document.DoesNotExist:
+        # Only an IDOR attempt (real pk, wrong owner) is audit-worthy — see
+        # this function's docstring.
+        if Document.objects.filter(**filters).exists():
+            _record_access_denied(requested_pk=doc_id, requesting_user=request.user)
+        raise Http404
 
 
 # ─────────────────────────────────────────────────────────────────────────────

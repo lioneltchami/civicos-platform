@@ -1049,7 +1049,14 @@ def event_list(
 
     Filter keys (event_filter)
     ──────────────────────────
-    event_id         — exact UUID match
+    event_id         — array-typed per the real GovStack spec (event_id[]);
+                       matches ANY of the given ids (pk__in). Round 2
+                       certifiability re-audit fix — verified directly
+                       against the fetched spec; EventFilterSerializer's
+                       StringOrListField normalizes a single bare string
+                       into a 1-element list, so this is always list-shaped
+                       by the time it reaches this function (identical
+                       precedent to entity_id/resource_id/subscriber_id).
     name             — case-insensitive substring on AppointmentType.name_en
     category         — case-insensitive substring/exact match on
                        AppointmentType.service_type.category (FIX 4)
@@ -1099,8 +1106,14 @@ def event_list(
     )
 
     # -- Filters --
+    # Round 2 certifiability re-audit fix: event_id is array-typed per the
+    # real spec — pk__in= is always the correct application now that
+    # StringOrListField guarantees a list shape (even for a single-value
+    # caller). A malformed UUID entry raises at queryset evaluation below,
+    # which the view layer's generic except Exception clause maps to a 400
+    # — identical convention to entity_list's entity_id handling.
     if event_filter.get("event_id"):
-        qs = qs.filter(pk=event_filter["event_id"])
+        qs = qs.filter(pk__in=event_filter["event_id"])
 
     if event_filter.get("name"):
         qs = qs.filter(appointment_type__name_en__icontains=event_filter["name"])

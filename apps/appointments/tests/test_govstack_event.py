@@ -435,8 +435,13 @@ class EventModificationsTests(EventBaseTestCase):
             terms="No refunds.",
         )
         slot = created[0]
+        # Round 2 certifiability re-audit fix: event_list() is called directly
+        # here (bypassing EventFilterSerializer's StringOrListField), so the
+        # event_id filter must already be list-shaped — mirrors the identical
+        # "service layer assumes a list" contract established by
+        # entity_list()/resource_list() for their own array-typed id filters.
         results = event_list(
-            event_filter={"event_id": str(slot.pk)},
+            event_filter={"event_id": [str(slot.pk)]},
             event_details_required={"description": True, "terms": True},
         )
         self.assertEqual(len(results), 1)
@@ -659,6 +664,51 @@ class EventListDetailsTests(EventBaseTestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIsInstance(data, list)
+
+    # Round 2 certifiability re-audit fix — event_id array support
+    def test_ev31b_event_filter_by_event_id_array_matches_multiple(self):
+        """
+        Round 2 fix: event_id is array-typed per the real GovStack spec — a
+        JSON array of 2+ ids returns all matching records (pk__in).
+        """
+        other = _create_event(name="Array Match Event")
+        other_id = str(other[0].pk)
+        _create_event(name="Not Matched Event")
+
+        qry = {"event_filter": {"event_id": [self.event_id, other_id]}}
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        returned_ids = {item["event_id"] for item in resp.json()}
+        self.assertEqual(returned_ids, {self.event_id, other_id})
+
+    def test_ev31c_event_filter_by_event_id_single_string_still_works(self):
+        """Round 2 fix: backward compatibility — a bare-string event_id still works."""
+        _create_event(name="Other Event For Single String Test")
+        qry = {"event_filter": {"event_id": self.event_id}}
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["event_id"], self.event_id)
+
+    def test_ev31d_event_filter_by_event_id_invalid_entry_returns_400(self):
+        """
+        Round 2 fix: an invalid (non-UUID) id in the array is handled the
+        same way as the reference implementation (entity_id/resource_id) —
+        the malformed pk__in lookup raises at queryset evaluation, and the
+        view's generic exception handler maps it to a 400.
+        """
+        qry = {"event_filter": {"event_id": [self.event_id, "not-a-uuid"]}}
+        resp = self._get(qry)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_ev31e_event_filter_absent_returns_everything(self):
+        """Round 2 fix: an absent event_filter.event_id still returns all events."""
+        _create_event(name="Second Event For Absent Filter Test")
+        resp = self._get({})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertGreaterEqual(len(data), 2)
 
     # EV33
     def test_ev33_event_filter_by_name_returns_matching_events(self):

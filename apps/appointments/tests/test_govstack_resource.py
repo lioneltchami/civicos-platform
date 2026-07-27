@@ -150,6 +150,29 @@ class ResourceNewTests(ResourceBaseTestCase):
         self.assertEqual(resource.alert_preference, "push")
         self.assertTrue(resource.is_active)
 
+    def test_r1b_creates_admin_audit_event(self):
+        """
+        Round 2 certifiability re-audit fix (MEDIUM): POST /resource/new must
+        leave a real, queryable, tamper-evident BookingAuditLog entry
+        (booking=None) recording who created the resource and when.
+        """
+        from apps.appointments.models import BookingAuditLog
+
+        qry = {"resource_details": {"name": "Audit Trail Room", "category": "room"}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 200)
+        resource_pk = resp.json()["resource_id"][2:]  # strip "R-" prefix
+
+        event = BookingAuditLog.objects.filter(
+            action=BookingAuditLog.ACTION_ADMIN_RESOURCE_MUTATED,
+            detail__resource_pk=resource_pk,
+        ).first()
+        self.assertIsNotNone(event)
+        self.assertIsNone(event.booking)
+        self.assertEqual(event.detail["operation"], "create")
+        # _AUTH["requestor_id"] == "test-bb" (see module constants above).
+        self.assertEqual(event.actor_id, "test-bb")
+
     def test_r2_old_wrong_details_key_no_longer_creates_a_resource_from_it(self):
         """R2: the OLD (pre-FIX-1) wrapper key "details" is no longer
         recognised — DRF silently drops unknown keys, so the inner

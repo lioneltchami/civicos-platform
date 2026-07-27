@@ -113,6 +113,29 @@ class EntityNewTests(EntityBaseTestCase):
         self.assertEqual(org.website, "https://moh.example.gov")
         self.assertTrue(org.is_active)
 
+    def test_e1b_creates_admin_audit_event(self):
+        """
+        Round 2 certifiability re-audit fix (MEDIUM): POST /entity/new must
+        leave a real, queryable, tamper-evident BookingAuditLog entry
+        (booking=None) recording who created the entity and when.
+        """
+        from apps.appointments.models import BookingAuditLog
+
+        qry = {"details": {"name": "Audit Trail Ministry", "category": "health"}}
+        resp = self._post(qry)
+        self.assertEqual(resp.status_code, 200)
+        entity_id = resp.json()["entity_id"]
+
+        event = BookingAuditLog.objects.filter(
+            action=BookingAuditLog.ACTION_ADMIN_ENTITY_MUTATED,
+            detail__resource_pk=entity_id,
+        ).first()
+        self.assertIsNotNone(event)
+        self.assertIsNone(event.booking)
+        self.assertEqual(event.detail["operation"], "create")
+        # _AUTH["requestor_id"] == "test-bb" (see module constants above).
+        self.assertEqual(event.actor_id, "test-bb")
+
     def test_e2_missing_qry_returns_400(self):
         resp = self.client.post(NEW_URL + _qs())
         self.assertEqual(resp.status_code, 400)

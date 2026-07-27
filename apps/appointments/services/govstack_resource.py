@@ -38,6 +38,7 @@ from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_naive
 
 from apps.appointments.models import (
+    BookingAuditLog,
     GovStackAffiliation,
     Location,
     Organization,
@@ -45,6 +46,7 @@ from apps.appointments.models import (
     Slot,
     StaffProfile,
 )
+from apps.appointments.services.govstack_log import record_admin_audit_event
 
 logger = logging.getLogger("civicos.appointments.services.govstack_resource")
 
@@ -178,9 +180,17 @@ def resource_create(
     alert_url: str = "",
     alert_preference: str = "",
     status_poll_url: str = "",
+    actor_id: str = "",
+    actor_role: str = "",
 ) -> Resource:
     """
     Create a new Resource from GovStack Resource details.
+
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event (BookingAuditLog, booking=None) recording who created this
+    Resource and when — see services.govstack_log.record_admin_audit_event
+    and services.govstack_entity.entity_create's docstring for the full
+    design rationale (identical pattern applied here).
 
     - Gets or creates the GovStack system location (placeholder for required FK).
     - Maps the GovStack category string to a Resource.resource_type choice.
@@ -219,6 +229,14 @@ def resource_create(
         is_active=True,
     )
     logger.debug("resource_create: created resource pk=%d", resource.pk)
+
+    record_admin_audit_event(
+        action=BookingAuditLog.ACTION_ADMIN_RESOURCE_MUTATED,
+        resource_pk=resource.pk,
+        operation="create",
+        actor_id=actor_id,
+        actor_role=actor_role,
+    )
     return resource
 
 
@@ -231,6 +249,8 @@ def resource_modify(
     alert_url: str | None = None,
     alert_preference: str | None = None,
     status_poll_url: str | None = None,
+    actor_id: str = "",
+    actor_role: str = "",
 ) -> Resource:
     """
     Modify an existing active Resource.
@@ -239,6 +259,10 @@ def resource_modify(
     are treated as intentional clears for all fields.
 
     If name changes, updates both name_en and name_fr (bilingual stub).
+
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event when any field actually changed — see resource_create()'s
+    docstring for the full rationale.
 
     Raises Resource.DoesNotExist if no active Resource with resource_id exists.
     """
@@ -292,18 +316,28 @@ def resource_modify(
         logger.debug(
             "resource_modify: updated resource pk=%d fields=%r", resource.pk, update_fields
         )
+        record_admin_audit_event(
+            action=BookingAuditLog.ACTION_ADMIN_RESOURCE_MUTATED,
+            resource_pk=resource.pk,
+            operation="update",
+            actor_id=actor_id,
+            actor_role=actor_role,
+        )
     else:
         logger.debug("resource_modify: no fields changed for resource pk=%d", resource.pk)
 
     return resource
 
 
-def resource_delete(resource_id: str | int) -> None:
+def resource_delete(resource_id: str | int, actor_id: str = "", actor_role: str = "") -> None:
     """
     Soft-delete a Resource by setting is_active=False.
 
     Does NOT call resource.delete() — Slot and GovStackAffiliation FK dependents
     must remain intact for audit trail compliance.
+
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event — see resource_create()'s docstring for the full rationale.
 
     Raises Resource.DoesNotExist if no active Resource with resource_id exists.
     """
@@ -311,6 +345,14 @@ def resource_delete(resource_id: str | int) -> None:
     resource.is_active = False
     resource.save(update_fields=["is_active", "updated_at"])
     logger.debug("resource_delete: soft-deleted resource pk=%d", resource.pk)
+
+    record_admin_audit_event(
+        action=BookingAuditLog.ACTION_ADMIN_RESOURCE_MUTATED,
+        resource_pk=resource.pk,
+        operation="delete",
+        actor_id=actor_id,
+        actor_role=actor_role,
+    )
 
 
 def resource_list(

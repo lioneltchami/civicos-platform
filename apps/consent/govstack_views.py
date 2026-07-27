@@ -668,6 +668,19 @@ class ConfigWebhookListView(ConsentGovStackAPIView):
             signature_header=serializer.validated_data.get("signature_header", "X-GovStack-Signature"),
             skipped_headers=serializer.validated_data.get("skipped_headers", []),
         )
+        # Round 2 Fix 2 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"):
+        # webhooks are security-sensitive (secretKey is echoed in plaintext on
+        # read, and they're the destination for live consent-event payloads)
+        # but their CRUD previously had zero audit trail. Mirrors the
+        # citizen=None/actor convention used for policy/data-agreement config
+        # mutations (ConsentService.create_policy et al.) — deliberately does
+        # NOT log secret_key in details.
+        ConsentAuditEntry.objects.create(
+            citizen=None,
+            actor=request.user,
+            action="webhook_created",
+            details={"webhook_id": str(webhook.pk), "payload_url": webhook.payload_url},
+        )
         return Response({"webhook": WebhookSerializer(webhook).data})
 
 
@@ -710,11 +723,31 @@ class ConfigWebhookDetailView(ConsentGovStackAPIView):
         if "disabled" not in payload and "isActive" in payload:
             webhook.is_disabled = not payload["isActive"]
         webhook.save()
+        # Round 2 Fix 2: audit trail for webhook config mutation — see post()
+        # above for the full rationale. Never log secret_key.
+        ConsentAuditEntry.objects.create(
+            citizen=None,
+            actor=request.user,
+            action="webhook_updated",
+            details={"webhook_id": str(webhook.pk), "payload_url": webhook.payload_url},
+        )
         return Response({"webhook": WebhookSerializer(webhook).data})
 
     @extend_schema(responses={200: None})
     def delete(self, request, webhook_id):
-        self._get_webhook(webhook_id).delete()
+        webhook = self._get_webhook(webhook_id)
+        webhook_id_str = str(webhook.pk)
+        webhook_url = webhook.payload_url
+        webhook.delete()
+        # Round 2 Fix 2: audit trail for webhook deletion — see post() above
+        # for the full rationale. Captured id/URL before delete() since the
+        # row no longer exists afterward. Never log secret_key.
+        ConsentAuditEntry.objects.create(
+            citizen=None,
+            actor=request.user,
+            action="webhook_deleted",
+            details={"webhook_id": webhook_id_str, "payload_url": webhook_url},
+        )
         return Response(status=status.HTTP_200_OK)
 
 
@@ -1071,19 +1104,47 @@ class ServiceIndividualConsentRecordListView(ConsentGovStackAPIView):
 
         # C-02 fix: if caller supplied a `signature` field in the envelope,
         # validate it and persist it (overwriting the auto-generated one).
+        #
+        # Bug 2 fix (HIGH, MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB",
+        # Round 2): this branch used to setattr()/save() directly on the
+        # ConsentSignature model — a second, unpatched door into the exact
+        # signature-backdating/tamper defect the PUT /signature/ endpoint was
+        # already fixed for (see ServiceConsentRecordSignatureView above).
+        # Because grant() is idempotent, a citizen could re-POST for an
+        # already-granted category and silently rewrite their own signature's
+        # timestamp/payload/signature/hash with zero ConsentRevision and zero
+        # ConsentAuditEntry anywhere in this branch. Routing through the same
+        # ConsentService.attach_signature()/update_signature() methods the PUT
+        # path uses closes that door: every mutation here now writes a
+        # ConsentRevision + ConsentAuditEntry, exactly like the PUT path.
+        # Validation behaviour (malformed signature -> ValidationError with
+        # sig_serializer.errors) and the response shape are unchanged — only
+        # the internal persistence path changes.
         caller_sig_data = request.data.get("signature")
         if caller_sig_data:
             sig_serializer = SignatureSerializer(data=caller_sig_data)
             if sig_serializer.is_valid():
                 existing_sig = getattr(record, "signature_obj", None)
                 if existing_sig:
-                    # Update the auto-generated signature with caller's values
-                    for attr, val in sig_serializer.validated_data.items():
-                        setattr(existing_sig, attr, val)
-                    existing_sig.save()
-                    sig = existing_sig
+                    sig = ConsentService.update_signature(
+                        record=record,
+                        sig=existing_sig,
+                        data=sig_serializer.validated_data,
+                        request=request,
+                    )
                 else:
-                    sig = sig_serializer.save(consent_record=record)
+                    vtype = sig_serializer.validated_data.get("verification_type", "string")
+                    vpayload = sig_serializer.validated_data.get("verification_payload", caller_sig_data)
+                    sig = ConsentService.attach_signature(
+                        record=record,
+                        verification_type=vtype,
+                        verification_payload=(
+                            vpayload if isinstance(vpayload, dict) else {"raw": str(vpayload)}
+                        ),
+                        signature=sig_serializer.validated_data.get("signature"),
+                        verification_signed_by=sig_serializer.validated_data.get("verification_signed_by"),
+                        request=request,
+                    )
             else:
                 # Caller supplied a malformed signature — reject
                 raise ValidationError({"signature": sig_serializer.errors})

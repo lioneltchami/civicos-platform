@@ -423,6 +423,17 @@ class ConsentService:
         source = _get_source(request)
 
         with transaction.atomic():
+            # Round 2 Fix 4 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"):
+            # lock the ConsentRecord row for the duration of this transaction,
+            # identical to the select_for_update() pattern grant()/withdraw()
+            # already use above. Without this, two concurrent signature
+            # mutations on the same record could both read the same "latest"
+            # ConsentRevision predecessor before either commits, forking the
+            # tamper-evidence chain's single-latest invariant. This blocks a
+            # second concurrent attach_signature()/update_signature() call on
+            # the same record until this transaction commits.
+            record = ConsentRecord.objects.select_for_update().get(pk=record.pk)
+
             # Prevent duplicate signatures
             if ConsentSignature.objects.filter(consent_record=record).exists():
                 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -548,11 +559,21 @@ class ConsentService:
         import hashlib
         import json as _json
 
-        from apps.consent.models import ConsentAuditEntry, ConsentRevision
+        from apps.consent.models import ConsentAuditEntry, ConsentRecord, ConsentRevision, ConsentSignature
 
         actor_ip = _mask_ip(_get_ip(request) or "")
 
         with transaction.atomic():
+            # Round 2 Fix 4: lock both the ConsentRecord and the
+            # ConsentSignature row being updated — identical rationale to
+            # attach_signature() above. Re-fetching under select_for_update()
+            # (rather than trusting the caller-supplied ``record``/``sig``
+            # instances) ensures a second concurrent call blocks here until
+            # this transaction commits, and that we mutate the current
+            # database row rather than a possibly-stale in-memory copy.
+            record = ConsentRecord.objects.select_for_update().get(pk=record.pk)
+            sig = ConsentSignature.objects.select_for_update().get(pk=sig.pk)
+
             for field, value in data.items():
                 if field == "verification_payload":
                     if isinstance(value, dict):
@@ -730,9 +751,18 @@ class ConsentService:
         authorized_by_individual which is reserved for the citizen/subject of
         the consent).
 
+        Round 2 Fix 3 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"): also
+        writes a ConsentAuditEntry alongside the ConsentRevision. Previously
+        only the revision snapshot was written, so AuditConsentLogView (which
+        claims GovStack Sec 6.3 tamper-proof-audit conformance) never showed
+        policy configuration changes. citizen=None because this is a BB-wide
+        config change, not tied to any individual citizen's consent — actor
+        is the staff/admin user who made the change (mirrors authorized_by_other
+        above).
+
         Returns (policy, revision).
         """
-        from apps.consent.models import ConsentPolicy, ConsentRevision
+        from apps.consent.models import ConsentAuditEntry, ConsentPolicy, ConsentRevision
 
         with transaction.atomic():
             policy = ConsentPolicy.objects.create(**data)
@@ -743,6 +773,16 @@ class ConsentService:
                 authorized_by=None,
                 authorized_by_other=str(actor.pk) if actor else "system",
             )
+            ConsentAuditEntry.objects.create(
+                citizen=None,
+                actor=actor,
+                action="policy_created",
+                details={
+                    "policy_id": str(policy.pk),
+                    "revision_id": str(revision.pk),
+                    "name": policy.name,
+                },
+            )
         return policy, revision
 
     @staticmethod
@@ -752,9 +792,12 @@ class ConsentService:
 
         F8 fix: admin/org actors go in authorized_by_other.
 
+        Round 2 Fix 3: also writes a ConsentAuditEntry — see create_policy's
+        docstring for the citizen=None/actor rationale.
+
         Returns (updated_policy, new_revision).
         """
-        from apps.consent.models import ConsentRevision
+        from apps.consent.models import ConsentAuditEntry, ConsentRevision
 
         with transaction.atomic():
             for field, value in data.items():
@@ -766,6 +809,16 @@ class ConsentService:
                 snapshot=_policy_snapshot(policy),
                 authorized_by=None,
                 authorized_by_other=str(actor.pk) if actor else "system",
+            )
+            ConsentAuditEntry.objects.create(
+                citizen=None,
+                actor=actor,
+                action="policy_updated",
+                details={
+                    "policy_id": str(policy.pk),
+                    "revision_id": str(revision.pk),
+                    "name": policy.name,
+                },
             )
         return policy, revision
 
@@ -780,9 +833,13 @@ class ConsentService:
 
         F8 fix: admin/org actors go in authorized_by_other.
 
+        Round 2 Fix 3: also writes a ConsentAuditEntry — see
+        ConsentService.create_policy's docstring for the citizen=None/actor
+        rationale (identical convention applied here for DataAgreements).
+
         Returns (category, revision).
         """
-        from apps.consent.models import ConsentCategory, ConsentRevision
+        from apps.consent.models import ConsentAuditEntry, ConsentCategory, ConsentRevision
 
         with transaction.atomic():
             category = ConsentCategory.objects.create(**data)
@@ -792,6 +849,17 @@ class ConsentService:
                 snapshot=_data_agreement_snapshot(category),
                 authorized_by=None,
                 authorized_by_other=str(actor.pk) if actor else "system",
+            )
+            ConsentAuditEntry.objects.create(
+                citizen=None,
+                actor=actor,
+                action="data_agreement_created",
+                category=category,
+                details={
+                    "data_agreement_id": str(category.pk),
+                    "revision_id": str(revision.pk),
+                    "slug": category.slug,
+                },
             )
         return category, revision
 
@@ -805,9 +873,13 @@ class ConsentService:
 
         F8 fix: admin/org actors go in authorized_by_other.
 
+        Round 2 Fix 3: also writes a ConsentAuditEntry — see
+        ConsentService.create_policy's docstring for the citizen=None/actor
+        rationale.
+
         Returns (updated_category, new_revision).
         """
-        from apps.consent.models import ConsentRevision
+        from apps.consent.models import ConsentAuditEntry, ConsentRevision
 
         with transaction.atomic():
             for field, value in data.items():
@@ -819,6 +891,17 @@ class ConsentService:
                 snapshot=_data_agreement_snapshot(category),
                 authorized_by=None,
                 authorized_by_other=str(actor.pk) if actor else "system",
+            )
+            ConsentAuditEntry.objects.create(
+                citizen=None,
+                actor=actor,
+                action="data_agreement_updated",
+                category=category,
+                details={
+                    "data_agreement_id": str(category.pk),
+                    "revision_id": str(revision.pk),
+                    "slug": category.slug,
+                },
             )
         return category, revision
 

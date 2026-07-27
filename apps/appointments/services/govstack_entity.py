@@ -27,7 +27,8 @@ import string
 from django.db import IntegrityError
 from django.utils.text import slugify
 
-from apps.appointments.models import Organization
+from apps.appointments.models import BookingAuditLog, Organization
+from apps.appointments.services.govstack_log import record_admin_audit_event
 
 logger = logging.getLogger("civicos.appointments.services.govstack_entity")
 
@@ -98,6 +99,8 @@ def entity_create(
     phone: str = "",
     email: str = "",
     website: str = "",
+    actor_id: str = "",
+    actor_role: str = "",
 ) -> Organization:
     """
     Create a new Organization from GovStack Entity details.
@@ -106,6 +109,14 @@ def entity_create(
     - Maps GovStack category to the closest organization_type choice.
     - Stores name in both name_en and name_fr (bilingual stub — caller provides
       a single name; localized display handled elsewhere).
+
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event (BookingAuditLog, booking=None) recording who created this Entity
+    and when. actor_id/actor_role are the calling BB's requestor_id /
+    resolved role (request.META["_gs_requestor_id"] / ["_gs_resolved_role"]
+    — see govstack_views.EntityNewView.post()). See
+    services.govstack_log.record_admin_audit_event's docstring for the full
+    design rationale.
 
     Returns the newly created Organization instance.
     """
@@ -128,6 +139,14 @@ def entity_create(
             "An entity with this name already exists. Please choose a different name."
         ) from exc
     logger.debug("entity_create: created org pk=%d slug=%r", org.pk, org.slug)
+
+    record_admin_audit_event(
+        action=BookingAuditLog.ACTION_ADMIN_ENTITY_MUTATED,
+        resource_pk=org.pk,
+        operation="create",
+        actor_id=actor_id,
+        actor_role=actor_role,
+    )
     return org
 
 
@@ -138,6 +157,8 @@ def entity_modify(
     phone: str | None = None,
     email: str | None = None,
     website: str | None = None,
+    actor_id: str = "",
+    actor_role: str = "",
 ) -> Organization:
     """
     Modify an existing active Organization.
@@ -145,6 +166,10 @@ def entity_modify(
     Only updates fields that are explicitly supplied (not None). Blank strings
     are treated as intentional clears for phone/email/website; for name they
     update both bilingual columns.
+
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event when any field actually changed — see entity_create()'s docstring
+    / services.govstack_log.record_admin_audit_event for the full rationale.
 
     Raises Organization.DoesNotExist if no active Organization with entity_id exists.
     """
@@ -177,18 +202,28 @@ def entity_modify(
         update_fields.append("updated_at")
         org.save(update_fields=update_fields)
         logger.debug("entity_modify: updated org pk=%d fields=%r", org.pk, update_fields)
+        record_admin_audit_event(
+            action=BookingAuditLog.ACTION_ADMIN_ENTITY_MUTATED,
+            resource_pk=org.pk,
+            operation="update",
+            actor_id=actor_id,
+            actor_role=actor_role,
+        )
     else:
         logger.debug("entity_modify: no fields changed for org pk=%d", org.pk)
 
     return org
 
 
-def entity_delete(entity_id: str | int) -> None:
+def entity_delete(entity_id: str | int, actor_id: str = "", actor_role: str = "") -> None:
     """
     Soft-delete an Organization by setting is_active=False.
 
     Does NOT call org.delete() — FK dependents (Locations, GovStackMessages)
     must remain intact for audit trail compliance.
+
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event — see entity_create()'s docstring for the full rationale.
 
     Raises Organization.DoesNotExist if no active Organization with entity_id exists.
     """
@@ -196,6 +231,14 @@ def entity_delete(entity_id: str | int) -> None:
     org.is_active = False
     org.save(update_fields=["is_active", "updated_at"])
     logger.debug("entity_delete: soft-deleted org pk=%d", org.pk)
+
+    record_admin_audit_event(
+        action=BookingAuditLog.ACTION_ADMIN_ENTITY_MUTATED,
+        resource_pk=org.pk,
+        operation="delete",
+        actor_id=actor_id,
+        actor_role=actor_role,
+    )
 
 
 def entity_list(

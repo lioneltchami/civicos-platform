@@ -1250,7 +1250,21 @@ class GovStackP2GService:
                 to GovStackBill.platform_tenant_id == platform_tenant_id — a
                 bill belonging to a different tenant is treated as not found.
                 When empty (header absent — only possible in harness/test
-                mode; see class docstring), no scoping is applied.
+                mode; see class docstring), no scoping is applied. NOTE
+                (certifiability-audit fix, Round 2): bill_id is no longer
+                globally unique (see gs_bill_tenant_billid_uniq) — it is
+                unique only per platform_tenant_id. If two different tenants
+                have each registered a bill under the same bill_id string AND
+                a caller queries with an empty platform_tenant_id (only
+                possible when GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=False,
+                i.e. harness/test mode — production always requires the
+                header), `.first()` below returns an arbitrary one of the
+                matching rows. This is an accepted, narrow edge case of
+                harness-mode's pre-existing permissiveness, not a regression
+                introduced by this fix: production deployments that actually
+                run multiple tenants must set
+                GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True, at which point every
+                lookup is always tenant-scoped and this ambiguity cannot arise.
 
         Returns the GovStackBill instance (all fields; view selects what to expose).
 
@@ -1355,7 +1369,12 @@ class GovStackP2GService:
                     status=GovStackBillPayment.STATUS_COMPLETED,
                 )
             except IntegrityError:
-                # Unique constraint on GovStackBillPayment.request_id fired.
+                # gs_billpayment_tenant_requestid_uniq fired — the composite
+                # (platform_tenant_id, request_id) UniqueConstraint that
+                # replaced request_id's old global unique=True (certifiability-
+                # audit fix, Round 2). This except clause catches IntegrityError
+                # broadly (not by inspecting the constraint name), so no
+                # further change was needed here beyond the model/migration fix.
                 # Return 400 — the caller should not retry with the same request_id.
                 logger.warning(
                     "govstack.p2g.duplicate_transfer_request request_id_len=%d",
@@ -1436,6 +1455,18 @@ class GovStackP2GService:
         Concurrency:
             select_for_update() prevents concurrent mark-paid calls from both
             writing the status change and creating duplicate audit entries.
+
+        Audit trail (certifiability-audit fix, Round 2 — LOW finding): a
+        mark-paid call against an ALREADY-PAID bill is a legitimate,
+        authenticated call (RequirePayerFI still enforced the caller's
+        identity) that previously left ZERO audit record it was ever
+        attempted — only the UNPAID→PAID transition branch wrote an entry.
+        An audit entry is now written for the already-paid case too, with
+        details.trigger="already_paid_noop" distinguishing it from the
+        status-transition entry's implicit "real transition" case (mirroring
+        the details.trigger disambiguation convention used elsewhere in this
+        codebase, e.g. apps.consent.services's "signature_attached" vs.
+        "signature_updated" entries for the same ACTION choice).
         """
         with transaction.atomic():
             qs = GovStackBill.objects.select_for_update().filter(bill_id=bill_id)
@@ -1478,6 +1509,7 @@ class GovStackP2GService:
                         # intentionally omitted from audit details to stay consistent
                         # with create_transfer_request(), which uses "bill_pk" only.
                         # The external bill_id is recoverable via bill.pk if needed.
+                        "trigger": "status_transition",
                     },
                 )
                 logger.info(
@@ -1485,8 +1517,28 @@ class GovStackP2GService:
                     bill.pk,
                 )
             else:
+                # Certifiability-audit fix (Round 2 — LOW finding): before this
+                # fix, this branch was pure logging with NO audit-trail write —
+                # a legitimate, authenticated mark-paid call against an
+                # already-PAID bill left zero evidence it was ever attempted.
+                # details.trigger="already_paid_noop" disambiguates this entry
+                # from the real UNPAID→PAID transition entry above, both of
+                # which share ACTION_BILL_PAID (mirroring the details.trigger
+                # convention used by apps.consent.services for its
+                # "signature_attached"/"signature_updated" entries under a
+                # single action choice).
+                GovStackPaymentAuditEntry.objects.create(
+                    action=GovStackPaymentAuditEntry.ACTION_BILL_PAID,
+                    actor_bb_id=actor_payer_fi_id,
+                    object_type="bill",
+                    object_pk=str(bill.pk),
+                    details={
+                        "bill_pk": str(bill.pk),
+                        "trigger": "already_paid_noop",
+                    },
+                )
                 logger.info(
-                    "govstack.p2g.bill_already_paid bill_pk=%s (no-op)",
+                    "govstack.p2g.bill_already_paid bill_pk=%s (no-op, audited)",
                     bill.pk,
                 )
 

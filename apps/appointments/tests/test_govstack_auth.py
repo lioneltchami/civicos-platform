@@ -383,3 +383,53 @@ class GovStackCitizenAuthTest(TestCase):
         result = GovStackCitizenAuth().authenticate(request)
 
         self.assertIsNone(result)
+
+
+# ---------------------------------------------------------------------------
+# Round 2 certifiability re-audit fix (MEDIUM): audit trail for BB-credential
+# creation/rotation via govstack_generate_bb_credential
+# ---------------------------------------------------------------------------
+
+class GovStackGenerateBBCredentialAuditTest(TestCase):
+    """
+    FIX 4: the govstack_generate_bb_credential management command must write
+    a real, queryable, tamper-evident BookingAuditLog entry for both the
+    initial credential creation AND every --rotate call.
+    """
+
+    def test_create_writes_admin_credential_mutated_audit_event(self):
+        from django.core.management import call_command
+
+        from apps.appointments.models import BookingAuditLog
+
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id="audit-test-bb", is_active=True, role="admin"
+        )
+
+        call_command("govstack_generate_bb_credential", "--bb-id", bb.bb_id)
+
+        event = BookingAuditLog.objects.filter(
+            action=BookingAuditLog.ACTION_ADMIN_CREDENTIAL_MUTATED,
+        ).order_by("-timestamp").first()
+        self.assertIsNotNone(event)
+        self.assertIsNone(event.booking)
+        self.assertEqual(event.detail["operation"], "create")
+        self.assertEqual(event.detail["resource_pk"], bb.bb_id)
+
+    def test_rotate_writes_admin_credential_mutated_audit_event_with_rotate_operation(self):
+        from django.core.management import call_command
+
+        from apps.appointments.models import BookingAuditLog
+
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id="audit-test-bb-rotate", is_active=True, role="admin"
+        )
+        call_command("govstack_generate_bb_credential", "--bb-id", bb.bb_id)
+        call_command("govstack_generate_bb_credential", "--bb-id", bb.bb_id, "--rotate")
+
+        rotate_events = BookingAuditLog.objects.filter(
+            action=BookingAuditLog.ACTION_ADMIN_CREDENTIAL_MUTATED,
+            detail__operation="rotate",
+        )
+        self.assertEqual(rotate_events.count(), 1)
+        self.assertEqual(rotate_events.first().detail["resource_pk"], bb.bb_id)

@@ -287,6 +287,67 @@ def _resolve_booking(event_id: str, subscriber_id: str) -> Booking:
 # Public service functions
 # ---------------------------------------------------------------------------
 
+def record_admin_audit_event(
+    *,
+    action: str,
+    resource_pk,
+    operation: str,
+    actor_id: str = "",
+    actor_role: str = "",
+) -> BookingAuditLog | None:
+    """
+    Write a non-booking administrative audit event into BookingAuditLog.
+
+    Round 2 certifiability re-audit fix (MEDIUM): Entity/Resource/Affiliation
+    create/update/delete, and BB-credential create/rotate, previously left
+    NO audit trail anywhere in this BB — unlike services.booking, which
+    correctly writes a BookingAuditLog entry inside every atomic() block for
+    every booking state transition. This is the shared write path all four
+    of those mutation points call.
+
+    Design choice — reusing BookingAuditLog with booking=None (see also the
+    `booking` field's own help_text on the model): rather than introduce a
+    second, parallel audit model for BB-to-BB admin actions, `booking` was
+    made nullable so this SAME immutable, tamper-evident, append-only table
+    — the one GET /log (log_list(), below) already reads — can carry these
+    events too. GET /log therefore surfaces admin mutations for free; no
+    second read path or model was introduced. `action` is one of the
+    BookingAuditLog.ACTION_ADMIN_* constants (models.py); `detail` carries
+    ONLY `operation` ("create"/"update"/"delete"/"rotate") and
+    `resource_pk` (a slug/UUID/int — never PII), matching the model's
+    documented "slugs and UUIDs only" invariant.
+
+    Audit failure must NEVER break the citizen/admin-facing mutation this
+    accompanies (identical convention to
+    apps.documents.services.download.issue_access_token's audit write) —
+    any exception here is logged and swallowed, not propagated. This means
+    the write is deliberately NOT wrapped in the same transaction.atomic()
+    block as the mutation it records (unlike services.booking, which treats
+    booking-state-change + audit as a single atomic unit) — a considered,
+    documented trade-off for these lower-stakes admin CRUD paths rather than
+    an oversight.
+
+    Returns the created BookingAuditLog, or None if the write failed.
+    """
+    try:
+        return BookingAuditLog.objects.create(
+            booking=None,
+            action=action,
+            actor_id=actor_id or "",
+            actor_role=actor_role or "",
+            previous_status="",
+            new_status="",
+            detail={"operation": operation, "resource_pk": str(resource_pk)},
+        )
+    except Exception:
+        logger.exception(
+            "record_admin_audit_event: audit write failed action=%s "
+            "resource_pk=%s operation=%s",
+            action, resource_pk, operation,
+        )
+        return None
+
+
 def log_create(
     logger_role: str,
     logger_id: str,

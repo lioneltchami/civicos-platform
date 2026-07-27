@@ -891,6 +891,196 @@ class AuditAPITests(GovStackAPIBase):
 
 
 # ===========================================================================
+# Round 2 Fix 3 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"): Policy and
+# DataAgreement config mutations wrote a ConsentRevision but never a
+# ConsentAuditEntry, so AuditConsentLogView (which claims GovStack Sec 6.3
+# tamper-proof-audit conformance) never showed a policy/data-agreement
+# configuration change. These tests confirm the audit trail now exists.
+# ===========================================================================
+
+class Round2PolicyDataAgreementAuditTests(GovStackAPIBase):
+
+    def test_create_policy_writes_audit_entry(self):
+        self._auth(self.admin)
+        r = self.client.post("/api/v1/consent/config/policy/", {
+            "policy": {
+                "name": "Audited Policy",
+                "version": "1.0",
+                "url": "https://example.com/audited",
+            }
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            ConsentAuditEntry.objects.filter(
+                action="policy_created", actor=self.admin
+            ).exists(),
+            "ConsentService.create_policy() must write a ConsentAuditEntry",
+        )
+
+    def test_update_policy_writes_audit_entry(self):
+        policy, _ = ConsentService.create_policy(
+            {"name": "Old", "version": "1.0", "url": "https://example.com/old2"},
+            actor=self.admin,
+        )
+        self._auth(self.admin)
+        r = self.client.put(f"/api/v1/consent/config/policy/{policy.pk}/", {
+            "policy": {"name": "New2"}
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            ConsentAuditEntry.objects.filter(
+                action="policy_updated", actor=self.admin
+            ).exists(),
+            "ConsentService.update_policy() must write a ConsentAuditEntry",
+        )
+
+    def test_create_data_agreement_writes_audit_entry(self):
+        self._auth(self.admin)
+        r = self.client.post("/api/v1/consent/config/data-agreement/", {
+            "dataAgreement": {
+                "slug": "audited-da",
+                "name_en": "Audited DA",
+                "name_fr": "DA Audité",
+                "purpose": "Test",
+                "purpose_fr": "Test",
+                "lawfulBasis": "consent",
+                "dpia": "",
+            }
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertTrue(
+            ConsentAuditEntry.objects.filter(
+                action="data_agreement_created", actor=self.admin
+            ).exists(),
+            "ConsentService.create_data_agreement() must write a ConsentAuditEntry",
+        )
+
+    def test_update_data_agreement_writes_audit_entry(self):
+        category, _ = ConsentService.create_data_agreement(
+            {
+                "slug": "audited-da-update",
+                "name_en": "Audited DA Update",
+                "name_fr": "DA Audité Màj",
+                "purpose_en": "Test",
+                "purpose_fr": "Test",
+            },
+            actor=self.admin,
+        )
+        self._auth(self.admin)
+        r = self.client.put(f"/api/v1/consent/config/data-agreement/{category.pk}/", {
+            "dataAgreement": {"version": "2.0"}
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            ConsentAuditEntry.objects.filter(
+                action="data_agreement_updated", actor=self.admin, category=category
+            ).exists(),
+            "ConsentService.update_data_agreement() must write a ConsentAuditEntry",
+        )
+
+    def test_policy_creation_shows_up_in_audit_consent_log(self):
+        """AuditConsentLogView's own docstring claims GovStack Sec 6.3
+        tamper-proof-audit conformance — a policy config change must appear."""
+        self._auth(self.admin)
+        self.client.post("/api/v1/consent/config/policy/", {
+            "policy": {
+                "name": "Visible In Log",
+                "version": "1.0",
+                "url": "https://example.com/visible",
+            }
+        }, format="json")
+        r = self.client.get("/api/v1/consent/audit/consent-log/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        actions = [entry["action"] for entry in r.data["consentLog"]]
+        self.assertIn("policy_created", actions)
+
+    def test_data_agreement_update_shows_up_in_audit_consent_log(self):
+        category, _ = ConsentService.create_data_agreement(
+            {
+                "slug": "log-visible-da",
+                "name_en": "Log Visible DA",
+                "name_fr": "DA Visible Log",
+                "purpose_en": "Test",
+                "purpose_fr": "Test",
+            },
+            actor=self.admin,
+        )
+        self._auth(self.admin)
+        self.client.put(f"/api/v1/consent/config/data-agreement/{category.pk}/", {
+            "dataAgreement": {"version": "3.0"}
+        }, format="json")
+        r = self.client.get("/api/v1/consent/audit/consent-log/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        actions = [entry["action"] for entry in r.data["consentLog"]]
+        self.assertIn("data_agreement_updated", actions)
+
+
+# ===========================================================================
+# Round 2 Fix 2 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"): webhook
+# config CRUD had zero audit trail despite webhooks being security-sensitive
+# (secretKey echoed in plaintext on read; destination for live consent-event
+# payloads). These tests confirm create/update/delete each write a
+# ConsentAuditEntry, and that the secretKey itself is never logged.
+# ===========================================================================
+
+class Round2WebhookAuditTests(GovStackAPIBase):
+
+    def test_create_webhook_writes_audit_entry(self):
+        self._auth(self.admin)
+        r = self.client.post("/api/v1/consent/config/webhook/", {
+            "webhook": {
+                "payloadUrl": "https://example.com/audited-hook",
+                "contentType": "application/json",
+                "secretKey": "top-secret-value",
+                "events": ["consent.granted"],
+            }
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        webhook_id = r.data["webhook"]["id"]
+        entry = ConsentAuditEntry.objects.filter(
+            action="webhook_created", actor=self.admin
+        ).order_by("-timestamp").first()
+        self.assertIsNotNone(entry, "webhook creation must write a ConsentAuditEntry")
+        self.assertEqual(entry.details.get("webhook_id"), str(webhook_id))
+        self.assertNotIn("top-secret-value", str(entry.details))
+
+    def test_update_webhook_writes_audit_entry(self):
+        webhook = ConsentWebhook.objects.create(
+            payload_url="https://example.com/update-audit",
+            secret_key="k-update",
+            subscribed_events=[],
+        )
+        self._auth(self.admin)
+        r = self.client.put(f"/api/v1/consent/config/webhook/{webhook.pk}/", {
+            "webhook": {"payloadUrl": "https://example.com/update-audit-2"}
+        }, format="json")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        entry = ConsentAuditEntry.objects.filter(
+            action="webhook_updated", actor=self.admin
+        ).order_by("-timestamp").first()
+        self.assertIsNotNone(entry, "webhook update must write a ConsentAuditEntry")
+        self.assertEqual(entry.details.get("webhook_id"), str(webhook.pk))
+        self.assertNotIn("k-update", str(entry.details))
+
+    def test_delete_webhook_writes_audit_entry(self):
+        webhook = ConsentWebhook.objects.create(
+            payload_url="https://example.com/delete-audit",
+            secret_key="k-delete-secret",
+            subscribed_events=[],
+        )
+        webhook_id = str(webhook.pk)
+        self._auth(self.admin)
+        r = self.client.delete(f"/api/v1/consent/config/webhook/{webhook.pk}/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        entry = ConsentAuditEntry.objects.filter(
+            action="webhook_deleted", actor=self.admin
+        ).order_by("-timestamp").first()
+        self.assertIsNotNone(entry, "webhook deletion must write a ConsentAuditEntry")
+        self.assertEqual(entry.details.get("webhook_id"), webhook_id)
+        self.assertNotIn("k-delete-secret", str(entry.details))
+
+
+# ===========================================================================
 # ConsentRevision — integrity
 # ===========================================================================
 
@@ -1384,6 +1574,129 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self.assertIsNotNone(
             r.data["signature"],
             "POST consent-record must return a non-null signature (Round 9 F9 fix)"
+        )
+
+
+# ===========================================================================
+# Round 2 Fix 1 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"): the CREATE
+# endpoint (POST /service/individual/record/consent-record/) has its own
+# signature-handling branch, separate from the dedicated PUT /signature/
+# endpoint. It used to setattr()/save() the ConsentSignature directly,
+# bypassing ConsentService.attach_signature()/update_signature() entirely —
+# because grant() is idempotent, re-POSTing for an already-granted category
+# let a citizen silently rewrite their own signature's timestamp/payload/
+# signature/hash with ZERO ConsentRevision and ZERO ConsentAuditEntry. These
+# tests confirm that door is now closed: the CREATE endpoint's signature
+# branch is revisioned/audited exactly like the PUT path.
+# ===========================================================================
+
+class CreateEndpointSignatureAuditTests(GovStackAPIBase):
+
+    def setUp(self):
+        super().setUp()
+        self.category = _make_category(slug="repost-sig-test")
+
+    def _url(self):
+        return "/api/v1/consent/service/individual/record/consent-record/"
+
+    def _sig_payload(self, **overrides):
+        payload = {
+            "payload": '{"x": 1}',
+            "signature": "caller-sig-value",
+            "verificationMethod": "string",
+            "verificationPayload": '{"x": 1}',
+            "verificationPayloadHash": "deadbeef",
+            "verificationSignedBy": "external-signer-1",
+            "timestamp": "2026-07-27T00:00:00Z",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_repost_with_signature_for_already_granted_category_creates_revision(self):
+        self._auth(self.citizen)
+        # First grant — grant()'s Step 5 auto-creates a ConsentSignature.
+        r1 = self.client.post(self._url(), {
+            "consentRecord": {"dataAgreementId": str(self.category.pk)},
+        }, format="json")
+        self.assertEqual(r1.status_code, status.HTTP_200_OK)
+
+        rev_count_before = ConsentRevision.objects.filter(schema_name="ConsentSignature").count()
+
+        # Re-POST for the SAME already-granted category with a caller-supplied
+        # signature payload — the exact bypass path the bug report describes.
+        r2 = self.client.post(self._url(), {
+            "consentRecord": {"dataAgreementId": str(self.category.pk)},
+            "signature": self._sig_payload(),
+        }, format="json")
+        self.assertEqual(r2.status_code, status.HTTP_200_OK, r2.data)
+
+        rev_count_after = ConsentRevision.objects.filter(schema_name="ConsentSignature").count()
+        self.assertEqual(
+            rev_count_after, rev_count_before + 1,
+            "Re-POSTing with a signature payload must create a ConsentRevision, "
+            "exactly like the PUT /signature/ path does."
+        )
+
+    def test_repost_with_signature_creates_audit_entry(self):
+        self._auth(self.citizen)
+        r1 = self.client.post(self._url(), {
+            "consentRecord": {"dataAgreementId": str(self.category.pk)},
+        }, format="json")
+        self.assertEqual(r1.status_code, status.HTTP_200_OK)
+
+        r2 = self.client.post(self._url(), {
+            "consentRecord": {"dataAgreementId": str(self.category.pk)},
+            "signature": self._sig_payload(),
+        }, format="json")
+        self.assertEqual(r2.status_code, status.HTTP_200_OK, r2.data)
+
+        entries = ConsentAuditEntry.objects.filter(citizen=self.citizen).order_by("-timestamp")
+        self.assertTrue(
+            any(e.details.get("trigger") == "signature_updated" for e in entries),
+            "Expected a ConsentAuditEntry with details.trigger == 'signature_updated' "
+            "after re-POSTing a signature payload for an already-granted category",
+        )
+
+    def test_repost_cannot_backdate_timestamp_without_leaving_a_trail(self):
+        """
+        The mutation itself (rewriting timestamp) is still allowed — this BB
+        is a caller-opaque signature store per the PUT view's own docstring —
+        but it must never be silent: a revision snapshot and an audit entry
+        must exist for it.
+        """
+        self._auth(self.citizen)
+        r1 = self.client.post(self._url(), {
+            "consentRecord": {"dataAgreementId": str(self.category.pk)},
+        }, format="json")
+        self.assertEqual(r1.status_code, status.HTTP_200_OK)
+
+        backdated = "1999-01-01T00:00:00Z"
+        r2 = self.client.post(self._url(), {
+            "consentRecord": {"dataAgreementId": str(self.category.pk)},
+            "signature": self._sig_payload(timestamp=backdated),
+        }, format="json")
+        self.assertEqual(r2.status_code, status.HTTP_200_OK, r2.data)
+
+        from apps.consent.models import ConsentSignature
+        record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        sig = ConsentSignature.objects.get(consent_record=record)
+        # The backdate itself is allowed (caller-opaque signature store)...
+        self.assertEqual(sig.timestamp.year, 1999)
+
+        # ...but it must be fully traceable: a revision snapshot exists...
+        latest_rev = ConsentRevision.objects.filter(
+            schema_name="ConsentSignature", object_id=str(sig.pk)
+        ).order_by("-timestamp").first()
+        self.assertIsNotNone(
+            latest_rev,
+            "Backdating a signature via re-POST must still create a ConsentRevision",
+        )
+
+        # ...and an audit entry recording the mutation trigger.
+        entries = ConsentAuditEntry.objects.filter(citizen=self.citizen).order_by("-timestamp")
+        self.assertTrue(
+            any(e.details.get("trigger") == "signature_updated" for e in entries),
+            "Backdating a signature via re-POST must leave an audit trail",
         )
 
 

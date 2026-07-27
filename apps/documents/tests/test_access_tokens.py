@@ -145,6 +145,24 @@ class IssueAccessTokenTests(TestCase):
         with self.assertRaises(Http404):
             issue_access_token(user=other_user, document=self.doc)
 
+    def test_issue_token_non_owner_writes_access_denied_audit_event(self):
+        """
+        FIX 2 (Round 2 certifiability re-audit): a non-owner issue_access_token
+        call must write an AuditEventType.ACCESS_DENIED event (spec §13.1),
+        in addition to still raising Http404 (behaviour unchanged).
+        """
+        other_user = _make_user()
+        with self.assertRaises(Http404):
+            issue_access_token(user=other_user, document=self.doc)
+
+        event = AuditLogEntry.objects.filter(
+            event_type=AuditEventType.ACCESS_DENIED,
+            resource_id=str(self.doc.pk),
+        ).first()
+        self.assertIsNotNone(event)
+        self.assertEqual(event.event_detail["requested_pk"], str(self.doc.pk))
+        self.assertEqual(event.event_detail["requesting_user_pk"], str(other_user.pk))
+
     def test_issue_token_staff_coordinator_can_download_any(self):
         """Staff with coordinator_view_document can issue token for any document."""
         staff = _make_user()
@@ -342,6 +360,27 @@ class ConsumeAccessTokenTests(TestCase):
         other_user = _make_user()
         with self.assertRaises(Http404):
             consume_access_token(token_value=self.token.token, user=other_user)
+
+    def test_consume_token_wrong_user_writes_access_denied_audit_event(self):
+        """
+        FIX 2 (Round 2 certifiability re-audit): redeeming another user's
+        token must write an AuditEventType.ACCESS_DENIED event (spec §13.1),
+        in addition to still raising Http404 (behaviour unchanged). Also
+        regression-guards against the write being rolled back by the
+        enclosing transaction.atomic() savepoint that raises the Http404
+        (see download.py's consume_access_token for the full mechanism).
+        """
+        other_user = _make_user()
+        with self.assertRaises(Http404):
+            consume_access_token(token_value=self.token.token, user=other_user)
+
+        event = AuditLogEntry.objects.filter(
+            event_type=AuditEventType.ACCESS_DENIED,
+            resource_id=str(self.doc.pk),
+        ).first()
+        self.assertIsNotNone(event)
+        self.assertEqual(event.event_detail["requested_pk"], str(self.doc.pk))
+        self.assertEqual(event.event_detail["requesting_user_pk"], str(other_user.pk))
 
     def test_consume_token_writes_audit_record(self):
         before = AuditLogEntry.objects.filter(

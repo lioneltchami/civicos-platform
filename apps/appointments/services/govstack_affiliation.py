@@ -28,7 +28,8 @@ from django.db import IntegrityError, transaction
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import is_naive
 
-from apps.appointments.models import GovStackAffiliation, Organization, Resource
+from apps.appointments.models import BookingAuditLog, GovStackAffiliation, Organization, Resource
+from apps.appointments.services.govstack_log import record_admin_audit_event
 
 logger = logging.getLogger("civicos.appointments.services.govstack_affiliation")
 
@@ -69,6 +70,8 @@ def affiliation_create(
     entity_id: str | int,
     resource_category: str = "",
     work_days_hours: dict | None = None,
+    actor_id: str = "",
+    actor_role: str = "",
 ) -> GovStackAffiliation:
     """
     Create a new GovStackAffiliation linking a Resource to an Organization.
@@ -77,6 +80,15 @@ def affiliation_create(
     before attempting the insert. The UniqueConstraint on (resource, entity)
     is enforced at the DB level; IntegrityError is caught and re-raised as a
     ValueError with a descriptive message so the view can return 409.
+
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event (BookingAuditLog, booking=None) recording who created this
+    Affiliation and when — see
+    services.govstack_log.record_admin_audit_event and
+    services.govstack_entity.entity_create's docstring for the full design
+    rationale (identical pattern applied here). Deliberately written OUTSIDE
+    the atomic() block below (record_admin_audit_event never raises), so an
+    audit-write failure can never roll back a successful affiliation create.
 
     Raises:
       Resource.DoesNotExist      — resource_id not found or inactive.
@@ -109,6 +121,13 @@ def affiliation_create(
         resource_id,
         entity_id,
     )
+    record_admin_audit_event(
+        action=BookingAuditLog.ACTION_ADMIN_AFFILIATION_MUTATED,
+        resource_pk=aff.pk,
+        operation="create",
+        actor_id=actor_id,
+        actor_role=actor_role,
+    )
     return aff
 
 
@@ -116,12 +135,18 @@ def affiliation_modify(
     affiliation_id: str | int,
     resource_category: str | None = None,
     work_days_hours: dict | None = None,
+    actor_id: str = "",
+    actor_role: str = "",
 ) -> GovStackAffiliation:
     """
     Modify resource_category and/or work_days_hours of an existing affiliation.
 
     Only updates fields that are explicitly supplied (not None). Blank string
     for resource_category is treated as an intentional clear.
+
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event when any field actually changed — see affiliation_create()'s
+    docstring for the full rationale.
 
     Raises GovStackAffiliation.DoesNotExist if no affiliation with affiliation_id exists.
     """
@@ -143,13 +168,20 @@ def affiliation_modify(
         logger.debug(
             "affiliation_modify: updated affiliation pk=%d fields=%r", aff.pk, update_fields
         )
+        record_admin_audit_event(
+            action=BookingAuditLog.ACTION_ADMIN_AFFILIATION_MUTATED,
+            resource_pk=aff.pk,
+            operation="update",
+            actor_id=actor_id,
+            actor_role=actor_role,
+        )
     else:
         logger.debug("affiliation_modify: no fields changed for affiliation pk=%d", aff.pk)
 
     return aff
 
 
-def affiliation_delete(affiliation_id: str | int) -> None:
+def affiliation_delete(affiliation_id: str | int, actor_id: str = "", actor_role: str = "") -> None:
     """
     Hard-delete the affiliation.
 
@@ -157,9 +189,22 @@ def affiliation_delete(affiliation_id: str | int) -> None:
     so a hard delete is appropriate. The UniqueConstraint is released immediately
     so a new affiliation with the same (resource, entity) pair can be created.
 
+    Round 2 certifiability re-audit fix (MEDIUM): writes an admin audit
+    event BEFORE the hard delete (the row must still exist at write time —
+    BookingAuditLog.detail stores resource_pk as a plain string, not an FK,
+    so the audit entry survives the affiliation's own deletion) — see
+    affiliation_create()'s docstring for the full rationale.
+
     Raises GovStackAffiliation.DoesNotExist if no affiliation with affiliation_id exists.
     """
     aff = GovStackAffiliation.objects.get(pk=affiliation_id)
+    record_admin_audit_event(
+        action=BookingAuditLog.ACTION_ADMIN_AFFILIATION_MUTATED,
+        resource_pk=aff.pk,
+        operation="delete",
+        actor_id=actor_id,
+        actor_role=actor_role,
+    )
     aff.delete()
     logger.debug("affiliation_delete: hard-deleted affiliation pk=%s", affiliation_id)
 
@@ -172,7 +217,15 @@ def affiliation_list(
     Return list of affiliations filtered and shaped by the request params.
 
     Applies optional filter parameters from affiliation_filter:
-      affiliation_id — exact match on PK
+      affiliation_id — array-typed per the real GovStack spec
+                       (affiliation_filter.affiliation_id[]); matches ANY of
+                       the given ids (pk__in). Round 2 certifiability
+                       re-audit fix — verified directly against the fetched
+                       spec; AffiliationFilterSerializer's StringOrListField
+                       normalizes a single bare string into a 1-element
+                       list, so this is always list-shaped by the time it
+                       reaches this function (identical precedent to
+                       entity_id/resource_id/subscriber_id/event_id).
       resource_id    — exact match on resource FK
       entity_id      — exact match on entity FK
       category       — case-insensitive contains on resource_category (FIX 2:
@@ -214,9 +267,14 @@ def affiliation_list(
     # --- apply filters ---
     filter_data = affiliation_filter or {}
 
-    affiliation_id_filter = filter_data.get("affiliation_id", "")
+    # Round 2 certifiability re-audit fix: affiliation_id is array-typed per
+    # the real spec — pk__in= is always the correct application now that
+    # StringOrListField guarantees a list shape (even for a single-value
+    # caller). A malformed entry raises at queryset evaluation below, which
+    # the view layer's generic except Exception clause maps to a 400.
+    affiliation_id_filter = filter_data.get("affiliation_id") or []
     if affiliation_id_filter:
-        qs = qs.filter(pk=affiliation_id_filter)
+        qs = qs.filter(pk__in=affiliation_id_filter)
 
     resource_id_filter = filter_data.get("resource_id", "")
     if resource_id_filter:

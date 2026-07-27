@@ -501,9 +501,20 @@ class AffiliationFilterSerializer(serializers.Serializer):
     range filters GovStackAffiliation.created_at — see
     services.govstack_affiliation.affiliation_list's docstring for why
     created_at (not updated_at) was chosen as the filtered timestamp field.
+
+    Round 2 certifiability re-audit fix — affiliation_id is array-typed
+    (verified directly against the fetched real GovStack OpenAPI spec's
+    components.schemas.affiliation_filter: affiliation_id[]), NOT a plain
+    string as this serializer previously declared (resource_id/entity_id ARE
+    correctly plain strings per the same fetched spec and are deliberately
+    left unchanged). StringOrListField accepts either a bare string
+    (backward compatible) or a JSON array, always normalizing to a list so
+    the service layer can apply pk__in= uniformly — identical technique
+    already established by EntityFilterSerializer.entity_id /
+    ResourceFilterSerializer.resource_id / EventFilterSerializer.event_id.
     """
 
-    affiliation_id = serializers.CharField(required=False, allow_blank=True)
+    affiliation_id = StringOrListField(required=False)
     resource_id = serializers.CharField(required=False, allow_blank=True)
     entity_id = serializers.CharField(required=False, allow_blank=True)
     category = serializers.CharField(required=False, allow_blank=True)
@@ -703,9 +714,20 @@ class EventFilterSerializer(serializers.Serializer):
     codebase for nested-object query filters), so venue filtering remains
     unimplemented. Flagged here for certification-review visibility rather
     than silently omitted.
+
+    Round 2 certifiability re-audit fix — event_id is array-typed (verified
+    directly against the fetched real GovStack OpenAPI spec's
+    components.schemas.event_filter: event_id[]), NOT a plain string as this
+    serializer previously declared. StringOrListField accepts either a bare
+    string (backward compatible) or a JSON array, always normalizing to a
+    list so the service layer can apply pk__in= uniformly — identical
+    technique already established by EntityFilterSerializer.entity_id /
+    ResourceFilterSerializer.resource_id / SubscriberFilterSerializer.
+    subscriber_id (see StringOrListField's own docstring for the full
+    precedent).
     """
 
-    event_id = serializers.CharField(required=False, allow_blank=True)
+    event_id = StringOrListField(required=False)
     name = serializers.CharField(required=False, allow_blank=True)
     category = serializers.CharField(required=False, allow_blank=True)
     host_entity_id = serializers.CharField(required=False, allow_blank=True)
