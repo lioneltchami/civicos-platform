@@ -58,18 +58,40 @@ services:
   # First start is slow (~1-2 min) while freshclam downloads virus databases.
   # ---------------------------------------------------------------------------
   clamav:
-    image: clamav/clamav:1.4-stable
+    # NOTE: "1.4-stable" is NOT a tag the clamav/clamav repository publishes
+    # (the published forms are 1.4, 1.4.x, stable, latest and their _base
+    # variants) — `docker compose up` failed with "manifest unknown" and the
+    # service never started at all. Pinned to the 1.4 feature-release tag.
+    image: clamav/clamav:1.4
     restart: unless-stopped
     volumes:
       - clamav_data:/var/lib/clamav
     ports:
       - "3310:3310"
+    environment:
+      # ⚠ COUPLED TO config/settings/base.py CIVICOS["DOCUMENT_MAX_STAFF_UPLOAD_BYTES"]
+      # (50 MB). clamd's upstream StreamMaxLength default is 25M — BELOW that
+      # app-level cap — so every clean 25-50 MB staff upload would be refused
+      # by clamd, retried until the Celery retry budget was exhausted, and then
+      # permanently quarantined as a bogus "scan failure".
+      # 128M gives ~2.5x headroom. Raise BOTH values together if the app cap
+      # ever increases; see the matching comment in base.py.
+      #
+      # CLAMD_CONF_<Directive> is the clamav/clamav entrypoint's documented
+      # config mechanism (it rewrites the matching line in /etc/clamav/clamd.conf
+      # on startup), so no clamd.conf bind mount is needed.
+      CLAMD_CONF_StreamMaxLength: 128M
     healthcheck:
       test: ["CMD-SHELL", "echo PING | nc -w 3 127.0.0.1 3310 | grep -q PONG"]
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 120s
+      # freshclam downloads the full virus database on a cold volume; clamd
+      # does not open its socket until that finishes. Failures inside
+      # start_period do not count against `retries` and do not mark the
+      # container unhealthy, so this must cover the slowest realistic cold
+      # start. Consumers gate on `condition: service_healthy`.
+      start_period: 300s
 
   # ---------------------------------------------------------------------------
   # Django / Wagtail web server
@@ -101,7 +123,14 @@ services:
       redis:
         condition: service_healthy
       clamav:
-        condition: service_started
+        # service_healthy, not service_started: the container is "started" the
+        # instant the entrypoint runs, long before freshclam has downloaded the
+        # virus database and clamd has opened its socket. Starting the app
+        # first means every upload in that window fails its scan and burns
+        # Celery retries. Cold first start therefore blocks here for up to
+        # clamav's healthcheck start_period (300s); subsequent starts reuse the
+        # clamav_data volume and pass almost immediately.
+        condition: service_healthy
     command: >
       sh -c "
         python manage.py migrate --noinput &&
@@ -135,7 +164,10 @@ services:
       redis:
         condition: service_healthy
       clamav:
-        condition: service_started
+        # service_healthy: this worker consumes the `documents` queue and is
+        # the process that actually talks to clamd. See the note on the web
+        # service above.
+        condition: service_healthy
     # volunteers queue: shift reminders, expiry checks, impact snapshots (Wave 2+)
     # documents queue: scan_document() (Layer 8 ClamAV scan) runs here — this
     # is the worker process that needs CLAMAV_HOST/CLAMAV_PORT above.

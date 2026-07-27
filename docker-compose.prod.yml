@@ -18,16 +18,44 @@ services:
   # first start is slow (~1-2 min) while freshclam pulls virus databases.
   # ----------------------------------------------------------------
   clamav:
-    image: clamav/clamav:1.4-stable
+    # NOTE: "1.4-stable" is NOT a tag the clamav/clamav repository publishes
+    # (the published forms are 1.4, 1.4.x, stable, latest and their _base
+    # variants) — `docker compose -f docker-compose.prod.yml up` failed with
+    # "manifest unknown" and the service never started at all, which with
+    # CLAMAV_REQUIRED=True also blocks web/migrate/worker/beat from booting.
+    # Pinned to the 1.4 feature-release tag.
+    image: clamav/clamav:1.4
     restart: always
     volumes:
       - clamav_data:/var/lib/clamav
+    environment:
+      # ⚠ COUPLED TO config/settings/base.py CIVICOS["DOCUMENT_MAX_STAFF_UPLOAD_BYTES"]
+      # (50 MB). clamd's upstream StreamMaxLength default is 25M — BELOW that
+      # app-level cap — so every clean 25-50 MB staff upload would be refused
+      # by clamd, retried until the Celery retry budget was exhausted, and then
+      # permanently quarantined as a bogus "scan failure" that no operator
+      # could distinguish from a real detection.
+      # 128M gives ~2.5x headroom. Raise BOTH values together if the app cap
+      # ever increases; see the matching comment in base.py.
+      #
+      # CLAMD_CONF_<Directive> is the clamav/clamav entrypoint's documented
+      # config mechanism (it rewrites the matching line in /etc/clamav/clamd.conf
+      # on startup), so no clamd.conf bind mount is needed.
+      CLAMD_CONF_StreamMaxLength: 128M
     healthcheck:
       test: ["CMD-SHELL", "echo PING | nc -w 3 127.0.0.1 3310 | grep -q PONG"]
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 120s
+      # Every consumer below gates on `condition: service_healthy`, so this
+      # start_period is what actually bounds a cold deploy. freshclam has to
+      # download the full virus database set before clamd opens its socket;
+      # 120s was optimistic on a fresh clamav_data volume or a slow mirror.
+      # Health-check failures inside start_period neither count against
+      # `retries` nor mark the container unhealthy, so over-provisioning here
+      # is free — it only delays the "healthy" transition on a genuinely slow
+      # first boot, and never causes a false unhealthy.
+      start_period: 300s
     networks:
       - civicos_net
     # Port NOT exposed to host — only web/worker (on civicos_net) need it
@@ -79,7 +107,14 @@ services:
       redis:
         condition: service_healthy
       clamav:
-        condition: service_started
+        # service_healthy, not service_started: a container is "started" as
+        # soon as its entrypoint runs — long before freshclam has downloaded
+        # the virus database and clamd has opened its socket (hence clamav's
+        # 300s healthcheck start_period). Gating on service_started let gunicorn
+        # begin serving citizen uploads against a clamd that could not yet
+        # answer, so every scan in that window failed transiently, burned the
+        # Celery retry budget, and ended in a spurious quarantine.
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     healthcheck:
@@ -118,7 +153,11 @@ services:
       db:
         condition: service_healthy
       clamav:
-        condition: service_started
+        # service_healthy: DocumentsConfig.ready() runs for every manage.py
+        # invocation and, with CLAMAV_REQUIRED=True, refuses to start unless
+        # ClamAV is configured — so this one-shot container must not race the
+        # clamav cold start either. See the note on the web service above.
+        condition: service_healthy
     networks:
       - civicos_net
 
@@ -145,7 +184,10 @@ services:
       redis:
         condition: service_healthy
       clamav:
-        condition: service_started
+        # service_healthy: this worker consumes the `documents` queue and is
+        # the process that actually streams files into clamd (scan_document).
+        # See the note on the web service above.
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     healthcheck:
@@ -179,7 +221,9 @@ services:
       redis:
         condition: service_healthy
       clamav:
-        condition: service_started
+        # service_healthy: beat shares the same DocumentsConfig.ready()
+        # CLAMAV_REQUIRED gate as web/migrate/worker. See the web service above.
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     healthcheck:

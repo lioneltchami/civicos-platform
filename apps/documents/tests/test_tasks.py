@@ -514,6 +514,206 @@ class CleanupStalePendingUploadsTests(TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# H-3: cleanup_stale_pending_uploads — orphaned storage object purge
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@override_settings(CIVICOS=CIVICOS_DEV)
+class CleanupStalePendingUploadsStorageTests(TestCase):
+    """
+    H-3: the cleanup task must delete the abandoned upload's storage object,
+    not only its DB row.
+
+    A PENDING_UPLOAD document may have a fully-written, NEVER-SCANNED object
+    behind its storage key (the browser POSTed straight to object storage and
+    confirm_upload() then failed or was never called). Deleting only the DB row
+    orphans that object in the bucket forever — there is no S3 lifecycle rule
+    anywhere in this deployment.
+
+    Mocking convention matches the rest of the tasks test suite
+    (test_wave3_clamav.py): ``tasks.py`` imports ``default_storage`` locally
+    inside the function body, so the patch target is the canonical
+    ``django.core.files.storage.default_storage``. The S3 path injects a fake
+    ``boto3``/``botocore.exceptions`` into ``sys.modules`` exactly as
+    test_wave3_download.py does (boto3 cannot be imported in the CI sandbox).
+    """
+
+    def setUp(self):
+        self.user = make_user()
+        self.category = make_category()
+
+    def _stale_pending(self) -> Document:
+        return make_document(
+            self.user,
+            self.category,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            created_at_override=timezone.now() - timedelta(seconds=1500),
+        )
+
+    # ── Non-S3 (FileSystemStorage) path ───────────────────────────────────────
+
+    def test_deletes_storage_object_for_stale_pending_upload(self):
+        """The object behind storage_key must be deleted, not just the DB row."""
+        doc = self._stale_pending()
+        expected_key = doc.storage_key
+
+        with patch("django.core.files.storage.default_storage") as mock_storage:
+            count = cleanup_stale_pending_uploads.run()  # T-9
+
+        mock_storage.delete.assert_called_once_with(expected_key)
+        self.assertEqual(count, 1)
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+
+    def test_missing_storage_object_does_not_block_db_cleanup(self):
+        """
+        The browser never completed the S3 POST, so no object exists.
+
+        A missing-object delete must be swallowed (it is the normal case) and
+        the DB row must still be removed.
+        """
+        doc = self._stale_pending()
+
+        with patch("django.core.files.storage.default_storage") as mock_storage:
+            mock_storage.delete.side_effect = FileNotFoundError("no such key")
+            count = cleanup_stale_pending_uploads.run()  # T-9
+
+        self.assertEqual(count, 1)
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+
+    def test_storage_error_does_not_block_db_cleanup(self):
+        """An unexpected storage/S3 failure must never abort the row cleanup."""
+        doc = self._stale_pending()
+
+        with patch("django.core.files.storage.default_storage") as mock_storage:
+            mock_storage.delete.side_effect = RuntimeError("S3 unreachable")
+            count = cleanup_stale_pending_uploads.run()  # T-9
+
+        self.assertEqual(count, 1)
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+
+    def test_blank_storage_key_skips_storage_delete(self):
+        """A row with no storage key must not trigger a delete() call at all."""
+        doc = self._stale_pending()
+        Document.objects.filter(pk=doc.pk).update(_storage_key="")
+
+        with patch("django.core.files.storage.default_storage") as mock_storage:
+            count = cleanup_stale_pending_uploads.run()  # T-9
+
+        mock_storage.delete.assert_not_called()
+        self.assertEqual(count, 1)
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+
+    def test_recent_pending_upload_storage_object_is_untouched(self):
+        """A not-yet-stale upload must keep both its row and its object."""
+        doc = make_document(
+            self.user,
+            self.category,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            created_at_override=timezone.now() - timedelta(seconds=300),
+        )
+
+        with patch("django.core.files.storage.default_storage") as mock_storage:
+            count = cleanup_stale_pending_uploads.run()  # T-9
+
+        mock_storage.delete.assert_not_called()
+        self.assertEqual(count, 0)
+        self.assertTrue(Document.objects.filter(pk=doc.pk).exists())
+
+    # ── S3 path ───────────────────────────────────────────────────────────────
+
+    def _s3_settings(self):
+        return self.settings(
+            STORAGES={
+                "default": {
+                    "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+                    "OPTIONS": {
+                        "bucket_name": "test-bucket",
+                        "region_name": "ca-central-1",
+                    },
+                }
+            }
+        )
+
+    @staticmethod
+    def _fake_boto_modules(s3_client):
+        """Return a sys.modules patch dict exposing a fake boto3 + botocore."""
+        import sys  # noqa: F401  (imported for symmetry with test_wave3_download)
+        from unittest.mock import MagicMock
+
+        mock_boto3 = MagicMock()
+        mock_boto3.client.return_value = s3_client
+
+        class _FakeClientError(Exception):
+            pass
+
+        class _FakeBotoCoreError(Exception):
+            pass
+
+        mock_exceptions = MagicMock()
+        mock_exceptions.ClientError = _FakeClientError
+        mock_exceptions.BotoCoreError = _FakeBotoCoreError
+
+        mock_botocore = MagicMock()
+        mock_botocore.exceptions = mock_exceptions
+
+        return (
+            {
+                "boto3": mock_boto3,
+                "botocore": mock_botocore,
+                "botocore.exceptions": mock_exceptions,
+            },
+            _FakeClientError,
+        )
+
+    def test_s3_backend_batch_deletes_orphaned_objects(self):
+        """
+        On an S3 backend the task issues ONE batched delete_objects call rather
+        than one blocking round-trip per object (CELERY_TASK_SOFT_TIME_LIMIT is
+        300s — a per-key loop can exceed it on a large backlog).
+        """
+        import sys
+        from unittest.mock import MagicMock
+
+        docs = [self._stale_pending() for _ in range(3)]
+        expected_keys = sorted(d.storage_key for d in docs)
+
+        mock_s3 = MagicMock()
+        modules, _ = self._fake_boto_modules(mock_s3)
+
+        with patch.dict(sys.modules, modules), self._s3_settings():
+            count = cleanup_stale_pending_uploads.run()  # T-9
+
+        self.assertEqual(count, 3)
+        mock_s3.delete_objects.assert_called_once()
+        kwargs = mock_s3.delete_objects.call_args.kwargs
+        self.assertEqual(kwargs["Bucket"], "test-bucket")
+        self.assertEqual(
+            sorted(o["Key"] for o in kwargs["Delete"]["Objects"]),
+            expected_keys,
+        )
+        self.assertFalse(
+            Document.objects.filter(pk__in=[d.pk for d in docs]).exists()
+        )
+
+    def test_s3_client_error_does_not_block_db_cleanup(self):
+        """A ClientError (e.g. AccessDenied) is logged and swallowed."""
+        import sys
+        from unittest.mock import MagicMock
+
+        doc = self._stale_pending()
+
+        mock_s3 = MagicMock()
+        modules, fake_client_error = self._fake_boto_modules(mock_s3)
+        mock_s3.delete_objects.side_effect = fake_client_error("AccessDenied")
+
+        with patch.dict(sys.modules, modules), self._s3_settings():
+            count = cleanup_stale_pending_uploads.run()  # T-9
+
+        self.assertEqual(count, 1)
+        self.assertFalse(Document.objects.filter(pk=doc.pk).exists())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # T-8: Task decorator property tests
 # ─────────────────────────────────────────────────────────────────────────────
 

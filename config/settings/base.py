@@ -592,10 +592,33 @@ CIVICOS = {
     # If True, startup fails when CLAMAV_HOST is not set (enforced in apps.documents.apps).
     # Set to True in production.py. False in dev (ClamAV is optional locally).
     "CLAMAV_REQUIRED": env.bool("CLAMAV_REQUIRED", default=False),
+    # Socket timeout (seconds) for the clamd connection used by
+    # apps.documents.tasks._scan_with_clamav(). Read via
+    # CIVICOS["CLAMAV_TIMEOUT"]; it was previously consumed there but never
+    # defined here, so operators had no way to tune it.
+    # Must comfortably exceed the time clamd needs to scan a file at the
+    # DOCUMENT_MAX_STAFF_UPLOAD_BYTES limit below; a too-short timeout surfaces
+    # as a transient scan failure and burns the task's retry budget, ending in
+    # a spurious quarantine.
+    "CLAMAV_TIMEOUT": env.int("CLAMAV_TIMEOUT", default=30),
 
     # Maximum file upload sizes (bytes).
     # Citizens: 10 MB default. Staff uploads (backoffice): 50 MB.
     # Per-category overrides available via DocumentCategory.max_size_bytes.
+    #
+    # ⚠ COUPLED TO ClamAV's StreamMaxLength — keep these in sync.
+    # apps.documents.tasks._scan_with_clamav() streams the whole file into
+    # clamd via the INSTREAM protocol. clamd REFUSES any stream larger than
+    # its StreamMaxLength directive (upstream default: 25M), which is BELOW
+    # the 50 MB staff cap here — every clean 25–50 MB staff upload would be
+    # rejected by clamd, retried until the budget was exhausted, and then
+    # permanently quarantined as a "scan failure".
+    # docker-compose.yml and docker-compose.prod.yml therefore set
+    #     CLAMD_CONF_StreamMaxLength: 128M
+    # on the clamav service (~2.5x headroom over the 50 MB cap here).
+    # If DOCUMENT_MAX_STAFF_UPLOAD_BYTES is ever raised above ~128 MB, raise
+    # CLAMD_CONF_StreamMaxLength (and clamd's MaxFileSize/MaxScanSize, whose
+    # own defaults are higher) in BOTH compose files at the same time.
     "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES": env.int(
         "DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES", default=10 * 1024 * 1024
     ),

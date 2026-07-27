@@ -80,6 +80,7 @@ from apps.api.permissions import IsStaff
 from apps.api.throttling import CitizenRateThrottle, StaffRateThrottle
 from apps.api.documents.serializers import (
     DocumentAttachmentSerializer,
+    DocumentNewVersionRequestSerializer,
     DocumentSerializer,
     DocumentUploadRequestSerializer,
 )
@@ -796,7 +797,20 @@ class DocumentVersionsView(APIView):
         2. Determine the root: ``doc.root_document`` if the doc is not v1;
            otherwise ``doc`` itself is the root.
         3. Return all docs where ``pk == root.pk OR root_document == root``,
-           ordered by ``version_number`` ascending.
+           EXCLUDING soft-deleted and QUARANTINED siblings, ordered by
+           ``version_number`` ascending.
+
+    Visibility filter (L-3) — mirrors DocumentListView's H-1 rule
+    ────────────────────────────────────────────────────────────
+    Soft-deleted (``deleted_at`` set) and QUARANTINED versions are never
+    listed here, for any caller, exactly as in ``DocumentListView``:
+    quarantined documents are reachable only through
+    ``GET /quarantined/`` (``DocumentQuarantinedListView``), which requires the
+    explicit ``documents.view_quarantined`` permission. Without this filter a
+    citizen who owns v1 of a chain saw the metadata (status, size, filename) of
+    deleted and quarantined siblings, and a coordinator could enumerate the
+    quarantine queue one version chain at a time — the exact bypass H-1 closed
+    on the general list endpoint.
 
     Response (HTTP 200): list of DocumentSerializer objects.
 
@@ -827,6 +841,11 @@ class DocumentVersionsView(APIView):
             Document.objects.filter(
                 dj_models.Q(pk=root.pk) | dj_models.Q(root_document=root)
             )
+            # L-3: same visibility rule as DocumentListView (H-1) — never list
+            # soft-deleted or quarantined siblings, regardless of the caller's
+            # permissions. See the class docstring for the rationale.
+            .filter(deleted_at__isnull=True)
+            .exclude(scan_status=Document.ScanStatus.QUARANTINED)
             .select_related("category", "uploaded_by")
             .order_by("version_number")
         )
@@ -1029,7 +1048,19 @@ class DocumentNewVersionView(APIView):
 
     def post(self, request, doc_id):
         # ── Validate request body ─────────────────────────────────────────────
-        serializer = DocumentUploadRequestSerializer(data=request.data)
+        # context={"request": request} is required so validate_size_bytes()
+        # can apply the caller's correct (staff vs citizen) size cap — see
+        # DocumentUploadRequestSerializer.validate_size_bytes for why this
+        # matters (without it, every caller silently gets the citizen cap).
+        #
+        # DocumentNewVersionRequestSerializer (not the base
+        # DocumentUploadRequestSerializer) is used here deliberately: it drops
+        # the inherited category_slug requirement, which this endpoint's
+        # documented request body (above) never includes and
+        # create_new_version() never reads.
+        serializer = DocumentNewVersionRequestSerializer(
+            data=request.data, context={"request": request}
+        )
         if not serializer.is_valid():
             raise ValidationError(serializer.errors)
 

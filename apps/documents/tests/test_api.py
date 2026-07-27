@@ -1692,3 +1692,344 @@ class EncryptedPdfRejectionTests(TestCase):
         mock_enc.assert_not_called()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["scan_status"], "scanning")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# L-3  GET /api/v1/documents/{doc_id}/versions/ — sibling-version visibility
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@override_settings(CIVICOS=_CIVICOS)
+class DocumentVersionsVisibilityAPITests(TestCase):
+    """
+    L-3: DocumentVersionsView must not list soft-deleted or QUARANTINED
+    siblings of a version chain.
+
+    This mirrors DocumentListView's H-1 rule exactly: quarantined documents are
+    reachable only through GET /quarantined/ (which requires the explicit
+    documents.view_quarantined permission), so the version chain must not
+    become a second, permission-free window onto the quarantine queue — nor
+    onto documents the citizen has already deleted.
+
+    Chain used throughout:
+      v1 — ACTIVE   (the root, owned by self.user)
+      v2 — QUARANTINED
+      v3 — soft-deleted (deleted_at set, scan_status=DELETED)
+      v4 — ACTIVE   (latest)
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+
+        self.v1 = _make_document(
+            self.user, self.cat, version_number=1, is_latest_version=False,
+        )
+        self.v2 = _make_document(
+            self.user, self.cat,
+            version_number=2,
+            root_document=self.v1,
+            is_latest_version=False,
+            scan_status=Document.ScanStatus.QUARANTINED,
+            scan_engine_result="FOUND: Eicar-Test-Signature",
+        )
+        self.v3 = _make_document(
+            self.user, self.cat,
+            version_number=3,
+            root_document=self.v1,
+            is_latest_version=False,
+            scan_status=Document.ScanStatus.DELETED,
+            deleted_at=timezone.now(),
+        )
+        self.v4 = _make_document(
+            self.user, self.cat,
+            version_number=4,
+            root_document=self.v1,
+            is_latest_version=True,
+        )
+        self.client = APIClient()
+
+    def _get(self, doc, user):
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(user))
+        return self.client.get(reverse("api-v1:document-versions", args=[doc.pk]))
+
+    def test_citizen_does_not_see_quarantined_or_deleted_siblings(self):
+        """Owner of the chain sees only the ACTIVE versions (v1, v4)."""
+        response = self._get(self.v1, self.user)
+        self.assertEqual(response.status_code, 200)
+        returned = [item["version_number"] for item in response.data]
+        self.assertEqual(returned, [1, 4])
+
+    def test_quarantined_sibling_metadata_not_leaked(self):
+        """No field of the quarantined sibling appears in the response."""
+        response = self._get(self.v1, self.user)
+        body = str(response.data)
+        self.assertNotIn(str(self.v2.pk), body)
+        self.assertNotIn("Eicar-Test-Signature", body)
+        self.assertNotIn("quarantined", body)
+
+    def test_soft_deleted_sibling_not_listed(self):
+        response = self._get(self.v1, self.user)
+        self.assertNotIn(str(self.v3.pk), str(response.data))
+
+    def test_coordinator_also_does_not_see_quarantined_sibling(self):
+        """
+        H-1 parity: the exclusion is unconditional. A coordinator holding both
+        view_all_documents and view_quarantined must still use GET /quarantined/
+        rather than enumerating the queue one version chain at a time.
+        """
+        coordinator = _make_staff()
+        coordinator = _grant_perm(coordinator, "view_all_documents")
+        coordinator = _grant_perm(coordinator, "view_quarantined")
+
+        response = self._get(self.v1, coordinator)
+        self.assertEqual(response.status_code, 200)
+        returned = [item["version_number"] for item in response.data]
+        self.assertEqual(returned, [1, 4])
+
+    def test_all_active_chain_is_unaffected(self):
+        """Regression guard: a fully ACTIVE chain still returns every version."""
+        root = _make_document(
+            self.user, self.cat, version_number=1, is_latest_version=False,
+        )
+        _make_document(
+            self.user, self.cat,
+            version_number=2, root_document=root, is_latest_version=True,
+        )
+        response = self._get(root, self.user)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([i["version_number"] for i in response.data], [1, 2])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# L-4  DocumentSerializer.uploaded_by_id field type
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@override_settings(CIVICOS=_CIVICOS)
+class UploadedByIdFieldTypeAPITests(TestCase):
+    """
+    L-4: ``uploaded_by_id`` must be declared as the type it actually is.
+
+    The user model has a BigAutoField (integer) PK, not a UUID.
+    ``UUIDField.to_representation()`` silently str()s a non-UUID int, so the
+    previous ``UUIDField`` declaration "worked" while publishing an incorrect
+    ``format: uuid`` string type in the generated OpenAPI schema.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.cat = _make_category()
+        self.doc = _make_document(self.user, self.cat)
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+
+    def test_field_is_declared_as_integer(self):
+        from rest_framework import serializers as drf_serializers
+
+        from apps.api.documents.serializers import DocumentSerializer
+
+        field = DocumentSerializer().fields["uploaded_by_id"]
+        self.assertIsInstance(field, drf_serializers.IntegerField)
+        self.assertNotIsInstance(field, drf_serializers.UUIDField)
+
+    def test_serializes_as_json_integer(self):
+        url = reverse("api-v1:document-detail", args=[self.doc.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        value = response.data["uploaded_by_id"]
+        self.assertIsInstance(value, int)
+        self.assertNotIsInstance(value, str)
+        self.assertEqual(value, self.user.pk)
+
+    def test_doc_id_remains_a_uuid_string(self):
+        """The document PK really is a UUID — that declaration stays correct."""
+        url = reverse("api-v1:document-detail", args=[self.doc.pk])
+        response = self.client.get(url)
+        self.assertEqual(str(response.data["doc_id"]), str(self.doc.pk))
+        uuid.UUID(str(response.data["doc_id"]))  # must parse
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7.11  POST /api/v1/documents/{doc_id}/new-version/
+#
+# BUGFIX (certifiability re-audit, Documents BB): this endpoint previously had
+# NO dedicated DRF-level test coverage at all — every existing "new_version"
+# test in test_integration.py exercises the service layer
+# (create_new_version()) directly, never this view. That gap is exactly how
+# two real bugs went unnoticed for a full wave: DocumentUploadRequestSerializer
+# silently discarded a caller-supplied ``description`` (field never declared),
+# and applied the citizen 10 MiB cap to every caller including staff (the
+# service layer's role-aware 50 MiB staff cap was unreachable through this
+# API). Both are now fixed; these tests pin the fix at the HTTP boundary.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@override_settings(CIVICOS=_CIVICOS)
+class DocumentNewVersionAPITests(TestCase):
+    """
+    Tests for DocumentNewVersionView (spec §18 endpoint 7.11).
+
+    create_new_version() is mocked at the view-module import path (it touches
+    S3 via _generate_presigned_post) — same convention as
+    DocumentRequestUploadAPITests. The serializer's DB-backed validators
+    (validate_size_bytes's role check) run for real against the test DB.
+    """
+
+    def setUp(self):
+        self.user = _make_user()
+        self.user = _grant_perm(self.user, "upload_document")
+        self.cat = _make_category()
+        self.root_doc = _make_document(self.user, self.cat, version_number=1)
+        self.client = APIClient()
+        self.url = reverse("api-v1:document-new-version", args=[self.root_doc.pk])
+        self.valid_payload = {
+            "original_filename": "v2.pdf",
+            "mime_type": "application/pdf",
+            "size_bytes": 2048,
+        }
+
+    def _mock_result_for(self, new_doc) -> dict:
+        return {
+            "doc_id": str(new_doc.pk),
+            "upload_url": "https://s3.example.com/bucket/",
+            "upload_fields": {
+                "key": f"documents/quarantine/{new_doc.pk}/abc.bin",
+                "AWSAccessKeyId": "AKIAIOSFODNN7EXAMPLE",
+            },
+            "expires_at": "2099-01-01T00:00:00+00:00",
+        }
+
+    def test_201_without_category_slug_in_request_body(self):
+        """
+        The documented request body (original_filename, mime_type, size_bytes,
+        description) omits category_slug entirely — this must succeed, not
+        400. Regression test for the category_slug-required-but-undocumented
+        bug fixed via DocumentNewVersionRequestSerializer.
+        """
+        new_doc = _make_document(
+            self.user,
+            self.cat,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            version_number=2,
+            root_document=self.root_doc,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        with patch(
+            "apps.api.documents.views.create_new_version",
+            return_value=self._mock_result_for(new_doc),
+        ):
+            response = self.client.post(self.url, self.valid_payload, format="json")
+        self.assertEqual(response.status_code, 201, msg=response.data)
+        self.assertNotIn("category_slug", response.data)
+
+    def test_201_response_shape(self):
+        """201 body contains doc_id, upload_url, upload_fields, expires_at, version_number."""
+        new_doc = _make_document(
+            self.user,
+            self.cat,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            version_number=2,
+            root_document=self.root_doc,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        with patch(
+            "apps.api.documents.views.create_new_version",
+            return_value=self._mock_result_for(new_doc),
+        ):
+            response = self.client.post(self.url, self.valid_payload, format="json")
+        self.assertEqual(response.status_code, 201)
+        for field in ("doc_id", "upload_url", "upload_fields", "expires_at", "version_number"):
+            self.assertIn(field, response.data, msg=f"Missing field: {field}")
+        self.assertEqual(response.data["version_number"], 2)
+        self.assertNotIn("storage_key", response.data)
+        self.assertNotIn("_storage_key", response.data)
+
+    def test_description_reaches_the_service_layer(self):
+        """
+        Regression test: description was previously silently discarded because
+        DocumentUploadRequestSerializer never declared the field, so
+        validated_data.get("description", "") always returned "". Now it must
+        be forwarded verbatim to create_new_version().
+        """
+        new_doc = _make_document(
+            self.user,
+            self.cat,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            version_number=2,
+            root_document=self.root_doc,
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        payload = dict(self.valid_payload, description="Corrected page 3 figures.")
+        with patch(
+            "apps.api.documents.views.create_new_version",
+            return_value=self._mock_result_for(new_doc),
+        ) as mock_create:
+            response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            mock_create.call_args.kwargs["description"],
+            "Corrected page 3 figures.",
+        )
+
+    def test_staff_upload_between_citizen_and_staff_cap_succeeds(self):
+        """
+        Regression test: validate_size_bytes previously applied the citizen
+        10 MiB cap to every caller. A staff user requesting a new version
+        between 10 MiB and 50 MiB used to 400 here before ever reaching the
+        service layer's correct role-aware check. Now it must succeed.
+        """
+        staff = _make_staff()
+        staff = _grant_perm(staff, "upload_staff_document")
+        staff_root = _make_document(staff, self.cat, version_number=1)
+        new_doc = _make_document(
+            staff,
+            self.cat,
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            version_number=2,
+            root_document=staff_root,
+        )
+        url = reverse("api-v1:document-new-version", args=[staff_root.pk])
+        payload = dict(
+            self.valid_payload,
+            size_bytes=25 * 1024 * 1024,  # 25 MiB: > citizen cap, < staff cap
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(staff))
+        with patch(
+            "apps.api.documents.views.create_new_version",
+            return_value=self._mock_result_for(new_doc),
+        ):
+            response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, 201, msg=response.data)
+
+    def test_400_citizen_between_citizen_and_staff_cap_still_rejected(self):
+        """A non-staff citizen sending 25 MiB (> 10 MiB citizen cap) still 400s."""
+        payload = dict(self.valid_payload, size_bytes=25 * 1024 * 1024)
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("size_bytes", response.data["error"]["details"])
+
+    def test_404_non_owned_document(self):
+        """S4/IDOR: a non-owner, non-coordinator citizen gets 404, never 403."""
+        other_user = _make_user()
+        other_user = _grant_perm(other_user, "upload_document")
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(other_user))
+        response = self.client.post(self.url, self.valid_payload, format="json")
+        self.assertEqual(response.status_code, 404)
+
+    def test_401_unauthenticated(self):
+        response = self.client.post(self.url, self.valid_payload, format="json")
+        self.assertEqual(response.status_code, 401)
+
+    def test_403_service_permission_denied(self):
+        """Service raises Django PermissionDenied → 403 at the view boundary."""
+        from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+
+        self.client.credentials(HTTP_AUTHORIZATION=_token_auth(self.user))
+        with patch(
+            "apps.api.documents.views.create_new_version",
+            side_effect=DjangoPermissionDenied("not the uploader"),
+        ):
+            response = self.client.post(self.url, self.valid_payload, format="json")
+        self.assertEqual(response.status_code, 403)

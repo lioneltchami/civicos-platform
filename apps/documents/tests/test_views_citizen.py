@@ -866,3 +866,206 @@ class DocumentTokenRedeemViewEdgeCaseTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertIn("/login", response["Location"])
+
+
+# ---------------------------------------------------------------------------
+# 7. DocumentTokenRedeemPostRedemptionGateTests  (H-2 / L-2)
+# ---------------------------------------------------------------------------
+
+
+class DocumentTokenRedeemPostRedemptionGateTests(TestCase):
+    """
+    H-2: the HTML redeem view must re-check scan_status / deleted_at AFTER the
+    token is consumed, not only when the token was issued.
+
+    A document can be QUARANTINED by a delayed or re-run virus scan, or
+    soft-deleted by the citizen or a retention job, at any point inside the
+    token's 5-minute TTL. Before this fix the HTML path kept serving the bytes
+    for the remainder of that window (the DRF path already had the guard).
+
+    L-2: the large-file redirect must use a presigned URL whose TTL matches
+    CIVICOS["DOCUMENT_PRESIGNED_URL_TTL_SECONDS"] (300s) — not
+    default_storage.url(), which honours AWS_QUERYSTRING_EXPIRE (3600s in
+    production) and would outlive the single-use token by 12×.
+
+    These tests use REAL DocumentAccessToken rows and the real
+    consume_access_token() service so that the guard is exercised end to end
+    rather than against a mocked document.
+    """
+
+    def setUp(self) -> None:
+        from apps.documents.models import DocumentAccessToken
+
+        self.client = Client()
+        self.user = make_user(email=_email("citizen"))
+        self.category = make_category()
+        self.doc = make_document(self.user, self.category, size_bytes=512)
+        self.token = DocumentAccessToken.objects.create(
+            document=self.doc,
+            issued_to=self.user,
+            expires_at=timezone.now() + timezone.timedelta(seconds=300),
+        )
+        self.client.force_login(self.user)
+
+    def _url(self, token: str | None = None) -> str:
+        return reverse("documents:token-redeem", args=[token or self.token.token])
+
+    # -- H-2: quarantined during the token's TTL window -----------------------
+
+    def test_document_quarantined_after_token_issue_is_not_served(self) -> None:
+        """
+        Valid, unexpired, unused token + document quarantined after issuance
+        → 404 (previously: the file was served).
+        """
+        Document.objects.filter(pk=self.doc.pk).update(
+            scan_status=Document.ScanStatus.QUARANTINED,
+        )
+
+        with patch(
+            "apps.documents.views.citizen.default_storage"
+        ) as mock_storage:
+            mock_storage.open.return_value = BytesIO(b"malware bytes")
+            response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 404)
+        # The quarantined bytes must never have been opened.
+        mock_storage.open.assert_not_called()
+
+    def test_document_soft_deleted_after_token_issue_is_not_served(self) -> None:
+        """Soft-deleted (deleted_at set) inside the TTL window → 404."""
+        Document.objects.filter(pk=self.doc.pk).update(
+            deleted_at=timezone.now(),
+            scan_status=Document.ScanStatus.DELETED,
+        )
+
+        with patch(
+            "apps.documents.views.citizen.default_storage"
+        ) as mock_storage:
+            mock_storage.open.return_value = BytesIO(b"deleted bytes")
+            response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 404)
+        mock_storage.open.assert_not_called()
+
+    def test_deleted_at_set_but_status_still_active_is_not_served(self) -> None:
+        """
+        Defence in depth: deleted_at alone (without the DELETED status) must
+        also block serving — the guard is an OR, not an AND.
+        """
+        Document.objects.filter(pk=self.doc.pk).update(deleted_at=timezone.now())
+
+        with patch(
+            "apps.documents.views.citizen.default_storage"
+        ) as mock_storage:
+            mock_storage.open.return_value = BytesIO(b"deleted bytes")
+            response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 404)
+        mock_storage.open.assert_not_called()
+
+    def test_still_active_document_is_served(self) -> None:
+        """Control: an untouched ACTIVE document still downloads normally."""
+        with patch(
+            "apps.documents.views.citizen.default_storage"
+        ) as mock_storage:
+            mock_storage.open.return_value = BytesIO(b"%PDF-1.4 clean")
+            response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        mock_storage.open.assert_called_once()
+
+    # -- L-2: presigned redirect TTL parity with the DRF path -----------------
+
+    def _large_doc_and_token(self):
+        from apps.documents.models import DocumentAccessToken
+        from django.conf import settings as django_settings
+
+        proxy_threshold = django_settings.CIVICOS.get(
+            "DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024
+        )
+        large_doc = make_document(
+            self.user, self.category, size_bytes=proxy_threshold + 1
+        )
+        token = DocumentAccessToken.objects.create(
+            document=large_doc,
+            issued_to=self.user,
+            expires_at=timezone.now() + timezone.timedelta(seconds=300),
+        )
+        return large_doc, token
+
+    def _s3_settings(self):
+        return self.settings(
+            STORAGES={
+                "default": {
+                    "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+                    "OPTIONS": {
+                        "bucket_name": "test-bucket",
+                        "region_name": "ca-central-1",
+                    },
+                }
+            }
+        )
+
+    def test_large_file_redirect_uses_short_presigned_ttl_on_s3(self) -> None:
+        """
+        L-2: on an S3 backend the redirect URL is generated by
+        generate_presigned_download_url() with the 300s
+        DOCUMENT_PRESIGNED_URL_TTL_SECONDS TTL — matching the DRF path — rather
+        than default_storage.url()'s AWS_QUERYSTRING_EXPIRE (3600s) default.
+        """
+        large_doc, token = self._large_doc_and_token()
+        signed = "https://s3.example.com/bucket/key?X-Amz-Expires=300&X-Amz-Signature=abc"
+
+        # NOTE: default_storage is deliberately NOT patched here. Under the S3
+        # STORAGES override the backend class cannot even be instantiated in
+        # the test environment, so any fall-through to default_storage.url()
+        # would raise InvalidStorageError and fail this test — which is exactly
+        # the assertion we want ("the S3 path never touches default_storage").
+        with self._s3_settings(), patch(
+            "apps.documents.views.citizen.generate_presigned_download_url",
+            return_value=signed,
+        ) as mock_presign:
+            response = self.client.get(self._url(token.token))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], signed)
+        mock_presign.assert_called_once_with(
+            storage_key=large_doc.storage_key,
+            ttl_seconds=300,
+        )
+
+    def test_presigned_ttl_matches_configured_setting(self) -> None:
+        """The TTL is read from CIVICOS, not hardcoded at the call site."""
+        from django.conf import settings as django_settings
+
+        _large_doc, token = self._large_doc_and_token()
+        civicos = {**django_settings.CIVICOS, "DOCUMENT_PRESIGNED_URL_TTL_SECONDS": 120}
+
+        with self._s3_settings(), self.settings(CIVICOS=civicos), patch(
+            "apps.documents.views.citizen.generate_presigned_download_url",
+            return_value="https://s3.example.com/signed",
+        ) as mock_presign:
+            response = self.client.get(self._url(token.token))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(mock_presign.call_args.kwargs["ttl_seconds"], 120)
+
+    def test_non_s3_backend_still_uses_default_storage_url(self) -> None:
+        """
+        Dev/test FileSystemStorage has no presigned-URL concept — the view must
+        keep using default_storage.url() there (which returns a /media/ path
+        with no query-string expiry at all).
+        """
+        large_doc, token = self._large_doc_and_token()
+
+        with patch(
+            "apps.documents.views.citizen.default_storage"
+        ) as mock_storage, patch(
+            "apps.documents.views.citizen.generate_presigned_download_url"
+        ) as mock_presign:
+            mock_storage.url.return_value = "/media/some/path.bin"
+            response = self.client.get(self._url(token.token))
+
+        self.assertEqual(response.status_code, 302)
+        mock_storage.url.assert_called_once_with(large_doc.storage_key)
+        mock_presign.assert_not_called()

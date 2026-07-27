@@ -1010,7 +1010,17 @@ class ConfirmUploadTests(TransactionTestCase):
                 "apps.documents.services.upload._read_first_bytes",
                 return_value=b"%PDF-1.4",  # magic-byte check (mocked out anyway)
             ):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                # HIGH-2: Layer 6 is gated on the DETECTED MIME type, so the
+                # magic-byte stub must return the docx MIME libmagic would
+                # really report for a ZIP/OOXML container (a bare MagicMock
+                # return value no longer selects any layer).
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                ):
                     with patch(
                         "apps.documents.services.upload._read_full_file",
                         return_value=bomb_bytes,
@@ -1046,7 +1056,14 @@ class ConfirmUploadTests(TransactionTestCase):
                 "apps.documents.services.upload._read_first_bytes",
                 return_value=b"%PDF-1.4",
             ):
-                with patch("apps.documents.services.upload._validate_magic_bytes"):
+                # HIGH-2: gate is the DETECTED MIME type — return the xlsx MIME.
+                with patch(
+                    "apps.documents.services.upload._validate_magic_bytes",
+                    return_value=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
+                ):
                     with patch(
                         "apps.documents.services.upload._read_full_file",
                         return_value=bomb_bytes,

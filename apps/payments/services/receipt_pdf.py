@@ -157,6 +157,19 @@ def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
     # Using serial number only ensures that if the file write succeeds but the DB
     # update fails, a retry will find and reuse the existing file rather than
     # creating an orphan at a new random path.
+    #
+    # DELIBERATE, DOCUMENTED EXCEPTION to the Documents BB's prefix semantics.
+    # For the Documents BB's own untrusted-upload pipeline, "documents/active/"
+    # means "this object was streamed through ClamAV and came back clean" — see
+    # apps/documents/tasks._promote_storage_object_to_active(), the only code
+    # path that promotes an upload out of "documents/quarantine/".
+    # These receipt PDFs never enter that pipeline and are never virus-scanned,
+    # by design: `pdf_bytes` is rendered server-side by this app from its own
+    # DonationReceipt database rows (see generate_receipt_pdf / build_receipt_context)
+    # and no client-supplied file content reaches this function. Writing straight
+    # to "documents/active/" is therefore correct here — but do NOT take this as
+    # evidence that "active/" simply means "generally available" for
+    # citizen/staff uploads. It does not.
     storage_key = f"documents/active/receipts/{serial}/receipt.bin"
 
     # Storage-level idempotency: if a prior attempt wrote the file but the DB update

@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import os
 import uuid
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, create_autospec, patch
 
+import pyclamd
 from celery.exceptions import Retry
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -885,16 +886,61 @@ class ScanWithClamavTests(TestCase):
     """
     Direct unit tests for _scan_with_clamav().
 
-    pyclamd is NOT installed in the test environment (it requires a running clamd
-    daemon at build time).  We inject a MagicMock module into sys.modules so that
-    ``import pyclamd`` inside _scan_with_clamav() returns our stub without actually
-    importing the real library.  This is the correct pattern when the real module
-    cannot be installed in CI.
+    pyClamd IS installed in the test environment (declared in requirements/base.in
+    and therefore inherited by requirements/test.in) but talking to a real clamd
+    daemon from a unit test is not possible, so we inject a stub module into
+    ``sys.modules`` for the ``import pyclamd`` statement inside _scan_with_clamav().
 
-    Each test builds a fresh ``mock_pyclamd`` MagicMock, configures its
-    ``ClamdNetworkSocket`` attribute, then wraps the call under
+    MEDIUM-4 fix — the stub is NOT a bare ``MagicMock()`` any more. A bare
+    MagicMock answers to *any* attribute name, which is exactly why the original
+    ``instream()``-doesn't-exist bug passed every test in this file while failing
+    100% of real scans. The socket class is now built with
+    ``create_autospec(pyclamd.ClamdNetworkSocket, ...)``, so:
+      - ``cd.scan_stream(...)`` is validated against the real method signature, and
+      - any future rename/removal of ``scan_stream`` upstream (or a re-introduction
+        of a call to a non-existent method such as ``instream``) raises
+        AttributeError and fails these tests immediately.
+
+    Each test calls ``self._make_mock_pyclamd()`` for a fresh (module_stub,
+    socket_instance) pair, then wraps the call under
     ``patch.dict(sys.modules, {"pyclamd": mock_pyclamd})``.
     """
+
+    def _make_mock_pyclamd(self):
+        """
+        Build an autospecced stand-in for the ``pyclamd`` module.
+
+        Returns:
+            (mock_pyclamd, mock_cd) — the module stub and the
+            ClamdNetworkSocket *instance* mock it returns when constructed.
+            Both are specced against the real installed pyClamd class.
+        """
+        mock_pyclamd = MagicMock(name="pyclamd_module_stub")
+        # Autospec the class: constructor kwargs are signature-checked and the
+        # instance exposes ONLY the real pyClamd API surface.
+        mock_socket_cls = create_autospec(pyclamd.ClamdNetworkSocket)
+        mock_cd = create_autospec(pyclamd.ClamdNetworkSocket, instance=True)
+        mock_socket_cls.return_value = mock_cd
+        mock_pyclamd.ClamdNetworkSocket = mock_socket_cls
+        return mock_pyclamd, mock_cd
+
+    def test_real_pyclamd_exposes_scan_stream_not_instream(self):
+        """
+        API-drift guard (MEDIUM-4): assert against the REAL installed pyClamd
+        class, not a mock. ``scan_stream`` is the method apps/documents/tasks.py
+        calls; ``instream`` never existed and must not silently come back into
+        use. If pyClamd ever renames scan_stream, this fails loudly here rather
+        than in production.
+        """
+        self.assertTrue(
+            callable(getattr(pyclamd.ClamdNetworkSocket, "scan_stream", None)),
+            "pyClamd.ClamdNetworkSocket.scan_stream is the API tasks.py depends on.",
+        )
+        self.assertFalse(
+            hasattr(pyclamd.ClamdNetworkSocket, "instream"),
+            "pyClamd has no instream() — the original bug. If this ever passes, "
+            "re-verify apps/documents/tasks.py._scan_with_clamav against the real API.",
+        )
 
     def _make_civicos(self) -> dict:
         return {
@@ -917,10 +963,8 @@ class ScanWithClamavTests(TestCase):
 
         civicos = self._make_civicos()
 
-        mock_pyclamd = MagicMock()
-        mock_cd = MagicMock()
+        mock_pyclamd, mock_cd = self._make_mock_pyclamd()
         mock_cd.scan_stream.return_value = None  # clean
-        mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
             with patch("django.core.files.storage.default_storage") as mock_storage:
@@ -938,10 +982,8 @@ class ScanWithClamavTests(TestCase):
 
         civicos = self._make_civicos()
 
-        mock_pyclamd = MagicMock()
-        mock_cd = MagicMock()
+        mock_pyclamd, mock_cd = self._make_mock_pyclamd()
         mock_cd.scan_stream.return_value = {"stream": ("FOUND", "Eicar-Test-Signature")}
-        mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
             with patch("django.core.files.storage.default_storage") as mock_storage:
@@ -960,10 +1002,8 @@ class ScanWithClamavTests(TestCase):
 
         civicos = self._make_civicos()
 
-        mock_pyclamd = MagicMock()
-        mock_cd = MagicMock()
+        mock_pyclamd, mock_cd = self._make_mock_pyclamd()
         mock_cd.scan_stream.return_value = {"stream": ("ERROR", "internal clamd error")}
-        mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
             with patch("django.core.files.storage.default_storage") as mock_storage:
@@ -982,8 +1022,7 @@ class ScanWithClamavTests(TestCase):
 
         civicos = self._make_civicos()
 
-        mock_pyclamd = MagicMock()
-        mock_pyclamd.ClamdNetworkSocket.return_value = MagicMock()
+        mock_pyclamd, _mock_cd = self._make_mock_pyclamd()
 
         from apps.documents.tasks import _StorageReadError
 
@@ -1008,10 +1047,8 @@ class ScanWithClamavTests(TestCase):
             "CLAMAV_TIMEOUT": 60,
         }
 
-        mock_pyclamd = MagicMock()
-        mock_cd = MagicMock()
+        mock_pyclamd, mock_cd = self._make_mock_pyclamd()
         mock_cd.scan_stream.return_value = None
-        mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
             with patch("django.core.files.storage.default_storage") as mock_storage:
@@ -1034,10 +1071,8 @@ class ScanWithClamavTests(TestCase):
         civicos = self._make_civicos()
         file_data = b"PDF file content here"
 
-        mock_pyclamd = MagicMock()
-        mock_cd = MagicMock()
+        mock_pyclamd, mock_cd = self._make_mock_pyclamd()
         mock_cd.scan_stream.return_value = None
-        mock_pyclamd.ClamdNetworkSocket.return_value = mock_cd
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):
             with patch("django.core.files.storage.default_storage") as mock_storage:
@@ -1063,7 +1098,7 @@ class ScanWithClamavTests(TestCase):
 
         civicos = self._make_civicos()
 
-        mock_pyclamd = MagicMock()
+        mock_pyclamd, _mock_cd = self._make_mock_pyclamd()
         mock_pyclamd.ClamdNetworkSocket.side_effect = ConnectionError("Connection refused")
 
         with patch.dict(sys.modules, {"pyclamd": mock_pyclamd}):

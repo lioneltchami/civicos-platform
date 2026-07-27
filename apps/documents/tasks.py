@@ -75,6 +75,190 @@ class _StorageReadError(Exception):
     """
 
 
+class _StoragePromotionError(Exception):
+    """
+    Internal sentinel: the quarantine → active object move failed.
+
+    Raised by ``_promote_storage_object_to_active`` when the storage backend
+    rejects the copy for any reason OTHER than "the source object does not
+    exist". The caller (``_mark_document_active_clamav``) lets it propagate so
+    the surrounding ``transaction.atomic()`` rolls back and ``scan_document``
+    retries: a document must NEVER be marked ACTIVE while its ``storage_key``
+    still points at a location the promotion failed to produce.
+
+    NOT a subclass of OSError/IOError, for the same reason as
+    ``_StorageReadError`` above.
+    """
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Storage prefix semantics — quarantine/ vs active/
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Every UNTRUSTED upload (citizen presigned POST, staff backoffice upload, new
+# document version) is written by services/upload.py and services/versioning.py
+# under ``documents/quarantine/<doc_uuid>/<file_uuid>.bin`` — see
+# ``services.upload._make_storage_key(..., prefix="quarantine")``.  For THIS
+# building block, ``documents/active/…`` therefore has one precise meaning:
+#
+#     "this object was streamed through ClamAV and came back clean"
+#
+# ``_promote_storage_object_to_active()`` below is the ONLY code path in the
+# untrusted-upload pipeline that produces an ``active/`` key, and it runs only
+# on a clean scan verdict, atomically with the SCANNING → ACTIVE status flip.
+#
+# DOCUMENTED EXCEPTION — two other apps write ``documents/active/…`` keys
+# directly without going through this scan pipeline:
+#   • apps/payments/services/receipt_pdf.py  (CRA donation receipt PDFs)
+#   • apps/consent/tasks.py                  (PIPEDA data-export JSON files)
+# Both write bytes that the server itself just rendered from its own database
+# rows — there is no client-supplied file content on either path — so there is
+# nothing for a virus scanner to find and no scan is performed by design.  See
+# the clarifying comments at those two call sites.  Do NOT infer from them that
+# ``active/`` merely means "generally available"; for anything that originates
+# outside the server it means "post-scan-clean", and that invariant is what the
+# citizen download paths rely on.
+_QUARANTINE_PREFIX = "documents/quarantine/"
+_ACTIVE_PREFIX = "documents/active/"
+
+
+def _promote_storage_object_to_active(*, doc_pk: str, storage_key: str) -> str | None:
+    """
+    Copy a scanned-clean object from the ``quarantine/`` prefix to ``active/``.
+
+    The destination key is derived deterministically by swapping only the
+    leading prefix, so both the document UUID and the random file UUID are
+    preserved and a retried promotion always targets the SAME destination key
+    (idempotent — an S3 ``copy_object`` to an existing key simply overwrites).
+
+    The old object is NOT deleted here. The caller deletes it via
+    ``transaction.on_commit()`` once the new key is durably committed to the
+    database, so a rollback can never orphan the only copy of the file.
+
+    Args:
+        doc_pk:      UUID string of the Document (logging only — never PII).
+        storage_key: The document's current storage key.
+
+    Returns:
+        The new ``documents/active/…`` key, or ``None`` when there is nothing
+        to promote:
+          • the key is not under the quarantine prefix (already promoted, or a
+            legacy/externally-created key) — idempotent no-op, or
+          • the source object does not exist in the storage backend. This is
+            the normal case for FileSystemStorage in dev/test where no real
+            bytes were ever written; the DB row is still marked ACTIVE because
+            the scan verdict itself was clean.
+
+    Raises:
+        _StoragePromotionError: the copy failed for any other reason. The
+            document MUST NOT be marked ACTIVE.
+
+    PIPEDA: storage keys are NEVER logged — only doc_pk and exception types.
+    """
+    if not storage_key or not storage_key.startswith(_QUARANTINE_PREFIX):
+        return None
+
+    new_key = _ACTIVE_PREFIX + storage_key[len(_QUARANTINE_PREFIX):]
+
+    from apps.documents.services.upload import (
+        _get_bucket_name,
+        _is_s3_storage,
+        _resolve_s3_client_kwargs,
+    )
+
+    if _is_s3_storage():
+        # Server-side copy — the object bytes never transit this worker.
+        # Bucket/region/endpoint resolution reuses the same helpers as every
+        # other raw boto3 call in this BB so the copy can never target a
+        # different bucket than django-storages does.
+        try:
+            import boto3
+            from botocore.exceptions import BotoCoreError, ClientError
+            from django.conf import settings as _settings
+
+            storage_opts = _settings.STORAGES.get("default", {}).get("OPTIONS", {})
+            bucket_name = _get_bucket_name(storage_opts)
+            s3_client = boto3.client("s3", **_resolve_s3_client_kwargs(storage_opts))
+        except Exception as exc:
+            raise _StoragePromotionError(
+                f"S3 client unavailable for promotion: {type(exc).__name__}"
+            ) from exc
+
+        try:
+            s3_client.copy_object(
+                Bucket=bucket_name,
+                Key=new_key,
+                CopySource={"Bucket": bucket_name, "Key": storage_key},
+            )
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in {"NoSuchKey", "NoSuchObject", "NotFound", "404"}:
+                logger.warning(
+                    "_promote_storage_object_to_active: source object missing for "
+                    "doc pk=%r; leaving storage_key unchanged.",
+                    doc_pk,
+                )
+                return None
+            raise _StoragePromotionError(
+                f"S3 copy_object failed: {type(exc).__name__}"
+            ) from exc
+        except BotoCoreError as exc:
+            raise _StoragePromotionError(
+                f"S3 copy_object failed: {type(exc).__name__}"
+            ) from exc
+
+        return new_key
+
+    # Non-S3 backend (FileSystemStorage in dev/test): read-and-write copy.
+    from django.core.files.storage import default_storage
+
+    try:
+        if not default_storage.exists(storage_key):
+            logger.warning(
+                "_promote_storage_object_to_active: source object missing for "
+                "doc pk=%r; leaving storage_key unchanged.",
+                doc_pk,
+            )
+            return None
+        with default_storage.open(storage_key, "rb") as fh:
+            saved_key = default_storage.save(new_key, fh)
+    except FileNotFoundError:
+        logger.warning(
+            "_promote_storage_object_to_active: source object vanished for "
+            "doc pk=%r; leaving storage_key unchanged.",
+            doc_pk,
+        )
+        return None
+    except Exception as exc:
+        raise _StoragePromotionError(
+            f"storage copy failed: {type(exc).__name__}"
+        ) from exc
+
+    return str(saved_key)
+
+
+def _delete_storage_object(storage_key: str) -> None:
+    """
+    Best-effort delete of a single storage object.
+
+    Used to remove the stale ``quarantine/`` copy AFTER a successful promotion
+    has been committed. Failure is logged and swallowed: the document is
+    already correctly pointing at the new ``active/`` key, so a leftover
+    quarantine object is a housekeeping issue, not a correctness one.
+
+    PIPEDA: the key is NEVER logged.
+    """
+    try:
+        from django.core.files.storage import default_storage
+
+        default_storage.delete(storage_key)
+    except Exception:
+        logger.exception(
+            "_delete_storage_object: failed to remove a stale storage object; "
+            "the document row is unaffected."
+        )
+
+
 def _quarantine_on_scan_failure(doc_pk: str, exc: BaseException) -> None:
     """
     Transition a document from SCANNING → QUARANTINED after scan failure.
@@ -86,9 +270,11 @@ def _quarantine_on_scan_failure(doc_pk: str, exc: BaseException) -> None:
     forever. Forcing QUARANTINED surfaces the failure to admins and blocks
     citizen access until manual review.
 
-    PIPEDA: no PII in logs or signal kwargs. Only doc_pk and exception
-    type name are recorded.
+    PIPEDA: no PII in logs, audit event_detail, or signal kwargs. Only doc_pk
+    and the exception type name are recorded.
     """
+    from apps.audit.models import AuditEventType
+    from apps.audit.services import record_event
     from apps.documents.models import Document
     from apps.documents.signals import document_quarantined
 
@@ -123,6 +309,25 @@ def _quarantine_on_scan_failure(doc_pk: str, exc: BaseException) -> None:
                     "scan_completed_at",
                     "updated_at",
                 ]
+            )
+
+            # H-audit: a scan outcome that quarantines a document is a security
+            # event and MUST leave an audit trail. Written INSIDE the same
+            # atomic block as the status flip so the two can never diverge —
+            # exactly the pattern used by services/retention.py.
+            # PIPEDA: event_detail carries ONLY the document pk and the scan
+            # engine's own verdict string. NO filename, NO storage_key, NO
+            # uploader identity.
+            record_event(
+                event_type=AuditEventType.THREAT_DETECTED,
+                outcome="failure",
+                actor_id=None,  # system-initiated Celery task, no human actor
+                resource_type="documents.Document",
+                resource_id=str(doc.pk),
+                event_detail={
+                    "document_pk": str(doc.pk),
+                    "scan_engine_result": scan_engine_result,
+                },
             )
 
         document_quarantined.send_robust(
@@ -197,6 +402,22 @@ def scan_document(self, doc_pk: str) -> None:
       PENDING_UPLOAD → SCANNING (set by confirm_upload before dispatch)
       SCANNING → ACTIVE        (set here if clean / dev bypass)
       SCANNING → QUARANTINED   (set here if threat detected — Wave 3)
+
+    Storage lifecycle:
+      Uploads land under ``documents/quarantine/…``. On a clean ClamAV verdict
+      the object is copied to ``documents/active/…`` and ``storage_key`` is
+      repointed, atomically with the status flip — see
+      ``_promote_storage_object_to_active()`` and the prefix-semantics comment
+      block above it. The dev bypass deliberately does NOT promote: no scan
+      actually ran, so nothing has been proven clean.
+
+    Audit trail:
+      Every scan outcome writes exactly one audit entry inside the same
+      transaction as the status flip:
+        clean       → AuditEventType.STATUS_CHANGED   (outcome="success")
+        quarantined → AuditEventType.THREAT_DETECTED  (outcome="failure"),
+                      including quarantines caused by a storage read failure
+                      or by retry exhaustion (_quarantine_on_scan_failure).
 
     Idempotency:
       If doc.scan_status is not SCANNING when this task runs (e.g. already
@@ -512,16 +733,39 @@ def _mark_document_active_clamav(*, doc_pk: str) -> None:
     Transition a document from SCANNING → ACTIVE after a clean ClamAV scan.
 
     Mirrors ``_mark_document_active_dev_bypass()`` but records the real
-    ClamAV verdict ("OK") as scan_engine_result.
+    ClamAV verdict ("OK") as scan_engine_result, and — unlike the dev bypass,
+    where no scan actually ran — PROMOTES the storage object from the
+    ``quarantine/`` prefix to the ``active/`` prefix.
+
+    Storage promotion (quarantine/ → active/)
+    ─────────────────────────────────────────
+    ``services.upload._make_storage_key(..., prefix="quarantine")`` is the only
+    prefix any untrusted upload path ever writes, so without this step nothing
+    in the BB ever produced an ``active/`` key and the two prefixes carried no
+    meaning at all. The copy runs INSIDE the same atomic()/select_for_update()
+    block as the status flip:
+      • copy first, DB update second, old-object delete third (on_commit) —
+        so a rollback can never leave the only copy of the file deleted, and a
+        failed copy can never leave an ACTIVE row pointing at a key that does
+        not exist;
+      • on a copy failure, _StoragePromotionError propagates, the transaction
+        rolls back, and scan_document's step-3 handler retries the task with
+        exponential backoff (the document stays SCANNING and is quarantined by
+        _ScanDocumentTask.on_failure if the retry budget is exhausted).
 
     Uses select_for_update() inside atomic() for safe status transition.
     Idempotent: if the document is no longer in SCANNING state (e.g. a
     concurrent worker already processed it), returns without action.
 
-    PIPEDA: fires document_scan_clean with document_pk only — no PII.
+    PIPEDA: fires document_scan_clean with document_pk only — no PII. The
+    audit entry's event_detail carries only the pk and the scan verdict.
     """
+    from apps.audit.models import AuditEventType
+    from apps.audit.services import record_event
     from apps.documents.models import Document
     from apps.documents.signals import document_scan_clean
+
+    old_storage_key: str | None = None
 
     with transaction.atomic():
         try:
@@ -543,17 +787,54 @@ def _mark_document_active_clamav(*, doc_pk: str) -> None:
             )
             return
 
+        update_fields = [
+            "scan_status",
+            "scan_completed_at",
+            "scan_engine_result",
+            "updated_at",
+        ]
+
+        # Promote the object out of the quarantine prefix. Raises
+        # _StoragePromotionError on a real failure → rolls this block back.
+        old_storage_key = doc.storage_key
+        new_storage_key = _promote_storage_object_to_active(
+            doc_pk=doc_pk,
+            storage_key=old_storage_key,
+        )
+        if new_storage_key:
+            doc._storage_key = new_storage_key
+            update_fields.append("_storage_key")
+        else:
+            old_storage_key = None  # nothing was copied → nothing to clean up
+
         doc.scan_status = Document.ScanStatus.ACTIVE
         doc.scan_completed_at = timezone.now()
         doc.scan_engine_result = "OK"
-        doc.save(
-            update_fields=[
-                "scan_status",
-                "scan_completed_at",
-                "scan_engine_result",
-                "updated_at",
-            ]
+        doc.save(update_fields=update_fields)
+
+        # H-audit: the clean-scan outcome is the event that makes a document
+        # citizen-reachable, so it needs its own audit entry alongside the
+        # THREAT_DETECTED entry written on the quarantine path.
+        # STATUS_CHANGED is the existing generic "this record's status moved"
+        # event type — no new AuditEventType value is warranted for it.
+        # PIPEDA: ONLY the document pk and the scan engine verdict.
+        record_event(
+            event_type=AuditEventType.STATUS_CHANGED,
+            actor_id=None,  # system-initiated Celery task, no human actor
+            resource_type="documents.Document",
+            resource_id=str(doc.pk),
+            event_detail={
+                "document_pk": str(doc.pk),
+                "scan_engine_result": "OK",
+            },
         )
+
+        if old_storage_key:
+            # Remove the now-redundant quarantine copy only after the new key
+            # is durably committed. on_commit is a no-op if this block rolls back.
+            transaction.on_commit(
+                lambda _key=old_storage_key: _delete_storage_object(_key)
+            )
 
     # Fire signal outside the lock (send_robust never raises).
     # PIPEDA: kwargs contain only doc.pk — no uploader identity, no filename.
@@ -581,8 +862,12 @@ def _mark_document_quarantined_clamav(*, doc_pk: str, virus_name: str) -> None:
     PIPEDA:
       - scan_engine_result records only the virus name from ClamAV.
       - document_quarantined signal kwargs: document_pk + scan_engine_result only.
-      - No uploader PII, no original_filename, no storage_key in any log or signal.
+      - THREAT_DETECTED audit event_detail: document_pk + scan_engine_result only.
+      - No uploader PII, no original_filename, no storage_key in any log, audit
+        payload, or signal.
     """
+    from apps.audit.models import AuditEventType
+    from apps.audit.services import record_event
     from apps.documents.models import Document
     from apps.documents.signals import document_quarantined
 
@@ -623,6 +908,23 @@ def _mark_document_quarantined_clamav(*, doc_pk: str, virus_name: str) -> None:
             ]
         )
 
+        # H-audit: malware detection is the single most security-relevant event
+        # this BB can produce. Written INSIDE the same atomic block as the
+        # status flip so a committed quarantine can never exist without its
+        # audit entry — same convention as services/retention.py.
+        # PIPEDA: ONLY the document pk and the ClamAV verdict string.
+        record_event(
+            event_type=AuditEventType.THREAT_DETECTED,
+            outcome="failure",
+            actor_id=None,  # system-initiated Celery task, no human actor
+            resource_type="documents.Document",
+            resource_id=str(doc.pk),
+            event_detail={
+                "document_pk": str(doc.pk),
+                "scan_engine_result": scan_engine_result,
+            },
+        )
+
     # Delete the file from quarantine storage (irreversible — the file is infected).
     # Performed OUTSIDE the transaction to avoid holding the DB lock during storage I/O.
     # If this fails, the document is still QUARANTINED and inaccessible to users;
@@ -659,6 +961,134 @@ def _mark_document_quarantined_clamav(*, doc_pk: str, virus_name: str) -> None:
 # Wave 2: cleanup_stale_pending_uploads
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Maximum keys per S3 DeleteObjects request (hard AWS API limit).
+_S3_DELETE_BATCH_SIZE = 1000
+
+
+def _purge_orphaned_storage_objects(storage_keys: list[str]) -> int:
+    """
+    Best-effort deletion of storage objects left behind by abandoned uploads.
+
+    Used by ``cleanup_stale_pending_uploads``. A PENDING_UPLOAD document may or
+    may not have a real object behind its storage key — the browser uploads
+    directly to object storage, so the server never observes whether the POST
+    completed. Deleting a key that was never written is therefore the expected
+    case and MUST NOT be treated as an error:
+
+      • S3 ``DeleteObject``/``DeleteObjects`` succeeds for a non-existent key
+        (no NoSuchKey is raised on delete); any ``ClientError``/``BotoCoreError``
+        that *does* occur (network, credentials, bucket policy) is logged and
+        swallowed.
+      • ``FileSystemStorage.delete()`` swallows ``FileNotFoundError`` internally.
+
+    Two code paths:
+      • S3-backed storage — one ``delete_objects`` call per batch of
+        ``_S3_DELETE_BATCH_SIZE`` keys. A per-key ``default_storage.delete()``
+        loop would issue one blocking HTTPS round-trip per object, which on a
+        large backlog can exceed CELERY_TASK_SOFT_TIME_LIMIT (300s) and kill
+        the worker mid-cleanup.
+      • Anything else (FileSystemStorage in dev/test) — per-key
+        ``default_storage.delete()``, matching
+        ``services.retention.hard_delete()``.
+
+    Bucket/region/endpoint resolution reuses the same helpers every other raw
+    boto3 call in this BB uses (``services.upload._get_bucket_name`` and
+    ``_resolve_s3_client_kwargs``), so this task can never target a different
+    bucket, region, or S3-compatible endpoint than django-storages does.
+
+    PIPEDA: storage keys are NEVER logged — only counts and exception types.
+
+    Args:
+        storage_keys: Storage keys to delete. Blank/empty entries are skipped.
+
+    Returns:
+        Number of keys for which a delete was successfully issued. Failures are
+        counted as 0 and logged; they never propagate, because a storage error
+        must not block the DB cleanup.
+    """
+    keys = [k for k in storage_keys if k]
+    if not keys:
+        return 0
+
+    from apps.documents.services.upload import (
+        _get_bucket_name,
+        _is_s3_storage,
+        _resolve_s3_client_kwargs,
+    )
+
+    deleted = 0
+
+    if _is_s3_storage():
+        try:
+            import boto3
+            from botocore.exceptions import BotoCoreError, ClientError
+            from django.conf import settings as _settings
+
+            storage_opts = _settings.STORAGES.get("default", {}).get("OPTIONS", {})
+            bucket_name = _get_bucket_name(storage_opts)
+            s3_client = boto3.client("s3", **_resolve_s3_client_kwargs(storage_opts))
+        except Exception:
+            # Misconfiguration / missing boto3 — log and leave the objects in
+            # place. They are re-attempted on the next scheduled run only if
+            # their DB rows still exist, so this is logged at ERROR level.
+            logger.exception(
+                "_purge_orphaned_storage_objects: S3 client unavailable; "
+                "%d orphaned object(s) NOT purged.",
+                len(keys),
+            )
+            return 0
+
+        for _start in range(0, len(keys), _S3_DELETE_BATCH_SIZE):
+            batch = keys[_start : _start + _S3_DELETE_BATCH_SIZE]
+            try:
+                s3_client.delete_objects(
+                    Bucket=bucket_name,
+                    Delete={
+                        "Objects": [{"Key": k} for k in batch],
+                        # Quiet: suppress the per-key success echo in the
+                        # response — we only care about hard failures.
+                        "Quiet": True,
+                    },
+                )
+            except (ClientError, BotoCoreError) as exc:
+                logger.error(
+                    "_purge_orphaned_storage_objects: batch delete of %d key(s) "
+                    "failed (%s); continuing with DB cleanup.",
+                    len(batch),
+                    type(exc).__name__,
+                )
+                continue
+            except Exception:
+                logger.exception(
+                    "_purge_orphaned_storage_objects: unexpected error deleting "
+                    "a batch of %d key(s); continuing with DB cleanup.",
+                    len(batch),
+                )
+                continue
+            deleted += len(batch)
+
+        return deleted
+
+    # Non-S3 backend (FileSystemStorage in dev/test).
+    from django.core.files.storage import default_storage
+
+    for key in keys:
+        try:
+            default_storage.delete(key)
+        except FileNotFoundError:
+            # The upload never completed — nothing to delete. Expected.
+            continue
+        except Exception:
+            logger.exception(
+                "_purge_orphaned_storage_objects: storage delete failed for one "
+                "object; continuing with DB cleanup.",
+            )
+            continue
+        deleted += 1
+
+    return deleted
+
+
 @shared_task(
     bind=True,
     queue="documents",
@@ -682,17 +1112,34 @@ def cleanup_stale_pending_uploads(self) -> int:
         expired), OR confirm_upload() was never called.
 
     After DOCUMENT_PRESIGNED_POST_TTL_SECONDS (900s = 15 min) + a 5-minute grace
-    margin, the row is safe to delete — the presigned URL is expired and the
-    S3 object (if any) will be purged by S3 lifecycle rules.
+    margin, the row is safe to delete — the presigned URL has expired, so no
+    further upload against it can ever succeed.
+
+    Storage objects (H-3 fix)
+    ─────────────────────────
+    The browser POSTs the file straight to object storage, so the server never
+    observes whether the upload actually completed. A PENDING_UPLOAD row may
+    therefore have a fully-written object behind its storage key (upload
+    succeeded, confirm_upload() never ran or failed validation) — that object
+    has NEVER been virus-scanned. This task deletes the storage object BEFORE
+    deleting the DB row (the row is the only remaining pointer to the key; the
+    reverse order would orphan the object permanently).
+
+    There is no S3 lifecycle rule anywhere in this deployment — an earlier
+    version of this docstring claimed there was, which was false and left every
+    abandoned, unscanned upload in the bucket forever.
+
+    Deleting a key that was never written is the normal case and is NOT an
+    error: S3 DeleteObject/DeleteObjects is idempotent for missing keys and
+    FileSystemStorage.delete() swallows FileNotFoundError. Any storage failure
+    is logged and swallowed so it can never block the DB cleanup.
 
     This task performs a HARD DELETE of the Document row (not a soft-delete),
     because the document was never confirmed and never had valid content.
-    No file bytes were written by the service layer to the storage key
-    (the browser was responsible for the upload, and it never completed).
     No audit log entry is written for stale abandoned uploads because no
-    data transfer occurred — there is nothing to audit.
+    data transfer to a citizen occurred — there is nothing to audit.
 
-    PIPEDA: No PII is logged. Only counts are reported.
+    PIPEDA: No PII is logged. Storage keys are NEVER logged. Only counts.
 
     Returns:
         Number of stale Document rows deleted.
@@ -707,24 +1154,53 @@ def cleanup_stale_pending_uploads(self) -> int:
     grace_seconds = ttl_seconds + (5 * 60)
     cutoff = timezone.now() - timedelta(seconds=grace_seconds)
 
-    qs = Document.objects.filter(
-        scan_status=Document.ScanStatus.PENDING_UPLOAD,
-        created_at__lte=cutoff,
+    # Snapshot (pk, storage_key) pairs up front: the key is needed to purge the
+    # object and is gone once the row is deleted. values_list keeps this cheap
+    # even on a large backlog (no model instantiation).
+    stale = list(
+        Document.objects.filter(
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+            created_at__lte=cutoff,
+        ).values_list("pk", "_storage_key")
     )
 
-    count, _ = qs.delete()
-
-    if count:
-        logger.info(
-            "cleanup_stale_pending_uploads: deleted %d stale PENDING_UPLOAD records "
-            "(older than %d seconds).",
-            count,
-            grace_seconds,
-        )
-    else:
+    if not stale:
         logger.debug(
             "cleanup_stale_pending_uploads: no stale records found.",
         )
+        return 0
+
+    count = 0
+    purged_objects = 0
+
+    # Chunked to bound both the DELETE ... IN (...) statement size and the
+    # storage round-trips per iteration — mirrors the _CHUNK = 500 pattern used
+    # by run_disposal_schedule / run_hard_delete_schedule in this module.
+    _CHUNK = 500
+    for _start in range(0, len(stale), _CHUNK):
+        chunk = stale[_start : _start + _CHUNK]
+
+        # Storage first, DB row second (see docstring).
+        purged_objects += _purge_orphaned_storage_objects(
+            [key for _pk, key in chunk]
+        )
+
+        deleted, _ = Document.objects.filter(
+            pk__in=[pk for pk, _key in chunk],
+            # Re-assert the state filter under the DELETE: a document that was
+            # confirmed between the snapshot above and this statement must keep
+            # its row (and therefore its audit trail) rather than vanish.
+            scan_status=Document.ScanStatus.PENDING_UPLOAD,
+        ).delete()
+        count += deleted
+
+    logger.info(
+        "cleanup_stale_pending_uploads: deleted %d stale PENDING_UPLOAD records "
+        "(older than %d seconds); purged %d orphaned storage object(s).",
+        count,
+        grace_seconds,
+        purged_objects,
+    )
 
     return count
 

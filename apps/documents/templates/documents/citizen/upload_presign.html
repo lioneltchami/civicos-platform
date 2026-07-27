@@ -17,7 +17,8 @@
     S3 Presigned POST form.
     action points to the S3 bucket endpoint provided by the view.
     All upload_fields are injected as hidden inputs.
-    A success_action_redirect field (included in upload_fields by the view)
+    A success_action_redirect field — present in upload_fields ONLY when the
+    service layer signed it into the POST policy (i.e. when SITE_URL is set) —
     instructs S3 to redirect the browser back to confirm_url on success.
   #}
   <form method="post"
@@ -32,11 +33,15 @@
       <input type="hidden" name="{{ field_name|force_escape }}" value="{{ field_value|force_escape }}">
     {% endfor %}
 
-    {# S3 requires success_action_redirect as a form field if not already in upload_fields #}
-    {% if confirm_url and "success_action_redirect" not in upload_fields %}
-      <input type="hidden" name="success_action_redirect" value="{{ confirm_url }}">
-    {% endif %}
-
+    {#
+      NOTE: success_action_redirect is deliberately NOT rendered here.
+      An S3 presigned POST rejects the ENTIRE upload (AccessDenied — "Extra input
+      fields") for any form field that is not covered by the signed policy. When
+      SITE_URL is unset the service layer omits success_action_redirect from both
+      the policy conditions AND upload_fields; injecting it here anyway made every
+      upload fail in that configuration. The field is rendered only when the
+      service included it in upload_fields, by the loop above.
+    #}
     <p id="upload-instructions" class="visually-hidden">
       {% trans "This form uploads your file directly to secure storage. The file field below must be selected." %}
     </p>

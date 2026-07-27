@@ -63,6 +63,23 @@ AWS_DEFAULT_ACL = "private"  # Files are private; served via pre-signed URLs
 AWS_S3_OBJECT_PARAMETERS = {
     "CacheControl": "max-age=86400",  # 1 day client cache
 }
+
+# Server-side encryption with a customer-managed KMS key (Protected B).
+#
+# Documents BB: apps/documents/services/upload._generate_s3_presigned_post()
+# reads SSEKMSKeyId out of this dict (mirroring django-storages'
+# get_default_settings() resolution order) and, when it is set, adds the
+# matching x-amz-server-side-encryption* form fields AND policy conditions to
+# the browser's presigned POST. Until this key existed, that entire branch was
+# unreachable in production and Protected B uploads landed unencrypted-by-KMS.
+#
+# Leave AWS_S3_KMS_KEY_ID unset to keep the previous behaviour (bucket-default
+# encryption, typically SSE-S3). Set it to a KMS key ARN/alias to enforce
+# SSE-KMS on BOTH django-storages writes and browser presigned POSTs.
+AWS_S3_KMS_KEY_ID = env("AWS_S3_KMS_KEY_ID", default="")
+if AWS_S3_KMS_KEY_ID:
+    AWS_S3_OBJECT_PARAMETERS["ServerSideEncryption"] = "aws:kms"
+    AWS_S3_OBJECT_PARAMETERS["SSEKMSKeyId"] = AWS_S3_KMS_KEY_ID
 AWS_S3_SIGNATURE_VERSION = "s3v4"
 AWS_QUERYSTRING_AUTH = True
 AWS_QUERYSTRING_EXPIRE = 3600  # Pre-signed URL validity: 1 hour
@@ -426,3 +443,65 @@ GOVSTACK_REQUIRE_PLATFORM_TENANT_ID = env.bool(
 # and its two subclasses, PublicPolicyReadPermission and
 # PublicDataAgreementReadPermission.
 GOVSTACK_REQUIRE_CONSENT_AUTH = env.bool("GOVSTACK_REQUIRE_CONSENT_AUTH", default=True)
+
+# ---------------------------------------------------------------------------
+# Document Management BB — ClamAV enforcement
+# ---------------------------------------------------------------------------
+
+# Controls whether apps/documents/apps.DocumentsConfig._check_clamav_config()
+# raises ImproperlyConfigured at startup (hard fail) or merely logs a warning
+# when CIVICOS["CLAMAV_HOST"] is unset or CIVICOS["CLAMAV_PORT"] is invalid.
+#
+# It ALSO gates the DEV_BYPASS branch in apps/documents/tasks.scan_document():
+# with CLAMAV_HOST unset AND CLAMAV_REQUIRED False, every uploaded document is
+# marked ACTIVE with scan_engine_result="DEV_BYPASS" and never scanned at all.
+# (scan_document has a second, independent guard that refuses to take that
+# branch outside DEBUG/TESTING — this flag is the first line of defence, not
+# the only one.)
+#
+# base.py deliberately defaults this to False so local development works
+# without a running clamd. Production MUST be True (the default here), so a
+# deployment whose ClamAV service is missing or misconfigured fails loudly at
+# boot instead of silently accepting unscanned, potentially malicious uploads.
+#
+# The env var exists only so a harness/CI environment with no ClamAV container
+# can set CLAMAV_REQUIRED=False explicitly and visibly. Never hardcode False in
+# this file — use the env var for per-environment control.
+#
+# NOTE: base.py reads CLAMAV_REQUIRED into CIVICOS["CLAMAV_REQUIRED"] from the
+# same env var, and the consumers read it from the CIVICOS dict — so this
+# module-level name is overridden into CIVICOS below rather than being read
+# directly, keeping a single source of truth.
+CLAMAV_REQUIRED = env.bool("CLAMAV_REQUIRED", default=True)
+CIVICOS["CLAMAV_REQUIRED"] = CLAMAV_REQUIRED  # noqa: F405
+
+# ---------------------------------------------------------------------------
+# SITE_URL — required in production
+# ---------------------------------------------------------------------------
+
+# SITE_URL is a PLATFORM-WIDE setting (base.py, default ""), not a Documents-BB
+# setting: the notifications app builds PIPEDA export-ready links from it, and
+# the Documents BB uses it to build the absolute success_action_redirect URL
+# that S3 sends the browser back to after a direct-to-S3 presigned POST.
+#
+# Because it is platform-wide, enforcement belongs here in the production
+# settings module rather than in apps/documents/apps.py's AppConfig.ready() —
+# a Documents-BB-specific startup check would (a) fire for every deployment
+# that installs the documents app regardless of whether uploads are used, and
+# (b) leave every OTHER consumer of SITE_URL unguarded. One hard failure at the
+# settings layer covers all consumers, matches the ALLOWED_HOSTS /
+# WAGTAILADMIN_BASE_URL pattern already established at the top of this file,
+# and cannot be bypassed by app-loading order.
+#
+# The Documents BB itself no longer BREAKS when SITE_URL is empty (the presign
+# template only renders success_action_redirect when the field is actually
+# present in the signed policy), but the resulting upload flow is degraded:
+# S3 returns a bare 204 and the citizen never reaches the confirm view, so the
+# document stays in PENDING_UPLOAD until the nightly cleanup task purges it.
+if not SITE_URL:  # noqa: F405
+    raise ImproperlyConfigured(
+        "SITE_URL env var must be set in production. It is used for citizen-facing "
+        "absolute links (PIPEDA export notifications) and for the Documents BB's "
+        "S3 success_action_redirect target. "
+        "Example: SITE_URL=https://portal.yourdomain.ca"
+    )

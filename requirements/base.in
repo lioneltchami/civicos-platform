@@ -26,6 +26,11 @@ django-ipware==7.*
 django-storages[s3]==1.14.*
 Pillow==11.*
 
+# Documents BB — upload security pipeline (Layers 5/5b/8 in apps/documents/services/upload.py)
+pyClamd==0.4.*        # ClamAV daemon scanning via scan_stream() (apps/documents/tasks.py)
+python-magic==0.4.*   # magic-byte MIME sniffing (Layer 5); requires libmagic1 (see Dockerfile)
+pikepdf==10.*         # PDF encryption detection (Layer 5b, Pdf.is_encrypted)
+
 # Email / notifications
 django-anymail==12.*
 notifications-python-client==9.*

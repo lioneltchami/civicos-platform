@@ -1269,62 +1269,188 @@ All endpoints under `/api/v1/documents/` (DRF, authenticated via JWT, same patte
 
 ### 18.1 Endpoints
 
+> **This section describes the code as it exists today** (`apps/api/documents/urls.py`
+> and `apps/api/documents/views.py`), not a planned surface. Every route, method,
+> status code, and response key below was read directly out of those two modules.
+>
+> **11 routes / 12 operations.** Every route requires an authenticated user
+> (`permission_classes = [IsAuthenticated]`, JWT or session auth); an unauthenticated
+> request always returns **401**. Routes marked *staff* additionally require
+> `IsStaff` **plus** the named Django permission; failing the permission check
+> returns **403**.
+>
+> IDOR rule applied everywhere a `{doc_id}` appears: a document that exists but is
+> not owned by the caller (and the caller is not a coordinator holding
+> `documents.view_all_documents`) returns **404**, never 403.
+>
+> `storage_key` / `_storage_key` is **never** present in any response body, header,
+> or error message on any of these endpoints.
+
 ```
 POST   /api/v1/documents/request-upload/
-    → Request presigned upload URL
+    → Request a presigned S3 POST for a direct browser→S3 upload.
+    → Auth: any authenticated user. Throttle: CitizenRateThrottle.
     → Body: { category_slug, original_filename, mime_type, size_bytes }
+            size_bytes is capped at CIVICOS["DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES"]
+            by the serializer for every caller (staff included); the service
+            layer then applies the per-user and per-category caps on top.
     → 201: { doc_id, upload_url, upload_fields, expires_at }
-    → 400: validation errors
+    → 400: validation error (MIME not allowed, size over cap, bad extension)
     → 403: not permitted to upload to this category
 
 POST   /api/v1/documents/{doc_id}/confirm-upload/
-    → Confirm browser has uploaded to S3; triggers scan
-    → 200: { doc_id, scan_status }
-    → 400: file not found in quarantine, magic byte mismatch, ZIP bomb
-    → 404: doc_id not found or not owned by current user
+    → Confirm the browser finished uploading; runs the content-inspection
+      layers and dispatches the ClamAV scan task (PENDING_UPLOAD → SCANNING).
+    → Auth: any authenticated user (must own the document).
+    → Body: none
+    → 200: { doc_id, scan_status }        // scan_status == "scanning"
+    → 400: object missing from quarantine prefix, magic-byte mismatch,
+           ZIP bomb, encrypted PDF
+    → 404: doc_id not found or not owned by the caller
 
 GET    /api/v1/documents/{doc_id}/
-    → Document metadata (no storage_key, no signed URL)
-    → 200: { doc_id, category, original_filename, mime_type, size_bytes,
-              scan_status, version_number, is_latest_version, created_at }
-    → 404: not found or not owned (IDOR: 404 not 403)
-
-GET    /api/v1/documents/{doc_id}/download/
-    → Issues a DocumentAccessToken; returns download URL
-    → 200: { token_url, expires_at }
-    → 404: not found, not owned, or not ACTIVE
-
-GET    /api/v1/documents/dl/{token}/
-    → Validates and redeems DocumentAccessToken; serves file
-    → 302 (prod): redirect to fresh short-lived S3 presigned URL
-    → 200 (dev): inline file stream
-    → 404: invalid or expired token
-
-GET    /api/v1/documents/?attached_to={content_type}&object_id={pk}
-    → List documents attached to a given object (staff only)
-    → 200: paginated list of document metadata
-
-POST   /api/v1/documents/{doc_id}/attach/
-    → Attach document to an object (staff only, upload_staff_document permission)
-    → Body: { content_type, object_id, attachment_role, note }
-    → 201: { attachment_id }
+    → Document metadata. No storage_key, no signed URL.
+    → Auth: owner, or staff with documents.view_all_documents.
+    → 200: DocumentSerializer object (see §18.2 for the exact field list)
+    → 404: not found, not owned, or soft-deleted
 
 DELETE /api/v1/documents/{doc_id}/
-    → Soft-delete (delete_document permission required)
-    → Body: { reason }
-    → 204: No content
-    → 403: Legal hold active — cannot delete
+    → Soft-delete (scan_status=DELETED, deleted_at=now()).
+    → Auth: owner (or coordinator) AND documents.delete_document.
+    → Body: { reason }                     // required, >= 10 characters
+    → 204: no content
+    → 400: reason missing or shorter than 10 characters; or the document was
+           soft-deleted/legal-held concurrently (checked again under lock)
+    → 403: missing documents.delete_document, or legal_hold is True
+    → 404: not found or not owned
+
+POST   /api/v1/documents/{doc_id}/request-download/
+    → Issue a single-use DocumentAccessToken and return its redemption URL.
+      POST, not GET: it creates a token row and writes an audit entry, so it
+      is not idempotent.
+    → Auth: the OWNER only — allow_coordinator=False on this endpoint, so a
+      coordinator cannot mint a personal download token for someone else's
+      document (staff use the HTML staff download view instead).
+    → Body: none
+    → 200: { download_url, expires_at }
+           download_url is the absolute URL of GET /dl/{token}/ below.
+           NOTE: the field is `download_url` — an earlier draft of this spec
+           called it `token_url`; that name has never existed in the code.
+    → 404: not found, not owned, soft-deleted, or scan_status != ACTIVE
+
+GET    /api/v1/documents/dl/{token}/
+    → Redeem the single-use token and serve the file. Redemption is atomic
+      (SELECT FOR UPDATE), so a concurrent second redemption always loses.
+      Scan status and deleted_at are RE-CHECKED here, not just at issue time.
+    → Auth: the same authenticated user the token was issued to.
+    → 200: file stream (FileResponse, Content-Disposition: attachment) when
+           size_bytes <= CIVICOS["DOCUMENT_PROXY_MAX_BYTES"] (default 1 MiB)
+    → 302: redirect to a fresh 300-second presigned S3 GET URL for larger files
+    → 404: token unknown, already used, issued to a different user, or the
+           document is no longer ACTIVE / has been soft-deleted / its object is
+           missing from storage
+    → 410: token found and owned by the caller but past expires_at
+           ({ "error": { "code": "TOKEN_EXPIRED", "message": … } })
+
+GET    /api/v1/documents/
+    → General document list.
+      Citizen: own documents. Staff with documents.view_all_documents: all
+      documents. Soft-deleted documents are excluded for everyone.
+      QUARANTINED documents are excluded for everyone regardless of
+      permissions — use GET /quarantined/ instead.
+    → Auth: any authenticated user. Throttle: StaffRateThrottle for is_staff,
+      CitizenRateThrottle otherwise.
+    → Query params (both optional):
+        scan_status  — exact scan_status value
+        category     — DocumentCategory slug
+    → 200: paginated list (StandardPagination) of DocumentSerializer objects,
+           ordered by -created_at
+    → 403: ?scan_status=quarantined (explicitly refused on this endpoint)
+
+GET    /api/v1/documents/attachments/?attached_to={app_label.model}&object_id={pk}
+    → List DocumentAttachments for one CivicOS content object.
+      (This lives at /attachments/, NOT at the list root — the root was taken
+      over by the general list above.)
+    → Auth: staff AND documents.view_all_documents. Throttle: StaffRateThrottle.
+    → Both query params are REQUIRED.
+    → 200: paginated list of DocumentAttachmentSerializer objects,
+           ordered by -created_at
+    → 400: attached_to or object_id missing, malformed, or naming an
+           unknown content type
+    → 403: not staff, or missing documents.view_all_documents
+
+GET    /api/v1/documents/quarantined/
+    → List every QUARANTINED, non-soft-deleted document.
+    → Auth: staff AND documents.view_quarantined. Throttle: StaffRateThrottle.
+    → 200: paginated list of DocumentSerializer objects, ordered by -updated_at.
+           scan_engine_result is populated for these callers (it is null for
+           everyone else).
+    → 403: not staff, or missing documents.view_quarantined
+
+POST   /api/v1/documents/{doc_id}/attach/
+    → Attach an existing ACTIVE document to any CivicOS object.
+    → Auth: staff AND documents.upload_staff_document. Throttle: StaffRateThrottle.
+    → Body: { content_type, object_id, attachment_role, note? }
+            content_type is "app_label.model"; object_id max 50 chars;
+            attachment_role max 50 chars; note defaults to "".
+    → 201: { doc_id, attachment_id }
+    → 400: missing/invalid body fields, unknown content type, oversized field
+    → 403: missing documents.upload_staff_document
+    → 404: doc_id not found, not ACTIVE, or soft-deleted
 
 GET    /api/v1/documents/{doc_id}/versions/
-    → List all versions in chain (view_document_versions permission)
-    → 200: list of version metadata
+    → Full version chain for the document, ascending by version_number.
+      Unpaginated (chains are short). Soft-deleted and QUARANTINED siblings
+      are filtered out for every caller, so this endpoint cannot be used to
+      enumerate the quarantine queue one chain at a time.
+    → Auth: owner, or staff with documents.view_all_documents.
+    → 200: list of DocumentSerializer objects
+    → 404: not found, not owned, or soft-deleted
+
+POST   /api/v1/documents/{doc_id}/new-version/
+    → Start a new version of an existing document chain. Returns a presigned
+      S3 POST exactly like /request-upload/; the caller then calls
+      POST /{new_doc_id}/confirm-upload/.
+    → Auth: superuser, staff with documents.upload_staff_document, or the
+      original uploader holding documents.upload_document.
+    → Body: { category_slug, original_filename, mime_type, size_bytes }
+            The shared DocumentUploadRequestSerializer is reused, so
+            category_slug is REQUIRED and must name an existing category even
+            though the new version always inherits the root chain's category.
+            (The view also reads an optional `description`, but the serializer
+             does not declare that field, so it is always "" in practice.)
+    → 201: { doc_id, upload_url, upload_fields, expires_at, version_number }
+    → 400: validation error (size, MIME, extension, chain soft-deleted)
+    → 403: not permitted to version this document
+    → 404: doc_id not found or not owned
+    → 503: presigned URL generation unavailable (ImproperlyConfigured —
+           e.g. the SQLite guard in dev/test, or S3 misconfiguration)
 ```
 
 ### 18.2 Serializers
 
-- **`DocumentSerializer`** — read-only; never exposes `_storage_key`, `scan_engine_result` (except to `view_quarantined` users), `uploaded_by` email.
-- **`DocumentUploadRequestSerializer`** — validates category_slug, mime_type allowlist, size_bytes cap.
-- **`DocumentAttachmentSerializer`** — read-only list; exposes document metadata + role.
+- **`DocumentSerializer`** — read-only (`read_only_fields = fields`); used by the
+  detail, list, quarantined-list and versions endpoints. Exact field list:
+  `doc_id`, `category_slug`, `category_name`, `original_filename`, `mime_type`,
+  `size_bytes`, `scan_status`, `scan_status_display`, `version_number`,
+  `is_latest_version`, `security_classification`,
+  `security_classification_display`, `uploaded_by_id`, `is_on_legal_hold`,
+  `scan_engine_result`, `description`, `expires_at`, `retain_until`,
+  `created_at`, `updated_at`.
+  `_storage_key` is never included. `scan_engine_result` is a
+  `SerializerMethodField` that returns `null` unless the requesting user holds
+  `documents.view_quarantined`. `category_name` is language-aware (fr/en).
+- **`DocumentUploadRequestSerializer`** — write-side input for
+  `/request-upload/` and `/{doc_id}/new-version/`. Fields (all required):
+  `category_slug`, `original_filename`, `mime_type`, `size_bytes`.
+  `category_slug` must reference an existing `DocumentCategory`; `size_bytes`
+  must be >= 1 and <= `CIVICOS["DOCUMENT_MAX_CITIZEN_UPLOAD_BYTES"]`. The full
+  8-layer OWASP validation (magic bytes, extension gating, ZIP bomb, encrypted
+  PDF, per-category caps) happens in the service layer, not here.
+- **`DocumentAttachmentSerializer`** — read-only list serializer for
+  `/attachments/`. Fields: `attachment_id`, `document` (nested
+  `DocumentSerializer`), `attached_to_type` (`app_label.model`),
+  `attached_to_id`, `attachment_role`, `note`, `created_at`.
 
 ---
 
@@ -1714,15 +1840,26 @@ def test_scan_pending_blocks_download(self):
 
 ### Wave 8 — DRF REST API (added 2026-07-23, closes DOC-GAPs 1–5)
 - `apps/api/documents/` module: `serializers.py`, `views.py`, `urls.py`
-- 9 view classes covering all 8 spec §18 endpoints
+- **11 view classes / 11 routes / 12 operations** — the live surface, matching
+  `apps/api/documents/urls.py` exactly (see §18.1 for full request/response
+  shapes and permission requirements):
   - `DocumentRequestUploadView` — POST /api/v1/documents/request-upload/
   - `DocumentConfirmUploadView` — POST /api/v1/documents/{doc_id}/confirm-upload/
   - `DocumentDetailDeleteView` — GET + DELETE /api/v1/documents/{doc_id}/
-  - `DocumentDownloadInitView` — GET /api/v1/documents/{doc_id}/download/
+  - `DocumentDownloadInitView` — POST /api/v1/documents/{doc_id}/request-download/
   - `DocumentTokenRedeemView` — GET /api/v1/documents/dl/{token}/
-  - `DocumentAttachedListView` — GET /api/v1/documents/?attached_to=…
+  - `DocumentListView` — GET /api/v1/documents/
+  - `DocumentAttachedListView` — GET /api/v1/documents/attachments/?attached_to=…&object_id=…
+  - `DocumentQuarantinedListView` — GET /api/v1/documents/quarantined/
   - `DocumentAttachView` — POST /api/v1/documents/{doc_id}/attach/
   - `DocumentVersionsView` — GET /api/v1/documents/{doc_id}/versions/
+  - `DocumentNewVersionView` — POST /api/v1/documents/{doc_id}/new-version/
+- Changes made while closing the BB out (superseding the original Wave 8 shape):
+  - `GET /{doc_id}/download/` → `POST /{doc_id}/request-download/`, and the
+    response key `token_url` → `download_url` (issuing a token is state-changing)
+  - the attachment list moved off the collection root `""` → `attachments/`, so
+    `""` could become the general document list
+  - `quarantined/` and `{doc_id}/new-version/` added
 - 3 serializers: `DocumentSerializer`, `DocumentUploadRequestSerializer`, `DocumentAttachmentSerializer`
 - Wired into `apps/api/urls.py` under `documents/`
 - Renamed old `test_api.py` → `test_views_http_contract.py` (HTML view tests)

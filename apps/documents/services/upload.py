@@ -13,7 +13,8 @@ Defence-in-depth per OWASP File Upload Cheat Sheet (all 8 layers):
   Layer 3: Extension allowlist (not blocklist — _ALLOWED_EXTENSIONS)
   Layer 4: MIME type allowlist (client Content-Type — untrusted, secondary check only)
   Layer 5: Magic-byte validation (python-magic / libmagic) — in confirm_upload()
-  Layer 6: ZIP bomb detection (CVE-2024-0450) — in confirm_upload(), docx/xlsx only
+  Layer 6: ZIP bomb detection (CVE-2024-0450) — in confirm_upload(), gated on the
+           libmagic-DETECTED MIME type (ZIP/OOXML family), never on the filename
   Layer 7: Storage key randomisation (UUID-based, never filename-derived)
   Layer 8: ClamAV virus scan — async Celery task dispatched from confirm_upload()
 
@@ -94,7 +95,40 @@ _ALLOWED_EXTENSIONS: frozenset[str] = frozenset(
 # .docx and .xlsx are ZIP containers — both entry count and compression ratio
 # must be checked. Bare .zip is NOT in _ALLOWED_EXTENSIONS and will be rejected
 # at the extension-allowlist stage before reaching this check.
+#
+# NOTE (audit HIGH-2): this extension set is now only a LAST-RESORT fallback for
+# environments where magic-byte detection is disabled. Layers 5b/6 are gated on
+# the server-DETECTED MIME type (see _PDF_DETECTED_MIME_TYPE /
+# _ZIP_BOMB_DETECTED_MIME_TYPES below), because both the filename extension and
+# the declared Content-Type are attacker-controlled: renaming an encrypted PDF
+# to "evidence.csv" or a ZIP-bomb .docx to "photo.jpg" previously bypassed both
+# checks entirely.
 _ZIP_FAMILY: frozenset[str] = frozenset({"docx", "xlsx"})
+
+# ── Detected-MIME gating sets for Layers 5b and 6 ─────────────────────────────
+# These are matched against the value returned by _validate_magic_bytes()
+# (libmagic's verdict on the real file bytes), NOT against anything supplied by
+# the client. Values are the exact strings used in
+# CIVICOS["ALLOWED_UPLOAD_MIME_TYPES"] (config/settings/base.py) plus the
+# additional ZIP-container types libmagic emits for OOXML files.
+_PDF_DETECTED_MIME_TYPE: str = "application/pdf"
+
+# ZIP-container MIME types that must be inspected for ZIP-bomb structure.
+# Deliberately does NOT include "application/octet-stream": that is libmagic's
+# generic "unknown binary" answer, and treating every unknown binary as an
+# archive would reject legitimate non-archive uploads with a
+# "not a valid archive" error. Any file libmagic can only describe as
+# octet-stream is already rejected by Layer 5 unless a category explicitly
+# allowlists that type.
+_ZIP_BOMB_DETECTED_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "application/zip",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.ms-office",
+    }
+)
 
 # Valid storage key prefixes. Any other value is rejected by _make_storage_key()
 # to prevent path-injection attacks.
@@ -452,8 +486,30 @@ def confirm_upload(
         #
         # PIPEDA note: original_filename is NOT used here or in the error
         # message — the check operates entirely on file bytes.
-        ext = Path(doc.original_filename).suffix.lstrip(".").lower()
-        if ext == "pdf":
+        #
+        # ── Gating (audit HIGH-2) ─────────────────────────────────────────────
+        # Layers 5b and 6 are gated on the SERVER-DETECTED MIME type from the
+        # magic-byte layer above, NOT on the client-supplied filename extension
+        # or Content-Type. Both of those are attacker-controlled: before this
+        # fix, an encrypted PDF renamed "evidence.csv" (declared text/csv) and a
+        # ZIP-bomb .docx renamed "photo.jpg" (declared image/jpeg) skipped both
+        # checks while still satisfying the magic-byte allowlist, because Layer 5
+        # never cross-checked the detected type against the declared one.
+        #
+        # detected_mime is None only when magic-byte validation was deliberately
+        # bypassed (python-magic absent AND CIVICOS["MAGIC_BYTES_REQUIRED"] is
+        # False — a dev-only configuration). In that single case we fall back to
+        # the declared extension: weaker than magic bytes, but strictly better
+        # than skipping Layers 5b/6 altogether.
+        if detected_mime is not None:
+            run_pdf_check = detected_mime == _PDF_DETECTED_MIME_TYPE
+            run_zip_check = detected_mime in _ZIP_BOMB_DETECTED_MIME_TYPES
+        else:
+            ext = Path(doc.original_filename).suffix.lstrip(".").lower()
+            run_pdf_check = ext == "pdf"
+            run_zip_check = ext in _ZIP_FAMILY
+
+        if run_pdf_check:
             pdf_bytes = _read_full_file(doc.storage_key)
             _check_pdf_encryption(pdf_bytes)
 
@@ -462,7 +518,7 @@ def confirm_upload(
         # 8 KB first_bytes used for magic detection is insufficient for any
         # real-world .docx or .xlsx file. Read the full file so zipfile can
         # locate the EOCD record and parse the central directory.
-        if ext in _ZIP_FAMILY:
+        if run_zip_check:
             zip_bytes = _read_full_file(doc.storage_key)
             _check_zip_bomb(zip_bytes)
 
@@ -798,7 +854,26 @@ def _generate_s3_presigned_post(
 
     storage_opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
     bucket_name: str = _get_bucket_name(storage_opts)
-    kms_key_id: str = storage_opts.get("object_parameters", {}).get("SSEKMSKeyId", "")
+
+    # SSE-KMS key resolution — MUST mirror django-storages' own resolution order.
+    #
+    # S3Boto3Storage.get_default_settings() reads `object_parameters` from
+    # STORAGES["default"]["OPTIONS"] if present and otherwise falls back to the
+    # top-level AWS_S3_OBJECT_PARAMETERS Django setting. This function
+    # previously read ONLY the OPTIONS path — which config/settings/production.py
+    # has never populated (it sets AWS_S3_OBJECT_PARAMETERS at the top level) —
+    # so `kms_key_id` was always "" in production and the SSE-KMS fields and
+    # policy conditions below were dead code. Protected B documents were
+    # uploaded with no KMS encryption at all, contradicting this function's own
+    # "Protected B requires KMS" comment.
+    #
+    # Reading both sources keeps the presigned POST's encryption headers in sync
+    # with whatever django-storages itself would apply on its own writes, so the
+    # two families of S3 calls in this BB can never disagree about encryption.
+    _object_parameters: dict = storage_opts.get("object_parameters") or getattr(
+        settings, "AWS_S3_OBJECT_PARAMETERS", {}
+    )
+    kms_key_id: str = (_object_parameters or {}).get("SSEKMSKeyId", "") or ""
 
     # Determine allowed MIME types for this category
     allowed_mimes: list[str] = (
@@ -1287,10 +1362,16 @@ def _check_pdf_encryption(pdf_bytes: bytes) -> None:
 
     Strategy
     ────────
-    Primary:   Use pikepdf to open the file from a BytesIO buffer.
-               pikepdf raises ``pikepdf.PasswordError`` for any encrypted PDF,
-               regardless of whether it uses Standard security, AES-256, or
-               public-key encryption.
+    Primary:   Use pikepdf to open the file from a BytesIO buffer, then test
+               ``Pdf.is_encrypted``.
+               Two distinct real-world cases must both be rejected:
+                 (a) the PDF requires a password to open at all — ``pikepdf.open()``
+                     raises ``pikepdf.PasswordError``;
+                 (b) the PDF is encrypted but has an EMPTY user password (owner
+                     password only) — ``pikepdf.open()`` succeeds, and
+                     ``Pdf.is_encrypted`` is the only signal that the content is
+                     ciphertext.
+               Both raise the same ValidationError so the caller sees one outcome.
     Fallback:  If pikepdf is not installed (misconfigured environment), fall
                back to a raw byte search for the ``/Encrypt`` dictionary
                keyword. This catches the vast majority of encrypted PDFs but
@@ -1311,14 +1392,19 @@ def _check_pdf_encryption(pdf_bytes: bytes) -> None:
     """
     if _pikepdf is not None:
         # Primary: pikepdf is reliable regardless of PDF version or structure.
-        # H-3 fix: Check _pdf.encryption AFTER opening, not just on PasswordError.
-        # pikepdf opens PDFs encrypted with an EMPTY user-password without raising
+        # Check the document AFTER opening, not just on PasswordError: pikepdf
+        # opens PDFs encrypted with an EMPTY user password without raising
         # PasswordError (the empty password is the default). Such PDFs are still
         # encrypted — ClamAV cannot scan the ciphertext — so they must be rejected.
-        # _pdf.encryption is not None for ANY encrypted PDF, including empty-password.
+        #
+        # CRITICAL (audit CRITICAL-1): the test MUST be ``_pdf.is_encrypted``
+        # (a real bool), NOT ``_pdf.encryption``. ``Pdf.encryption`` returns an
+        # ``EncryptionInfo`` object which defines no ``__bool__``/``__len__``
+        # upstream and is therefore truthy for EVERY PDF, encrypted or not —
+        # testing it rejected every clean PDF upload in the BB.
         try:
             with _pikepdf.open(io.BytesIO(pdf_bytes)) as _pdf:
-                if _pdf.encryption:
+                if _pdf.is_encrypted:
                     raise ValidationError(
                         _("Password-protected PDFs are not accepted. "
                           "Please remove the password protection before uploading.")

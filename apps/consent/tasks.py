@@ -243,6 +243,19 @@ def process_data_export(self, export_request_id: str) -> dict:
                 "falling back to storage_path only (category not seeded yet)"
             )
         else:
+            # DELIBERATE, DOCUMENTED EXCEPTION to the Documents BB's prefix
+            # semantics. For that BB's untrusted-upload pipeline,
+            # "documents/active/" means "this object was streamed through ClamAV
+            # and came back clean" — see
+            # apps/documents/tasks._promote_storage_object_to_active(), the only
+            # code path that promotes an upload out of "documents/quarantine/".
+            # This export file never enters that pipeline and is never virus
+            # scanned, by design: `content` is JSON this task just serialised
+            # from the citizen's own database rows (_build_export_payload), not
+            # client-supplied file content. Writing straight to
+            # "documents/active/" is therefore correct here — but do NOT take
+            # this as evidence that "active/" simply means "generally available"
+            # for citizen/staff uploads. It does not.
             _doc_storage_key = f"documents/active/{req.pk}/{_uuid.uuid4().hex}.bin"
             # Write the export bytes under the Documents BB storage key.
             default_storage.save(_doc_storage_key, ContentFile(content))
