@@ -18,7 +18,7 @@ from urllib.parse import urlencode
 
 from django.test import TestCase, override_settings
 
-from apps.appointments.models import GovStackAlertSchedule, GovStackMessage, Organization
+from apps.appointments.models import GovStackAlertSchedule, GovStackBBCredential, GovStackMessage, Organization
 from apps.appointments.services.govstack_alert_schedule import alert_schedule_create
 from apps.appointments.services.govstack_event import event_create
 from apps.appointments.services.govstack_message import message_create
@@ -100,9 +100,9 @@ class MessageNewTests(MessageBaseTestCase):
 
     def test_msg1_happy_path_creates_message(self):
         org = _create_org()
-        qry = {"qry": {"message_details": {
+        qry = {"message_details": {
             "entity_id": str(org.pk), "category": "reminder", "message_body": "Your appointment is tomorrow.",
-        }}}
+        }}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
         data = resp.json()
@@ -114,19 +114,19 @@ class MessageNewTests(MessageBaseTestCase):
         self.assertEqual(msg.message_body, "Your appointment is tomorrow.")
 
     def test_msg2_missing_entity_id_returns_404(self):
-        qry = {"qry": {"message_details": {"category": "reminder", "message_body": "Hi"}}}
+        qry = {"message_details": {"category": "reminder", "message_body": "Hi"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "ENTITY_NOT_FOUND")
 
     def test_msg3_nonexistent_entity_id_returns_404(self):
-        qry = {"qry": {"message_details": {"entity_id": "999999", "category": "reminder"}}}
+        qry = {"message_details": {"entity_id": "999999", "category": "reminder"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "ENTITY_NOT_FOUND")
 
     def test_msg4_malformed_entity_id_returns_404(self):
-        qry = {"qry": {"message_details": {"entity_id": "not-a-number", "category": "reminder"}}}
+        qry = {"message_details": {"entity_id": "not-a-number", "category": "reminder"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "ENTITY_NOT_FOUND")
@@ -135,13 +135,13 @@ class MessageNewTests(MessageBaseTestCase):
         org = _create_org()
         org.is_active = False
         org.save(update_fields=["is_active"])
-        qry = {"qry": {"message_details": {"entity_id": str(org.pk)}}}
+        qry = {"message_details": {"entity_id": str(org.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
 
     def test_msg6_category_too_long_returns_400(self):
         org = _create_org()
-        qry = {"qry": {"message_details": {"entity_id": str(org.pk), "category": "x" * 51}}}
+        qry = {"message_details": {"entity_id": str(org.pk), "category": "x" * 51}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
 
@@ -151,7 +151,7 @@ class MessageNewTests(MessageBaseTestCase):
 
     def test_msg8_blank_category_and_body_allowed(self):
         org = _create_org()
-        qry = {"qry": {"message_details": {"entity_id": str(org.pk)}}}
+        qry = {"message_details": {"entity_id": str(org.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
 
@@ -306,6 +306,23 @@ class MessageListDetailsTests(MessageBaseTestCase):
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["message_id"], str(msg.pk))
 
+    def test_msg25b_filter_by_message_id_array_matches_multiple(self):
+        """
+        Finding #4 fix: message_id is array-typed per the real spec
+        (message_id[]). A JSON array of ids in the qry filter must match ANY
+        of them (pk__in), not just a single exact value.
+        """
+        msg1 = _create_message()
+        msg2 = _create_message()
+        _create_message()  # not included in the filter — must be excluded
+        resp = self._get({"message_filter": {"message_id": [str(msg1.pk), str(msg2.pk)]}})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()["data"]
+        self.assertEqual(
+            {item["message_id"] for item in data},
+            {str(msg1.pk), str(msg2.pk)},
+        )
+
     def test_msg26_response_shape_message_id_and_details(self):
         msg = _create_message(category="shape-test", message_body="body text")
         resp = self._get({"message_filter": {"message_id": str(msg.pk)}})
@@ -350,65 +367,81 @@ class MessageRoleEnforcementTests(MessageBaseTestCase):
     and GET /list_details were covered).
     """
 
+    def _make_role_bb(self, role):
+        """
+        Create a GovStackRegisteredBB (identity, bb_id=_AUTH['requestor_id']) PLUS a
+        real GovStackBBCredential for it, and point _AUTH['request_token'] at the
+        correct plaintext secret. Finding #1 fix: request_token must never equal
+        bb_id — it must verify against a separate hashed secret.
+        """
+        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        token = GovStackBBCredential.generate_plaintext_token()
+        credential = GovStackBBCredential(bb=bb)
+        credential.set_token(token)
+        credential.save()
+        _AUTH["request_token"] = token
+        self.addCleanup(lambda: _AUTH.update(request_token="test-token"))
+        return bb
+
     def test_msg29_resource_role_denied_on_message_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         org = _create_org()
-        qry = {"qry": {"message_details": {"entity_id": str(org.pk)}}}
+        qry = {"message_details": {"entity_id": str(org.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 403)
 
     def test_msg30_admin_role_allowed_on_message_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         org = _create_org()
-        qry = {"qry": {"message_details": {"entity_id": str(org.pk)}}}
+        qry = {"message_details": {"entity_id": str(org.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
 
     def test_msg31_organizer_role_allowed_on_message_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
 
     def test_msg32_resource_role_denied_on_message_modifications(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         msg = _create_message(category="old")
         resp = self._put({"details": {"category": "new"}}, message_id=str(msg.pk))
         self.assertEqual(resp.status_code, 403)
 
     def test_msg33_resource_role_denied_on_message_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         msg = _create_message()
         resp = self._delete(message_id=str(msg.pk))
         self.assertEqual(resp.status_code, 403)
 
 
 # ===========================================================================
-# MSG34: spec-literal wire format (locks in FIX 1 — wrong qry wrapper key)
+# MSG34: spec-literal wire format (the `qry` query PARAMETER's JSON value,
+# single-nested — no additional outer wrapper key)
 # ===========================================================================
 
 class MessageSpecWireFormatTests(MessageBaseTestCase):
     """
     MSG34: a POST /message/new body built EXACTLY per the real GovStack
-    OpenAPI spec's message_new_qry schema — i.e.
-    {"qry": {"message_details": {...}}}, with no other wrapper key — must
-    succeed.
+    OpenAPI spec's message_new_qry schema — i.e. the `qry` query
+    PARAMETER's JSON value is {"message_details": {...}}, single-nested,
+    with no additional outer wrapper key — must succeed.
 
     This test intentionally does NOT reuse any shared payload-building
     helper: it hardcodes the wire-format dict inline so a future accidental
-    revert of the qry wrapper key (e.g. copy-pasting the Event/Appointment
-    wrapper convention again) fails loudly here, independent of any other
-    test in this module.
+    regression — e.g. re-introducing this codebase's own past bug of
+    double-wrapping the `qry` parameter's JSON value under an extra outer
+    "qry" key — fails loudly here, independent of any other test in this
+    module.
     """
 
     def test_msg34_spec_literal_message_new_payload_succeeds(self):
         org = _create_org()
         spec_literal_qry = {
-            "qry": {
-                "message_details": {
-                    "entity_id": str(org.pk),
-                    "category": "reminder",
-                    "message_body": "Your appointment is tomorrow.",
-                }
+            "message_details": {
+                "entity_id": str(org.pk),
+                "category": "reminder",
+                "message_body": "Your appointment is tomorrow.",
             }
         }
         resp = self._post(spec_literal_qry)

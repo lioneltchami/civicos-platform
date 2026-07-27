@@ -22,11 +22,21 @@ Coverage matrix:
         of "role" (resolved_role defaults to "admin" in this mode) —
         regression guard for pre-existing harness/test behaviour.
   GA-2: GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True + GovStackRegisteredBB(role=
-        "resource") — an admin-tier endpoint (EntityNewView) is denied (403).
+        "resource") + a real GovStackBBCredential — an admin-tier endpoint
+        (EntityNewView) is denied (403).
   GA-3: GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True + role="resource" — a
         resource-tier endpoint (ResourceAvailabilityView) passes auth (200).
   GA-4: GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True + role="admin" — the
         admin-tier endpoint (EntityNewView) succeeds (201).
+  GA-4d..GA-4g (Finding #1 regression guards — bb_id is NOT a credential):
+        a caller who knows a registered BB's PUBLIC bb_id but supplies it
+        (or any other value that isn't the real provisioned secret) as
+        request_token is rejected (401), even when requestor_id correctly
+        names that BB; a BB with no provisioned GovStackBBCredential at all
+        cannot authenticate with any token; the correct plaintext secret
+        DOES authenticate successfully. These are the direct verification
+        of this session's "definition of done": a caller who only knows a
+        public bb_id can no longer authenticate as that BB.
   GA-5 through GA-9: GovStackCitizenAuth.authenticate() unit tests — valid
         citizen JWT resolves (user, "govstack_scheduler_subscriber"); no
         Authorization header falls back to BB-only trust; invalid/expired
@@ -35,7 +45,7 @@ Coverage matrix:
         absent falls through (returns None).
 
 Test approach:
-  GA-1..GA-4 exercise the real view/URL layer via the Django test client,
+  GA-1..GA-4g exercise the real view/URL layer via the Django test client,
   following the exact helper pattern already used in
   test_govstack_appointment.py / test_govstack_event.py (query-param auth,
   JSON-encoded `qry`).
@@ -59,6 +69,7 @@ from rest_framework.test import APIRequestFactory
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.appointments.govstack_auth import GovStackCitizenAuth
+from apps.appointments.models import GovStackBBCredential
 from apps.payments.govstack_models import GovStackRegisteredBB
 
 # ---------------------------------------------------------------------------
@@ -71,17 +82,45 @@ RESOURCE_AVAILABILITY_URL = "/govstack/scheduler/resource/availability"
 _BB_ID = "test-registered-bb"
 
 
-def _auth_params(bb_id: str = _BB_ID) -> dict:
-    return {"requestor_id": "some-requestor", "request_token": bb_id}
+def _make_bb_with_credential(bb_id: str = _BB_ID, role: str = "admin") -> tuple[GovStackRegisteredBB, str]:
+    """
+    Create a GovStackRegisteredBB row AND a real GovStackBBCredential for it.
+
+    Returns (bb, plaintext_token) — the plaintext is only ever available at
+    creation time (mirrors govstack_generate_bb_credential's one-shot print).
+    """
+    bb = GovStackRegisteredBB.objects.create(bb_id=bb_id, is_active=True, role=role)
+    plaintext = GovStackBBCredential.generate_plaintext_token()
+    credential = GovStackBBCredential(bb=bb)
+    credential.set_token(plaintext)
+    credential.save()
+    return bb, plaintext
+
+
+def _auth_params(requestor_id: str = "some-requestor", request_token: str = _BB_ID) -> dict:
+    """
+    Default params for GOVSTACK_SCHEDULER_REQUIRE_TOKEN=False (harness mode)
+    tests, where any non-empty pair passes regardless of DB state — these
+    values are intentionally NOT a valid (requestor_id, real secret) pair
+    for production mode, since harness-mode tests never reach the DB lookup.
+    """
+    return {"requestor_id": requestor_id, "request_token": request_token}
 
 
 def _qs(**extra) -> str:
     return "?" + urlencode({**_auth_params(), **extra})
 
 
+def _qs_with(requestor_id: str, request_token: str, **extra) -> str:
+    """Build a query string with an explicit (requestor_id, request_token) pair."""
+    return "?" + urlencode({"requestor_id": requestor_id, "request_token": request_token, **extra})
+
+
 def _entity_new_qry() -> str:
-    """Minimal valid { "qry": { "details": {...} } } payload for /entity/new."""
-    return json.dumps({"qry": {"details": {}}})
+    """Minimal valid { "details": {...} } payload for /entity/new (the `qry`
+    query PARAMETER's JSON value, single-nested — no additional outer "qry"
+    wrapper key)."""
+    return json.dumps({"details": {}})
 
 
 def _make_citizen(is_staff: bool = False):
@@ -141,36 +180,84 @@ class SchedulerRoleHarnessModeTest(TestCase):
 
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class SchedulerRoleEnforcementTest(TestCase):
-    """GA-2, GA-3, GA-4: role enforcement against a real GovStackRegisteredBB row."""
+    """
+    GA-2, GA-3, GA-4: role enforcement against a real GovStackRegisteredBB row
+    PLUS a real, hashed GovStackBBCredential (Finding #1 fix) — requestor_id
+    is now the bb_id identity lookup and request_token is verified against
+    the credential's hash, never against bb_id itself.
+    """
 
     def test_ga2_resource_role_bb_denied_admin_tier_endpoint(self):
         """GA-2: a role='resource' BB is denied (403) on an admin-tier endpoint."""
-        GovStackRegisteredBB.objects.create(bb_id=_BB_ID, is_active=True, role="resource")
-        resp = self.client.post(ENTITY_NEW_URL + _qs(qry=_entity_new_qry()))
+        _bb, token = _make_bb_with_credential(role="resource")
+        resp = self.client.post(ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry()))
         self.assertEqual(resp.status_code, 403)
 
     def test_ga3_resource_role_bb_passes_auth_on_resource_tier_endpoint(self):
         """GA-3: the SAME role='resource' BB passes auth on a resource-tier endpoint."""
-        GovStackRegisteredBB.objects.create(bb_id=_BB_ID, is_active=True, role="resource")
-        resp = self.client.get(RESOURCE_AVAILABILITY_URL + _qs(qry=json.dumps({})))
+        _bb, token = _make_bb_with_credential(role="resource")
+        resp = self.client.get(RESOURCE_AVAILABILITY_URL + _qs_with(_BB_ID, token, qry=json.dumps({})))
         self.assertEqual(resp.status_code, 200)
 
     def test_ga4_admin_role_bb_succeeds_on_admin_tier_endpoint(self):
         """GA-4: a role='admin' BB succeeds (201) on the admin-tier endpoint."""
-        GovStackRegisteredBB.objects.create(bb_id=_BB_ID, is_active=True, role="admin")
-        resp = self.client.post(ENTITY_NEW_URL + _qs(qry=_entity_new_qry()))
+        _bb, token = _make_bb_with_credential(role="admin")
+        resp = self.client.post(ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry()))
         self.assertEqual(resp.status_code, 201)
 
     def test_ga4b_organizer_role_bb_denied_admin_tier_endpoint(self):
         """Complements GA-2/GA-4: role='organizer' (below 'admin') is also denied (403)."""
-        GovStackRegisteredBB.objects.create(bb_id=_BB_ID, is_active=True, role="organizer")
-        resp = self.client.post(ENTITY_NEW_URL + _qs(qry=_entity_new_qry()))
+        _bb, token = _make_bb_with_credential(role="organizer")
+        resp = self.client.post(ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry()))
         self.assertEqual(resp.status_code, 403)
 
     def test_ga4c_unregistered_bb_id_denied_before_role_check(self):
-        """No matching GovStackRegisteredBB row at all → 401 (whitelist check runs first)."""
-        resp = self.client.post(ENTITY_NEW_URL + _qs(qry=_entity_new_qry()))
+        """No matching GovStackRegisteredBB row at all → 401 (identity lookup runs first)."""
+        resp = self.client.post(ENTITY_NEW_URL + _qs_with("no-such-bb", "irrelevant-token", qry=_entity_new_qry()))
         self.assertEqual(resp.status_code, 401)
+
+    # -----------------------------------------------------------------------
+    # Finding #1 regression guards — bb_id must NEVER work as a bearer credential
+    # -----------------------------------------------------------------------
+
+    def test_ga4d_bb_id_used_as_request_token_is_rejected(self):
+        """
+        GA-4d (Finding #1 core verification): a caller who knows a registered
+        BB's PUBLIC bb_id and supplies THAT SAME VALUE as request_token
+        (the exact pre-fix vulnerability: request_token == bb_id) is now
+        rejected. Direct proof that "a caller who only knows a public bb_id
+        can no longer authenticate as that BB."
+        """
+        _make_bb_with_credential(role="admin")  # real credential exists but is never used
+        resp = self.client.post(
+            ENTITY_NEW_URL + _qs_with(_BB_ID, _BB_ID, qry=_entity_new_qry())  # request_token = bb_id itself
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_ga4e_correct_requestor_id_wrong_token_is_rejected(self):
+        """GA-4e: valid requestor_id (real bb_id) + an arbitrary wrong token → 401."""
+        _make_bb_with_credential(role="admin")
+        resp = self.client.post(
+            ENTITY_NEW_URL + _qs_with(_BB_ID, "totally-made-up-guess", qry=_entity_new_qry())
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_ga4f_registered_bb_with_no_provisioned_credential_is_rejected(self):
+        """GA-4f: a GovStackRegisteredBB row with NO GovStackBBCredential row rejects any token."""
+        GovStackRegisteredBB.objects.create(bb_id=_BB_ID, is_active=True, role="admin")
+        resp = self.client.post(
+            ENTITY_NEW_URL + _qs_with(_BB_ID, "any-value-at-all", qry=_entity_new_qry())
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_ga4g_correct_plaintext_secret_authenticates_successfully(self):
+        """GA-4g: the real provisioned secret (not bb_id) authenticates correctly (201)."""
+        _bb, token = _make_bb_with_credential(role="admin")
+        self.assertNotEqual(token, _BB_ID)  # sanity: the secret is not the identifier
+        resp = self.client.post(
+            ENTITY_NEW_URL + _qs_with(_BB_ID, token, qry=_entity_new_qry())
+        )
+        self.assertEqual(resp.status_code, 201)
 
 
 # ---------------------------------------------------------------------------

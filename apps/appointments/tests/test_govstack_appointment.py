@@ -10,12 +10,16 @@ Covers 4 endpoints:
 Tests are numbered AP1-AP49, mirroring the numbering style used in
 test_govstack_event.py.
 
-Serializer note: POST /appointment/new wraps the creation payload as
-{"qry": {"appointment_details": {...}}} — NOT {"qry": {"details": {...}}} as
-every other */new endpoint uses. This was verified directly against the real
-GovStack OpenAPI spec (components.schemas.appointment_new_qry) during Wave E
+Serializer note: POST /appointment/new expects the creation payload — the
+JSON value of the `qry` query PARAMETER, single-nested — as
+{"appointment_details": {...}} — NOT {"details": {...}} as every other
+*/new endpoint uses. This was verified directly against the real GovStack
+OpenAPI spec (components.schemas.appointment_new_qry) during Wave E
 implementation; see govstack_serializers.py's
-_AppointmentQryDetailsSerializer docstring for the full note.
+_AppointmentQryDetailsSerializer docstring for the full note. (A separate,
+unrelated bug — this codebase additionally double-wrapping that JSON value
+under an extra outer "qry" key — was fixed later; all payloads below use the
+correct single-nested shape.)
 """
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.appointments.models import (
     AppointmentType,
     Booking,
+    GovStackBBCredential,
     Location,
     Organization,
     ServiceType,
@@ -247,7 +252,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
             "participant_id": str(self.citizen.pk),
         }
         details.update(extra_details)
-        return {"qry": {"appointment_details": details}}
+        return {"appointment_details": details}
 
     # AP1
     def test_ap1_post_new_valid_single_event_id_returns_201(self):
@@ -304,7 +309,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
             "participant_type": "subscriber",
             "participant_id": str(self.citizen.pk),
         }
-        resp = self._post({"qry": {"appointment_details": details}})
+        resp = self._post({"appointment_details": details})
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["status"], "error")
 
@@ -317,7 +322,7 @@ class AppointmentNewTests(AppointmentBaseTestCase):
             "participant_type": "subscriber",
             "participant_id": "9999999",
         }
-        resp = self._post({"qry": {"appointment_details": details}})
+        resp = self._post({"appointment_details": details})
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "PARTICIPANT_NOT_FOUND")
 
@@ -930,7 +935,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
     def test_ap53_citizen_jwt_create_without_participant_id_defaults_to_self(self):
         """AP53: omitting participant_id on a citizen JWT call books for the caller themselves."""
         details = {"event_ids": [str(self.slot.pk)]}
-        qry = {"qry": {"appointment_details": details}}
+        qry = {"appointment_details": details}
         resp = self.client.post(
             NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
         )
@@ -946,7 +951,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
             "participant_type": "subscriber",
             "participant_id": str(self.citizen.pk),
         }
-        qry = {"qry": {"appointment_details": details}}
+        qry = {"appointment_details": details}
         resp = self.client.post(
             NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
         )
@@ -960,7 +965,7 @@ class AppointmentCitizenOwnershipTests(TestCase):
             "participant_type": "subscriber",
             "participant_id": str(self.other_citizen.pk),
         }
-        qry = {"qry": {"appointment_details": details}}
+        qry = {"appointment_details": details}
         resp = self.client.post(
             NEW_URL + _qry_qs(qry), **_jwt_header(self.citizen)
         )
@@ -1073,23 +1078,39 @@ class AppointmentBBRoleGatingTests(TestCase):
         slots = _create_event(name="BB Role Event", slots=[_SLOT_1])
         self.slot = slots[0]
 
+    def _make_role_bb(self, role):
+        """
+        Create a GovStackRegisteredBB (identity, bb_id=_AUTH['requestor_id']) PLUS a
+        real GovStackBBCredential for it, and point _AUTH['request_token'] at the
+        correct plaintext secret. Finding #1 fix: request_token must never equal
+        bb_id — it must verify against a separate hashed secret.
+        """
+        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        token = GovStackBBCredential.generate_plaintext_token()
+        credential = GovStackBBCredential(bb=bb)
+        credential.set_token(token)
+        credential.save()
+        _AUTH["request_token"] = token
+        self.addCleanup(lambda: _AUTH.update(request_token="test-token"))
+        return bb
+
     # AP60
     def test_ap60_organizer_role_bb_can_create_for_arbitrary_participant(self):
         """AP60: role='organizer' BB may create an appointment for any participant_id."""
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         details = {
             "event_ids": [str(self.slot.pk)],
             "participant_type": "subscriber",
             "participant_id": str(self.citizen.pk),
         }
-        qry = {"qry": {"appointment_details": details}}
+        qry = {"appointment_details": details}
         resp = self.client.post(NEW_URL + _qry_qs(qry))
         self.assertEqual(resp.status_code, 201)
 
     # AP61
     def test_ap61_organizer_role_bb_can_delete_arbitrary_appointment(self):
         """AP61: role='organizer' BB may cancel any citizen's appointment."""
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         bookings = appointment_create(
             event_ids=[str(self.slot.pk)],
             participant_type="subscriber",
@@ -1101,7 +1122,7 @@ class AppointmentBBRoleGatingTests(TestCase):
     # AP62
     def test_ap62_organizer_role_bb_can_list_arbitrary_participant(self):
         """AP62: role='organizer' BB may list appointments filtered to any participant_id."""
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         appointment_create(
             event_ids=[str(self.slot.pk)],
             participant_type="subscriber",
@@ -1115,13 +1136,13 @@ class AppointmentBBRoleGatingTests(TestCase):
     # AP63
     def test_ap63_resource_role_bb_denied_create(self):
         """AP63: role='resource' (below 'organizer') is denied (403) on create."""
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         details = {
             "event_ids": [str(self.slot.pk)],
             "participant_type": "subscriber",
             "participant_id": str(self.citizen.pk),
         }
-        qry = {"qry": {"appointment_details": details}}
+        qry = {"appointment_details": details}
         resp = self.client.post(NEW_URL + _qry_qs(qry))
         self.assertEqual(resp.status_code, 403)
         self.assertFalse(Booking.objects.filter(slot=self.slot).exists())
@@ -1129,7 +1150,7 @@ class AppointmentBBRoleGatingTests(TestCase):
     # AP64
     def test_ap64_resource_role_bb_denied_delete(self):
         """AP64: role='resource' is denied (403) on delete; the booking is left untouched."""
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         bookings = appointment_create(
             event_ids=[str(self.slot.pk)],
             participant_type="subscriber",
@@ -1143,6 +1164,6 @@ class AppointmentBBRoleGatingTests(TestCase):
     # AP65
     def test_ap65_resource_role_bb_denied_list(self):
         """AP65: role='resource' is denied (403) on list_details."""
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         resp = self.client.get(LIST_URL + _qs())
         self.assertEqual(resp.status_code, 403)

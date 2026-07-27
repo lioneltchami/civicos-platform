@@ -3,30 +3,59 @@ GovStack Scheduler BB — authentication and permission classes.
 
 GovStack Scheduler BB-to-BB authentication uses query parameters rather
 than headers. Every call from a GovStack Building Block carries:
-  - requestor_id   : identifies the requesting BB or actor
-  - request_token  : authenticates the requestor (validated against GovStackRegisteredBB)
+  - requestor_id   : identifies the requesting BB (looked up as
+                     GovStackRegisteredBB.bb_id — a PUBLIC, non-secret
+                     infrastructure identifier; safe to log/display)
+  - request_token  : authenticates the requestor — verified against a
+                     SEPARATE, high-entropy, hashed secret stored in
+                     GovStackBBCredential (apps.appointments.models),
+                     never against bb_id itself
 
 This contrasts with the Payments BB pattern (X-Registering-Institution-ID header).
 
 Auth classes in this module are used on all /govstack/scheduler/ endpoints.
 They are SEPARATE from CivicOS citizen auth (JWT / session / allauth).
 
+SECURITY HISTORY (Finding #1, fixed):
+  Earlier versions of this module validated request_token via
+  ``GovStackRegisteredBB.objects.filter(bb_id=request_token, ...)`` — i.e.
+  the "secret" token WAS the same bb_id value used elsewhere as a public
+  identifier (Django admin display, plaintext logs, the Payments BB's
+  ordinary SourceBBID request field). Anyone who learned a registered BB's
+  bb_id could fully authenticate as that BB. This was a genuine
+  auth-bypass-by-design, not just a spec-conformance gap. The fix
+  introduces GovStackBBCredential: requestor_id now ONLY performs an
+  identity lookup (bb_id, non-secret), and request_token is checked with
+  ``check_token()`` against a hashed secret that is never equal to, or
+  derived from, bb_id. See GovStackBBCredential's docstring for full detail
+  and the generation flow (govstack_generate_bb_credential management
+  command).
+
 Operating modes:
 
   GOVSTACK_SCHEDULER_REQUIRE_TOKEN=False (default — harness / development):
     Any non-empty requestor_id + request_token passes authentication.
-    The GovStackRegisteredBB table is NOT consulted.
+    Neither GovStackRegisteredBB nor GovStackBBCredential is consulted.
     Use this mode when running the GovStack certification harness before
-    seeding the whitelist table.
+    provisioning real credentials.
 
   GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True (production):
-    request_token must match an active GovStackRegisteredBB row (bb_id=request_token).
-    requestor_id must be non-empty and at most 100 chars.
+    requestor_id must resolve to an active GovStackRegisteredBB row, that
+    row must have an associated GovStackBBCredential, and request_token
+    must verify against that credential's hashed secret via check_token().
+    requestor_id must also be non-empty and at most 100 chars.
     Set this in production.py alongside GOVSTACK_REQUIRE_REGISTERED_BB.
 
   If both query parameters are absent, GovStackSchedulerAuth returns None so
   that DRF falls through to other authentication backends (e.g. simplejwt for
   admin access). This preserves the standard CivicOS auth stack for non-BB callers.
+
+Citizen self-booking decision (explicitly considered, see GovStackCitizenAuth
+below): YES, citizen self-service endpoints still require the BB credential
+gate. The calling system (e.g. CivicOS's own citizen portal) holds the
+secret on the citizen's behalf, so the citizen never manages a credential —
+this preserves defense-in-depth by verifying which system is calling, in
+addition to who the citizen is, rather than trusting citizen JWTs alone.
 
 Permission classes:
 
@@ -100,9 +129,12 @@ class GovStackSchedulerAuth(BaseAuthentication):
         request_token pass authentication without a DB lookup.
 
       GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True (production default via production.py):
-        DB lookup — request_token must match a GovStackRegisteredBB row with
-        is_active=True.  Run seed_govstack_vouchers first to create the
-        harness row (bb_id="GS-HARNESS") before enabling this mode.
+        requestor_id must match an active GovStackRegisteredBB row (identity
+        lookup only), AND request_token must verify against that BB's
+        GovStackBBCredential hashed secret via check_token(). bb_id itself is
+        NEVER accepted as the credential (see module docstring, Finding #1).
+        Run govstack_generate_bb_credential to provision a credential for a
+        registered BB before enabling this mode.
 
     Return value on success: (None, "govstack_scheduler")
       - user is None because GovStack BB-to-BB calls are not tied to a Django user;
@@ -162,26 +194,58 @@ class GovStackSchedulerAuth(BaseAuthentication):
         require_token = getattr(settings, "GOVSTACK_SCHEDULER_REQUIRE_TOKEN", False)
 
         if require_token:
-            # Production mode: validate request_token against the GovStackRegisteredBB table
-            # and resolve the caller's trust-tier role from that row.
-            # Lazy import avoids circular import issues at module load time and keeps
+            # Production mode: requestor_id resolves an active GovStackRegisteredBB row
+            # (identity lookup only — bb_id is a public, non-secret identifier). The
+            # ACTUAL credential check is request_token verified against that BB's
+            # separate GovStackBBCredential hashed secret via check_token(). This is
+            # the Finding #1 fix: bb_id itself is NEVER accepted as a bearer credential.
+            # Lazy imports avoid circular import issues at module load time and keep
             # this file importable before the app registry is fully initialised.
+            from apps.appointments.models import GovStackBBCredential  # noqa: PLC0415
             from apps.payments.govstack_models import GovStackRegisteredBB  # noqa: PLC0415
 
             bb = GovStackRegisteredBB.objects.filter(
-                bb_id=request_token,
+                bb_id=requestor_id,
                 is_active=True,
             ).first()
             if bb is None:
                 logger.warning(
-                    "govstack_scheduler_auth: request_token=[REDACTED] not in whitelist "
-                    "or inactive requestor_id=%r path=%s",
+                    "govstack_scheduler_auth: requestor_id=%r not in whitelist or inactive "
+                    "path=%s",
                     requestor_id,
                     request.path,
                 )
                 raise AuthenticationFailed(
-                    "request_token is invalid or the requesting BB is not registered."
+                    "requestor_id is invalid or the requesting BB is not registered."
                 )
+
+            credential = GovStackBBCredential.objects.filter(bb=bb).first()
+            if credential is None or not credential.check_token(request_token):
+                logger.warning(
+                    "govstack_scheduler_auth: request_token=[REDACTED] failed verification "
+                    "for requestor_id=%r path=%s",
+                    requestor_id,
+                    request.path,
+                )
+                raise AuthenticationFailed(
+                    "request_token is invalid for the given requestor_id."
+                )
+
+            # Best-effort last_used_at bookkeeping — never let a logging/audit write
+            # fail the authentication path itself.
+            try:
+                from django.utils import timezone as _tz  # noqa: PLC0415
+
+                GovStackBBCredential.objects.filter(pk=credential.pk).update(
+                    last_used_at=_tz.now()
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "govstack_scheduler_auth: failed to update last_used_at for "
+                    "credential pk=%s (non-fatal)",
+                    credential.pk,
+                )
+
             resolved_role = bb.role
         else:
             # Dev/harness mode is a bootstrapping convenience, not a security boundary

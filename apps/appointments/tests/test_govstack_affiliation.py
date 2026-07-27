@@ -14,10 +14,16 @@ copied from test_govstack_message.py / test_govstack_alert_schedule.py;
 auth/role enforcement pattern copied from test_govstack_log.py. Test
 numbering: AFF1-AFFxx.
 
-AFF1 below locks in FIX 1 (the wrong "details" qry wrapper key — real spec
-key is "affiliation_details"). AFF20/AFF21 lock in FIX 2 (the wrong
+AFF1 below locks in FIX 1 (the wrong "details" inner key — real spec key is
+"affiliation_details"). AFF20/AFF21 lock in FIX 2 (the wrong
 "resource_category" filter/details_required field name — real spec key is
 "category" — plus the previously entirely-missing from/to date-range filter).
+
+Note: a separate, unrelated bug — this codebase double-wrapping the `qry`
+query PARAMETER's JSON value under an extra outer "qry" key — was fixed
+later. All payloads below use the correct single-nested shape, e.g.
+{"affiliation_details": {...}} rather than {"qry": {"affiliation_details":
+{...}}}.
 """
 from __future__ import annotations
 
@@ -27,7 +33,7 @@ from urllib.parse import urlencode
 from django.test import TestCase, override_settings
 from django.utils.dateparse import parse_datetime
 
-from apps.appointments.models import GovStackAffiliation
+from apps.appointments.models import GovStackAffiliation, GovStackBBCredential
 from apps.appointments.services.govstack_affiliation import affiliation_create
 from apps.appointments.services.govstack_entity import entity_create
 from apps.appointments.services.govstack_resource import resource_create
@@ -111,15 +117,16 @@ class AffiliationNewTests(AffiliationBaseTestCase):
 
     def test_aff1_spec_literal_wire_format_succeeds(self):
         """AFF1 (locks in FIX 1): the real spec's affiliation_new_qry shape,
-        {"qry": {"affiliation_details": {...}}}, must succeed."""
+        {"affiliation_details": {...}} (single-nested — this is the JSON
+        value of the `qry` query PARAMETER itself), must succeed."""
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"qry": {"affiliation_details": {
+        qry = {"affiliation_details": {
             "resource_id": str(resource.pk),
             "entity_id": str(entity.pk),
             "resource_category": "nurse",
             "work_days_hours": {"monday": {"from": "09:00", "to": "17:00"}},
-        }}}
+        }}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
         data = resp.json()
@@ -135,34 +142,34 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         missing, so validation fails with 400."""
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"qry": {"details": {"resource_id": str(resource.pk), "entity_id": str(entity.pk)}}}
+        qry = {"details": {"resource_id": str(resource.pk), "entity_id": str(entity.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
 
     def test_aff3_missing_resource_id_returns_400(self):
         entity = _create_entity()
-        qry = {"qry": {"affiliation_details": {"entity_id": str(entity.pk)}}}
+        qry = {"affiliation_details": {"entity_id": str(entity.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "MISSING_RESOURCE_ID")
 
     def test_aff4_missing_entity_id_returns_400(self):
         resource = _create_resource()
-        qry = {"qry": {"affiliation_details": {"resource_id": str(resource.pk)}}}
+        qry = {"affiliation_details": {"resource_id": str(resource.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "MISSING_ENTITY_ID")
 
     def test_aff5_nonexistent_resource_id_returns_404(self):
         entity = _create_entity()
-        qry = {"qry": {"affiliation_details": {"resource_id": "999999", "entity_id": str(entity.pk)}}}
+        qry = {"affiliation_details": {"resource_id": "999999", "entity_id": str(entity.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "RESOURCE_NOT_FOUND")
 
     def test_aff6_nonexistent_entity_id_returns_404(self):
         resource = _create_resource()
-        qry = {"qry": {"affiliation_details": {"resource_id": str(resource.pk), "entity_id": "999999"}}}
+        qry = {"affiliation_details": {"resource_id": str(resource.pk), "entity_id": "999999"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "ENTITY_NOT_FOUND")
@@ -171,7 +178,7 @@ class AffiliationNewTests(AffiliationBaseTestCase):
         resource = _create_resource()
         entity = _create_entity()
         _create_affiliation(resource=resource, entity=entity)
-        qry = {"qry": {"affiliation_details": {"resource_id": str(resource.pk), "entity_id": str(entity.pk)}}}
+        qry = {"affiliation_details": {"resource_id": str(resource.pk), "entity_id": str(entity.pk)}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 409)
         self.assertEqual(resp.json()["code"], "DUPLICATE_AFFILIATION")
@@ -183,9 +190,9 @@ class AffiliationNewTests(AffiliationBaseTestCase):
     def test_aff9_missing_auth_params_returns_401_or_403(self):
         resource = _create_resource()
         entity = _create_entity()
-        qry = json.dumps({"qry": {"affiliation_details": {
+        qry = json.dumps({"affiliation_details": {
             "resource_id": str(resource.pk), "entity_id": str(entity.pk),
-        }}})
+        }})
         resp = self.client.post(NEW_URL + f"?qry={qry}")
         self.assertIn(resp.status_code, (401, 403))
 
@@ -388,56 +395,72 @@ class AffiliationRoleEnforcementTests(AffiliationBaseTestCase):
     role-enforcement pattern used in test_govstack_log.py.
     """
 
+    def _make_role_bb(self, role):
+        """
+        Create a GovStackRegisteredBB (identity, bb_id=_AUTH['requestor_id']) PLUS a
+        real GovStackBBCredential for it, and point _AUTH['request_token'] at the
+        correct plaintext secret. Finding #1 fix: request_token must never equal
+        bb_id — it must verify against a separate hashed secret.
+        """
+        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        token = GovStackBBCredential.generate_plaintext_token()
+        credential = GovStackBBCredential(bb=bb)
+        credential.set_token(token)
+        credential.save()
+        _AUTH["request_token"] = token
+        self.addCleanup(lambda: _AUTH.update(request_token="test-token"))
+        return bb
+
     def test_aff30_organizer_role_denied_on_affiliation_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"qry": {"affiliation_details": {
+        qry = {"affiliation_details": {
             "resource_id": str(resource.pk), "entity_id": str(entity.pk),
-        }}}
+        }}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 403)
 
     def test_aff31_admin_role_allowed_on_affiliation_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         resource = _create_resource()
         entity = _create_entity()
-        qry = {"qry": {"affiliation_details": {
+        qry = {"affiliation_details": {
             "resource_id": str(resource.pk), "entity_id": str(entity.pk),
-        }}}
+        }}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
 
     def test_aff32_organizer_role_denied_on_affiliation_modifications(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         aff = _create_affiliation()
         resp = self._put({"details": {"resource_category": "x"}}, affiliation_id=aff.pk)
         self.assertEqual(resp.status_code, 403)
 
     def test_aff33_admin_role_allowed_on_affiliation_modifications(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         aff = _create_affiliation()
         resp = self._put({"details": {"resource_category": "x"}}, affiliation_id=aff.pk)
         self.assertEqual(resp.status_code, 200)
 
     def test_aff34_organizer_role_denied_on_affiliation_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         aff = _create_affiliation()
         resp = self._delete(affiliation_id=aff.pk)
         self.assertEqual(resp.status_code, 403)
 
     def test_aff35_admin_role_allowed_on_affiliation_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         aff = _create_affiliation()
         resp = self._delete(affiliation_id=aff.pk)
         self.assertEqual(resp.status_code, 200)
 
     def test_aff36_organizer_role_denied_on_affiliation_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resp = self._get()
         self.assertEqual(resp.status_code, 403)
 
     def test_aff37_admin_role_allowed_on_affiliation_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)

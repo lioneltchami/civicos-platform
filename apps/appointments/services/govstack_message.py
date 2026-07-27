@@ -175,7 +175,11 @@ def message_list(
 
     message_filter keys
     ────────────────────
-    message_id    — exact match on PK
+    message_id    — array-typed per the real spec (message_id[]); matches
+                    ANY of the given ids (pk__in). MessageFilterSerializer's
+                    StringOrListField normalizes a single bare string into a
+                    1-element list, so this is always list-shaped by the
+                    time it reaches this function (Finding #4 fix).
     entity_id     — exact match on entity FK
     category      — exact match
     message_body  — case-insensitive substring match
@@ -195,7 +199,7 @@ def message_list(
     filter_data = message_filter or {}
 
     if filter_data.get("message_id"):
-        qs = qs.filter(pk=filter_data["message_id"])
+        qs = qs.filter(pk__in=filter_data["message_id"])
 
     if filter_data.get("entity_id"):
         qs = qs.filter(entity_id=filter_data["entity_id"])

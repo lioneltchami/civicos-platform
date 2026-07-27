@@ -30,6 +30,11 @@ from .models import (
     Booking,
     BookingAuditLog,
     ClientNoShowRecord,
+    GovStackAffiliation,
+    GovStackAlertSchedule,
+    GovStackBBCredential,
+    GovStackMessage,
+    GovStackSubscriberProfile,
     Location,
     Organization,
     Resource,
@@ -1214,3 +1219,118 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
 
 # Add AvailabilityTemplate inline to StaffProfileAdmin
 StaffProfileAdmin.inlines = list(StaffProfileAdmin.inlines) + [AvailabilityTemplateInline]
+
+
+# ===========================================================================
+# GovStack Scheduler BB — supplementary models
+# ===========================================================================
+
+
+@admin.register(GovStackSubscriberProfile)
+class GovStackSubscriberProfileAdmin(admin.ModelAdmin):
+    """
+    Admin for GovStack Subscriber extension.
+    PIPEDA: list view shows user_id (PK) only — never email or name.
+    alert_url/status_poll_url are operator-supplied callback endpoints
+    (see the SSRF hardening in services/govstack_resource.py's sibling
+    fields for the general pattern) and are display-only here.
+    """
+
+    list_display = (
+        "id",
+        "user_id_display",
+        "category",
+        "alert_preference",
+        "created_at",
+    )
+    list_filter = ("category", "alert_preference")
+    search_fields = ()  # No PII search fields — user email/name are on the User model.
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "updated_at")
+
+    @admin.display(description=_("User ID"))
+    def user_id_display(self, obj: GovStackSubscriberProfile) -> str:
+        return str(obj.user_id)
+
+
+@admin.register(GovStackMessage)
+class GovStackMessageAdmin(admin.ModelAdmin):
+    """Admin for GovStack reusable notification message templates."""
+
+    list_display = ("id", "category", "entity", "created_at")
+    list_filter = ("category", "entity")
+    search_fields = ("category", "message_body", "entity__name_en")
+    ordering = ("entity", "category")
+    autocomplete_fields = ("entity",)
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(GovStackAffiliation)
+class GovStackAffiliationAdmin(admin.ModelAdmin):
+    """Admin for GovStack Resource↔Entity affiliation records."""
+
+    list_display = ("id", "resource", "entity", "resource_category", "created_at")
+    list_filter = ("resource_category", "entity")
+    search_fields = ("resource__name_en", "entity__name_en", "resource_category")
+    ordering = ("entity", "resource")
+    autocomplete_fields = ("resource", "entity")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(GovStackAlertSchedule)
+class GovStackAlertScheduleAdmin(admin.ModelAdmin):
+    """Admin for scheduled GovStack push notifications."""
+
+    list_display = (
+        "id",
+        "slot",
+        "message",
+        "target_category",
+        "alert_datetime",
+        "dispatched_icon",
+    )
+    list_filter = ("dispatched", "target_category")
+    search_fields = ("celery_task_id",)
+    ordering = ("alert_datetime",)
+    date_hierarchy = "alert_datetime"
+    autocomplete_fields = ("slot", "message")
+    readonly_fields = ("created_at", "updated_at", "celery_task_id", "dispatched")
+
+    @admin.display(description=_("Dispatched"), boolean=False)
+    def dispatched_icon(self, obj: GovStackAlertSchedule) -> str:
+        return _bool_icon(obj.dispatched)
+
+
+@admin.register(GovStackBBCredential)
+class GovStackBBCredentialAdmin(admin.ModelAdmin):
+    """
+    Admin for GovStack Scheduler BB authentication credentials.
+
+    SECURITY: token_hash is NEVER displayed or editable here — only the
+    non-secret 8-character token_prefix is shown, purely so an operator can
+    visually distinguish rotated credentials from one another. There is no
+    admin action to view or export the plaintext secret; it exists only at
+    generation time via the govstack_generate_bb_credential management
+    command and is never persisted anywhere in recoverable form.
+    """
+
+    list_display = ("id", "bb", "token_prefix", "last_used_at", "rotated_at")
+    search_fields = ("bb__bb_id", "token_prefix")
+    ordering = ("-rotated_at",)
+    autocomplete_fields = ("bb",)
+    readonly_fields = ("token_prefix", "last_used_at", "rotated_at", "created_at", "updated_at")
+    # token_hash is deliberately excluded from all fieldsets — never rendered,
+    # even as a readonly field, to keep the hash out of the admin HTML entirely.
+    fields = ("bb", "token_prefix", "last_used_at", "rotated_at", "created_at", "updated_at")
+
+    def has_add_permission(self, request):
+        # Credentials are provisioned only via govstack_generate_bb_credential
+        # (which handles plaintext generation + hashing). No add form here —
+        # there is no safe way to let an admin type in a "secret" through a
+        # plain HTML form field without it being logged/cached in transit.
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        # Rotation is a generate-new-secret operation, not a field edit —
+        # done exclusively via the management command's --rotate flag.
+        return False

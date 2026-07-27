@@ -100,6 +100,38 @@ class GovStackListResponseSerializer(serializers.Serializer):
     data = serializers.ListField(child=serializers.DictField(), read_only=True)
 
 
+class StringOrListField(serializers.Field):
+    """
+    Accepts either a single string or a JSON array of strings; always
+    normalizes to a list of strings (empty list if absent/blank).
+
+    Finding #4 fix: the real GovStack OpenAPI spec types
+    alert_schedule_filter.alert_schedule_id and message_filter.message_id
+    as array fields (alert_schedule_id[], message_id[]) — i.e. a caller may
+    filter for MULTIPLE ids in one call. Earlier versions of
+    AlertScheduleFilterSerializer/MessageFilterSerializer instead declared
+    these as plain CharField (single value only), and the service layer
+    applied them with an exact-match `qs.filter(pk=...)` rather than
+    IN-style filtering. This field type is the fix: it accepts a bare
+    string (kept for backward compatibility with any existing single-value
+    caller) OR a JSON array of strings, and always hands the service layer
+    a list — so `qs.filter(pk__in=...)` is always the correct application,
+    with zero special-casing for the single-value shape.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, str):
+            return [data] if data else []
+        if isinstance(data, list):
+            if not all(isinstance(item, str) for item in data):
+                raise serializers.ValidationError("Must be a string or a list of strings.")
+            return list(data)
+        raise serializers.ValidationError("Must be a string or a list of strings.")
+
+    def to_representation(self, value):
+        return value
+
+
 # ---------------------------------------------------------------------------
 # 1. Entity (→ CivicOS Organization)
 # ---------------------------------------------------------------------------
@@ -142,10 +174,18 @@ class _EntityQryDetailsSerializer(serializers.Serializer):
     details = EntityDetailsSerializer(required=True)
 
 
-class EntityCreateQrySerializer(serializers.Serializer):
-    """POST /entity/new request body: { "qry": { "details": <entity_details> } }"""
+class EntityCreateQrySerializer(_EntityQryDetailsSerializer):
+    """
+    POST /entity/new request body (the `qry` query PARAM's JSON value):
+    { "details": <entity_details> }
 
-    qry = _EntityQryDetailsSerializer(required=True)
+    Finding #2 fix: earlier versions of this serializer declared an EXTRA
+    field literally named `qry` on top of this class, requiring a redundant
+    double-nested `{"qry": {"details": {...}}}` JSON value inside the
+    already-named `qry` query parameter — a real, previously-documented
+    spec deviation (see SPEC_APPOINTMENTS_BB_GOVSTACK.md). Inheriting
+    directly from _EntityQryDetailsSerializer removes that extra layer.
+    """
 
 
 class EntityModifySerializer(serializers.Serializer):
@@ -225,10 +265,14 @@ class _ResourceQryDetailsSerializer(serializers.Serializer):
     resource_details = ResourceDetailsSerializer(required=True)
 
 
-class ResourceCreateQrySerializer(serializers.Serializer):
-    """POST /resource/new request body: { "qry": { "resource_details": <resource_details> } }"""
+class ResourceCreateQrySerializer(_ResourceQryDetailsSerializer):
+    """
+    POST /resource/new request body (the `qry` query PARAM's JSON value):
+    { "resource_details": <resource_details> }
 
-    qry = _ResourceQryDetailsSerializer(required=True)
+    Finding #2 fix: see EntityCreateQrySerializer's docstring for the
+    double-nesting bug this removes.
+    """
 
 
 class ResourceModifySerializer(serializers.Serializer):
@@ -349,10 +393,14 @@ class _SubscriberQryDetailsSerializer(serializers.Serializer):
     subscriber_details = SubscriberDetailsSerializer(required=True)
 
 
-class SubscriberCreateQrySerializer(serializers.Serializer):
-    """POST /subscriber/new request body: { "qry": { "subscriber_details": <subscriber_details> } }"""
+class SubscriberCreateQrySerializer(_SubscriberQryDetailsSerializer):
+    """
+    POST /subscriber/new request body (the `qry` query PARAM's JSON value):
+    { "subscriber_details": <subscriber_details> }
 
-    qry = _SubscriberQryDetailsSerializer(required=True)
+    Finding #2 fix: see EntityCreateQrySerializer's docstring for the
+    double-nesting bug this removes.
+    """
 
 
 class SubscriberModifySerializer(serializers.Serializer):
@@ -479,10 +527,14 @@ class _AffiliationQryDetailsSerializer(serializers.Serializer):
     affiliation_details = AffiliationDetailsSerializer(required=True)
 
 
-class AffiliationCreateQrySerializer(serializers.Serializer):
-    """POST /affiliation/new request body: { "qry": { "affiliation_details": <affiliation_details> } }"""
+class AffiliationCreateQrySerializer(_AffiliationQryDetailsSerializer):
+    """
+    POST /affiliation/new request body (the `qry` query PARAM's JSON value):
+    { "affiliation_details": <affiliation_details> }
 
-    qry = _AffiliationQryDetailsSerializer(required=True)
+    Finding #2 fix: see EntityCreateQrySerializer's docstring for the
+    double-nesting bug this removes.
+    """
 
 
 class AffiliationModifySerializer(serializers.Serializer):
@@ -683,10 +735,14 @@ class _EventQryDetailsSerializer(serializers.Serializer):
     details = EventDetailsSerializer(required=True)
 
 
-class EventCreateQrySerializer(serializers.Serializer):
-    """POST /event/new request body: { "qry": { "details": <event_details> } }"""
+class EventCreateQrySerializer(_EventQryDetailsSerializer):
+    """
+    POST /event/new request body (the `qry` query PARAM's JSON value):
+    { "details": <event_details> }
 
-    qry = _EventQryDetailsSerializer(required=True)
+    Finding #2 fix: see EntityCreateQrySerializer's docstring for the
+    double-nesting bug this removes.
+    """
 
 
 class EventModifySerializer(serializers.Serializer):
@@ -847,10 +903,14 @@ class _AppointmentQryDetailsSerializer(serializers.Serializer):
     appointment_details = AppointmentCreateDetailsSerializer(required=True)
 
 
-class AppointmentCreateQrySerializer(serializers.Serializer):
-    """POST /appointment/new request body: { "qry": { "appointment_details": <appointment_creation_details> } }"""
+class AppointmentCreateQrySerializer(_AppointmentQryDetailsSerializer):
+    """
+    POST /appointment/new request body (the `qry` query PARAM's JSON value):
+    { "appointment_details": <appointment_creation_details> }
 
-    qry = _AppointmentQryDetailsSerializer(required=True)
+    Finding #2 fix: see EntityCreateQrySerializer's docstring for the
+    double-nesting bug this removes.
+    """
 
 
 class AppointmentModifySerializer(serializers.Serializer):
@@ -905,10 +965,14 @@ class AlertScheduleFilterSerializer(serializers.Serializer):
     for the precedent this replicates).
     """
 
-    alert_schedule_id = serializers.CharField(required=False, allow_blank=True)
+    # Finding #4 fix: alert_schedule_id and message_id are array-typed in the
+    # real spec (alert_schedule_id[], message_id[]) — StringOrListField
+    # accepts either a bare string or a JSON array, always normalizing to a
+    # list so the service layer can apply pk__in=/message_id__in= uniformly.
+    alert_schedule_id = StringOrListField(required=False)
     entity_id = serializers.CharField(required=False, allow_blank=True)
     target_category = serializers.CharField(required=False, allow_blank=True)
-    message_id = serializers.CharField(required=False, allow_blank=True)
+    message_id = StringOrListField(required=False)
     from_ = serializers.CharField(required=False, allow_blank=True)
     to = serializers.CharField(required=False, allow_blank=True)
 
@@ -952,10 +1016,14 @@ class _AlertScheduleQryDetailsSerializer(serializers.Serializer):
     alert_schedule_details = AlertScheduleDetailsSerializer(required=True)
 
 
-class AlertScheduleCreateQrySerializer(serializers.Serializer):
-    """POST /alert_schedule/new request body: { "qry": { "alert_schedule_details": <alert_schedule_details> } }"""
+class AlertScheduleCreateQrySerializer(_AlertScheduleQryDetailsSerializer):
+    """
+    POST /alert_schedule/new request body (the `qry` query PARAM's JSON value):
+    { "alert_schedule_details": <alert_schedule_details> }
 
-    qry = _AlertScheduleQryDetailsSerializer(required=True)
+    Finding #2 fix: see EntityCreateQrySerializer's docstring for the
+    double-nesting bug this removes.
+    """
 
 
 class AlertScheduleModifySerializer(serializers.Serializer):
@@ -1001,7 +1069,10 @@ class MessageFilterSerializer(serializers.Serializer):
     message_body.
     """
 
-    message_id = serializers.CharField(required=False, allow_blank=True)
+    # Finding #4 fix: message_id is array-typed in the real spec (message_id[])
+    # — StringOrListField accepts either a bare string or a JSON array, always
+    # normalizing to a list so the service layer can apply pk__in= uniformly.
+    message_id = StringOrListField(required=False)
     entity_id = serializers.CharField(required=False, allow_blank=True)
     category = serializers.CharField(required=False, allow_blank=True)
     message_body = serializers.CharField(required=False, allow_blank=True)
@@ -1031,10 +1102,14 @@ class _MessageQryDetailsSerializer(serializers.Serializer):
     message_details = MessageDetailsSerializer(required=True)
 
 
-class MessageCreateQrySerializer(serializers.Serializer):
-    """POST /message/new request body: { "qry": { "message_details": <message_details> } }"""
+class MessageCreateQrySerializer(_MessageQryDetailsSerializer):
+    """
+    POST /message/new request body (the `qry` query PARAM's JSON value):
+    { "message_details": <message_details> }
 
-    qry = _MessageQryDetailsSerializer(required=True)
+    Finding #2 fix: see EntityCreateQrySerializer's docstring for the
+    double-nesting bug this removes.
+    """
 
 
 class MessageModifySerializer(serializers.Serializer):
@@ -1163,10 +1238,14 @@ class _LogQryDetailsSerializer(serializers.Serializer):
     log_details = LogDetailsSerializer(required=True)
 
 
-class LogCreateQrySerializer(serializers.Serializer):
-    """POST /log/new request body: { "qry": { "log_details": <log_details> } }"""
+class LogCreateQrySerializer(_LogQryDetailsSerializer):
+    """
+    POST /log/new request body (the `qry` query PARAM's JSON value):
+    { "log_details": <log_details> }
 
-    qry = _LogQryDetailsSerializer(required=True)
+    Finding #2 fix: see EntityCreateQrySerializer's docstring for the
+    double-nesting bug this removes.
+    """
 
 
 class LogModifySerializer(serializers.Serializer):

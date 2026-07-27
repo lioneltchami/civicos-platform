@@ -16,10 +16,14 @@ auth/role enforcement pattern copied from test_govstack_log.py. Test
 numbering: R1-Rxx.
 
 R1 below is the single most important test in this file: it proves
-POST /resource/new works with the real spec's {"qry": {"resource_details":
-{...}}} wire format (FIX 1) — exactly the shape a spec-compliant GovStack
-caller sends and exactly what would have caught the wrong-wrapper-key bug
-this codebase shipped with from initial (Wave B) implementation.
+POST /resource/new works with the real spec's {"resource_details": {...}}
+wire format (FIX 1) — exactly the shape a spec-compliant GovStack caller
+sends (as the JSON value of the `qry` query PARAMETER) and exactly what
+would have caught the wrong-inner-key bug this codebase shipped with from
+initial (Wave B) implementation. (Note: an unrelated, separate bug — this
+codebase additionally double-wrapping that JSON value in an extra outer
+"qry" key — was fixed later; these tests use the correct, single-nested
+shape throughout.)
 """
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ from urllib.parse import urlencode
 
 from django.test import TestCase, override_settings
 
-from apps.appointments.models import Resource
+from apps.appointments.models import GovStackBBCredential, Resource
 from apps.appointments.services.govstack_affiliation import affiliation_create
 from apps.appointments.services.govstack_entity import entity_create
 from apps.appointments.services.govstack_event import event_create
@@ -121,20 +125,26 @@ class ResourceNewTests(ResourceBaseTestCase):
 
     def test_r1_spec_literal_wire_format_succeeds(self):
         """R1 (locks in FIX 1): the real spec's resource_new_qry shape,
-        {"qry": {"resource_details": {...}}}, must succeed — this is exactly
-        the wire format a spec-compliant GovStack caller would send."""
-        qry = {"qry": {"resource_details": {
+        {"resource_details": {...}}, must succeed — this is exactly the wire
+        format a spec-compliant GovStack caller would send as the `qry` query
+        PARAMETER's JSON value (single-nested; the double-nested
+        {"qry": {"resource_details": {...}}} shape was this codebase's own
+        bug, now fixed)."""
+        qry = {"resource_details": {
             "name": "Exam Room 1", "category": "room",
             "phone": "+15005550001", "email": "room1@example.gov",
             "alert_url": "https://example.gov/alerts/room1",
             "alert_preference": "push",
             "status_poll_url": "https://example.gov/poll/room1",
-        }}}
+        }}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
         data = resp.json()
         self.assertEqual(data["status"], "success")
-        resource = Resource.objects.get(pk=data["resource_id"])
+        # Finding #3 fix: resource_id is "R-<pk>"-prefixed (matches
+        # list_details/availability) — strip the prefix to look up the row.
+        self.assertTrue(data["resource_id"].startswith("R-"))
+        resource = Resource.objects.get(pk=data["resource_id"][2:])
         self.assertEqual(resource.name_en, "Exam Room 1")
         self.assertEqual(resource.resource_type, "room")
         self.assertEqual(resource.alert_preference, "push")
@@ -146,7 +156,7 @@ class ResourceNewTests(ResourceBaseTestCase):
         resource_details serializer field is missing and required=True fails
         validation, returning 400 rather than silently succeeding with blank
         fields."""
-        qry = {"qry": {"details": {"name": "Should Not Work", "category": "room"}}}
+        qry = {"details": {"name": "Should Not Work", "category": "room"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
 
@@ -155,20 +165,24 @@ class ResourceNewTests(ResourceBaseTestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_r4_invalid_alert_preference_returns_400(self):
-        qry = {"qry": {"resource_details": {"name": "Bad Pref", "alert_preference": "carrier_pigeon"}}}
+        qry = {"resource_details": {"name": "Bad Pref", "alert_preference": "carrier_pigeon"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "CREATE_FAILED")
 
     def test_r5_category_maps_to_resource_type(self):
-        qry = {"qry": {"resource_details": {"name": "Video Suite", "category": "video"}}}
+        qry = {"resource_details": {"name": "Video Suite", "category": "video"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
-        resource = Resource.objects.get(pk=resp.json()["resource_id"])
+        # Finding #3 fix: resource_id is now "R-<pk>"-prefixed (matches
+        # list_details/availability) — strip the prefix to look up the row.
+        resource_id_str = resp.json()["resource_id"]
+        self.assertTrue(resource_id_str.startswith("R-"))
+        resource = Resource.objects.get(pk=resource_id_str[2:])
         self.assertEqual(resource.resource_type, "virtual")
 
     def test_r6_blank_details_still_creates_resource(self):
-        resp = self._post({"qry": {"resource_details": {}}})
+        resp = self._post({"resource_details": {}})
         self.assertEqual(resp.status_code, 201)
 
     def test_r7_invalid_json_qry_returns_400(self):
@@ -178,7 +192,7 @@ class ResourceNewTests(ResourceBaseTestCase):
         self.assertEqual(resp.json()["code"], "INVALID_QRY")
 
     def test_r8_missing_auth_params_returns_401_or_403(self):
-        qry = json.dumps({"qry": {"resource_details": {"name": "No Auth"}}})
+        qry = json.dumps({"resource_details": {"name": "No Auth"}})
         resp = self.client.post(NEW_URL + f"?qry={qry}")
         self.assertIn(resp.status_code, (401, 403))
 
@@ -194,7 +208,8 @@ class ResourceModificationsTests(ResourceBaseTestCase):
         resource = _create_resource(name="Old Name")
         resp = self._put({"details": {"name": "New Name"}}, resource_id=resource.pk)
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["resource_id"], str(resource.pk))
+        # Finding #3 fix: resource_id is now "R-<pk>"-prefixed.
+        self.assertEqual(resp.json()["resource_id"], f"R-{resource.pk}")
         resource.refresh_from_db()
         self.assertEqual(resource.name_en, "New Name")
 
@@ -246,7 +261,8 @@ class ResourceDeleteTests(ResourceBaseTestCase):
         resource = _create_resource()
         resp = self._delete(resource_id=resource.pk)
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["resource_id"], str(resource.pk))
+        # Finding #3 fix: resource_id is now "R-<pk>"-prefixed.
+        self.assertEqual(resp.json()["resource_id"], f"R-{resource.pk}")
         resource.refresh_from_db()
         self.assertFalse(resource.is_active)
 
@@ -425,46 +441,62 @@ class ResourceRoleEnforcementTests(ResourceBaseTestCase):
     test_govstack_log.py.
     """
 
+    def _make_role_bb(self, role):
+        """
+        Create a GovStackRegisteredBB (identity, bb_id=_AUTH['requestor_id']) PLUS a
+        real GovStackBBCredential for it, and point _AUTH['request_token'] at the
+        correct plaintext secret. Finding #1 fix: request_token must never equal
+        bb_id — it must verify against a separate hashed secret.
+        """
+        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        token = GovStackBBCredential.generate_plaintext_token()
+        credential = GovStackBBCredential(bb=bb)
+        credential.set_token(token)
+        credential.save()
+        _AUTH["request_token"] = token
+        self.addCleanup(lambda: _AUTH.update(request_token="test-token"))
+        return bb
+
     def test_r36_organizer_role_denied_on_resource_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
-        resp = self._post({"qry": {"resource_details": {"name": "X"}}})
+        self._make_role_bb("organizer")
+        resp = self._post({"resource_details": {"name": "X"}})
         self.assertEqual(resp.status_code, 403)
 
     def test_r37_admin_role_allowed_on_resource_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
-        resp = self._post({"qry": {"resource_details": {"name": "X"}}})
+        self._make_role_bb("admin")
+        resp = self._post({"resource_details": {"name": "X"}})
         self.assertEqual(resp.status_code, 201)
 
     def test_r38_organizer_role_denied_on_resource_modifications(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resource = _create_resource()
         resp = self._put({"details": {"name": "X"}}, resource_id=resource.pk)
         self.assertEqual(resp.status_code, 403)
 
     def test_r39_organizer_role_denied_on_resource_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resource = _create_resource()
         resp = self._delete(resource_id=resource.pk)
         self.assertEqual(resp.status_code, 403)
 
     def test_r40_admin_role_allowed_on_resource_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         resource = _create_resource()
         resp = self._delete(resource_id=resource.pk)
         self.assertEqual(resp.status_code, 200)
 
     def test_r41_resource_role_denied_on_resource_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         resp = self._get()
         self.assertEqual(resp.status_code, 403)
 
     def test_r42_organizer_role_allowed_on_resource_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
 
     def test_r43_admin_role_allowed_on_resource_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
 
@@ -477,11 +509,84 @@ class ResourceRoleEnforcementTests(ResourceBaseTestCase):
         rank comparison below the endpoint's "resource" minimum, since there
         is no lower VALID BB role to construct this denial with otherwise.
         """
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="subscriber")
+        self._make_role_bb("subscriber")
         resp = self._availability()
         self.assertEqual(resp.status_code, 403)
 
     def test_r45_resource_role_allowed_on_resource_availability(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         resp = self._availability()
         self.assertEqual(resp.status_code, 200)
+
+
+# ===========================================================================
+# R46-R50: Finding #3 — cross-endpoint resource_id format round-trips
+# ===========================================================================
+
+class ResourceIdRoundTripTests(ResourceBaseTestCase):
+    """
+    R46-R50: all 5 Resource endpoints must emit/accept the SAME resource_id
+    format ("R-<pk>"), so a value taken from any one endpoint's response can
+    be used directly against any other endpoint with no manual translation.
+    Direct regression coverage for Finding #3 (resource_id format
+    inconsistency across the 5 Resource endpoints).
+    """
+
+    def test_r46_create_response_resource_id_round_trips_into_list_details_filter(self):
+        """The resource_id returned by POST /new can be used verbatim as the
+        resource_id filter on GET /list_details."""
+        resp = self._post({"resource_details": {"name": "Round Trip Room"}})
+        self.assertEqual(resp.status_code, 201)
+        resource_id = resp.json()["resource_id"]
+        self.assertTrue(resource_id.startswith("R-"))
+
+        list_resp = self._get({"resource_filter": {"resource_id": resource_id}})
+        self.assertEqual(list_resp.status_code, 200)
+        data = list_resp.json()["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["resource_id"], resource_id)
+
+    def test_r47_create_response_resource_id_round_trips_into_modifications(self):
+        """The resource_id returned by POST /new can be used verbatim as the
+        resource_id query param on PUT /modifications."""
+        resp = self._post({"resource_details": {"name": "Modify Round Trip"}})
+        resource_id = resp.json()["resource_id"]
+
+        put_resp = self._put({"details": {"name": "Renamed"}}, resource_id=resource_id)
+        self.assertEqual(put_resp.status_code, 200)
+        self.assertEqual(put_resp.json()["resource_id"], resource_id)
+
+    def test_r48_modifications_response_resource_id_round_trips_into_delete(self):
+        """The resource_id returned by PUT /modifications can be used verbatim
+        on DELETE /resource."""
+        resp = self._post({"resource_details": {"name": "Delete Round Trip"}})
+        created_id = resp.json()["resource_id"]
+
+        put_resp = self._put({"details": {"name": "Renamed Again"}}, resource_id=created_id)
+        modified_id = put_resp.json()["resource_id"]
+        self.assertEqual(modified_id, created_id)
+
+        delete_resp = self._delete(resource_id=modified_id)
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(delete_resp.json()["resource_id"], modified_id)
+
+    def test_r49_bare_integer_resource_id_still_accepted_for_backward_compatibility(self):
+        """modifications/delete also accept a bare integer (no 'R-' prefix),
+        for backward compatibility with callers that predate this fix."""
+        resource = _create_resource(name="Bare Int Compat")
+
+        put_resp = self._put({"details": {"name": "Still Works"}}, resource_id=resource.pk)
+        self.assertEqual(put_resp.status_code, 200)
+        self.assertEqual(put_resp.json()["resource_id"], f"R-{resource.pk}")
+
+    def test_r50_staff_prefixed_resource_id_rejected_on_modifications_and_delete(self):
+        """An 'S-<pk>' (StaffProfile) resource_id is rejected with 400 on the
+        Resource-only modify/delete endpoints — StaffProfile records cannot
+        be modified or deleted via the GovStack Resource API."""
+        put_resp = self._put({"details": {"name": "X"}}, resource_id="S-1")
+        self.assertEqual(put_resp.status_code, 400)
+        self.assertEqual(put_resp.json()["code"], "INVALID_RESOURCE_ID")
+
+        delete_resp = self._delete(resource_id="S-1")
+        self.assertEqual(delete_resp.status_code, 400)
+        self.assertEqual(delete_resp.json()["code"], "INVALID_RESOURCE_ID")

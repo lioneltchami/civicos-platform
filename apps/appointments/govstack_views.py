@@ -251,6 +251,60 @@ def _require_int_id(value: str, param_name: str) -> tuple[int | None, Response |
         )
 
 
+def _parse_resource_only_pk(raw: str) -> tuple[int | None, Response | None]:
+    """
+    Parse a resource_id that must resolve to a CivicOS Resource (never a
+    StaffProfile) — used by the 3 Resource-only endpoints (/resource/new,
+    /resource/modifications, DELETE /resource) that create/modify/delete
+    ONLY the Resource model, never StaffProfile.
+
+    Finding #3 fix (resource_id format inconsistency): /resource/list_details
+    and /resource/availability emit resource_id as "R-<int>" (Resource) or
+    "S-<int>" (StaffProfile) to disambiguate the two underlying models that
+    share one GovStack "Resource" concept — see services/govstack_resource.py.
+    Prior to this fix, /resource/new, /resource/modifications, and DELETE
+    /resource instead round-tripped a BARE integer with no prefix at all,
+    so a resource_id copied from a list_details response ("R-42") could not
+    be used directly against these 3 endpoints without the caller manually
+    stripping the prefix. This helper accepts EITHER form on input (bare
+    int OR "R-"-prefixed) for backward compatibility, and the 3 call sites
+    now always EMIT the "R-<int>" prefixed form in their responses so all 5
+    Resource endpoints share one consistent resource_id format.
+
+    Returns (int_pk, None) on success, or (None, 400 Response) on failure —
+    including a clear, explicit rejection of "S-<int>" input, since
+    StaffProfile records cannot be modified/deleted via these endpoints.
+    """
+    if raw.startswith("S-"):
+        return None, Response(
+            {
+                "status": "error",
+                "code": "INVALID_RESOURCE_ID",
+                "message": (
+                    "resource_id refers to a StaffProfile ('S-' prefix). StaffProfile "
+                    "records are read-only via the GovStack API and cannot be modified "
+                    "or deleted through this endpoint."
+                ),
+            },
+            status=400,
+        )
+    bare = raw[2:] if raw.startswith("R-") else raw
+    try:
+        return int(bare), None
+    except (ValueError, TypeError):
+        return None, Response(
+            {
+                "status": "error",
+                "code": "INVALID_RESOURCE_ID",
+                "message": (
+                    f"resource_id must be an integer, optionally 'R-' prefixed "
+                    f"(e.g. 'R-42' or '42'): {raw!r}"
+                ),
+            },
+            status=400,
+        )
+
+
 # ===========================================================================
 # Entity views (4 endpoints)
 # ===========================================================================
@@ -288,7 +342,7 @@ class EntityNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["details"]
+        details = ser.validated_data["details"]
         try:
             org = entity_create(
                 name=details.get("name", ""),
@@ -536,8 +590,8 @@ class ResourceNewView(APIView):
     Creates a new GovStack Resource backed by a CivicOS Resource model instance.
     All request data arrives via query parameters:
       - requestor_id, request_token (auth)
-      - qry: JSON-encoded { "qry": { "resource_details": { name, category, phone,
-              email, alert_url, alert_preference, status_poll_url } } }
+      - qry: JSON-encoded { "resource_details": { name, category, phone,
+              email, alert_url, alert_preference, status_poll_url } }
               (real spec key is "resource_details", NOT "details" — verified
               against the fetched GovStack OpenAPI spec; see
               govstack_serializers._ResourceQryDetailsSerializer)
@@ -547,8 +601,13 @@ class ResourceNewView(APIView):
     location association happens via Affiliation).
 
     Returns:
-      201 {"status": "success", "resource_id": "<pk>"}
+      201 {"status": "success", "resource_id": "R-<pk>"}
       400 on validation or creation failure
+
+    Finding #3 fix: resource_id is now always emitted "R-<pk>"-prefixed,
+    matching /resource/list_details and /resource/availability, so a
+    resource_id returned by ANY of the 5 Resource endpoints can be used
+    directly against any other one without manual prefix stripping.
     """
 
     gs_actor_role = "admin"
@@ -568,7 +627,7 @@ class ResourceNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["resource_details"]
+        details = ser.validated_data["resource_details"]
         try:
             resource = resource_create(**details)
         except ValueError as exc:
@@ -592,7 +651,7 @@ class ResourceNewView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "resource_id": str(resource.pk)}, status=201)
+        return Response({"status": "success", "resource_id": f"R-{resource.pk}"}, status=201)
 
 
 class ResourceModificationsView(APIView):
@@ -601,14 +660,17 @@ class ResourceModificationsView(APIView):
 
     Modifies an existing active Resource. All request data via query parameters:
       - requestor_id, request_token (auth)
-      - resource_id: identifies the resource to modify
+      - resource_id: identifies the resource to modify. Accepts the canonical
+        "R-<pk>" form (matching /resource/list_details and /resource/availability)
+        or a bare integer (accepted for backward compatibility). "S-<pk>"
+        (StaffProfile) is rejected with 400 — StaffProfile cannot be modified here.
       - qry: JSON-encoded { "details": { <partial resource fields> } }
 
     Only fields present in qry.details are updated; absent fields are left unchanged.
 
     Returns:
-      200 {"status": "success", "resource_id": "<pk>"}
-      400 on missing/invalid params
+      200 {"status": "success", "resource_id": "R-<pk>"}
+      400 on missing/invalid params (including a non-Resource resource_id)
       404 if no active resource with the given resource_id exists
     """
 
@@ -631,7 +693,7 @@ class ResourceModificationsView(APIView):
                 },
                 status=400,
             )
-        resource_id, err = _require_int_id(resource_id_str, "resource_id")
+        resource_id, err = _parse_resource_only_pk(resource_id_str)
         if err:
             return err
 
@@ -676,7 +738,7 @@ class ResourceModificationsView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "resource_id": str(resource.pk)}, status=200)
+        return Response({"status": "success", "resource_id": f"R-{resource.pk}"}, status=200)
 
 
 class ResourceDeleteView(APIView):
@@ -685,14 +747,16 @@ class ResourceDeleteView(APIView):
 
     Soft-deletes a Resource (sets is_active=False). All request data via query params:
       - requestor_id, request_token (auth)
-      - resource_id: identifies the resource to soft-delete
+      - resource_id: identifies the resource to soft-delete. Accepts "R-<pk>"
+        (canonical, matching /resource/list_details and /resource/availability)
+        or a bare integer (backward-compatible). "S-<pk>" is rejected with 400.
 
     Does NOT hard-delete — FK dependents (Slots, GovStackAffiliation) remain intact
     for audit trail compliance.
 
     Returns:
-      200 {"status": "success", "resource_id": "<resource_id>"}
-      400 if resource_id is missing
+      200 {"status": "success", "resource_id": "R-<pk>"}
+      400 if resource_id is missing or not a Resource
       404 if no active resource with the given resource_id exists
     """
 
@@ -715,7 +779,7 @@ class ResourceDeleteView(APIView):
                 },
                 status=400,
             )
-        resource_id, err = _require_int_id(resource_id_str, "resource_id")
+        resource_id, err = _parse_resource_only_pk(resource_id_str)
         if err:
             return err
 
@@ -741,7 +805,7 @@ class ResourceDeleteView(APIView):
                 status=400,
             )
 
-        return Response({"status": "success", "resource_id": str(resource_id_str)}, status=200)
+        return Response({"status": "success", "resource_id": f"R-{resource_id}"}, status=200)
 
 
 class ResourceListDetailsView(APIView):
@@ -934,7 +998,7 @@ class AffiliationNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["affiliation_details"]
+        details = ser.validated_data["affiliation_details"]
         resource_id = details.get("resource_id", "")
         entity_id = details.get("entity_id", "")
 
@@ -1287,7 +1351,7 @@ class SubscriberNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["subscriber_details"]
+        details = ser.validated_data["subscriber_details"]
         try:
             profile = subscriber_create(
                 name=details.get("name", ""),
@@ -1603,7 +1667,7 @@ class EventNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["details"]
+        details = ser.validated_data["details"]
         try:
             created_slots = event_create(
                 name=details.get("name", ""),
@@ -1932,7 +1996,7 @@ class AppointmentNewView(APIView):
             request.user.pk if request.auth == "govstack_scheduler_subscriber" else None
         )
 
-        details = ser.validated_data["qry"]["appointment_details"]
+        details = ser.validated_data["appointment_details"]
         try:
             bookings = appointment_create(
                 event_ids=details.get("event_ids"),
@@ -2486,7 +2550,7 @@ class AlertScheduleNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["alert_schedule_details"]
+        details = ser.validated_data["alert_schedule_details"]
         try:
             alert_schedule = alert_schedule_create(
                 event_id=details.get("event_id", ""),
@@ -2862,7 +2926,7 @@ class MessageNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["message_details"]
+        details = ser.validated_data["message_details"]
         try:
             message = message_create(
                 entity_id=details.get("entity_id", ""),
@@ -3217,7 +3281,7 @@ class LogNewView(APIView):
         if not ser.is_valid():
             return _validation_error(ser)
 
-        details = ser.validated_data["qry"]["log_details"]
+        details = ser.validated_data["log_details"]
         try:
             entry = log_create(
                 logger_role=details.get("logger_role", ""),

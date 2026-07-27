@@ -27,7 +27,7 @@ from urllib.parse import urlencode
 
 from django.test import TestCase, override_settings
 
-from apps.appointments.models import Organization
+from apps.appointments.models import GovStackBBCredential, Organization
 from apps.appointments.services.govstack_entity import entity_create
 from apps.payments.govstack_models import GovStackRegisteredBB
 
@@ -93,12 +93,15 @@ class EntityNewTests(EntityBaseTestCase):
     """E1-E7: POST /entity/new"""
 
     def test_e1_spec_literal_wire_format_succeeds(self):
-        """E1: {"qry": {"details": {...}}} — the real spec's entity_new_qry shape — succeeds."""
-        qry = {"qry": {"details": {
+        """E1: {"details": {...}} — the real spec's entity_new_qry shape (the
+        `qry` query PARAMETER's JSON value, single-nested) — succeeds. The
+        double-nested {"qry": {"details": {...}}} shape used before was this
+        codebase's own bug, now fixed."""
+        qry = {"details": {
             "name": "Ministry of Health", "category": "health",
             "phone": "+15005550001", "email": "moh@example.gov",
             "website": "https://moh.example.gov",
-        }}}
+        }}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
         data = resp.json()
@@ -122,23 +125,23 @@ class EntityNewTests(EntityBaseTestCase):
 
     def test_e4_blank_details_still_creates_entity(self):
         """E4: all fields optional per the loose GovStack string typing — blank name is allowed."""
-        resp = self._post({"qry": {"details": {}}})
+        resp = self._post({"details": {}})
         self.assertEqual(resp.status_code, 201)
 
     def test_e5_category_maps_to_organization_type(self):
-        resp = self._post({"qry": {"details": {"name": "Federal Dept", "category": "federal"}}})
+        resp = self._post({"details": {"name": "Federal Dept", "category": "federal"}})
         self.assertEqual(resp.status_code, 201)
         org = Organization.objects.get(pk=resp.json()["entity_id"])
         self.assertEqual(org.organization_type, "government_federal")
 
     def test_e6_duplicate_name_still_succeeds_via_slug_suffix(self):
         """E6: entity_create() generates a unique slug even for a duplicate name (no 400)."""
-        self._post({"qry": {"details": {"name": "Duplicate Org"}}})
-        resp = self._post({"qry": {"details": {"name": "Duplicate Org"}}})
+        self._post({"details": {"name": "Duplicate Org"}})
+        resp = self._post({"details": {"name": "Duplicate Org"}})
         self.assertEqual(resp.status_code, 201)
 
     def test_e7_missing_auth_params_returns_401_or_403(self):
-        qry = json.dumps({"qry": {"details": {"name": "No Auth"}}})
+        qry = json.dumps({"details": {"name": "No Auth"}})
         resp = self.client.post(NEW_URL + f"?qry={qry}")
         self.assertIn(resp.status_code, (401, 403))
 
@@ -320,46 +323,62 @@ class EntityRoleEnforcementTests(EntityBaseTestCase):
     admin-only across all 4 endpoints).
     """
 
+    def _make_role_bb(self, role):
+        """
+        Create a GovStackRegisteredBB (identity, bb_id=_AUTH['requestor_id']) PLUS a
+        real GovStackBBCredential for it, and point _AUTH['request_token'] at the
+        correct plaintext secret. Finding #1 fix: request_token must never equal
+        bb_id — it must verify against a separate hashed secret.
+        """
+        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        token = GovStackBBCredential.generate_plaintext_token()
+        credential = GovStackBBCredential(bb=bb)
+        credential.set_token(token)
+        credential.save()
+        _AUTH["request_token"] = token
+        self.addCleanup(lambda: _AUTH.update(request_token="test-token"))
+        return bb
+
     def test_e29_organizer_role_denied_on_entity_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
-        resp = self._post({"qry": {"details": {"name": "Denied Org"}}})
+        self._make_role_bb("organizer")
+        resp = self._post({"details": {"name": "Denied Org"}})
         self.assertEqual(resp.status_code, 403)
 
     def test_e30_admin_role_allowed_on_entity_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
-        resp = self._post({"qry": {"details": {"name": "Allowed Org"}}})
+        self._make_role_bb("admin")
+        resp = self._post({"details": {"name": "Allowed Org"}})
         self.assertEqual(resp.status_code, 201)
 
     def test_e31_organizer_role_denied_on_entity_modifications(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         org = _create_entity()
         resp = self._put({"details": {"name": "X"}}, entity_id=org.pk)
         self.assertEqual(resp.status_code, 403)
 
     def test_e32_admin_role_allowed_on_entity_modifications(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         org = _create_entity()
         resp = self._put({"details": {"name": "X"}}, entity_id=org.pk)
         self.assertEqual(resp.status_code, 200)
 
     def test_e33_organizer_role_denied_on_entity_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         org = _create_entity()
         resp = self._delete(entity_id=org.pk)
         self.assertEqual(resp.status_code, 403)
 
     def test_e34_admin_role_allowed_on_entity_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         org = _create_entity()
         resp = self._delete(entity_id=org.pk)
         self.assertEqual(resp.status_code, 200)
 
     def test_e35_organizer_role_denied_on_entity_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resp = self._get()
         self.assertEqual(resp.status_code, 403)
 
     def test_e36_admin_role_allowed_on_entity_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="admin")
+        self._make_role_bb("admin")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)

@@ -23,6 +23,7 @@ from django.utils.dateparse import parse_datetime
 
 from apps.appointments.models import (
     AppointmentType,
+    GovStackBBCredential,
     Location,
     Organization,
     ServiceType,
@@ -199,7 +200,7 @@ class EventNewTests(EventBaseTestCase):
             slots = [_SLOT_1]
         details = {"name": name, "slots": slots, "status": "available"}
         details.update(extra_details)
-        return {"qry": {"details": details}}
+        return {"details": details}
 
     # EV1
     def test_ev1_post_new_valid_single_slot_returns_201_with_event_ids(self):
@@ -252,7 +253,7 @@ class EventNewTests(EventBaseTestCase):
     # EV6
     def test_ev6_post_new_empty_slots_returns_400(self):
         """EV6: POST with empty slots list returns 400."""
-        qry = {"qry": {"details": {"name": "No Slots", "slots": [], "status": "available"}}}
+        qry = {"details": {"name": "No Slots", "slots": [], "status": "available"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
@@ -262,7 +263,7 @@ class EventNewTests(EventBaseTestCase):
     def test_ev7_post_new_slot_missing_from_key_returns_400(self):
         """EV7: POST with slot missing 'from' key returns 400."""
         bad_slot = {"to": "2026-08-01T10:00:00Z"}  # no 'from'
-        qry = {"qry": {"details": {"name": "Bad Slot", "slots": [bad_slot], "status": "available"}}}
+        qry = {"details": {"name": "Bad Slot", "slots": [bad_slot], "status": "available"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
@@ -271,7 +272,7 @@ class EventNewTests(EventBaseTestCase):
     # EV8
     def test_ev8_post_new_invalid_status_returns_400(self):
         """EV8: POST with invalid status 'unknown_status' returns 400."""
-        qry = {"qry": {"details": {"name": "Bad Status", "slots": [_SLOT_1], "status": "unknown_status"}}}
+        qry = {"details": {"name": "Bad Status", "slots": [_SLOT_1], "status": "unknown_status"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
@@ -280,8 +281,8 @@ class EventNewTests(EventBaseTestCase):
     # EV9
     def test_ev9_post_new_subscriber_limit_sets_capacity_per_slot(self):
         """EV9: POST with subscriber_limit='5' creates AppointmentType with capacity_per_slot == 5."""
-        qry = {"qry": {"details": {"name": "Limited Event", "slots": [_SLOT_1],
-                                    "status": "available", "subscriber_limit": "5"}}}
+        qry = {"details": {"name": "Limited Event", "slots": [_SLOT_1],
+                                    "status": "available", "subscriber_limit": "5"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
         event_id = resp.json()["event_ids"][0]
@@ -291,9 +292,9 @@ class EventNewTests(EventBaseTestCase):
     # EV10
     def test_ev10_post_new_venue_city_sets_location_city(self):
         """EV10: POST with venue.city='Ottawa' creates Location with city == 'Ottawa'."""
-        qry = {"qry": {"details": {"name": "Ottawa Event", "slots": [_SLOT_1],
+        qry = {"details": {"name": "Ottawa Event", "slots": [_SLOT_1],
                                     "status": "available",
-                                    "venue": {"city": "Ottawa", "country": "Canada"}}}}
+                                    "venue": {"city": "Ottawa", "country": "Canada"}}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
         event_id = resp.json()["event_ids"][0]
@@ -303,7 +304,7 @@ class EventNewTests(EventBaseTestCase):
     # EV11
     def test_ev11_post_new_no_name_still_creates_event(self):
         """EV11: POST with no name still creates event (name can be empty, auto-slug generated)."""
-        qry = {"qry": {"details": {"slots": [_SLOT_1], "status": "available"}}}
+        qry = {"details": {"slots": [_SLOT_1], "status": "available"}}
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 201)
         data = resp.json()
@@ -884,17 +885,33 @@ class EventRoleEnforcementTests(EventBaseTestCase):
     """EV47–EV58: role / auth enforcement on all 4 Event endpoints."""
 
     def _valid_new_qry(self):
-        return {"qry": {"details": {"name": "Auth Test Event", "slots": [_SLOT_1], "status": "available"}}}
+        return {"details": {"name": "Auth Test Event", "slots": [_SLOT_1], "status": "available"}}
+
+    def _make_role_bb(self, role):
+        """
+        Create a GovStackRegisteredBB (identity, bb_id=_AUTH['requestor_id']) PLUS a
+        real GovStackBBCredential for it, and point _AUTH['request_token'] at the
+        correct plaintext secret. Finding #1 fix: request_token must never equal
+        bb_id — it must verify against a separate hashed secret.
+        """
+        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        token = GovStackBBCredential.generate_plaintext_token()
+        credential = GovStackBBCredential(bb=bb)
+        credential.set_token(token)
+        credential.save()
+        _AUTH["request_token"] = token
+        self.addCleanup(lambda: _AUTH.update(request_token="test-token"))
+        return bb
 
     # -- POST /event/new --
 
     def test_ev47_resource_role_denied_on_event_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         resp = self._post(self._valid_new_qry())
         self.assertEqual(resp.status_code, 403)
 
     def test_ev48_organizer_role_allowed_on_event_new(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resp = self._post(self._valid_new_qry())
         self.assertEqual(resp.status_code, 201)
 
@@ -906,13 +923,13 @@ class EventRoleEnforcementTests(EventBaseTestCase):
     # -- PUT /event/modifications --
 
     def test_ev50_resource_role_denied_on_event_modifications(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         slots = _create_event(name="Modify Auth Test")
         resp = self._put({"details": {"name": "Renamed"}}, event_id=str(slots[0].pk))
         self.assertEqual(resp.status_code, 403)
 
     def test_ev51_organizer_role_allowed_on_event_modifications(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         slots = _create_event(name="Modify Auth Test 2")
         resp = self._put({"details": {"name": "Renamed"}}, event_id=str(slots[0].pk))
         self.assertEqual(resp.status_code, 200)
@@ -924,13 +941,13 @@ class EventRoleEnforcementTests(EventBaseTestCase):
     # -- DELETE /event --
 
     def test_ev53_resource_role_denied_on_event_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         slots = _create_event(name="Delete Auth Test")
         resp = self._delete(event_id=str(slots[0].pk))
         self.assertEqual(resp.status_code, 403)
 
     def test_ev54_organizer_role_allowed_on_event_delete(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         slots = _create_event(name="Delete Auth Test 2")
         resp = self._delete(event_id=str(slots[0].pk))
         self.assertEqual(resp.status_code, 200)
@@ -942,12 +959,12 @@ class EventRoleEnforcementTests(EventBaseTestCase):
     # -- GET /event/list_details --
 
     def test_ev56_resource_role_denied_on_event_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="resource")
+        self._make_role_bb("resource")
         resp = self._get()
         self.assertEqual(resp.status_code, 403)
 
     def test_ev57_organizer_role_allowed_on_event_list(self):
-        GovStackRegisteredBB.objects.create(bb_id="test-token", is_active=True, role="organizer")
+        self._make_role_bb("organizer")
         resp = self._get()
         self.assertEqual(resp.status_code, 200)
 

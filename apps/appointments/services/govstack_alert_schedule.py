@@ -374,14 +374,20 @@ def alert_schedule_list(
 
     filter_data = alert_schedule_filter or {}
 
+    # Finding #4 fix: alert_schedule_id and message_id are array-typed in the
+    # real spec (alert_schedule_id[], message_id[]). AlertScheduleFilterSerializer's
+    # StringOrListField always normalizes these to a list (even a single-value
+    # caller becomes a 1-element list), so pk__in=/message_id__in= is always
+    # the correct application — no special-casing needed for the old
+    # single-value shape.
     if filter_data.get("alert_schedule_id"):
-        qs = qs.filter(pk=filter_data["alert_schedule_id"])
+        qs = qs.filter(pk__in=filter_data["alert_schedule_id"])
 
     if filter_data.get("target_category"):
         qs = qs.filter(target_category=filter_data["target_category"])
 
     if filter_data.get("message_id"):
-        qs = qs.filter(message_id=filter_data["message_id"])
+        qs = qs.filter(message_id__in=filter_data["message_id"])
 
     if filter_data.get("entity_id"):
         qs = qs.filter(slot__location__organization_id=filter_data["entity_id"])
