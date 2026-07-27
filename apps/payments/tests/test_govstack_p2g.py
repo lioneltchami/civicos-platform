@@ -3,10 +3,26 @@ test_govstack_p2g.py
 
 Comprehensive tests for GovStack Payments BB — P2G Bill Payments (spec §18).
 
+Certifiability-audit fix (CRITICAL + 3 HIGH findings):
+  - All 4 P2G views/service methods now scope reads/writes by
+    X-Platform-TenantId (platform_tenant_id) — see section D4.
+  - All 4 P2G success responses moved from HTTP 200 to HTTP 202 with the
+    live-spec envelope {responseCode, reason, requestID}; error responses
+    (400) also use this envelope instead of the old ad hoc {"message"} shape.
+    404s are UNCHANGED (no live-spec 404 schema exists).
+  - BillInquiryView now requires the `fields=inquiry` query param.
+  - billInquiryRequestId/paymentReferenceID are now REQUIRED on
+    POST /billTransferRequests (previously optional).
+  - TransferRequestStatusView now uses IsTrustedBiller/X-billerId instead of
+    IsTrustedPayerFI/X-PayerFI-Id.
+  - mark_bill_paid()'s audit entry now records the real caller identity
+    (X-PayerFI-Id) instead of a hardcoded "".
+
 Coverage matrix:
-  A. BillInquiry view (GET /bills/{bill_id})
-     A1:  Known bill → HTTP 200
-     A2:  Response shape: {billId, amount, currency, description, status, dueDate}
+  A. BillInquiry view (GET /bills/{bill_id}?fields=inquiry)
+     A1:  Known bill → HTTP 202
+     A2:  Response shape: {responseCode, reason, requestID, billId, amount,
+          currency, description, status, dueDate}
      A3:  amount is a JSON number (float) in the response — spec §14.2
      A4:  dueDate is an ISO date string when set
      A5:  dueDate is null when not set
@@ -15,10 +31,14 @@ Coverage matrix:
      A8:  status field reflects actual bill status ("unpaid")
      A9:  status field reflects "overdue" bill status
      A10: status field reflects "cancelled" bill status
+     A11: Missing fields query param → HTTP 400
+     A12: Invalid fields query param → HTTP 400
+     A13: fields=inquiry → HTTP 202
 
   B. BillTransferRequest view (POST /billTransferRequests)
-     B1:  Valid body → HTTP 200
-     B2:  Response shape: {requestId, billId, amount, currency, status, message}
+     B1:  Valid body → HTTP 202
+     B2:  Response shape: {responseCode, reason, requestID, billId, amount,
+          currency, status} (no "message" key)
      B2b: amount is a JSON number (float) in the response
      B3:  status in response is "completed"
      B4:  Bill is marked PAID after successful transfer request
@@ -26,35 +46,43 @@ Coverage matrix:
      B6:  Payment amount/currency snapshotted from bill
      B7:  Missing requestId → HTTP 400
      B8:  Missing billId → HTTP 400
+     B8b: Missing billInquiryRequestId → HTTP 400 (now required)
+     B8c: Missing paymentReferenceID → HTTP 400 (now required)
      B9:  Unknown billId → HTTP 404
-     B10: Duplicate requestId → HTTP 400, {"message": "Transfer request ID has already been received."}
+     B10: Duplicate requestId → HTTP 400, {responseCode: "01", reason: "..."}
      B11: X-CorrelationID header stored on payment record
      B12: X-PayerFI-Id header stored on payment record
      B13: X-Platform-TenantId header stored on payment record
-     B14: Optional billInquiryRequestId stored on payment record
-     B15: Optional paymentReferenceID stored on payment record
+     B14: billInquiryRequestId stored on payment record
+     B15: paymentReferenceID stored on payment record
      B16: Already-paid bill still accepts new transfer request (no duplicate payment concern)
-     B17: Error responses always use {"message": "..."} shape
+     B17: Error responses always use {responseCode, reason, requestID} shape
 
   C. MarkBillPaid view (POST /bills/{bill_id}/mark-paid)
-     C1:  Known bill → HTTP 200
-     C2:  Response shape: {billId, status, message}
+     C1:  Known bill → HTTP 202
+     C2:  Response shape: {responseCode, reason, requestID, billId, status}
      C3:  status in response is "paid"
      C4:  Bill status is PAID in DB after call
      C5:  Unknown bill_id → HTTP 404, {"message": "Bill not found."}
-     C6:  Already-paid bill → HTTP 200 (idempotent)
+     C6:  Already-paid bill → HTTP 202 (idempotent)
      C7:  Already-paid bill → status still "paid" in response
      C8:  mark-paid URL routes correctly (not consumed by bill_inquiry URL)
      C9:  Audit entry created when bill transitions unpaid → paid
      C10: No duplicate audit entry when marking already-paid bill
+     C11: X-PayerFI-Id always required (fail-closed), even in harness mode
+     C12: Audit entry records the real caller identity (actor_bb_id)
 
   D. TransferRequestStatus view (GET /transferRequests/{transfer_request_id})
-     D1:  Known request_id → HTTP 200
-     D2:  Response shape: {requestId, billId, amount, currency, status}
+     D1:  Known request_id → HTTP 202
+     D2:  Response shape: {responseCode, reason, requestID, requestId, billId,
+          amount, currency, status}
      D3:  amount is a JSON number (float) in the response
      D4:  status is "completed"
      D5:  Unknown request_id → HTTP 404, {"message": "Transfer request not found."}
      D6:  transfer_request_id with whitespace is stripped
+     D2 (production-mode): IsTrustedBiller/X-billerId enforcement, and
+         rejection of X-PayerFI-Id-only callers
+     D4 (cross-tenant isolation): see section D4 below
 
   E. GovStackP2GService — unit tests
      E1:  get_bill() returns GovStackBill for known bill_id
@@ -80,6 +108,11 @@ Coverage matrix:
      E18: mark_bill_paid() does NOT create audit entry when already PAID
      E19: get_transfer_request() returns GovStackBillPayment with related bill
      E20: get_transfer_request() raises BillPaymentNotFound for unknown request_id
+     E21: get_bill() tenant scoping (wrong/matching/absent tenant)
+     E22: create_transfer_request() raises BillNotFound for wrong tenant
+     E23: mark_bill_paid() raises BillNotFound for wrong tenant
+     E24: mark_bill_paid() records actor_payer_fi_id on the audit entry
+     E25: get_transfer_request() tenant scoping (wrong/matching tenant)
 
   F. GovStackBill model tests
      F1:  bill_id unique constraint — duplicate raises IntegrityError
@@ -99,7 +132,8 @@ Coverage matrix:
 
   H. Security invariants
      H1:  payer_fi_id is NOT in any API response body
-     H2:  Error responses always use {"message": "..."} shape (never {"detail": "..."})
+     H2:  404 responses use {"message": "..."}; 400 responses use the P2G
+          envelope {responseCode, reason, requestID} — neither uses {"detail": "..."}
      H3:  HTTP 404 response shape is {"message": "..."} not DRF's {"detail": "..."}
      H4:  bill_id in audit details is not the bill's external ID (uses bill_pk)
      H5:  DuplicateBillPaymentError message does not expose internal request_id
@@ -121,6 +155,8 @@ Coverage matrix:
      J5:  requestId with surrounding whitespace is stripped and accepted (M1)
      J6:  bill_id is in readonly_fields on GovStackBillAdmin (M5)
      J7:  amount and currency remain editable — not over-restricted (M5)
+     J8:  All-whitespace billInquiryRequestId is rejected (now required)
+     J9:  All-whitespace paymentReferenceID is rejected (now required)
 
   K. Low-severity regression tests (post-review fixes)
      K1:  billId is present and correct in POST /billTransferRequests response (L7)
@@ -159,8 +195,19 @@ from apps.payments.govstack_services import GovStackP2GService
 TRANSFER_REQUESTS_URL = "/govstack/payments/billTransferRequests"
 
 
-def _bill_url(bill_id: str) -> str:
-    return f"/govstack/payments/bills/{bill_id}"
+def _bill_url(bill_id: str, fields: str | None = "inquiry") -> str:
+    """
+    Build the GET /bills/{bill_id} URL. `fields=inquiry` is a REQUIRED query
+    param per the live billInquiryRequest.yml spec (`required: true, enum:
+    ["inquiry"]`) — defaults to the valid value so every test that isn't
+    specifically exercising the missing/invalid `fields` case doesn't need to
+    repeat it. Pass fields=None to omit the query param entirely, or an
+    arbitrary string to send an invalid value.
+    """
+    url = f"/govstack/payments/bills/{bill_id}"
+    if fields is not None:
+        url += f"?fields={fields}"
+    return url
 
 
 def _mark_paid_url(bill_id: str) -> str:
@@ -217,17 +264,33 @@ def _make_payment(
     )
 
 
+# billInquiryRequestId (maxLength 12) and paymentReferenceID (maxLength 16)
+# are BOTH required per billPaymentRequest.yml's
+# `required: [requestId, billInquiryRequestId, billId, paymentReferenceID]`.
+# Defaulted here to valid, in-length-limit sentinel values so every test that
+# isn't specifically exercising the "missing required field" case doesn't
+# need to repeat them.
+DEFAULT_BILL_INQUIRY_REQUEST_ID = "INQ-DEFAULT1"  # 12 chars
+DEFAULT_PAYMENT_REFERENCE_ID = "PAYREF-DEFAULT1"  # 15 chars
+
+
 def _transfer_body(
     *,
     request_id: str = REQUEST_ID,
     bill_id: str = BILL_ID,
-    bill_inquiry_request_id: str = "",
-    payment_reference_id: str = "",
+    bill_inquiry_request_id: str | None = DEFAULT_BILL_INQUIRY_REQUEST_ID,
+    payment_reference_id: str | None = DEFAULT_PAYMENT_REFERENCE_ID,
 ) -> dict:
+    """
+    Build a valid POST /billTransferRequests body.
+
+    Pass bill_inquiry_request_id=None or payment_reference_id=None to omit
+    that key entirely (to exercise the "missing required field" 400 case).
+    """
     body: dict = {"requestId": request_id, "billId": bill_id}
-    if bill_inquiry_request_id:
+    if bill_inquiry_request_id is not None:
         body["billInquiryRequestId"] = bill_inquiry_request_id
-    if payment_reference_id:
+    if payment_reference_id is not None:
         body["paymentReferenceID"] = payment_reference_id
     return body
 
@@ -242,16 +305,27 @@ class TestBillInquiryView(TestCase):
         self.bill = _make_bill(due_date=date(2025, 12, 31))
 
     # A1
-    def test_known_bill_returns_200(self):
+    def test_known_bill_returns_202(self):
         resp = self.client.get(_bill_url(BILL_ID))
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # A2
     def test_response_shape(self):
         resp = self.client.get(_bill_url(BILL_ID))
         data = resp.json()
-        for key in ("billId", "amount", "currency", "description", "status", "dueDate"):
+        for key in (
+            "responseCode",
+            "reason",
+            "requestID",
+            "billId",
+            "amount",
+            "currency",
+            "description",
+            "status",
+            "dueDate",
+        ):
             self.assertIn(key, data, f"Missing key: {key}")
+        self.assertEqual(data["responseCode"], "00")
 
     # A3
     def test_amount_is_number(self):
@@ -292,7 +366,7 @@ class TestBillInquiryView(TestCase):
     def test_bill_id_whitespace_stripped(self):
         # The URL itself will strip the space naturally, but confirm the lookup works.
         resp = self.client.get(_bill_url(BILL_ID))
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         self.assertEqual(resp.json()["billId"], BILL_ID)
 
     # A8
@@ -312,6 +386,25 @@ class TestBillInquiryView(TestCase):
         resp = self.client.get(_bill_url("BILL-CANCELLED"))
         self.assertEqual(resp.json()["status"], GovStackBill.STATUS_CANCELLED)
 
+    # A11 — fields=inquiry requirement (certifiability-audit fix)
+    def test_missing_fields_query_param_returns_400(self):
+        resp = self.client.get(_bill_url(BILL_ID, fields=None))
+        self.assertEqual(resp.status_code, 400)
+        data = resp.json()
+        self.assertEqual(data["responseCode"], "01")
+        self.assertIn("fields=inquiry", data["reason"])
+
+    # A12
+    def test_invalid_fields_query_param_returns_400(self):
+        resp = self.client.get(_bill_url(BILL_ID, fields="wrong-value"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["responseCode"], "01")
+
+    # A13
+    def test_correct_fields_query_param_returns_202(self):
+        resp = self.client.get(_bill_url(BILL_ID, fields="inquiry"))
+        self.assertEqual(resp.status_code, 202)
+
 
 # ===========================================================================
 # B. BillTransferRequest view (POST /billTransferRequests)
@@ -323,13 +416,13 @@ class TestBillTransferRequestView(TestCase):
         self.bill = _make_bill()
 
     # B1
-    def test_valid_body_returns_200(self):
+    def test_valid_body_returns_202(self):
         resp = self.client.post(
             TRANSFER_REQUESTS_URL,
             _transfer_body(),
             format="json",
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # B2
     def test_response_shape(self):
@@ -339,8 +432,20 @@ class TestBillTransferRequestView(TestCase):
             format="json",
         )
         data = resp.json()
-        for key in ("requestId", "billId", "amount", "currency", "status", "message"):
+        for key in (
+            "responseCode",
+            "reason",
+            "requestID",
+            "billId",
+            "amount",
+            "currency",
+            "status",
+        ):
             self.assertIn(key, data, f"Missing key: {key}")
+        self.assertEqual(data["responseCode"], "00")
+        self.assertEqual(data["requestID"], REQUEST_ID)
+        # The old "message" key is replaced by "reason".
+        self.assertNotIn("message", data)
 
     # B2b
     def test_amount_is_number(self):
@@ -389,14 +494,30 @@ class TestBillTransferRequestView(TestCase):
         body = {"billId": BILL_ID}
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        data = resp.json()
+        self.assertEqual(data["responseCode"], "01")
+        self.assertIn("reason", data)
 
     # B8
     def test_missing_bill_id_returns_400(self):
         body = {"requestId": REQUEST_ID}
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        self.assertEqual(resp.json()["responseCode"], "01")
+
+    # B8b — billInquiryRequestId is now REQUIRED (certifiability-audit fix)
+    def test_missing_bill_inquiry_request_id_returns_400(self):
+        body = _transfer_body(bill_inquiry_request_id=None)
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["responseCode"], "01")
+
+    # B8c — paymentReferenceID is now REQUIRED (certifiability-audit fix)
+    def test_missing_payment_reference_id_returns_400(self):
+        body = _transfer_body(payment_reference_id=None)
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["responseCode"], "01")
 
     # B9
     def test_unknown_bill_id_returns_404(self):
@@ -412,8 +533,9 @@ class TestBillTransferRequestView(TestCase):
         resp = self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
-        self.assertIn("message", data)
-        self.assertIn("already been received", data["message"])
+        self.assertEqual(data["responseCode"], "01")
+        self.assertIn("already been received", data["reason"])
+        self.assertEqual(data["requestID"], REQUEST_ID)
 
     # B11
     def test_correlation_id_header_stored(self):
@@ -439,6 +561,14 @@ class TestBillTransferRequestView(TestCase):
 
     # B13
     def test_platform_tenant_id_header_stored(self):
+        # The bill must be tagged with the SAME tenant the caller declares —
+        # tenant scoping (certifiability-audit fix) now applies whenever a
+        # caller supplies a non-empty X-Platform-TenantId, regardless of the
+        # GOVSTACK_REQUIRE_PLATFORM_TENANT_ID flag. A caller declaring a
+        # tenant that doesn't match the bill's tenant gets BillNotFound (404)
+        # — see section D4 for that behaviour.
+        self.bill.platform_tenant_id = "TENANT-GOV"
+        self.bill.save(update_fields=["platform_tenant_id"])
         self.client.post(
             TRANSFER_REQUESTS_URL,
             _transfer_body(),
@@ -475,18 +605,21 @@ class TestBillTransferRequestView(TestCase):
         )
         body = _transfer_body(request_id="REQ-NEW", bill_id="BILL-ALREADYPAID")
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         payment = GovStackBillPayment.objects.get(request_id="REQ-NEW")
         # Verify the payment is correctly linked to the already-paid bill.
         self.assertEqual(payment.bill_id, already_paid_bill.pk)
 
     # B17
-    def test_error_responses_use_message_shape(self):
+    def test_error_responses_use_envelope_shape(self):
         resp = self.client.post(TRANSFER_REQUESTS_URL, {}, format="json")
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
-        self.assertIn("message", data)
+        self.assertEqual(data["responseCode"], "01")
+        self.assertIn("reason", data)
+        self.assertIn("requestID", data)
         self.assertNotIn("detail", data)
+        self.assertNotIn("message", data)
 
 
 # ===========================================================================
@@ -499,16 +632,17 @@ class TestMarkBillPaidView(TestCase):
         self.bill = _make_bill()
 
     # C1
-    def test_known_bill_returns_200(self):
+    def test_known_bill_returns_202(self):
         resp = self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # C2
     def test_response_shape(self):
         resp = self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
         data = resp.json()
-        for key in ("billId", "status", "message"):
+        for key in ("responseCode", "reason", "requestID", "billId", "status"):
             self.assertIn(key, data, f"Missing key: {key}")
+        self.assertEqual(data["responseCode"], "00")
 
     # C3
     def test_status_in_response_is_paid(self):
@@ -532,12 +666,12 @@ class TestMarkBillPaidView(TestCase):
         self.assertNotIn("detail", data)
 
     # C6
-    def test_already_paid_bill_returns_200(self):
+    def test_already_paid_bill_returns_202(self):
         paid_bill = _make_bill(bill_id="BILL-PAID", status=GovStackBill.STATUS_PAID)
         resp = self.client.post(
             _mark_paid_url("BILL-PAID"), HTTP_X_PAYERFI_ID="FI-TEST"
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # C7
     def test_already_paid_bill_status_still_paid(self):
@@ -558,7 +692,7 @@ class TestMarkBillPaidView(TestCase):
         # If routing was wrong, the mark-paid POST would have hit BillInquiryView
         # which does not define post() and would return 405.
         self.assertNotEqual(resp.status_code, 405)
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # C9
     def test_audit_entry_created_on_transition(self):
@@ -606,6 +740,22 @@ class TestMarkBillPaidView(TestCase):
             "the permission layer.",
         )
 
+    # C12 — certifiability-audit fix (CRITICAL): audit entry now records the
+    # real caller identity instead of a hardcoded "" actor_bb_id.
+    def test_audit_entry_records_real_caller_identity(self):
+        """
+        Before this fix, GovStackP2GService.mark_bill_paid() hardcoded
+        actor_bb_id="" with a comment claiming "no BB authentication" — even
+        though this view has always enforced RequirePayerFI (the caller's
+        X-PayerFI-Id is known and mandatory). The audit entry must now record
+        that caller identity.
+        """
+        self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-ACCOUNTABLE")
+        entry = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).latest("created_at")
+        self.assertEqual(entry.actor_bb_id, "FI-ACCOUNTABLE")
+
 
 # ===========================================================================
 # D. TransferRequestStatus view (GET /transferRequests/{transfer_request_id})
@@ -618,16 +768,26 @@ class TestTransferRequestStatusView(TestCase):
         self.payment = _make_payment(bill=self.bill)
 
     # D1
-    def test_known_request_id_returns_200(self):
+    def test_known_request_id_returns_202(self):
         resp = self.client.get(_transfer_status_url(REQUEST_ID))
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # D2
     def test_response_shape(self):
         resp = self.client.get(_transfer_status_url(REQUEST_ID))
         data = resp.json()
-        for key in ("requestId", "billId", "amount", "currency", "status"):
+        for key in (
+            "responseCode",
+            "reason",
+            "requestID",
+            "requestId",
+            "billId",
+            "amount",
+            "currency",
+            "status",
+        ):
             self.assertIn(key, data, f"Missing key: {key}")
+        self.assertEqual(data["responseCode"], "00")
 
     # D3
     def test_amount_is_number(self):
@@ -668,20 +828,27 @@ class TestTransferRequestStatusView(TestCase):
 
 
 # ===========================================================================
-# D2. IsTrustedPayerFI production-mode enforcement (Issue B)
+# D2. IsTrustedPayerFI / IsTrustedBiller production-mode enforcement (Issue B)
 #
-#   With GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True, BillInquiryView,
-#   BillTransferRequestView, and TransferRequestStatusView must:
-#     - reject a request with no X-PayerFI-Id header (or accepted variant)
-#       with HTTP 401
-#     - accept a request whose header value matches an active
-#       GovStackRegisteredBB row with HTTP 200
+#   With GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True:
+#     - BillInquiryView / BillTransferRequestView (IsTrustedPayerFI) must
+#       reject a request with no X-PayerFI-Id header (or accepted variant)
+#       with HTTP 401, and accept a whitelisted header with HTTP 202.
+#     - TransferRequestStatusView (IsTrustedBiller — certifiability-audit fix)
+#       must reject a request with no X-billerId header with HTTP 401, accept
+#       a whitelisted X-billerId header with HTTP 202, AND reject a caller
+#       that presents ONLY X-PayerFI-Id (no X-billerId) exactly like a caller
+#       presenting no header at all — this endpoint no longer trusts
+#       X-PayerFI-Id in any way.
 #
-#   This is the same whitelist table used by IsTrustedSourceBB (G2P), reused
-#   without a new model/migration per the Issue B design.
+#   IsTrustedBiller reuses the SAME GOVSTACK_REQUIRE_REGISTERED_PAYER_FI flag
+#   and GovStackRegisteredBB whitelist table as IsTrustedPayerFI (deliberate
+#   choice — see IsTrustedBiller's docstring), so a single override_settings
+#   covers all 4 P2G views' production-mode behaviour in this class.
 # ===========================================================================
 
 _WHITELISTED_PAYER_FI = "FI-WHITELISTED"
+_WHITELISTED_BILLER = "BILLER-WHITELISTED"
 
 
 @override_settings(GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True)
@@ -692,17 +859,20 @@ class TestPayerFIProductionModeEnforcement(TestCase):
         GovStackRegisteredBB.objects.create(
             bb_id=_WHITELISTED_PAYER_FI, is_active=True
         )
+        GovStackRegisteredBB.objects.create(
+            bb_id=_WHITELISTED_BILLER, is_active=True
+        )
 
     # BillInquiryView
     def test_bill_inquiry_no_header_returns_401_in_production_mode(self):
         resp = self.client.get(_bill_url(BILL_ID))
         self.assertEqual(resp.status_code, 401)
 
-    def test_bill_inquiry_whitelisted_header_returns_200_in_production_mode(self):
+    def test_bill_inquiry_whitelisted_header_returns_202_in_production_mode(self):
         resp = self.client.get(
             _bill_url(BILL_ID), HTTP_X_PAYERFI_ID=_WHITELISTED_PAYER_FI
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # BillTransferRequestView
     def test_bill_transfer_request_no_header_returns_401_in_production_mode(self):
@@ -711,7 +881,7 @@ class TestPayerFIProductionModeEnforcement(TestCase):
         )
         self.assertEqual(resp.status_code, 401)
 
-    def test_bill_transfer_request_whitelisted_header_returns_200_in_production_mode(
+    def test_bill_transfer_request_whitelisted_header_returns_202_in_production_mode(
         self,
     ):
         resp = self.client.post(
@@ -720,20 +890,33 @@ class TestPayerFIProductionModeEnforcement(TestCase):
             format="json",
             HTTP_X_PAYERFI_ID=_WHITELISTED_PAYER_FI,
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
-    # TransferRequestStatusView
+    # TransferRequestStatusView — IsTrustedBiller / X-billerId (certifiability-audit fix)
     def test_transfer_status_no_header_returns_401_in_production_mode(self):
         payment = _make_payment(bill=self.bill)
         resp = self.client.get(_transfer_status_url(REQUEST_ID))
         self.assertEqual(resp.status_code, 401)
 
-    def test_transfer_status_whitelisted_header_returns_200_in_production_mode(self):
+    def test_transfer_status_whitelisted_biller_header_returns_202_in_production_mode(self):
+        payment = _make_payment(bill=self.bill)
+        resp = self.client.get(
+            _transfer_status_url(REQUEST_ID), HTTP_X_BILLERID=_WHITELISTED_BILLER
+        )
+        self.assertEqual(resp.status_code, 202)
+
+    def test_transfer_status_payer_fi_only_header_rejected_in_production_mode(self):
+        """
+        A caller presenting ONLY X-PayerFI-Id (even a whitelisted one) and NO
+        X-billerId must be rejected exactly like a caller presenting no
+        header at all — rtpStatusUpdateRequest.yml requires X-billerId, not
+        X-PayerFI-Id, and this view no longer accepts the latter for auth.
+        """
         payment = _make_payment(bill=self.bill)
         resp = self.client.get(
             _transfer_status_url(REQUEST_ID), HTTP_X_PAYERFI_ID=_WHITELISTED_PAYER_FI
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 401)
 
 
 # ===========================================================================
@@ -772,7 +955,9 @@ class TestPlatformTenantIdOversizedAlwaysRejected(TestCase):
             _bill_url(BILL_ID), HTTP_X_PLATFORM_TENANTID=_OVERSIZED_TENANT_ID
         )
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        data = resp.json()
+        self.assertEqual(data["responseCode"], "01")
+        self.assertIn("reason", data)
 
     def test_bill_transfer_request_oversized_tenant_id_returns_400(self):
         resp = self.client.post(
@@ -782,7 +967,7 @@ class TestPlatformTenantIdOversizedAlwaysRejected(TestCase):
             HTTP_X_PLATFORM_TENANTID=_OVERSIZED_TENANT_ID,
         )
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        self.assertEqual(resp.json()["responseCode"], "01")
         # The oversized value must not have been persisted anywhere.
         self.assertFalse(
             GovStackBillPayment.objects.filter(request_id=REQUEST_ID).exists()
@@ -819,22 +1004,22 @@ class TestPlatformTenantIdHarnessModePermissive(TestCase):
         self.client = APIClient()
         self.bill = _make_bill()
 
-    def test_bill_inquiry_no_tenant_id_still_200_in_harness_mode(self):
+    def test_bill_inquiry_no_tenant_id_still_202_in_harness_mode(self):
         resp = self.client.get(_bill_url(BILL_ID))
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
-    def test_bill_transfer_request_no_tenant_id_still_200_in_harness_mode(self):
+    def test_bill_transfer_request_no_tenant_id_still_202_in_harness_mode(self):
         resp = self.client.post(TRANSFER_REQUESTS_URL, _transfer_body(), format="json")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
-    def test_mark_bill_paid_no_tenant_id_still_200_in_harness_mode(self):
+    def test_mark_bill_paid_no_tenant_id_still_202_in_harness_mode(self):
         resp = self.client.post(_mark_paid_url(BILL_ID), HTTP_X_PAYERFI_ID="FI-TEST")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
-    def test_transfer_status_no_tenant_id_still_200_in_harness_mode(self):
+    def test_transfer_status_no_tenant_id_still_202_in_harness_mode(self):
         payment = _make_payment(bill=self.bill)
         resp = self.client.get(_transfer_status_url(REQUEST_ID))
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
 
 @override_settings(GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True)
@@ -844,24 +1029,33 @@ class TestPlatformTenantIdProductionModeEnforcement(TestCase):
       - reject a request with no X-Platform-TenantId header (or the
         Platform-TenantId spelling variant) with HTTP 400 (a validation
         failure, distinct from D2's HTTP 401 auth failures)
-      - accept a request with a present, ≤20-char header with HTTP 200
+      - accept a request with a present, ≤20-char header with HTTP 202
+
+    NOTE: self.bill is pre-tagged with platform_tenant_id="TENANT-GOV" so
+    that the "with tenant id" success-path tests (which now ALSO exercise
+    real tenant-scoping — see section D4 — not just header validation) match
+    and return 202 rather than 404. The "no tenant id" tests never reach the
+    tenant-scoped lookup at all (they're rejected earlier, at header
+    validation), so the bill's tenant tag is irrelevant there.
     """
 
     def setUp(self):
         self.client = APIClient()
         self.bill = _make_bill()
+        self.bill.platform_tenant_id = "TENANT-GOV"
+        self.bill.save(update_fields=["platform_tenant_id"])
 
     # BillInquiryView
     def test_bill_inquiry_no_tenant_id_returns_400_in_production_mode(self):
         resp = self.client.get(_bill_url(BILL_ID))
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        self.assertEqual(resp.json()["responseCode"], "01")
 
-    def test_bill_inquiry_with_tenant_id_returns_200_in_production_mode(self):
+    def test_bill_inquiry_with_tenant_id_returns_202_in_production_mode(self):
         resp = self.client.get(
             _bill_url(BILL_ID), HTTP_X_PLATFORM_TENANTID="TENANT-GOV"
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     def test_bill_inquiry_accepts_platform_tenantid_spelling_variant(self):
         # billInquiryRequest.yml spells this header "Platform-TenantId" (no
@@ -869,7 +1063,7 @@ class TestPlatformTenantIdProductionModeEnforcement(TestCase):
         resp = self.client.get(
             _bill_url(BILL_ID), HTTP_PLATFORM_TENANTID="TENANT-GOV"
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # BillTransferRequestView
     def test_bill_transfer_request_no_tenant_id_returns_400_in_production_mode(self):
@@ -877,19 +1071,19 @@ class TestPlatformTenantIdProductionModeEnforcement(TestCase):
             TRANSFER_REQUESTS_URL, _transfer_body(), format="json"
         )
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        self.assertEqual(resp.json()["responseCode"], "01")
         self.assertFalse(
             GovStackBillPayment.objects.filter(request_id=REQUEST_ID).exists()
         )
 
-    def test_bill_transfer_request_with_tenant_id_returns_200_in_production_mode(self):
+    def test_bill_transfer_request_with_tenant_id_returns_202_in_production_mode(self):
         resp = self.client.post(
             TRANSFER_REQUESTS_URL,
             _transfer_body(),
             format="json",
             HTTP_X_PLATFORM_TENANTID="TENANT-GOV",
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
         self.assertEqual(payment.platform_tenant_id, "TENANT-GOV")
 
@@ -902,13 +1096,13 @@ class TestPlatformTenantIdProductionModeEnforcement(TestCase):
         self.bill.refresh_from_db()
         self.assertEqual(self.bill.status, GovStackBill.STATUS_UNPAID)
 
-    def test_mark_bill_paid_with_tenant_id_returns_200_in_production_mode(self):
+    def test_mark_bill_paid_with_tenant_id_returns_202_in_production_mode(self):
         resp = self.client.post(
             _mark_paid_url(BILL_ID),
             HTTP_X_PAYERFI_ID="FI-TEST",
             HTTP_X_PLATFORM_TENANTID="TENANT-GOV",
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # TransferRequestStatusView
     def test_transfer_status_no_tenant_id_returns_400_in_production_mode(self):
@@ -916,12 +1110,131 @@ class TestPlatformTenantIdProductionModeEnforcement(TestCase):
         resp = self.client.get(_transfer_status_url(REQUEST_ID))
         self.assertEqual(resp.status_code, 400)
 
-    def test_transfer_status_with_tenant_id_returns_200_in_production_mode(self):
+    def test_transfer_status_with_tenant_id_returns_202_in_production_mode(self):
         payment = _make_payment(bill=self.bill)
+        payment.platform_tenant_id = "TENANT-GOV"
+        payment.save(update_fields=["platform_tenant_id"])
         resp = self.client.get(
             _transfer_status_url(REQUEST_ID), HTTP_X_PLATFORM_TENANTID="TENANT-GOV"
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
+
+
+# ===========================================================================
+# D4. Cross-tenant data isolation (certifiability-audit fix — CRITICAL finding)
+#
+#   A bill/payment created under one declared tenant must NOT be readable or
+#   writable by a caller declaring a DIFFERENT tenant, but MUST remain
+#   reachable by a caller declaring NO tenant at all (harness mode) or the
+#   MATCHING tenant. Cross-tenant lookups return the exact same "not found"
+#   response as a genuinely missing record — never distinguished — so this
+#   API can't be used to probe cross-tenant existence.
+# ===========================================================================
+
+TENANT_A = "TENANT-A"
+TENANT_B = "TENANT-B"
+
+
+class TestCrossTenantDataIsolation(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.tenant_a_bill = GovStackBill.objects.create(
+            bill_id="BILL-TENANT-A",
+            amount=Decimal("75.00"),
+            currency="USD",
+            platform_tenant_id=TENANT_A,
+        )
+        self.tenant_a_payment = GovStackBillPayment.objects.create(
+            request_id="REQ-TENANT-A",
+            bill=self.tenant_a_bill,
+            amount=Decimal("75.00"),
+            currency="USD",
+            status=GovStackBillPayment.STATUS_COMPLETED,
+            platform_tenant_id=TENANT_A,
+        )
+
+    # BillInquiryView
+    def test_bill_inquiry_wrong_tenant_returns_404(self):
+        resp = self.client.get(
+            _bill_url("BILL-TENANT-A"), HTTP_X_PLATFORM_TENANTID=TENANT_B
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_bill_inquiry_matching_tenant_returns_202(self):
+        resp = self.client.get(
+            _bill_url("BILL-TENANT-A"), HTTP_X_PLATFORM_TENANTID=TENANT_A
+        )
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.json()["billId"], "BILL-TENANT-A")
+
+    def test_bill_inquiry_no_declared_tenant_returns_202_in_harness_mode(self):
+        # Harness mode: no tenant declared at all → no scoping applied, so the
+        # bill remains reachable (matches today's permissive harness behaviour).
+        resp = self.client.get(_bill_url("BILL-TENANT-A"))
+        self.assertEqual(resp.status_code, 202)
+
+    # BillTransferRequestView — cannot notify a payment against another tenant's bill
+    def test_bill_transfer_request_wrong_tenant_returns_404(self):
+        body = _transfer_body(request_id="REQ-WRONG-TENANT", bill_id="BILL-TENANT-A")
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL,
+            body,
+            format="json",
+            HTTP_X_PLATFORM_TENANTID=TENANT_B,
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(
+            GovStackBillPayment.objects.filter(request_id="REQ-WRONG-TENANT").exists()
+        )
+
+    def test_bill_transfer_request_matching_tenant_returns_202(self):
+        body = _transfer_body(request_id="REQ-MATCHING-TENANT", bill_id="BILL-TENANT-A")
+        resp = self.client.post(
+            TRANSFER_REQUESTS_URL,
+            body,
+            format="json",
+            HTTP_X_PLATFORM_TENANTID=TENANT_A,
+        )
+        self.assertEqual(resp.status_code, 202)
+
+    # MarkBillPaidView — cannot mark another tenant's bill as paid
+    def test_mark_bill_paid_wrong_tenant_returns_404(self):
+        resp = self.client.post(
+            _mark_paid_url("BILL-TENANT-A"),
+            HTTP_X_PAYERFI_ID="FI-TEST",
+            HTTP_X_PLATFORM_TENANTID=TENANT_B,
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.tenant_a_bill.refresh_from_db()
+        self.assertEqual(self.tenant_a_bill.status, GovStackBill.STATUS_UNPAID)
+
+    def test_mark_bill_paid_matching_tenant_returns_202(self):
+        resp = self.client.post(
+            _mark_paid_url("BILL-TENANT-A"),
+            HTTP_X_PAYERFI_ID="FI-TEST",
+            HTTP_X_PLATFORM_TENANTID=TENANT_A,
+        )
+        self.assertEqual(resp.status_code, 202)
+        self.tenant_a_bill.refresh_from_db()
+        self.assertEqual(self.tenant_a_bill.status, GovStackBill.STATUS_PAID)
+
+    # TransferRequestStatusView
+    def test_transfer_status_wrong_tenant_returns_404(self):
+        resp = self.client.get(
+            _transfer_status_url("REQ-TENANT-A"), HTTP_X_PLATFORM_TENANTID=TENANT_B
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_transfer_status_matching_tenant_returns_202(self):
+        resp = self.client.get(
+            _transfer_status_url("REQ-TENANT-A"), HTTP_X_PLATFORM_TENANTID=TENANT_A
+        )
+        self.assertEqual(resp.status_code, 202)
+        self.assertEqual(resp.json()["requestId"], "REQ-TENANT-A")
+
+    def test_transfer_status_no_declared_tenant_returns_202_in_harness_mode(self):
+        resp = self.client.get(_transfer_status_url("REQ-TENANT-A"))
+        self.assertEqual(resp.status_code, 202)
 
 
 # ===========================================================================
@@ -1196,6 +1509,95 @@ class TestGovStackP2GService(TestCase):
         with self.assertRaises(BillPaymentNotFound):
             GovStackP2GService.get_transfer_request(request_id="NO-SUCH-REQ")
 
+    # E21 — certifiability-audit fix (CRITICAL): get_bill() tenant scoping
+    def test_get_bill_wrong_tenant_raises_bill_not_found(self):
+        tenant_bill = _make_bill(bill_id="BILL-SVC-TENANT", status=GovStackBill.STATUS_UNPAID)
+        tenant_bill.platform_tenant_id = "TENANT-A"
+        tenant_bill.save(update_fields=["platform_tenant_id"])
+        with self.assertRaises(BillNotFound):
+            GovStackP2GService.get_bill(
+                bill_id="BILL-SVC-TENANT", platform_tenant_id="TENANT-B"
+            )
+
+    def test_get_bill_matching_tenant_succeeds(self):
+        tenant_bill = _make_bill(bill_id="BILL-SVC-TENANT2", status=GovStackBill.STATUS_UNPAID)
+        tenant_bill.platform_tenant_id = "TENANT-A"
+        tenant_bill.save(update_fields=["platform_tenant_id"])
+        bill = GovStackP2GService.get_bill(
+            bill_id="BILL-SVC-TENANT2", platform_tenant_id="TENANT-A"
+        )
+        self.assertEqual(bill.bill_id, "BILL-SVC-TENANT2")
+
+    def test_get_bill_no_tenant_declared_ignores_scoping(self):
+        tenant_bill = _make_bill(bill_id="BILL-SVC-TENANT3", status=GovStackBill.STATUS_UNPAID)
+        tenant_bill.platform_tenant_id = "TENANT-A"
+        tenant_bill.save(update_fields=["platform_tenant_id"])
+        # No platform_tenant_id supplied at all (harness mode) → no scoping.
+        bill = GovStackP2GService.get_bill(bill_id="BILL-SVC-TENANT3")
+        self.assertEqual(bill.bill_id, "BILL-SVC-TENANT3")
+
+    # E22 — create_transfer_request() tenant scoping
+    def test_create_transfer_request_wrong_tenant_raises_bill_not_found(self):
+        tenant_bill = _make_bill(bill_id="BILL-SVC-TENANT4", status=GovStackBill.STATUS_UNPAID)
+        tenant_bill.platform_tenant_id = "TENANT-A"
+        tenant_bill.save(update_fields=["platform_tenant_id"])
+        with self.assertRaises(BillNotFound):
+            GovStackP2GService.create_transfer_request(
+                request_id="REQ-SVC-TENANT4",
+                bill_id="BILL-SVC-TENANT4",
+                platform_tenant_id="TENANT-B",
+            )
+        self.assertFalse(
+            GovStackBillPayment.objects.filter(request_id="REQ-SVC-TENANT4").exists()
+        )
+
+    # E23 — mark_bill_paid() tenant scoping
+    def test_mark_bill_paid_wrong_tenant_raises_bill_not_found(self):
+        tenant_bill = _make_bill(bill_id="BILL-SVC-TENANT5", status=GovStackBill.STATUS_UNPAID)
+        tenant_bill.platform_tenant_id = "TENANT-A"
+        tenant_bill.save(update_fields=["platform_tenant_id"])
+        with self.assertRaises(BillNotFound):
+            GovStackP2GService.mark_bill_paid(
+                bill_id="BILL-SVC-TENANT5", platform_tenant_id="TENANT-B"
+            )
+        tenant_bill.refresh_from_db()
+        self.assertEqual(tenant_bill.status, GovStackBill.STATUS_UNPAID)
+
+    # E24 — mark_bill_paid() now records the caller's identity on the audit entry
+    def test_mark_bill_paid_records_actor_payer_fi_id_on_audit_entry(self):
+        GovStackP2GService.mark_bill_paid(
+            bill_id=BILL_ID, actor_payer_fi_id="FI-SVC-CALLER"
+        )
+        entry = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).latest("created_at")
+        self.assertEqual(entry.actor_bb_id, "FI-SVC-CALLER")
+
+    # E25 — get_transfer_request() tenant scoping
+    def test_get_transfer_request_wrong_tenant_raises_not_found(self):
+        tenant_bill = _make_bill(bill_id="BILL-SVC-TENANT6", status=GovStackBill.STATUS_PAID)
+        tenant_bill.platform_tenant_id = "TENANT-A"
+        tenant_bill.save(update_fields=["platform_tenant_id"])
+        payment = _make_payment(request_id="REQ-SVC-TENANT6", bill=tenant_bill)
+        payment.platform_tenant_id = "TENANT-A"
+        payment.save(update_fields=["platform_tenant_id"])
+        with self.assertRaises(BillPaymentNotFound):
+            GovStackP2GService.get_transfer_request(
+                request_id="REQ-SVC-TENANT6", platform_tenant_id="TENANT-B"
+            )
+
+    def test_get_transfer_request_matching_tenant_succeeds(self):
+        tenant_bill = _make_bill(bill_id="BILL-SVC-TENANT7", status=GovStackBill.STATUS_PAID)
+        tenant_bill.platform_tenant_id = "TENANT-A"
+        tenant_bill.save(update_fields=["platform_tenant_id"])
+        payment = _make_payment(request_id="REQ-SVC-TENANT7", bill=tenant_bill)
+        payment.platform_tenant_id = "TENANT-A"
+        payment.save(update_fields=["platform_tenant_id"])
+        result = GovStackP2GService.get_transfer_request(
+            request_id="REQ-SVC-TENANT7", platform_tenant_id="TENANT-A"
+        )
+        self.assertEqual(result.request_id, "REQ-SVC-TENANT7")
+
 
 # ===========================================================================
 # F. GovStackBill model tests
@@ -1338,7 +1740,7 @@ class TestSecurityInvariants(TestCase):
             format="json",
             HTTP_X_PAYERFI_ID="SENSITIVE-FI-ID",
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         resp_text = resp.content.decode()
         self.assertNotIn("SENSITIVE-FI-ID", resp_text)
         self.assertNotIn("payer_fi_id", resp_text)
@@ -1352,12 +1754,13 @@ class TestSecurityInvariants(TestCase):
         payment.payer_fi_id = "SENSITIVE-FI-ID"
         payment.save(update_fields=["payer_fi_id"])
         resp = self.client.get(_transfer_status_url("REQ-FI"))
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         resp_text = resp.content.decode()
         self.assertNotIn("SENSITIVE-FI-ID", resp_text)
         self.assertNotIn("payer_fi_id", resp_text)
 
-    # H2 — error responses use {"message": "..."} not {"detail": "..."}
+    # H2 — 404 responses use {"message": "..."} not {"detail": "..."}; 400
+    # responses now use the P2G envelope {"responseCode", "reason", "requestID"}
     def test_404_uses_message_not_detail(self):
         resp = self.client.get(_bill_url("NONEXISTENT"))
         self.assertEqual(resp.status_code, 404)
@@ -1365,11 +1768,12 @@ class TestSecurityInvariants(TestCase):
         self.assertIn("message", data)
         self.assertNotIn("detail", data)
 
-    def test_400_uses_message_not_detail(self):
+    def test_400_uses_envelope_not_detail(self):
         resp = self.client.post(TRANSFER_REQUESTS_URL, {}, format="json")
         self.assertEqual(resp.status_code, 400)
         data = resp.json()
-        self.assertIn("message", data)
+        self.assertIn("responseCode", data)
+        self.assertIn("reason", data)
         self.assertNotIn("detail", data)
 
     # H3 — HTTP 404 shape is {"message": "..."} for all P2G 404 cases
@@ -1601,31 +2005,31 @@ class TestMediumSeverityRegressions(TestCase):
         Before the M1 fix, "   ".strip() == "" would be accepted as a valid
         idempotency key, making the first call succeed with a blank key.
         """
-        body = {"requestId": "   ", "billId": BILL_ID}
+        body = _transfer_body(request_id="   ")
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        self.assertIn("reason", resp.json())
 
     # J2 — M1: All-whitespace billId is rejected
     def test_whitespace_only_bill_id_returns_400(self):
-        body = {"requestId": REQUEST_ID, "billId": "   "}
+        body = _transfer_body(bill_id="   ")
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        self.assertIn("reason", resp.json())
 
     # J3 — M1: Empty string requestId is rejected
     def test_empty_string_request_id_returns_400(self):
-        body = {"requestId": "", "billId": BILL_ID}
+        body = _transfer_body(request_id="")
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
         # DRF treats "" as blank which is normally rejected by CharField (required=True, allow_blank=False by default)
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        self.assertIn("reason", resp.json())
 
     # J4 — M1: Valid non-blank requestId still succeeds
     def test_valid_request_id_not_affected_by_blank_check(self):
         body = _transfer_body()
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
 
     # J5 — M1: requestId with surrounding whitespace is stripped and accepted
     def test_request_id_with_surrounding_whitespace_is_stripped(self):
@@ -1633,9 +2037,9 @@ class TestMediumSeverityRegressions(TestCase):
         A requestId like "  REQ-001  " should be stripped to "REQ-001" and succeed.
         The blank guard only fires when the stripped value is empty.
         """
-        body = {"requestId": f"  {REQUEST_ID}  ", "billId": BILL_ID}
+        body = _transfer_body(request_id=f"  {REQUEST_ID}  ")
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         # Confirm the stored request_id is the stripped version
         payment = GovStackBillPayment.objects.get(request_id=REQUEST_ID)
         self.assertEqual(payment.request_id, REQUEST_ID)
@@ -1682,6 +2086,20 @@ class TestMediumSeverityRegressions(TestCase):
             "currency should be editable by staff for data-entry corrections.",
         )
 
+    # J8 — billInquiryRequestId/paymentReferenceID blank rejection
+    # (certifiability-audit fix: these fields are now required per the live
+    # spec, and blank/whitespace-only values are rejected the same way
+    # requestId/billId already were.)
+    def test_whitespace_only_bill_inquiry_request_id_returns_400(self):
+        body = _transfer_body(bill_inquiry_request_id="   ")
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_whitespace_only_payment_reference_id_returns_400(self):
+        body = _transfer_body(payment_reference_id="   ")
+        resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
+        self.assertEqual(resp.status_code, 400)
+
 
 # ===========================================================================
 # K. Low-severity regression tests (post-review fixes)
@@ -1715,7 +2133,7 @@ class TestLowSeverityRegressions(TestCase):
         """
         body = _transfer_body()
         resp = self.client.post(TRANSFER_REQUESTS_URL, body, format="json")
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         data = resp.json()
         self.assertIn(
             "billId",
@@ -1736,7 +2154,7 @@ class TestLowSeverityRegressions(TestCase):
         """
         _make_payment(bill=self.bill)
         resp = self.client.get(_transfer_status_url(REQUEST_ID))
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 202)
         data = resp.json()
         self.assertIn(
             "billId",

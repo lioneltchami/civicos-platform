@@ -169,10 +169,35 @@ class ProcessDataExportTaskTests(TestCase):
         export = _make_export(self.citizen)
         with patch(_STORAGE) as mock_storage:
             mock_storage.save.side_effect = OSError("disk full")
-            # CELERY_TASK_EAGER_PROPAGATES=True means exceptions re-raise
-            # but our task catches and retries — MaxRetriesExceeded or the OSError
-            # bubbles out.  Use throws=False so apply() captures it.
-            result = process_data_export.apply(args=[str(export.pk)], throw=False)
+            # The task's own except-block (apps/consent/tasks.py) sets
+            # export.status = STATUS_FAILED and writes the "export_failed"
+            # audit entry BEFORE calling `raise self.retry(exc=exc,
+            # countdown=300)` — so the DB write this test asserts on has
+            # already happened by the time retry() is invoked.
+            #
+            # Regression note (Payments BB certifiability fix pass,
+            # config/__init__.py Celery-bootstrap fix): once `config/__init__.py`
+            # correctly imports the properly Django-configured Celery app (see
+            # that file's docstring), `self.retry()` called from within an
+            # eagerly-executed task (`.apply()`) always raises
+            # `celery.exceptions.Retry` as a real Python exception — this is
+            # documented Celery behaviour for eager execution with no broker
+            # to actually schedule a retry against, and `throw=False` on
+            # `.apply()` does NOT suppress it (`throw` only governs whether
+            # `result.get()` re-raises an exception captured in the
+            # EagerResult; a `Retry` raised synchronously inside the task body
+            # is a distinct code path that eager mode always lets through).
+            # Before that fix, this task's `@shared_task` was accidentally
+            # bound to Celery's own unconfigured default app (a real,
+            # platform-wide bug — see config/__init__.py), which happened to
+            # swallow the Retry too, masking this test's flawed assumption
+            # that throw=False alone would do so. Catch it explicitly here,
+            # matching how eager-mode Celery retry tests are meant to be
+            # written.
+            try:
+                process_data_export.apply(args=[str(export.pk)], throw=False)
+            except Retry:
+                pass
         export.refresh_from_db()
         self.assertEqual(export.status, DataExportRequest.STATUS_FAILED)
 

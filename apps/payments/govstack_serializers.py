@@ -795,6 +795,15 @@ class BillTransferRequestSerializer(serializers.Serializer):
 
     requestId is the caller's idempotency key — duplicate requestIds return
     HTTP 400 (DuplicateBillPaymentError) rather than creating a duplicate record.
+
+    Live-spec fidelity (certifiability-audit fix — HIGH finding):
+      Fresh-fetched billPaymentRequest.yml declares
+      `required: [requestId, billInquiryRequestId, billId, paymentReferenceID]`
+      — all four fields are mandatory, with maxLength 12 on
+      billInquiryRequestId and maxLength 16 on paymentReferenceID. Before this
+      fix, billInquiryRequestId/paymentReferenceID were `required=False` here
+      and read via `.get(..., "")` in the view — silently accepting requests
+      the live spec says must be rejected with HTTP 400.
     """
     requestId = serializers.CharField(
         max_length=100,
@@ -808,18 +817,18 @@ class BillTransferRequestSerializer(serializers.Serializer):
         help_text="Government-assigned bill identifier matching GovStackBill.bill_id.",
     )
     billInquiryRequestId = serializers.CharField(
-        max_length=100,
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text="requestId from a prior GET /bills/{billId} inquiry (optional).",
+        max_length=12,
+        help_text=(
+            "requestId from a prior GET /bills/{billId} inquiry. Required per "
+            "billPaymentRequest.yml (`required: true`, maxLength: 12)."
+        ),
     )
     paymentReferenceID = serializers.CharField(
-        max_length=100,
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text="Mobile money / financial network payment reference (optional).",
+        max_length=16,
+        help_text=(
+            "Mobile money / financial network payment reference. Required per "
+            "billPaymentRequest.yml (`required: true`, maxLength: 16)."
+        ),
     )
 
     def validate_requestId(self, value: str) -> str:
@@ -842,6 +851,22 @@ class BillTransferRequestSerializer(serializers.Serializer):
             )
         return stripped
 
+    def validate_billInquiryRequestId(self, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError(
+                "billInquiryRequestId must not be blank or whitespace-only."
+            )
+        return stripped
+
+    def validate_paymentReferenceID(self, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise serializers.ValidationError(
+                "paymentReferenceID must not be blank or whitespace-only."
+            )
+        return stripped
+
 
 # ---------------------------------------------------------------------------
 # P2G — Response serializers (schema documentation only)
@@ -855,9 +880,21 @@ class BillTransferRequestSerializer(serializers.Serializer):
 
 class BillInquiryResponseSerializer(serializers.Serializer):
     """
-    Response shape for GET /govstack/payments/bills/{bill_id} → HTTP 200.
-    Schema documentation only.
+    Response shape for GET /govstack/payments/bills/{bill_id} → HTTP 202.
+
+    Live-spec fidelity (certifiability-audit fix): billInquiryRequest.yml's
+    response schema is `{responseCode, reason, requestID}` at HTTP 202 (not
+    200). This class documents responseCode/reason/requestID as the
+    spec-required envelope, plus the existing billId/amount/currency/
+    description/status/dueDate fields kept as additional properties (none of
+    the fetched schemas set `additionalProperties: false`). The endpoint
+    remains synchronous by deliberate, documented choice — see
+    BillInquiryView's docstring for the full rationale.
+    Schema documentation only — the view Response() dict is the source of truth.
     """
+    responseCode = serializers.CharField(read_only=True, max_length=2)   # "00" | "01"
+    reason = serializers.CharField(read_only=True, max_length=200)
+    requestID = serializers.CharField(read_only=True, max_length=12)
     billId = serializers.CharField(read_only=True)
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     currency = serializers.CharField(read_only=True)
@@ -868,32 +905,55 @@ class BillInquiryResponseSerializer(serializers.Serializer):
 
 class BillTransferResponseSerializer(serializers.Serializer):
     """
-    Response shape for POST /govstack/payments/billTransferRequests → HTTP 200.
-    Schema documentation only.
+    Response shape for POST /govstack/payments/billTransferRequests → HTTP 202.
+
+    Live-spec fidelity (certifiability-audit fix): billPaymentRequest.yml's
+    response schema is `{responseCode, reason, requestID}` at HTTP 202 (not
+    200). This class documents that spec-required envelope, plus the existing
+    billId/amount/currency/status fields kept as additional properties. The
+    old `message` key is replaced by `reason`.
+    Schema documentation only — the view Response() dict is the source of truth.
     """
-    requestId = serializers.CharField(read_only=True)
+    responseCode = serializers.CharField(read_only=True, max_length=2)   # "00" | "01"
+    reason = serializers.CharField(read_only=True, max_length=200)
+    requestID = serializers.CharField(read_only=True, max_length=12)
     billId = serializers.CharField(read_only=True)
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     currency = serializers.CharField(read_only=True)
     status = serializers.CharField(read_only=True)         # "completed"
-    message = serializers.CharField(read_only=True)
 
 
 class MarkBillPaidResponseSerializer(serializers.Serializer):
     """
-    Response shape for POST /govstack/payments/bills/{bill_id}/mark-paid → HTTP 200.
-    Schema documentation only.
+    Response shape for POST /govstack/payments/bills/{bill_id}/mark-paid → HTTP 202.
+
+    No direct upstream P2G YAML entry exists for this staff/fallback
+    endpoint. Its envelope is aligned to the other 3 P2G views'
+    {responseCode, reason, requestID} shape purely for internal consistency,
+    not because a live spec mandates it here.
+    Schema documentation only — the view Response() dict is the source of truth.
     """
+    responseCode = serializers.CharField(read_only=True, max_length=2)   # "00"
+    reason = serializers.CharField(read_only=True, max_length=200)
+    requestID = serializers.CharField(read_only=True, max_length=12)
     billId = serializers.CharField(read_only=True)
     status = serializers.CharField(read_only=True)         # "paid"
-    message = serializers.CharField(read_only=True)
 
 
 class TransferRequestStatusSerializer(serializers.Serializer):
     """
-    Response shape for GET /govstack/payments/transferRequests/{request_id} → HTTP 200.
-    Schema documentation only.
+    Response shape for GET /govstack/payments/transferRequests/{request_id} → HTTP 202.
+
+    Live-spec fidelity (certifiability-audit fix): rtpStatusUpdateRequest.yml's
+    response schema is `{responseCode, reason, requestID}` at HTTP 202 (not
+    200). This class documents that spec-required envelope, plus the existing
+    requestId/billId/amount/currency/status fields kept as additional
+    properties.
+    Schema documentation only — the view Response() dict is the source of truth.
     """
+    responseCode = serializers.CharField(read_only=True, max_length=2)   # "00"
+    reason = serializers.CharField(read_only=True, max_length=200)
+    requestID = serializers.CharField(read_only=True, max_length=12)
     requestId = serializers.CharField(read_only=True)
     billId = serializers.CharField(read_only=True)
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)

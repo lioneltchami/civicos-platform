@@ -1050,6 +1050,18 @@ class GovStackBill(TimestampedModel):
         verbose_name=_("Correlation ID"),
         help_text=_("Optional cross-system correlation identifier for this bill."),
     )
+    platform_tenant_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Platform Tenant ID"),
+        help_text=_(
+            "X-Platform-TenantId header value recorded when this bill was "
+            "created/imported by government staff. Empty string means the bill "
+            "predates tenant scoping or was created without a declared tenant "
+            "(tolerated — see GovStackP2GService for how this is used to scope "
+            "reads/writes only when a caller-supplied tenant id is present)."
+        ),
+    )
 
     class Meta:
         verbose_name = _("GovStack Bill")

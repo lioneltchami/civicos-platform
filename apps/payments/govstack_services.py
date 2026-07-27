@@ -1208,6 +1208,28 @@ class GovStackP2GService:
       POST /bills/{billId}/mark-paid manually marks a bill PAID when the
       automatic notification did not arrive (e.g. mobile money network outage).
 
+    Tenant scoping (certifiability-audit fix — CRITICAL finding):
+      Every public method now accepts an optional `platform_tenant_id`
+      parameter. This mirrors GovStackAPIView._validate_platform_tenant_id()'s
+      own mode-gating in govstack_views.py:
+        - GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=False (harness/test default):
+          the X-Platform-TenantId header may be absent, in which case the view
+          passes platform_tenant_id="" here and NO tenant filter is applied —
+          preserving today's permissive harness-compatible behaviour.
+        - GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True (production default): the
+          header is mandatory at the view layer, so platform_tenant_id is
+          always a non-empty string here, and every lookup below is scoped to
+          it.
+      In other words: scoping is applied if and only if the caller actually
+      declared a tenant. A bill/payment created under one tenant is never
+      readable or writable by a caller who declares a *different* tenant, but
+      remains reachable by a caller who declares no tenant at all (harness
+      mode) or the matching tenant. Cross-tenant lookups that fail to match
+      raise the exact same "not found" exception as a genuinely missing
+      record (BillNotFound / BillPaymentNotFound) — the two cases are never
+      distinguished in the response, so a caller cannot use this API to probe
+      whether a bill/payment exists under a tenant they don't belong to.
+
     Security:
     - No citizen PII is stored on GovStackBill or GovStackBillPayment.
     - payer_fi_id identifies the financial institution, not the citizen.
@@ -1217,20 +1239,37 @@ class GovStackP2GService:
     """
 
     @staticmethod
-    def get_bill(bill_id: str) -> GovStackBill:
+    def get_bill(bill_id: str, platform_tenant_id: str = "") -> GovStackBill:
         """
-        Retrieve a GovStackBill by its bill_id.
+        Retrieve a GovStackBill by its bill_id, optionally scoped to a tenant.
+
+        Args:
+            bill_id: Government-assigned bill identifier.
+            platform_tenant_id: X-Platform-TenantId header value, passed
+                through from the view. When non-empty, the lookup is scoped
+                to GovStackBill.platform_tenant_id == platform_tenant_id — a
+                bill belonging to a different tenant is treated as not found.
+                When empty (header absent — only possible in harness/test
+                mode; see class docstring), no scoping is applied.
 
         Returns the GovStackBill instance (all fields; view selects what to expose).
 
         Raises:
-            BillNotFound (HTTP 404): bill_id not found in the database.
+            BillNotFound (HTTP 404): bill_id not found in the database, OR
+                found but registered under a different platform_tenant_id
+                than the one supplied. Both cases raise the identical
+                exception — never distinguished — to avoid leaking
+                cross-tenant existence.
         """
-        bill = GovStackBill.objects.filter(bill_id=bill_id).first()
+        qs = GovStackBill.objects.filter(bill_id=bill_id)
+        if platform_tenant_id:
+            qs = qs.filter(platform_tenant_id=platform_tenant_id)
+        bill = qs.first()
         if bill is None:
             logger.info(
-                "govstack.p2g.bill_not_found bill_id_len=%d",
+                "govstack.p2g.bill_not_found bill_id_len=%d tenant_scoped=%s",
                 len(bill_id),
+                bool(platform_tenant_id),
                 # bill_id intentionally omitted: it is an external ID and may be
                 # sensitive in some government contexts.
             )
@@ -1260,8 +1299,18 @@ class GovStackP2GService:
 
         Returns the saved GovStackBillPayment instance.
 
+        Args:
+            platform_tenant_id: X-Platform-TenantId header value, passed
+                through from the view. When non-empty, the bill lookup below
+                is scoped to GovStackBill.platform_tenant_id ==
+                platform_tenant_id — a caller cannot notify a payment against
+                a bill outside their declared tenant. See the class docstring
+                for the full mode-gating rationale (mirrors get_bill()).
+
         Raises:
-            BillNotFound (HTTP 404): bill_id not found.
+            BillNotFound (HTTP 404): bill_id not found, or found but
+                registered under a different tenant than the one supplied
+                (both cases raise the identical exception).
             DuplicateBillPaymentError: request_id already exists (caller should
                 treat this as "already processed" and NOT retry).
 
@@ -1272,13 +1321,16 @@ class GovStackP2GService:
             The unique constraint on request_id acts as a second guard.
         """
         with transaction.atomic():
-            # ── Lock the bill row + look up → 404 ──────────────────────────
+            # ── Lock the bill row + look up (tenant-scoped) → 404 ───────────
             # BillNotFound is raised OUTSIDE the IntegrityError guard below so
             # it propagates cleanly to the view without risk of being swallowed
             # by a broad except-IntegrityError clause.
-            locked_bill = GovStackBill.objects.select_for_update().filter(
+            locked_qs = GovStackBill.objects.select_for_update().filter(
                 bill_id=bill_id
-            ).first()
+            )
+            if platform_tenant_id:
+                locked_qs = locked_qs.filter(platform_tenant_id=platform_tenant_id)
+            locked_bill = locked_qs.first()
             if locked_bill is None:
                 raise BillNotFound()
 
@@ -1347,7 +1399,11 @@ class GovStackP2GService:
         return payment
 
     @staticmethod
-    def mark_bill_paid(bill_id: str) -> GovStackBill:
+    def mark_bill_paid(
+        bill_id: str,
+        platform_tenant_id: str = "",
+        actor_payer_fi_id: str = "",
+    ) -> GovStackBill:
         """
         Manually mark a GovStackBill as PAID.
 
@@ -1359,19 +1415,33 @@ class GovStackP2GService:
         record — it only transitions the bill status.  No idempotency key is required;
         marking an already-PAID bill is a no-op (returns the bill as-is).
 
+        Args:
+            platform_tenant_id: X-Platform-TenantId header value, passed
+                through from the view. When non-empty, the bill lookup below
+                is scoped to GovStackBill.platform_tenant_id ==
+                platform_tenant_id, same as get_bill()/create_transfer_request().
+            actor_payer_fi_id: The caller's X-PayerFI-Id header value, passed
+                through from the view (which enforces RequirePayerFI, so this
+                is always populated when this method is reached via the view).
+                Recorded as the audit entry's actor_bb_id — see the audit
+                block below for why this closes a real accountability gap.
+
         Returns the updated GovStackBill instance.
 
         Raises:
-            BillNotFound (HTTP 404): bill_id not found.
+            BillNotFound (HTTP 404): bill_id not found, or found but
+                registered under a different tenant than the one supplied
+                (both cases raise the identical exception).
 
         Concurrency:
             select_for_update() prevents concurrent mark-paid calls from both
             writing the status change and creating duplicate audit entries.
         """
         with transaction.atomic():
-            bill = GovStackBill.objects.select_for_update().filter(
-                bill_id=bill_id
-            ).first()
+            qs = GovStackBill.objects.select_for_update().filter(bill_id=bill_id)
+            if platform_tenant_id:
+                qs = qs.filter(platform_tenant_id=platform_tenant_id)
+            bill = qs.first()
             if bill is None:
                 raise BillNotFound()
 
@@ -1389,7 +1459,17 @@ class GovStackP2GService:
 
                 GovStackPaymentAuditEntry.objects.create(
                     action=GovStackPaymentAuditEntry.ACTION_BILL_PAID,
-                    actor_bb_id="",  # Staff action — no BB authentication.
+                    # actor_bb_id now records the caller's X-PayerFI-Id, passed
+                    # through from MarkBillPaidView. Before this fix, this was
+                    # hardcoded to "" with a comment claiming "no BB
+                    # authentication" — but the view enforces RequirePayerFI
+                    # (fail-closed: the header is ALWAYS required, in every
+                    # settings mode), so the caller's identity IS known here;
+                    # it simply wasn't being recorded. This closes the
+                    # "no evidence of who invoked this" audit gap for an
+                    # endpoint that lets an authenticated caller mark ANY bill
+                    # as PAID.
+                    actor_bb_id=actor_payer_fi_id,
                     object_type="bill",
                     object_pk=str(bill.pk),
                     details={
@@ -1413,23 +1493,40 @@ class GovStackP2GService:
         return bill
 
     @staticmethod
-    def get_transfer_request(request_id: str) -> GovStackBillPayment:
+    def get_transfer_request(
+        request_id: str,
+        platform_tenant_id: str = "",
+    ) -> GovStackBillPayment:
         """
-        Retrieve a GovStackBillPayment by its request_id.
+        Retrieve a GovStackBillPayment by its request_id, optionally scoped
+        to a tenant.
+
+        Args:
+            platform_tenant_id: X-Platform-TenantId header value, passed
+                through from the view. When non-empty, the lookup is scoped
+                to GovStackBillPayment.platform_tenant_id ==
+                platform_tenant_id — a payment belonging to a different
+                tenant is treated as not found. When empty (header absent —
+                only possible in harness/test mode; see class docstring), no
+                scoping is applied.
 
         Returns the GovStackBillPayment with the related bill pre-fetched
         (select_related) so the view can access payment.bill.bill_id without
         an extra query.
 
         Raises:
-            BillPaymentNotFound (HTTP 404): request_id not found.
+            BillPaymentNotFound (HTTP 404): request_id not found, or found
+                but registered under a different tenant than the one
+                supplied (both cases raise the identical exception).
         """
-        payment = (
+        qs = (
             GovStackBillPayment.objects
             .select_related("bill")
             .filter(request_id=request_id)
-            .first()
         )
+        if platform_tenant_id:
+            qs = qs.filter(platform_tenant_id=platform_tenant_id)
+        payment = qs.first()
         if payment is None:
             raise BillPaymentNotFound()
         return payment

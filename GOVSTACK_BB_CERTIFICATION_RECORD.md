@@ -1,10 +1,10 @@
 # GovStack Building Block Certification Record
 
-**Status as of 2026-07-27:** ✅ **3 of 3 tracked Building Blocks are READY** for GovStack certification submission — Documents Management, Appointments/Scheduler, and Consent.
+**Status as of 2026-07-27:** ✅ **4 of 4 GovStack Building Blocks in this codebase are READY** for GovStack certification submission — Documents Management, Appointments/Scheduler, Consent, and Payments. (Repo-wide search confirmed `apps/api/{notifications,portal,volunteers,workflows}` have zero GovStack scope — these four are the complete set.)
 
 **Purpose of this document:** this is the durable answer to "are these BBs actually done, and how do we know?" If this question ever comes up again — a new team member asks, a regression is suspected, or a real GovStack certification submission needs supporting evidence — read this file first. It explains what "READY" means here, what was wrong before, what was fixed, how the fixes were verified, and exactly how to re-verify any of it yourself in a few commands.
 
-Git commits for the record: `3362c49` (Documents Management fix pass), `b13f0aa` (Appointments/Scheduler fix pass), `91cd3e6` (Consent fix pass). Full per-finding detail lives in `MASTER_BB_CERTIFIABILITY_REPORT.md` at the repo root — this document is the plain-language summary of that report plus the methodology that produced it.
+Git commits for the record: `3362c49` (Documents Management fix pass), `b13f0aa` (Appointments/Scheduler fix pass), `91cd3e6` (Consent fix pass), `a9a6eb5` (Payments fix pass). Full per-finding detail lives in `MASTER_BB_CERTIFIABILITY_REPORT.md` at the repo root — this document is the plain-language summary of that report plus the methodology that produced it.
 
 ---
 
@@ -24,7 +24,7 @@ This bar exists because of a pattern that showed up in all three BBs during the 
 
 ## 2. Methodology (repeatable — use this again next time)
 
-Each of the three fix passes followed the same disciplined sequence:
+Each of the four fix passes followed the same disciplined sequence:
 
 1. **Fresh adversarial audit first.** Before touching any code, a full read-only pass re-fetches the live upstream GovStack OpenAPI spec / Gherkin harness (not from memory), re-reads the BB's actual code end-to-end, and actively tries to break auth/IDOR/SSRF paths rather than just confirm happy paths. This produces a severity-ranked findings list.
 2. **3 parallel fix agents, non-overlapping ownership.** The findings are split across 3 agents by strict file/function ownership — never by finding, since two findings often land in the same function. Each agent is told explicitly which files/classes/methods it owns and instructed to never touch anything outside that list, and to Read a file before Editing it. All 3 are launched in a single message so they run concurrently against the same working tree (confirmed this session by agents observing each other's in-flight changes).
@@ -88,7 +88,29 @@ One judgment call is flagged for a future, low-priority follow-up rather than si
 
 ---
 
-## 6. Cross-cutting lessons (apply these to the next BB, too)
+## 6. Payments BB
+
+**What it is:** the GovStack Payments spec implementation — G2P beneficiary registration, bulk payments, prepayment validation, vouchers (preactivate/activate/redeem/cancel/status-check), and P2G bill payments (bill inquiry, transfer requests, mark-paid, transfer-request status).
+
+**What was wrong (original audit):** Payments had by far the deepest prior remediation history of any BB in this repo (9 build-out waves plus many subsequent rounds of gap-fixing), and most of that history held up under fresh, independent re-verification — but the P2G (bill payment) surface had never been brought to the same bar as the G2P/voucher surfaces. 1 CRITICAL, 3 HIGH, 2 MEDIUM, 1 MEDIUM/needs-confirmation, 1 LOW group. Headline defect: **P2G endpoints had no tenant/ownership data scoping at all** — `GovStackBill` didn't even have a tenant field, so any caller holding a valid whitelisted `X-PayerFI-Id` could read another institution's bill or transfer request, and, more severely, could mark **any tenant's bill as paid** with no audit trail created at all, directly contradicting the live spec's own description of the tenant-id header as required "for Data scoping." Three more findings were spec-conformance gaps confirmed by re-fetching the live GovStack P2G OpenAPI YAMLs directly rather than trusting old paraphrase: the P2G response envelope/status-code didn't match the spec (200 + bespoke body instead of 202 + `{responseCode, reason, requestID}`); the transfer-request-status endpoint required the wrong auth header family (`X-PayerFI-Id` instead of the spec-mandated `X-billerId`); and the bill-inquiry endpoint didn't implement the spec-required `fields=inquiry` query parameter. Payments' SSRF callback guard was also confirmed to be a materially weaker, stale copy of the exact pattern already hardened in the Appointments and Consent BBs this session (allowed plain HTTP, missing CGNAT/IETF-protocol-assignment range blocking, no 3xx-as-failure check).
+
+**What was fixed:** all 8 findings closed by 3 parallel agents split by P2G service+view-rewrite ownership / SSRF-hardening+throttle+settings+async-dispatch-investigation ownership / docs-refresh+independent-missed-issue-sweep ownership:
+
+- **CRITICAL tenant-isolation gap closed.** `platform_tenant_id` added to `GovStackBill` (via a new migration; `GovStackBillPayment` already had the field). All 4 P2G service methods now scope every query by it when the caller supplies a non-empty value, mirroring the BB's existing mode-gating convention (harness/test mode permissive, `GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=True` mandatory in production). A wrong-tenant lookup and a genuinely-missing record now both raise the identical "not found" response — no side channel for enumerating other tenants' record existence. `mark_bill_paid`'s audit entry now also records the real calling institution's identity instead of a hardcoded blank.
+- **P2G spec-conformance gaps closed**, each confirmed against a fresh read of the live OpenAPI YAMLs (not memory): all 4 P2G endpoints now return HTTP 202 with the spec-required `{responseCode, reason, requestID}` envelope alongside the existing useful data fields; the transfer-request-status endpoint now requires `X-billerId` via a new `IsTrustedBiller` permission class; the bill-inquiry endpoint now requires and validates the spec-mandated `fields=inquiry` query parameter. A deliberate, explicitly-documented architectural choice was made to keep P2G synchronous rather than build out the async-callback pattern the response schema's shape implies, since no P2G request YAML has a callback-registration field and no P2G harness exists upstream to validate an async implementation against.
+- **SSRF guard brought up to the Appointments/Consent standard**: HTTPS-only, fails closed on DNS-resolution failure, blocks the CGNAT and IETF-protocol-assignment ranges, and treats any 3xx response as a failed delivery rather than a silent success — now the third independent, consistent copy of this mitigation in the codebase.
+- **BB-identity-keyed throttle added** (`GovStackPaymentsIdentityThrottle`), matching the pattern already added to Appointments and Consent.
+- **The 4 Payments-specific settings flags moved into `base.py`** with safe explicit defaults, closing the same fail-open-by-omission trap already fixed for 3 other flags across the other BBs this session.
+- **The async-dispatch defect, investigated to its true root cause.** What one fix agent initially scoped as a Payments-specific bug turned out, on personal investigation, to be a **platform-wide** defect: `config/__init__.py` was completely empty, so it never imported the Celery app from `config/celery.py` — meaning every `@shared_task` across the *entire platform*, not just Payments, would lazily bind to Celery's own unconfigured default app (a real, unreachable AMQP broker) on its first `.delay()` call in production, rather than to this project's Django-settings-configured app. This was invisible to every BB's test suite because nearly every test mocks `.delay()` out entirely. Fixed with a one-line import added to `config/__init__.py`, confirmed by direct reproduction: a real, unmocked `.delay()` call raised a genuine connection-refused error before the fix and executed synchronously after. Fixing this surfaced one further, narrow side effect in an already-certified BB — a Consent test's assumption that eager-mode `self.retry()` respects `throw=False` turned out to be wrong (Celery's own documented behavior: it doesn't, in eager mode, regardless of `throw`) — the old, broken bootstrap had been accidentally masking this. The Consent application code itself was never wrong; only the test's assumption was, and it's now fixed.
+- **A documentation gap self-identified and closed.** One fix agent's documentation update claimed a new regression test existed for the Celery-bootstrap fix; it did not. A dedicated `CeleryAppBootstrapTest` class (4 tests, including a real unmocked `.delay()` call) was written personally during verification to make that claim actually true and close the real coverage gap it had pointed at.
+
+**Verification:** 1750/1750 tests pass (1709 original + 41 new/updated). Cross-BB regression: Consent 361/361 (1 expected skip, after the one test-assumption fix described above), Appointments 848/848, Documents+API/Documents 1151/1151 — all clean. `makemigrations --check --dry-run payments`: clean. Personal line-by-line diff review covered every changed file across all 3 agents plus the platform-wide `config/__init__.py` fix and its one downstream test fix.
+
+**Full detail:** `MASTER_BB_CERTIFIABILITY_REPORT.md` → "Payments BB" section, and `SPEC_GOVSTACK_PAYMENTS_BB.md` §26.
+
+---
+
+## 7. Cross-cutting lessons (apply these to the next BB, too)
 
 1. **"Green suite, spec-blind" is a systemic pattern, not a one-off.** Every BB's original tests were written against its own implementation, not the live spec — so status-code, envelope-shape, and identifier-type mismatches were invisible to `manage.py test` every time. Always re-derive test expectations from the live spec/harness for any BB being newly certified, not from what the code already does.
 2. **SSRF protection now exists in 3 independent copies** (Appointments, Payments, Consent) rather than one shared helper. This is intentional, established precedent in this codebase, not an oversight — but if a 4th BB ever needs the same check, extracting it into a shared `apps.core` helper at that point (rather than a 4th copy) would be a reasonable point to revisit this.
@@ -98,7 +120,7 @@ One judgment call is flagged for a future, low-priority follow-up rather than si
 
 ---
 
-## 7. How to re-verify any of this yourself
+## 8. How to re-verify any of this yourself
 
 ```bash
 # Per-BB test suite (add --keepdb after the first run in a session to avoid
@@ -106,13 +128,17 @@ One judgment call is flagged for a future, low-priority follow-up rather than si
 DJANGO_SETTINGS_MODULE=config.settings.test python3 manage.py test apps.documents apps.api.documents --keepdb -v 1
 DJANGO_SETTINGS_MODULE=config.settings.test python3 manage.py test apps.appointments --keepdb -v 1
 DJANGO_SETTINGS_MODULE=config.settings.test python3 manage.py test apps.consent --keepdb -v 1
+DJANGO_SETTINGS_MODULE=config.settings.test python3 manage.py test apps.payments --keepdb -v 1
+
+# Platform-wide Celery bootstrap regression check (config/__init__.py must
+# import the Celery app — this test would catch a future accidental revert)
+DJANGO_SETTINGS_MODULE=config.settings.test python3 manage.py test apps.payments.tests.test_apps_config.CeleryAppBootstrapTest --keepdb -v 1
 
 # Cross-BB regression (run after any change to shared models/settings)
-DJANGO_SETTINGS_MODULE=config.settings.test python3 manage.py test apps.payments --keepdb -v 1
 DJANGO_SETTINGS_MODULE=config.settings.test python3 manage.py test apps.core --keepdb -v 1
 
 # Migration drift check (run for whichever app(s) you touched)
 DJANGO_SETTINGS_MODULE=config.settings.test python3 manage.py makemigrations --check --dry-run documents appointments consent payments
 ```
 
-If all of the above come back green with no drift, and nothing in the master report's per-finding fix log has been touched since, these three BBs remain READY.
+If all of the above come back green with no drift, and nothing in the master report's per-finding fix log has been touched since, all four BBs remain READY.

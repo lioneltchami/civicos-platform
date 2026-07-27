@@ -56,12 +56,12 @@ from django.conf import settings
 from django.db import transaction
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .govstack_auth import (
     AllowAnyBB,
     HasVoucherJWT,
+    IsTrustedBiller,
     IsTrustedPayerFI,
     IsTrustedSourceBB,
     RequirePayerFI,
@@ -96,6 +96,7 @@ from .govstack_services import (
     _is_unregistered_gov_stack_bb,
 )
 from .govstack_tasks import process_bulk_payment_batch, validate_prepayment_async
+from .govstack_throttling import GovStackPaymentsIdentityThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,14 @@ class GovStackAPIView(APIView):
 
     Provides:
     - Custom exception handler (normalises all errors to {"message": "..."})
-    - Throttle scope "govstack_bb" (100 req/min per IP via ScopedRateThrottle)
+    - Throttle scope "govstack_bb", keyed on the calling party's resolved
+      GovStack identity when available (100 req/min per identity via
+      GovStackPaymentsIdentityThrottle — see that class's module docstring,
+      apps/payments/govstack_throttling.py, for the full rationale: a plain
+      ScopedRateThrottle would key purely on client IP here, since Payments'
+      header-whitelist auth never sets request.user, which lets one
+      high-volume caller behind a shared NAT/gateway starve every other
+      caller sharing that IP)
     - Logging of incoming requests at DEBUG level (no PII)
     - _flatten_errors() helper for both Voucher and G2P validation error rendering
     - _validate_platform_tenant_id() helper for the P2G X-Platform-TenantId
@@ -119,9 +127,10 @@ class GovStackAPIView(APIView):
 
     Wave 2+ concrete views delegate to service methods and return proper shapes.
     """
-    # ScopedRateThrottle is set explicitly here so the govstack_bb scope is active
-    # without touching DEFAULT_THROTTLE_CLASSES (which controls citizen/anon flows).
-    throttle_classes = [ScopedRateThrottle]
+    # GovStackPaymentsIdentityThrottle (a ScopedRateThrottle subclass) is set
+    # explicitly here so the govstack_bb scope is active without touching
+    # DEFAULT_THROTTLE_CLASSES (which controls citizen/anon flows).
+    throttle_classes = [GovStackPaymentsIdentityThrottle]
     throttle_scope = "govstack_bb"
 
     # X-Platform-TenantId / Platform-TenantId (spelling varies across the live
@@ -211,8 +220,17 @@ class GovStackAPIView(APIView):
                     "govstack.p2g.missing_platform_tenant_id path=%s",
                     request.path,
                 )
+                # Envelope aligned with the P2G response shape (certifiability-
+                # audit fix): {responseCode, reason, requestID} — see the 4 P2G
+                # view classes' docstrings for the full envelope rationale.
+                # This method has no other callers anywhere in the codebase
+                # (confirmed), so this shape change is safely contained to P2G.
                 return "", Response(
-                    {"message": "Missing required X-Platform-TenantId header."},
+                    {
+                        "responseCode": "01",
+                        "reason": "Missing required X-Platform-TenantId header.",
+                        "requestID": "",
+                    },
                     status=400,
                 )
             return "", None
@@ -225,10 +243,12 @@ class GovStackAPIView(APIView):
             )
             return "", Response(
                 {
-                    "message": (
+                    "responseCode": "01",
+                    "reason": (
                         "X-Platform-TenantId header exceeds maximum length "
                         f"({self._PLATFORM_TENANT_ID_MAX_LENGTH})."
-                    )
+                    ),
+                    "requestID": "",
                 },
                 status=400,
             )
@@ -1182,9 +1202,9 @@ class VoucherStatusCheckView(GovStackAPIView):
 
 class BillInquiryView(GovStackAPIView):
     """
-    GET /govstack/payments/bills/{bill_id}
+    GET /govstack/payments/bills/{bill_id}?fields=inquiry
 
-    GovStack spec: api/P2G API YAMLs/
+    GovStack spec: api/P2G API YAMLs/billInquiryRequest.yml
     Harness: no P2G harness feature in current certification cycle.
 
     Look up a government bill by its bill_id.  Typically called by the Source BB
@@ -1192,9 +1212,38 @@ class BillInquiryView(GovStackAPIView):
     correct amount and description to the citizen.
 
     URL param: bill_id (str) — must match GovStackBill.bill_id exactly.
+    Query param: fields (str) — REQUIRED, must be exactly "inquiry" per the
+      live spec (`required: true, enum: ["inquiry"]`). Missing or any other
+      value returns HTTP 400.
 
-    Response 200: {billId, amount, currency, description, status, dueDate}
-    Response 404: {"message": "Bill not found."}
+    Response 202: {responseCode, reason, requestID, billId, amount, currency,
+      description, status, dueDate}
+    Response 400: {responseCode, reason, requestID} (missing/invalid `fields`,
+      or a tenant-scoping validation failure — see below)
+    Response 404: {"message": "Bill not found."} (unchanged — none of the 3
+      real P2G request YAMLs define a 404 response schema, so there is nothing
+      to conform to here; this propagates via govstack_exception_handler,
+      which is shared with G2P/Voucher endpoints outside this fix's scope)
+
+    Live-spec fidelity (certifiability-audit fix — HIGH finding):
+      billInquiryRequest.yml's response schema is `{responseCode, reason,
+      requestID}` at HTTP 202 for BOTH the success and 400 cases — not the
+      HTTP 200 + ad hoc shape this endpoint previously returned. The existing
+      billId/amount/currency/description/status/dueDate fields are kept as
+      additional properties in the same body (none of the fetched schemas set
+      `additionalProperties: false`).
+
+      This endpoint remains SYNCHRONOUS by deliberate, documented choice, not
+      because the spec's implied async pattern was overlooked:
+      billInquiryResponse.yml describes a SEPARATE, asynchronous callback
+      (the Payments BB later POSTs the real bill details back to the FI's own
+      endpoint). None of the 3 P2G *request* YAMLs contain any field for the
+      FI to register a callback URL, and there is zero P2G harness coverage
+      anywhere upstream to hold a callback implementation accountable.
+      Building genuine async callback delivery would be a materially bigger,
+      speculative feature disproportionate to this fix — so this endpoint
+      instead returns the real bill data synchronously in the same response
+      that carries the spec-required envelope.
 
     Security:
     - bill_id is a government-assigned identifier; not citizen PII.
@@ -1206,28 +1255,53 @@ class BillInquiryView(GovStackAPIView):
       apps.payments.govstack_auth.IsTrustedPayerFI for the full permission
       matrix (Issue B fix — this endpoint previously used AllowAnyBB with
       zero caller-identity validation in every settings mode).
-    - Tenant scoping: X-Platform-TenantId (or Platform-TenantId) is validated
-      via GovStackAPIView._validate_platform_tenant_id() — required + length
+    - Tenant scoping (certifiability-audit fix — CRITICAL finding):
+      X-Platform-TenantId (or Platform-TenantId) is validated via
+      GovStackAPIView._validate_platform_tenant_id() — required + length
       (≤20) checked in production mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=
       True), optional-but-length-checked-if-present in harness/test mode.
       This is a distinct, later HTTP 400 validation check — NOT part of the
       IsTrustedPayerFI permission layer above. billInquiryBillerRequest.yml /
-      billInquiryRequest.yml both mark this header `required: true`. There is
-      no natural place to persist it for this read-only endpoint (GovStackBill
-      has no tenant field), so it is validated but not stored.
+      billInquiryRequest.yml both mark this header `required: true`. The
+      validated tenant id IS now passed through to
+      GovStackP2GService.get_bill() and used to scope the lookup — a bill
+      belonging to a different tenant than the one declared is treated
+      identically to a bill that does not exist (BillNotFound), so this
+      endpoint can never be used to read another tenant's bill.
     """
     permission_classes = [IsTrustedPayerFI]
 
     def get(self, request: Request, bill_id: str) -> Response:
-        _tenant_id, tenant_error = self._validate_platform_tenant_id(request)
+        tenant_id, tenant_error = self._validate_platform_tenant_id(request)
         if tenant_error is not None:
             return tenant_error
 
+        # `fields=inquiry` is `required: true, enum: ["inquiry"]` per the live
+        # billInquiryRequest.yml spec — previously never read at all.
+        fields_param = request.query_params.get("fields")
+        if fields_param != "inquiry":
+            return Response(
+                {
+                    "responseCode": "01",
+                    "reason": "Missing or invalid required query parameter: fields=inquiry.",
+                    "requestID": request.headers.get("X-CorrelationID", "").strip() or "",
+                },
+                status=400,
+            )
+
         # BillNotFound (404) is an APIException — handled by govstack_exception_handler.
-        bill = GovStackP2GService.get_bill(bill_id=str(bill_id).strip())
+        bill = GovStackP2GService.get_bill(
+            bill_id=str(bill_id).strip(),
+            platform_tenant_id=tenant_id,
+        )
 
         return Response(
             {
+                "responseCode": "00",
+                "reason": "Bill retrieved successfully.",
+                "requestID": request.headers.get("X-CorrelationID", "").strip() or "",
+                # Existing useful fields kept as additional properties — see class
+                # docstring note on why this endpoint stays synchronous.
                 "billId": bill.bill_id,
                 "amount": float(bill.amount),  # Spec §14.2: "amount": 150.00 (JSON number)
                 "currency": bill.currency,
@@ -1235,7 +1309,7 @@ class BillInquiryView(GovStackAPIView):
                 "status": bill.status,
                 "dueDate": bill.due_date.isoformat() if bill.due_date else None,
             },
-            status=200,
+            status=202,
         )
 
 
@@ -1243,7 +1317,7 @@ class BillTransferRequestView(GovStackAPIView):
     """
     POST /govstack/payments/billTransferRequests
 
-    GovStack spec: api/P2G API YAMLs/BillTransferRequest.yml
+    GovStack spec: api/P2G API YAMLs/billPaymentRequest.yml
     Harness: no P2G harness feature in current certification cycle.
 
     Called by a Source BB (mobile money operator) to notify the Payments BB
@@ -1258,11 +1332,26 @@ class BillTransferRequestView(GovStackAPIView):
                               optional-but-length-checked in harness/test
                               mode; see _validate_platform_tenant_id below
 
-    Body: {requestId, billId, billInquiryRequestId?, paymentReferenceID?}
-    Response 200: {requestId, billId, amount, currency, status, message}
-    Response 400: {"message": "..."} (missing fields, duplicate requestId, or
-      missing/oversized X-Platform-TenantId in production mode)
-    Response 404: {"message": "Bill not found."}
+    Body: {requestId, billId, billInquiryRequestId, paymentReferenceID} — ALL
+      FOUR required per billPaymentRequest.yml's
+      `required: [requestId, billInquiryRequestId, billId, paymentReferenceID]`
+      (certifiability-audit fix — billInquiryRequestId/paymentReferenceID were
+      previously treated as optional here and in BillTransferRequestSerializer,
+      which is wrong per the live spec).
+    Response 202: {responseCode, reason, requestID, billId, amount, currency,
+      status}
+    Response 400: {responseCode, reason, requestID} (missing/invalid fields,
+      duplicate requestId, or missing/oversized X-Platform-TenantId in
+      production mode)
+    Response 404: {"message": "Bill not found."} (unchanged — no 404 schema
+      exists in the live spec; propagates via the shared exception handler)
+
+    Live-spec fidelity (certifiability-audit fix — HIGH finding):
+      billPaymentRequest.yml's response schema is `{responseCode, reason,
+      requestID}` at HTTP 202 for BOTH the success and 400 cases — not the
+      HTTP 200 + ad hoc `message` shape this endpoint previously returned.
+      The existing billId/amount/currency/status fields are kept as
+      additional properties in the same body.
 
     Security:
     - merchant / citizen details are NOT stored here; GovStackBillPayment only
@@ -1277,8 +1366,9 @@ class BillTransferRequestView(GovStackAPIView):
       record. See apps.payments.govstack_auth.IsTrustedPayerFI (Issue B fix —
       this endpoint previously used AllowAnyBB with zero caller-identity
       validation in every settings mode).
-    - Tenant scoping: X-Platform-TenantId (or Platform-TenantId) is validated
-      via GovStackAPIView._validate_platform_tenant_id() — required + length
+    - Tenant scoping (certifiability-audit fix — CRITICAL finding):
+      X-Platform-TenantId (or Platform-TenantId) is validated via
+      GovStackAPIView._validate_platform_tenant_id() — required + length
       (≤20) checked in production mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=
       True), optional-but-length-checked-if-present in harness/test mode.
       This is a distinct HTTP 400 validation check — NOT part of the
@@ -1287,8 +1377,11 @@ class BillTransferRequestView(GovStackAPIView):
       X-Platform-TenantId `required: true`, but they answer different
       questions: who is calling vs. which tenant's data). The validated value
       is what gets stored on GovStackBillPayment.platform_tenant_id (same
-      field this view already wrote to pre-fix; the fix is that it is now
-      validated first instead of stored unchecked).
+      field this view already wrote to pre-fix) AND is now also used to scope
+      the underlying bill lookup in GovStackP2GService.create_transfer_request()
+      — a caller cannot notify a payment against a bill outside their declared
+      tenant; that lookup now raises the same BillNotFound as a genuinely
+      missing bill.
     """
     permission_classes = [IsTrustedPayerFI]
 
@@ -1299,8 +1392,20 @@ class BillTransferRequestView(GovStackAPIView):
 
         ser = BillTransferRequestSerializer(data=request.data)
         if not ser.is_valid():
+            # requestID echoes the caller's submitted requestId if the body was
+            # at least a parseable dict containing one, else "" — the
+            # serializer failed validation so we cannot trust ser.validated_data.
+            submitted_request_id = (
+                str(request.data.get("requestId") or "")
+                if isinstance(request.data, dict)
+                else ""
+            )
             return Response(
-                {"message": self._flatten_errors(ser.errors)},
+                {
+                    "responseCode": "01",
+                    "reason": self._flatten_errors(ser.errors),
+                    "requestID": submitted_request_id,
+                },
                 status=400,
             )
         d = ser.validated_data
@@ -1313,8 +1418,8 @@ class BillTransferRequestView(GovStackAPIView):
             payment = GovStackP2GService.create_transfer_request(
                 request_id=d["requestId"],
                 bill_id=d["billId"],
-                bill_inquiry_request_id=d.get("billInquiryRequestId", ""),
-                payment_reference_id=d.get("paymentReferenceID", ""),
+                bill_inquiry_request_id=d["billInquiryRequestId"],
+                payment_reference_id=d["paymentReferenceID"],
                 correlation_id=correlation_id,
                 payer_fi_id=payer_fi_id,
                 platform_tenant_id=platform_tenant_id,
@@ -1330,20 +1435,25 @@ class BillTransferRequestView(GovStackAPIView):
                 len(exc.request_id),
             )
             return Response(
-                {"message": "Transfer request ID has already been received."},
+                {
+                    "responseCode": "01",
+                    "reason": "Transfer request ID has already been received.",
+                    "requestID": d["requestId"],
+                },
                 status=400,
             )
 
         return Response(
             {
-                "requestId": payment.request_id,
+                "responseCode": "00",
+                "reason": "Bill payment request received successfully.",
+                "requestID": payment.request_id,
                 "billId": payment.bill.bill_id,
                 "amount": float(payment.amount),  # Spec: JSON number, not string
                 "currency": payment.currency,
                 "status": payment.status,
-                "message": "Bill payment request received successfully.",
             },
-            status=200,
+            status=202,
         )
 
 
@@ -1360,13 +1470,22 @@ class MarkBillPaidView(GovStackAPIView):
 
     Unlike POST /billTransferRequests, this does NOT require a requestId body and
     does NOT create a GovStackBillPayment record — it only transitions the bill's
-    status to PAID.  Marking an already-PAID bill is a no-op (returns 200 as-is).
+    status to PAID.  Marking an already-PAID bill is a no-op (returns 202 as-is).
 
     URL param: bill_id (str) — must match GovStackBill.bill_id exactly.
 
     Body: (empty — no body required)
-    Response 200: {billId, status, message}
-    Response 404: {"message": "Bill not found."}
+    Response 202: {responseCode, reason, requestID, billId, status}
+    Response 404: {"message": "Bill not found."} (unchanged — no live P2G YAML
+      entry for this endpoint at all, so nothing to conform to here)
+
+    Response envelope (certifiability-audit fix — stylistic consistency
+    choice, NOT a strict spec mandate): this endpoint has no direct 1:1
+    upstream P2G YAML, so there is no literal `{responseCode, reason,
+    requestID}` schema to satisfy here. It is aligned to the same
+    HTTP 202 + envelope shape as the other 3 P2G views purely so all 4 P2G
+    endpoints behave uniformly for callers/log-shippers that parse P2G
+    responses generically.
 
     Security:
     - Auth: RequirePayerFI — the fail-closed variant of IsTrustedPayerFI. The
@@ -1379,8 +1498,9 @@ class MarkBillPaidView(GovStackAPIView):
       IsTrustedPayerFI do. See apps.payments.govstack_auth.RequirePayerFI
       (Issue B fix — this endpoint previously used AllowAnyBB with zero
       caller-identity validation in every settings mode).
-    - Tenant scoping: X-Platform-TenantId (or Platform-TenantId) is validated
-      via GovStackAPIView._validate_platform_tenant_id() using the SAME
+    - Tenant scoping (certifiability-audit fix — CRITICAL finding):
+      X-Platform-TenantId (or Platform-TenantId) is validated via
+      GovStackAPIView._validate_platform_tenant_id() using the SAME
       mode-gated check as the other 3 P2G views (NOT forced-always like
       RequirePayerFI above) — this endpoint has no literal corresponding
       entry in api/P2G API YAMLs/ (it is a staff/fallback endpoint, per this
@@ -1388,27 +1508,49 @@ class MarkBillPaidView(GovStackAPIView):
       mandate to fail closed on specifically for tenant scoping. It is
       validated here anyway, mode-gated like the other views, purely for
       consistency (this endpoint mutates the same tenant-scoped GovStackBill
-      resource the other 3 views read/write) — not because the spec demands
-      it for this particular synthesized endpoint. GovStackBill has no
-      tenant field, so the validated value is not persisted anywhere.
+      resource the other 3 views read/write). The validated tenant id IS now
+      passed through to GovStackP2GService.mark_bill_paid() and used to scope
+      the lookup — a caller cannot mark PAID a bill outside their declared
+      tenant; that lookup raises the same BillNotFound as a genuinely missing
+      bill.
+    - Audit accountability (certifiability-audit fix — CRITICAL finding): the
+      caller's X-PayerFI-Id is now passed through as `actor_payer_fi_id` and
+      recorded on the GovStackPaymentAuditEntry (previously hardcoded to ""
+      with a stale "no BB authentication" comment, even though this view has
+      always enforced RequirePayerFI). Any caller holding a valid
+      X-PayerFI-Id can still mark a bill PAID — that authorization question
+      is unchanged by this fix — but there is now a real audit record of
+      WHO invoked it.
     """
     permission_classes = [RequirePayerFI]
 
     def post(self, request: Request, bill_id: str) -> Response:
-        _tenant_id, tenant_error = self._validate_platform_tenant_id(request)
+        tenant_id, tenant_error = self._validate_platform_tenant_id(request)
         if tenant_error is not None:
             return tenant_error
 
+        actor_payer_fi_id = (
+            request.headers.get("X-PayerFI-Id", "").strip()
+            or request.headers.get("X-PayerFI-ID", "").strip()
+            or request.headers.get("PayerFI-Id", "").strip()
+        )
+
         # BillNotFound (404) is an APIException — handled automatically.
-        bill = GovStackP2GService.mark_bill_paid(bill_id=str(bill_id).strip())
+        bill = GovStackP2GService.mark_bill_paid(
+            bill_id=str(bill_id).strip(),
+            platform_tenant_id=tenant_id,
+            actor_payer_fi_id=actor_payer_fi_id,
+        )
 
         return Response(
             {
+                "responseCode": "00",
+                "reason": "Bill marked as paid successfully.",
+                "requestID": request.headers.get("X-CorrelationID", "").strip() or "",
                 "billId": bill.bill_id,
                 "status": bill.status,
-                "message": "Bill marked as paid successfully.",
             },
-            status=200,
+            status=202,
         )
 
 
@@ -1416,7 +1558,7 @@ class TransferRequestStatusView(GovStackAPIView):
     """
     GET /govstack/payments/transferRequests/{transfer_request_id}
 
-    GovStack spec: api/P2G API YAMLs/
+    GovStack spec: api/P2G API YAMLs/rtpStatusUpdateRequest.yml
     Harness: no P2G harness feature in current certification cycle.
 
     Status check for a P2G transfer request.  Source BBs can poll this endpoint
@@ -1424,43 +1566,65 @@ class TransferRequestStatusView(GovStackAPIView):
 
     URL param: transfer_request_id (str) — matches GovStackBillPayment.request_id.
 
-    Response 200: {requestId, billId, amount, currency, status}
-    Response 404: {"message": "Transfer request not found."}
+    Response 202: {responseCode, reason, requestID, requestId, billId, amount,
+      currency, status}
+    Response 400: {responseCode, reason, requestID} (tenant-scoping validation
+      failure)
+    Response 404: {"message": "Transfer request not found."} (unchanged — no
+      404 schema in the live spec; propagates via the shared exception handler)
+
+    Live-spec fidelity (certifiability-audit fix — HIGH/CRITICAL findings):
+    - rtpStatusUpdateRequest.yml's response schema is `{responseCode, reason,
+      requestID}` at HTTP 202 (not the HTTP 200 + ad hoc shape this endpoint
+      previously returned). The existing requestId/billId/amount/currency/
+      status fields are kept as additional properties in the same body.
+    - Auth (CRITICAL — wrong header/permission class entirely): a fresh fetch
+      of rtpStatusUpdateRequest.yml confirmed it requires `X-billerId`
+      (required: true, maxLength: 20) and has NO PayerFI header of any kind.
+      This view was previously (incorrectly) wired to IsTrustedPayerFI /
+      X-PayerFI-Id. It now uses IsTrustedBiller / X-billerId instead — a
+      caller presenting ONLY X-PayerFI-Id (no X-billerId) is rejected exactly
+      like a caller presenting no header at all, in production mode. See
+      apps.payments.govstack_auth.IsTrustedBiller.
 
     Security:
-    - Auth: IsTrustedPayerFI — requires the X-PayerFI-Id header (or accepted
-      variant) in production mode (GOVSTACK_REQUIRE_REGISTERED_PAYER_FI=True);
-      the header stays optional in harness/test mode. See
-      apps.payments.govstack_auth.IsTrustedPayerFI (Issue B fix — this
-      endpoint previously used AllowAnyBB with zero caller-identity
-      validation in every settings mode).
-    - Tenant scoping: X-Platform-TenantId (or Platform-TenantId) is validated
-      via GovStackAPIView._validate_platform_tenant_id() — required + length
+    - Tenant scoping (certifiability-audit fix — CRITICAL finding):
+      X-Platform-TenantId (or Platform-TenantId) is validated via
+      GovStackAPIView._validate_platform_tenant_id() — required + length
       (≤20) checked in production mode (GOVSTACK_REQUIRE_PLATFORM_TENANT_ID=
       True), optional-but-length-checked-if-present in harness/test mode.
       rtpStatusUpdateRequest.yml marks this header `required: true`. This is
-      a distinct HTTP 400 validation check, not part of the IsTrustedPayerFI
-      permission layer above. Read-only endpoint — validated but not stored.
+      a distinct HTTP 400 validation check, not part of the IsTrustedBiller
+      permission layer above. The validated tenant id IS now passed through
+      to GovStackP2GService.get_transfer_request() and used to scope the
+      lookup — a payment belonging to a different tenant than the one
+      declared is treated identically to a payment that does not exist
+      (BillPaymentNotFound), so this endpoint can never be used to read
+      another tenant's payment.
     """
-    permission_classes = [IsTrustedPayerFI]
+    permission_classes = [IsTrustedBiller]
 
     def get(self, request: Request, transfer_request_id: str) -> Response:
-        _tenant_id, tenant_error = self._validate_platform_tenant_id(request)
+        tenant_id, tenant_error = self._validate_platform_tenant_id(request)
         if tenant_error is not None:
             return tenant_error
 
         # BillPaymentNotFound (404) is an APIException — handled automatically.
         payment = GovStackP2GService.get_transfer_request(
-            request_id=str(transfer_request_id).strip()
+            request_id=str(transfer_request_id).strip(),
+            platform_tenant_id=tenant_id,
         )
 
         return Response(
             {
+                "responseCode": "00",
+                "reason": "Transfer request retrieved successfully.",
+                "requestID": payment.request_id,
                 "requestId": payment.request_id,
                 "billId": payment.bill.bill_id,
                 "amount": float(payment.amount),  # Spec: JSON number, not string
                 "currency": payment.currency,
                 "status": payment.status,
             },
-            status=200,
+            status=202,
         )

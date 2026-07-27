@@ -32,8 +32,12 @@ Coverage matrix:
   G14:      validate_prepayment_async callback payload has correct shape (no payee_functional_id)
   G15:      validate_prepayment_async callback POST failure is non-fatal (task still completes)
   G16:      validate_prepayment_async is idempotent (second call is a no-op)
-  G17:      _is_safe_callback_url rejects private/loopback/link-local/multicast IPs
-            and non-http(s) schemes; accepts a normal public https URL
+  G17:      _is_safe_callback_url rejects private/loopback/link-local/multicast/
+            CGNAT/IETF-protocol-assignment IPs and non-https schemes (plain
+            http is no longer accepted — HTTPS-only, at parity with
+            apps.appointments.tasks._is_safe_outbound_url /
+            apps.consent.tasks._is_safe_outbound_url); accepts a normal
+            public https URL
   G18:      process_bulk_payment_batch does NOT POST when callback_url is an SSRF
             attempt (literal private/metadata IP) — task still completes normally
   G19:      validate_prepayment_async does NOT POST when callback_url is an SSRF
@@ -871,14 +875,24 @@ class GovStackCallbackSSRFGuardTest(TestCase):
 
     def test_g17_is_safe_callback_url_rejects_unsafe_targets(self):
         unsafe_urls = [
-            "http://127.0.0.1:8000/cb",              # loopback
-            "http://localhost/cb",                    # loopback via hostname
-            "http://169.254.169.254/latest/meta-data/",  # cloud metadata (link-local)
-            "http://10.0.0.5/cb",                      # RFC1918 private
-            "http://172.16.5.5/cb",                    # RFC1918 private
-            "http://192.168.1.1/cb",                   # RFC1918 private
-            "http://[::1]/cb",                         # IPv6 loopback
-            "http://224.0.0.1/cb",                     # multicast
+            # HTTPS-only hardening (Finding 1 / parity with
+            # apps.appointments.tasks._is_safe_outbound_url and
+            # apps.consent.tasks._is_safe_outbound_url): plain http:// is now
+            # rejected purely on scheme, regardless of the host it points at.
+            "http://example.com/cb",                  # disallowed scheme (plain http)
+            "http://127.0.0.1:8000/cb",                # loopback + disallowed scheme
+            "http://localhost/cb",                     # loopback via hostname + disallowed scheme
+            # Unsafe IP ranges, exercised under the now-required https:// scheme
+            # so these actually test the IP-blocking logic (not just scheme
+            # rejection).
+            "https://169.254.169.254/latest/meta-data/",  # cloud metadata (link-local)
+            "https://10.0.0.5/cb",                      # RFC1918 private
+            "https://172.16.5.5/cb",                    # RFC1918 private
+            "https://192.168.1.1/cb",                   # RFC1918 private
+            "https://[::1]/cb",                         # IPv6 loopback
+            "https://224.0.0.1/cb",                     # multicast
+            "https://100.64.0.1/cb",                    # RFC 6598 Shared Address Space / CGNAT
+            "https://192.0.0.1/cb",                      # IANA IETF Protocol Assignments
             "ftp://example.com/cb",                    # disallowed scheme
             "file:///etc/passwd",                      # disallowed scheme
             "javascript:alert(1)",                     # disallowed scheme
@@ -910,7 +924,7 @@ class GovStackCallbackSSRFGuardTest(TestCase):
         """
         batch = self._make_batch(
             batch_id="GBatchIDtaskSSRF1",
-            callback_url="http://169.254.169.254/latest/meta-data/iam/",
+            callback_url="https://169.254.169.254/latest/meta-data/iam/",
         )
         with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
             process_bulk_payment_batch.apply(args=[str(batch.pk)])
@@ -969,7 +983,7 @@ class GovStackCallbackSSRFGuardTest(TestCase):
             payee_functional_id=payee_functional_id,
             amount=Decimal("50.00"),
             currency="USD",
-            callback_url="http://127.0.0.1:6379/cb",
+            callback_url="https://127.0.0.1:6379/cb",
             status=PrepaymentValidationRequest.STATUS_PENDING,
         )
         with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
@@ -998,3 +1012,47 @@ class GovStackCallbackSSRFGuardTest(TestCase):
             False,
             "_post_callback must pass allow_redirects=False to requests.post().",
         )
+
+    # ------------------------------------------------------------------
+    # G21 — _post_callback treats a 3xx response as a failed delivery,
+    # NOT as delivered (Finding 1, item 3)
+    # ------------------------------------------------------------------
+
+    def test_g21_post_callback_treats_3xx_as_failure_not_delivered(self):
+        """
+        A callback endpoint that responds with a 3xx status (e.g. a public,
+        SSRF-safe host that then redirects to an internal target) must be
+        treated as a FAILED delivery, never logged/treated as delivered.
+
+        allow_redirects=False (G20) already guarantees the redirect target is
+        never connected to; this test pins down that the 3xx response itself
+        is not silently swallowed as a "success" by response.raise_for_status()
+        (which only raises for status codes >= 400) — mirrors the identical
+        explicit check in apps.appointments.tasks._attempt_alert_delivery /
+        apps.consent.tasks.dispatch_consent_webhook.
+
+        The task itself must still complete normally — a callback failure
+        (3xx included) is always non-fatal.
+        """
+        batch = self._make_batch(
+            batch_id="GBatchIDtaskG21",
+            callback_url="https://example.com/callback-redirects",
+        )
+        with (
+            patch("apps.payments.govstack_tasks.requests.post") as mock_post,
+            self.assertLogs("apps.payments.govstack_tasks", level="WARNING") as logs,
+        ):
+            mock_post.return_value = MagicMock(status_code=302)
+            process_bulk_payment_batch.apply(args=[str(batch.pk)])
+
+        mock_post.assert_called_once()
+        # The failure path (govstack.callback_post_failed) must have logged —
+        # NOT the success path (govstack.callback_posted).
+        joined_logs = "\n".join(logs.output)
+        self.assertIn("govstack.callback_post_failed", joined_logs)
+        self.assertNotIn("govstack.callback_posted", joined_logs)
+
+        # The batch itself must still be in its terminal state — a callback
+        # failure (3xx included) never rolls back or retries the task.
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_COMPLETED)

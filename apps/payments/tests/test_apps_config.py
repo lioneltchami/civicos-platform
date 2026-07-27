@@ -11,7 +11,7 @@ the signals import and the weasyprint import so we can exercise the error branch
 import sys
 from unittest.mock import patch, MagicMock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 
 def _make_config():
@@ -250,3 +250,119 @@ class CeleryDebugTaskRemovedTest(SimpleTestCase):
         """config.celery.app must still exist after debug_task removal."""
         import config.celery as celery_module
         self.assertTrue(hasattr(celery_module, "app"))
+
+
+# ---------------------------------------------------------------------------
+# Payments BB certifiability fix pass (2026-07-27), Finding 2 — real-server
+# async-dispatch gap. Regression coverage for config/__init__.py.
+# ---------------------------------------------------------------------------
+
+class CeleryAppBootstrapTest(TestCase):
+    """
+    Uses TestCase (not SimpleTestCase) because
+    test_real_unmocked_delay_executes_synchronously_without_a_broker below
+    genuinely touches the database (process_bulk_payment_batch's real,
+    unmocked code path queries BulkPaymentBatch inside a transaction) — that
+    is the entire point of that test: proving the real DB-touching code path
+    runs in-process under eager mode rather than attempting a broker
+    connection.
+
+    ``config/__init__.py`` was previously EMPTY — it never imported the
+    properly Django-configured ``Celery("civicos")`` app from
+    ``config/celery.py``. Every ``@shared_task``-decorated task (e.g.
+    ``apps.payments.govstack_tasks.process_bulk_payment_batch``) therefore
+    bound lazily, at first ``.delay()``/``.apply_async()`` call, to Celery's
+    own internal, UNCONFIGURED default app instead — which has
+    ``task_always_eager=False`` and Celery's own default AMQP broker URL,
+    regardless of what ``settings.CELERY_TASK_ALWAYS_EAGER`` /
+    ``CELERY_BROKER_URL`` say. This was invisible to the test suite because
+    every existing test that dispatches a task mocks ``.delay()`` out
+    entirely; a live run of the upstream GovStack harness against a real
+    running server surfaced it as a genuine ``ConnectionRefusedError`` on 4
+    scenarios (see ``MASTER_BB_CERTIFIABILITY_REPORT.md``, "Payments BB",
+    and ``SPEC_GOVSTACK_PAYMENTS_BB.md`` §26 for the full incident writeup).
+
+    ``config/__init__.py`` now does ``from .celery import app as celery_app``
+    unconditionally, so importing the ``config`` package (which happens for
+    every Django entrypoint, including ``manage.py test``) instantiates and
+    Django-settings-configures the real Celery app before any task can be
+    dispatched. These tests pin that fix directly, rather than relying only
+    on the existing mocked-``.delay()`` task-dispatch tests, which would not
+    catch a regression here (they never touch the real Celery ``app``
+    object at all).
+    """
+
+    def test_config_package_exposes_celery_app(self):
+        """The config package's own __init__ must expose the configured app."""
+        import config
+        self.assertTrue(
+            hasattr(config, "celery_app"),
+            "config/__init__.py must import the Celery app as `celery_app` — "
+            "see that file's docstring for why this is required, not optional.",
+        )
+
+    def test_shared_task_is_bound_to_the_configured_app_not_celerys_default(self):
+        """
+        A real @shared_task (not a mock) must be bound to this project's own
+        configured Celery("civicos") app — not to Celery's internal default
+        app, which is what @shared_task lazily falls back to if config/celery.py
+        was never actually imported/configured before the task is first used.
+        """
+        import config.celery as celery_module
+        from apps.payments.govstack_tasks import process_bulk_payment_batch
+
+        self.assertIs(
+            process_bulk_payment_batch.app,
+            celery_module.app,
+            "process_bulk_payment_batch is bound to a different Celery app "
+            "than config.celery.app — this is exactly the bug config/__init__.py "
+            "exists to prevent (see its docstring). If this assertion fails, "
+            "something has broken the config package's Celery bootstrap again.",
+        )
+
+    def test_shared_task_app_reflects_django_settings_eager_mode(self):
+        """
+        The Celery app a real task is bound to must actually read
+        CELERY_TASK_ALWAYS_EAGER from Django settings — not silently fall
+        back to Celery's own hardcoded default (False), which is exactly
+        what happened when config/celery.py's app.config_from_object(...)
+        was never triggered because nothing imported config.celery at
+        package-init time.
+        """
+        from django.conf import settings
+
+        from apps.payments.govstack_tasks import process_bulk_payment_batch
+
+        self.assertEqual(
+            process_bulk_payment_batch.app.conf.task_always_eager,
+            settings.CELERY_TASK_ALWAYS_EAGER,
+            "process_bulk_payment_batch.app.conf.task_always_eager does not "
+            "match settings.CELERY_TASK_ALWAYS_EAGER — the task's bound "
+            "Celery app is not reading Django settings, meaning it is not "
+            "config.celery.app. This is the exact failure mode config/__init__.py "
+            "exists to prevent.",
+        )
+
+    def test_real_unmocked_delay_executes_synchronously_without_a_broker(self):
+        """
+        The genuine end-to-end regression test: call the real, UNMOCKED
+        .delay() on a real task and confirm it runs synchronously in-process
+        (the correct eager behaviour) rather than attempting a real broker
+        connection. This is the exact code path that silently broke in
+        production/CI before the config/__init__.py fix, and that every
+        other test in this suite avoids exercising by mocking .delay() out.
+        """
+        from apps.payments.govstack_tasks import process_bulk_payment_batch
+
+        # A deliberately nonexistent batch_pk: we are not testing the task's
+        # business logic here (that's covered extensively elsewhere in this
+        # suite) — only that .delay() executes AT ALL, in-process, with no
+        # broker connection attempted. The task's own not-found handling
+        # (whatever it does for a missing batch) is a normal, safely-caught
+        # return path, not a broker-connection error.
+        result = process_bulk_payment_batch.delay("00000000-0000-0000-0000-000000000000")
+        # In eager mode, .delay() returns an EagerResult with the task's
+        # return value already computed — if this raises kombu.exceptions
+        # .OperationalError (Connection refused), the bootstrap fix has
+        # regressed.
+        self.assertTrue(result.ready())

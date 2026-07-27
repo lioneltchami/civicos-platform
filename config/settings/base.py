@@ -885,3 +885,35 @@ GOVSTACK_SCHEDULER_REQUIRE_TOKEN = env.bool("GOVSTACK_SCHEDULER_REQUIRE_TOKEN", 
 # GovStackRegisteredBB whitelist check (shared flag, also relevant to the
 # Scheduler BB's registered-BB gating where applicable).
 GOVSTACK_REQUIRE_REGISTERED_BB = env.bool("GOVSTACK_REQUIRE_REGISTERED_BB", default=False)
+
+# Finding 4 (Payments BB certifiability audit) — same fail-open-by-absence
+# pattern as GOVSTACK_SCHEDULER_REQUIRE_TOKEN / GOVSTACK_REQUIRE_REGISTERED_BB
+# above: the following 4 flags were previously defined ONLY in production.py
+# (default=True there, left unchanged). Any non-production settings module
+# (base.py, development.py, test.py) never defined them, so each flag's own
+# getattr(settings, flag, False) fallback in the Payments GovStack auth/view
+# layer silently resolved to False everywhere except production — currently
+# harmless only because False happens to coincide with each flag's intended
+# permissive default for those environments, but that is an accident of the
+# specific fallback value chosen at each call site, not a guarantee. Defining
+# an explicit, safe-for-dev default here (mirroring the two flags above)
+# means every environment gets an intentional value rather than depending on
+# an undefined attribute's getattr() fallback matching by coincidence.
+# production.py's existing `default=True` lines are untouched and still
+# correctly override these for production.
+#
+# Handled by apps.payments.govstack_auth.IsTrustedPayerFI.has_permission()
+# (and its fail-closed subclass, apps.payments.govstack_auth.RequirePayerFI).
+GOVSTACK_REQUIRE_REGISTERED_PAYER_FI = env.bool(
+    "GOVSTACK_REQUIRE_REGISTERED_PAYER_FI", default=False
+)
+# Handled by apps.payments.govstack_views.GovStackAPIView._validate_platform_tenant_id().
+GOVSTACK_REQUIRE_PLATFORM_TENANT_ID = env.bool(
+    "GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", default=False
+)
+# Handled by apps.payments.govstack_auth.HasVoucherJWT.has_permission().
+GOVSTACK_VOUCHER_REQUIRE_JWT = env.bool("GOVSTACK_VOUCHER_REQUIRE_JWT", default=False)
+# Handled by apps.payments.govstack_services._is_unregistered_gov_stack_bb().
+GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB = env.bool(
+    "GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB", default=False
+)

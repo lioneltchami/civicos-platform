@@ -50,6 +50,9 @@ Coverage matrix:
   S33. create_transfer_request() — creates GovStackBillPayment and marks bill PAID
   S34. create_transfer_request() — duplicate request_id raises DuplicateBillPaymentError
   S35. create_transfer_request() — raises BillNotFound when bill_id unknown
+  S36. get_bill() — platform_tenant_id scoping: wrong tenant raises BillNotFound
+  S37. get_bill() — platform_tenant_id scoping: matching tenant succeeds
+  S38. mark_bill_paid() — actor_payer_fi_id is recorded as the audit entry's actor_bb_id
 
 Security invariants tested:
   - payee_functional_id never in audit entry details
@@ -640,3 +643,41 @@ class P2GServiceTest(TestCase):
                 request_id="TXN-S35-001",
                 bill_id="BILL-DOESNOTEXIST",
             )
+
+    def test_s36_get_bill_wrong_tenant_raises_bill_not_found(self):
+        """
+        S36 (certifiability-audit fix — CRITICAL): get_bill() scopes the
+        lookup by platform_tenant_id when the caller supplies one. A bill
+        registered under a different tenant than the one declared must raise
+        BillNotFound — identical to a genuinely missing bill_id, so a caller
+        can't use this to probe cross-tenant existence.
+        """
+        bill = _make_bill(bill_id="BILL-S36")
+        bill.platform_tenant_id = "TENANT-A"
+        bill.save(update_fields=["platform_tenant_id"])
+        with self.assertRaises(BillNotFound):
+            GovStackP2GService.get_bill(bill_id="BILL-S36", platform_tenant_id="TENANT-B")
+
+    def test_s37_get_bill_matching_tenant_succeeds(self):
+        """S37: get_bill() succeeds when the supplied tenant matches the bill's tenant."""
+        bill = _make_bill(bill_id="BILL-S37")
+        bill.platform_tenant_id = "TENANT-A"
+        bill.save(update_fields=["platform_tenant_id"])
+        result = GovStackP2GService.get_bill(bill_id="BILL-S37", platform_tenant_id="TENANT-A")
+        self.assertEqual(result.pk, bill.pk)
+
+    def test_s38_mark_bill_paid_records_actor_payer_fi_id(self):
+        """
+        S38 (certifiability-audit fix — CRITICAL): mark_bill_paid() now
+        records the caller's X-PayerFI-Id (passed through as
+        actor_payer_fi_id) as the audit entry's actor_bb_id, instead of the
+        old hardcoded "" that left no evidence of who invoked this endpoint.
+        """
+        _make_bill(bill_id="BILL-S38")
+        GovStackP2GService.mark_bill_paid(
+            bill_id="BILL-S38", actor_payer_fi_id="FI-S38-CALLER"
+        )
+        entry = GovStackPaymentAuditEntry.objects.filter(
+            action=GovStackPaymentAuditEntry.ACTION_BILL_PAID
+        ).latest("created_at")
+        self.assertEqual(entry.actor_bb_id, "FI-S38-CALLER")

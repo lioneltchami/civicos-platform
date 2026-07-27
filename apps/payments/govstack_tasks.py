@@ -46,7 +46,10 @@ Security invariants (MUST NEVER be violated)
   ``_post_callback()`` MUST NOT dispatch a request to a URL that resolves
   to a private, loopback, link-local (including the cloud metadata address
   169.254.169.254), multicast, or otherwise non-public IP address, and MUST
-  NOT follow redirects. See ``_is_safe_callback_url()`` below.
+  NOT follow redirects. See ``_is_safe_callback_url()`` below — it is kept
+  at parity with ``apps.appointments.tasks._is_safe_outbound_url`` /
+  ``apps.consent.tasks._is_safe_outbound_url`` (HTTPS-only, same extra IP
+  ranges rejected, same fail-closed behaviour).
 """
 from __future__ import annotations
 
@@ -74,6 +77,22 @@ logger = logging.getLogger(__name__)
 # Seconds to wait for a callback endpoint to respond before abandoning the POST.
 # Non-fatal either way — this is purely a best-effort delivery.
 _CALLBACK_TIMEOUT_SECONDS: float = 10.0
+
+# RFC 6598 Shared Address Space (a.k.a. CGNAT range) — NOT covered by any of
+# ipaddress.ip_address's is_private/is_loopback/is_link_local/is_reserved/
+# is_multicast/is_unspecified properties (confirmed: ipaddress.ip_address
+# ("100.64.0.1") reports False for all six), yet it is routable inside many
+# cloud VPC / Kubernetes overlay networks and can reach internal
+# infrastructure — must be checked explicitly. Mirrors
+# apps.appointments.tasks._SHARED_ADDRESS_SPACE /
+# apps.consent.tasks._SHARED_ADDRESS_SPACE exactly.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+# IANA special-purpose registry: IETF Protocol Assignments — likewise not
+# covered by the six ipaddress properties above. Mirrors
+# apps.appointments.tasks._IETF_PROTOCOL_ASSIGNMENTS /
+# apps.consent.tasks._IETF_PROTOCOL_ASSIGNMENTS exactly.
+_IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
 
 
 # ---------------------------------------------------------------------------
@@ -357,11 +376,6 @@ def validate_prepayment_async(self, pvr_pk: str) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-# Only plain HTTP(S) callback endpoints are ever dispatched to. This blocks
-# scheme-based SSRF tricks such as file://, gopher://, dict://, etc.
-_CALLBACK_ALLOWED_SCHEMES: frozenset[str] = frozenset({"http", "https"})
-
-
 def _is_safe_callback_url(url: str) -> bool:
     """
     Defense against SSRF via the caller-supplied ``X-Callback-URL`` header.
@@ -379,64 +393,75 @@ def _is_safe_callback_url(url: str) -> bool:
     which code path stored the URL, and cannot be bypassed by adding a new
     caller that skips an intake-time check.
 
-    Rejects:
-      - Any URL that doesn't parse, or has no hostname.
-      - Any scheme other than ``http``/``https``.
-      - Any hostname that is a literal IP address, or that DNS-resolves to
-        one, in a private, loopback, link-local (which includes the
-        169.254.169.254 cloud metadata address), multicast, unspecified, or
-        otherwise reserved range — checked against *every* address the
-        hostname resolves to, not just the first.
+    Kept at parity with ``apps.appointments.tasks._is_safe_outbound_url`` /
+    ``apps.consent.tasks._is_safe_outbound_url`` (both hardened earlier this
+    session) — all three are deliberately duplicated rather than extracted
+    into a shared ``apps.core`` helper (confirmed via repo-wide search: no
+    such helper exists); per-BB duplication is this codebase's established
+    precedent for this exact class of check.
 
-    Deliberately does NOT reject a hostname that fails to resolve at all
-    (``socket.gaierror``): if DNS resolution fails here, the subsequent
-    ``requests.post()`` call will fail identically (no network access ever
-    occurs either way), so rejecting up front would add a new class of
-    false-negative test/environment failures without closing any actual
-    SSRF gap. Only affirmatively-unsafe targets are blocked.
+    Checks, in order (fails closed on ANY failure):
+      1. scheme must be exactly ``https`` and a hostname must be present.
+         (Previously this also accepted plain ``http`` — tightened to
+         HTTPS-only to match the sibling BBs; no real Payments caller or
+         harness fixture relies on plaintext HTTP callback URLs.)
+      2. The hostname is resolved via DNS (``socket.getaddrinfo``) — this is
+         the TOCTOU-safe step: DNS can be repointed at any time after a
+         callback URL was first supplied, so re-validating immediately
+         before each dispatch (not just once) is mandatory.
+      3. EVERY resolved IP address (a hostname may have multiple A/AAAA
+         records) must be public and routable. Rejected ranges: private,
+         loopback, link-local (which includes the 169.254.169.254 cloud
+         metadata address), reserved, multicast, and unspecified (the six
+         ``ipaddress.ip_address`` properties), PLUS two ranges those six
+         properties do NOT cover: RFC 6598 Shared Address Space / CGNAT
+         (100.64.0.0/10) and the IANA IETF Protocol Assignments block
+         (192.0.0.0/24). A single unsafe address among several resolved
+         addresses is enough to reject the whole URL.
+      4. Any exception at all (malformed URL, DNS resolution failure, no
+         addresses returned) is treated as unsafe.
+
+    Note on a prior, now-removed behaviour: this function used to
+    deliberately ALLOW a hostname that failed to resolve at all
+    (``socket.gaierror``) through, reasoning that the subsequent
+    ``requests.post()`` call would fail identically with no network access
+    ever occurring. That is no longer this function's behaviour — it now
+    fails closed on every exception, exactly like
+    ``apps.appointments.tasks._is_safe_outbound_url`` /
+    ``apps.consent.tasks._is_safe_outbound_url`` — for defense-in-depth
+    consistency across all three BBs' callback/webhook dispatch paths,
+    rather than carrying a Payments-specific carve-out.
 
     Returns:
-        True if the URL is safe to dispatch to (or safety cannot be
-        determined due to DNS failure — see above); False if it is
-        affirmatively unsafe and must not be dispatched to.
+        True only if the URL is affirmatively safe to dispatch to; False in
+        every other case (unsafe scheme, unsafe IP, or any parse/DNS error).
     """
     try:
         parts = urlsplit(url)
-    except ValueError:
-        return False
+        if parts.scheme != "https" or not parts.hostname:
+            return False
 
-    if parts.scheme not in _CALLBACK_ALLOWED_SCHEMES:
-        return False
+        addrinfo = socket.getaddrinfo(parts.hostname, None)
+        if not addrinfo:
+            return False
 
-    hostname = parts.hostname
-    if not hostname:
-        return False
+        for info in addrinfo:
+            ip = ipaddress.ip_address(info[4][0])
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+                or ip in _SHARED_ADDRESS_SPACE
+                or ip in _IETF_PROTOCOL_ASSIGNMENTS
+            ):
+                return False
 
-    try:
-        addrinfo = socket.getaddrinfo(hostname, None)
-    except (socket.gaierror, UnicodeError):
-        # Cannot resolve — allow through; requests.post() will fail the same
-        # way, with no outbound network access ever occurring. See docstring.
         return True
-
-    for _family, _type, _proto, _canonname, sockaddr in addrinfo:
-        ip_str = sockaddr[0]
-        try:
-            ip = ipaddress.ip_address(ip_str)
-        except ValueError:
-            # Malformed resolved address — fail closed.
-            return False
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_unspecified
-            or ip.is_reserved
-        ):
-            return False
-
-    return True
+    except Exception:  # noqa: BLE001 — fail closed on ANY parse/DNS error.
+        return False
 
 
 def _post_callback(url: str, payload: dict) -> None:
@@ -451,12 +476,30 @@ def _post_callback(url: str, payload: dict) -> None:
     are not followed (``allow_redirects=False``) so a callback endpoint that
     is safe at request time cannot 302 the worker into an internal address.
 
+    3xx-as-failure
+    ---------------
+    A 3xx response is explicitly treated as a failed delivery, logged
+    identically to any other non-2xx outcome — it is NEVER logged as
+    delivered. ``Response.raise_for_status()`` only raises for status codes
+    >= 400, so a 3xx would otherwise silently fall through as "delivered"
+    below, which is misleading telemetry (not a live SSRF hole on its own,
+    since ``allow_redirects=False`` already guarantees the redirect target is
+    never connected to) — mirrors the identical explicit check in
+    ``apps.appointments.tasks._attempt_alert_delivery`` /
+    ``apps.consent.tasks.dispatch_consent_webhook``.
+
     Failure policy
     --------------
-    ALL exceptions (connection error, timeout, non-2xx response, JSON encode
-    error) are caught and logged as warnings.  The caller MUST NOT raise or
-    retry because of a callback failure — the DB record has already been
-    committed to its terminal state.
+    ALL exceptions (connection error, timeout, non-2xx/3xx response, JSON
+    encode error) are caught and logged as warnings.  The caller MUST NOT
+    raise or retry because of a callback failure — the DB record has already
+    been committed to its terminal state. ``_post_callback`` is a
+    fire-and-forget helper (``-> None``) called directly from within
+    ``process_bulk_payment_batch`` / ``validate_prepayment_async`` — unlike
+    the Celery-task-level dispatch functions in Appointments/Consent, it has
+    no Task-level return-status shape to preserve, so the 3xx check here logs
+    a warning (same as any other delivery failure) rather than returning a
+    distinct status value.
 
     Args:
         url:     Callback endpoint supplied in the original X-Callback-URL header.
@@ -483,6 +526,15 @@ def _post_callback(url: str, payload: dict) -> None:
             timeout=_CALLBACK_TIMEOUT_SECONDS,
             allow_redirects=False,
         )
+        if 300 <= response.status_code < 400:
+            # A validated-safe URL that 3xx-redirects to an internal target
+            # must never be silently treated as delivered — see docstring
+            # "3xx-as-failure" above. raise_for_status() would NOT catch this
+            # on its own (it only raises for >= 400), so this is explicit.
+            raise requests.exceptions.HTTPError(
+                f"{response.status_code} redirect response received "
+                f"(not followed — allow_redirects=False)"
+            )
         response.raise_for_status()
         logger.info(
             "govstack.callback_posted url=%s status=%s",

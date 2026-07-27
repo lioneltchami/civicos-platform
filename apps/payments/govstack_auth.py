@@ -11,17 +11,26 @@ Permission matrix:
                         bulk-payment, prepayment-validation, prepayment-validation-response)
   AllowAnyBB         — Voucher endpoints that use Gov_Stack_BB in the request body
   HasVoucherJWT      — Voucher redemption and status check (require Bearer JWT)
-  IsTrustedPayerFI   — P2G endpoints (bill inquiry, bill transfer request,
-                        transfer request status). Mode-gated like
-                        IsTrustedSourceBB: header optional in harness mode,
-                        required + whitelist-checked in production
-                        (GOVSTACK_REQUIRE_REGISTERED_PAYER_FI).
+  IsTrustedPayerFI   — P2G endpoints (bill inquiry, bill transfer request).
+                        Mode-gated like IsTrustedSourceBB: header optional in
+                        harness mode, required + whitelist-checked in
+                        production (GOVSTACK_REQUIRE_REGISTERED_PAYER_FI).
   RequirePayerFI     — MarkBillPaidView only. Fail-closed variant of
                         IsTrustedPayerFI: the X-PayerFI-Id header (or accepted
                         variant) is ALWAYS required, in every settings mode,
                         because this endpoint mutates real bill state, has
                         zero harness coverage to protect, and carries no
                         idempotency key of its own.
+  IsTrustedBiller    — TransferRequestStatusView only. A fresh fetch of the
+                        live rtpStatusUpdateRequest.yml spec confirmed this
+                        endpoint requires X-billerId (required: true,
+                        maxLength: 20) and has NO PayerFI header of any kind —
+                        it was previously (incorrectly) wired to
+                        IsTrustedPayerFI/X-PayerFI-Id. Mode-gated the same way
+                        as IsTrustedPayerFI, reusing the
+                        GOVSTACK_REQUIRE_REGISTERED_PAYER_FI flag (the
+                        existing P2G-wide flag) rather than inventing a new
+                        one for a single endpoint.
 
 Verified harness behaviour (checked directly against the live
 GovStackWorkingGroup/bb-payments repo's `test/openAPI/features/support/g2p_*.js`
@@ -210,6 +219,10 @@ class _HeaderWhitelistBBPermission(BasePermission):
 
         if not require_registered:
             # Harness / test mode: header-only check is sufficient — no DB lookup.
+            # caller_id is truthy here (the "not caller_id" branch above already
+            # returned for the empty case), so it is safe to stash as the
+            # resolved caller identity for downstream throttling/logging.
+            request.META["_gs_payer_identity"] = caller_id
             return True
 
         # Production mode (or require_header_always): validate against the
@@ -230,6 +243,15 @@ class _HeaderWhitelistBBPermission(BasePermission):
                 caller_id,
                 request.path,
             )
+        else:
+            # Access GRANTED with a known, whitelisted caller_id — stash it so
+            # a throttle class can key on caller identity instead of client IP.
+            # Uses the exact key name "_gs_payer_identity" (mirrors
+            # apps.appointments.govstack_auth.GovStackSchedulerAuth's
+            # "_gs_requestor_id" pattern). Never stashed when caller_id is
+            # falsy — see the harness-mode absent-header branch above, which
+            # grants access with no identity and must not stash "".
+            request.META["_gs_payer_identity"] = caller_id
 
         return granted
 
@@ -277,11 +299,16 @@ class IsTrustedPayerFI(_HeaderWhitelistBBPermission):
     Used on:
       - GET  /govstack/payments/bills/{bill_id}
       - POST /govstack/payments/billTransferRequests
-      - GET  /govstack/payments/transferRequests/{transfer_request_id}
 
     NOT used on:
       - POST /govstack/payments/bills/{bill_id}/mark-paid → RequirePayerFI
         (fail-closed variant — see that class's docstring)
+      - GET  /govstack/payments/transferRequests/{transfer_request_id} →
+        IsTrustedBiller (certifiability-audit fix — a fresh fetch of the live
+        rtpStatusUpdateRequest.yml spec confirmed this endpoint requires
+        X-billerId, not X-PayerFI-Id, and has no PayerFI header of any kind.
+        This view was previously (incorrectly) wired to IsTrustedPayerFI.
+        See IsTrustedBiller's docstring below.)
 
     Real spec vs. harness:
       The live GovStack P2G YAMLs (`api/P2G API YAMLs/`) declare a `security`
@@ -344,6 +371,39 @@ class RequirePayerFI(IsTrustedPayerFI):
     )
 
 
+class IsTrustedBiller(_HeaderWhitelistBBPermission):
+    """
+    Grants access for GET /transferRequests/{transferRequestId} based on the
+    X-billerId header — confirmed via a fresh fetch of the live
+    rtpStatusUpdateRequest.yml spec file, which requires X-billerId
+    (required: true, maxLength: 20) and contains no PayerFI header of any
+    kind. This endpoint was previously (incorrectly) wired to
+    IsTrustedPayerFI/X-PayerFI-Id — see MASTER_BB_CERTIFIABILITY_REPORT.md
+    "Payments BB" for the audit finding this fixes.
+
+    Used on:
+      - GET /govstack/payments/transferRequests/{transfer_request_id}
+
+    Mode-gated identically to IsTrustedPayerFI (see
+    _HeaderWhitelistBBPermission for the full mode breakdown): the header is
+    optional in harness/test mode and required + whitelist-checked in
+    production. Reuses GOVSTACK_REQUIRE_REGISTERED_PAYER_FI rather than
+    introducing a new settings flag for a single endpoint — this is the same
+    P2G-wide "is caller-identity enforcement turned on for P2G" toggle that
+    IsTrustedPayerFI/RequirePayerFI already use, so enabling it in production
+    hardens all 4 P2G views uniformly.
+
+    There is currently zero P2G harness coverage for this endpoint, so — like
+    IsTrustedPayerFI — this class's harness-mode behaviour is not being
+    validated against a real Cucumber harness; it exists purely to align
+    caller-identity enforcement with the live spec's actual required header.
+    """
+
+    header_names = ("X-billerId", "X-BillerId", "X-billerID")
+    settings_flag = "GOVSTACK_REQUIRE_REGISTERED_PAYER_FI"  # reuse the existing P2G-wide flag rather than inventing a new one for a single endpoint
+    message = "Missing or invalid X-billerId header."
+
+
 class AllowAnyBB(BasePermission):
     """
     Grants access to any caller (no specific header required at the permission
@@ -367,10 +427,11 @@ class AllowAnyBB(BasePermission):
       - GET/PATCH /govstack/payments/vouchers/voucherstatuscheck/{serial} → HasVoucherJWT
       - G2P register-beneficiary, update-beneficiary-details, bulk-payment,
         prepayment-validation, prepayment-validation-response → IsTrustedSourceBB
-      - P2G bill inquiry, bill transfer request, transfer request status →
-        IsTrustedPayerFI; P2G mark-bill-paid → RequirePayerFI (Issue B fix —
-        these 4 views previously used AllowAnyBB with zero caller-identity
-        validation of any kind, in every settings mode including production)
+      - P2G bill inquiry, bill transfer request → IsTrustedPayerFI;
+        P2G mark-bill-paid → RequirePayerFI; P2G transfer request status →
+        IsTrustedBiller (Issue B fix — these 4 views previously used
+        AllowAnyBB with zero caller-identity validation of any kind, in every
+        settings mode including production)
 
     This is intentionally permissive at the permission layer because:
       1. The harness does not send a pre-registered auth token.
