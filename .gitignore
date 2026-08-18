@@ -53,6 +53,7 @@ dmypy.json
 *.swo
 *~
 .DS_Store
+._*
 Thumbs.db
 
 # Docker

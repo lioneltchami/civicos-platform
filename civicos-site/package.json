@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "contract-smoke": "node scripts/contract-smoke.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },

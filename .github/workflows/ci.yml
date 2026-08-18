@@ -51,6 +51,8 @@ jobs:
         run: npm run lint
       - name: Build frontend
         run: npm run build
+      - name: Check frontend/API contract
+        run: npm run contract-smoke
   # ------------------------------------------------------------------
   # Security scan
   # ------------------------------------------------------------------
@@ -137,6 +139,60 @@ jobs:
           DJANGO_SETTINGS_MODULE: config.settings.test
         run: python manage.py spectacular --file /tmp/civicos-schema.yml --validate --settings=config.settings.test
 
+  # ------------------------------------------------------------------
+  # Service-backed integration verification
+  # ------------------------------------------------------------------
+  integration-contracts:
+    name: PostgreSQL Redis Celery contracts
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: civicos_test
+          POSTGRES_USER: civicos
+          POSTGRES_PASSWORD: ci_test_password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install test dependencies
+        run: pip install -r requirements/test.txt
+      - name: Migrate against PostgreSQL
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.integration
+          POSTGRES_DB: civicos_test
+          POSTGRES_USER: civicos
+          POSTGRES_PASSWORD: ci_test_password
+          REDIS_URL: redis://localhost:6379/15
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+        run: python manage.py migrate --noinput --settings=config.settings.integration
+      - name: Run service-backed contract checks
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.integration
+          POSTGRES_DB: civicos_test
+          POSTGRES_USER: civicos
+          POSTGRES_PASSWORD: ci_test_password
+          REDIS_URL: redis://localhost:6379/15
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+        run: python manage.py test tests.test_medium_priority_contracts --settings=config.settings.integration --verbosity=2
   # ------------------------------------------------------------------
   # Production settings guardrail
   # ------------------------------------------------------------------
