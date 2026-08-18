@@ -164,6 +164,19 @@ class GovStackSchedulerAuth(BaseAuthentication):
     """
 
     def authenticate(self, request: Request):
+        deployment_scope = getattr(
+            settings, "GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE", "single-government"
+        )
+        if deployment_scope != "single-government":
+            logger.error(
+                "govstack_scheduler_auth: unsupported deployment scope=%r; "
+                "multi-government role isolation is not implemented",
+                deployment_scope,
+            )
+            raise AuthenticationFailed(
+                "GovStack Scheduler is limited to the single-government deployment scope."
+            )
+
         requestor_id: str = request.query_params.get("requestor_id", "").strip()
         request_token: str = request.query_params.get("request_token", "").strip()
 

@@ -259,6 +259,13 @@ SOCIALACCOUNT_ADAPTER = "apps.auth_extension.adapters.CivicOSSocialAccountAdapte
 LOGIN_URL = "two_factor:login"
 LOGIN_REDIRECT_URL = "/"
 
+# GovStack Scheduler deployment boundary. Multi-government registered-BB role
+# isolation is not implemented in this release, so unsupported scopes fail closed
+# in the authentication boundary rather than silently enabling cross-government use.
+GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE = env(
+    "GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE", default="single-government"
+)
+
 # ---------------------------------------------------------------------------
 # Internationalisation
 # ---------------------------------------------------------------------------

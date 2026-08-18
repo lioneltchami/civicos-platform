@@ -83,8 +83,14 @@ For current deployment and project-state guidance, start with:
 git clone https://github.com/lioneltchami/civicos-platform.git
 cd civicos-platform
 cp .env.example .env
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+# Paste the generated value after DJANGO_SECRET_KEY= in .env, then:
 docker compose up
 ```
+
+The development Compose stack reads `DJANGO_SECRET_KEY` only from the uncommitted `.env` file and refuses to configure when it is missing or empty. Generate a unique local value; never commit or reuse it for production. Production configuration remains responsible for supplying and validating its own secret.
+
+Before starting services, validate interpolation without launching the stack. With `DJANGO_SECRET_KEY=` blank or unset, `docker compose config` should fail; after populating `.env` with a generated local value, `docker compose config --environment` and `docker compose config` should succeed. These checks require Docker Compose and are validation instructions, not a claim that they have been run in every environment.
 
 ---
 

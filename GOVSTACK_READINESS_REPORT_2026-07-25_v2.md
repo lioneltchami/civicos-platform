@@ -1,5 +1,8 @@
 # GovStack BB Master Certifiability Report — CivicOS
 
+> **Historical-status notice (2026-08-18):** This report is retained as a dated internal readiness narrative. It is **not** a current certification, official-harness result, or proof of GovStack wire conformance. The current evidence boundary is [`docs/govstack/SCOPE.md`](docs/govstack/SCOPE.md); Messaging/Workflow/CMS are local-only and remaining catalog Building Blocks are **Not Done Yet**.
+
+
 **Date:** 2026-07-26, round 4 (supersedes the round-3 content previously in this file, which is preserved as historical narrative inside each BB section below — do not treat any tier/status claim above the "ROUND 4" markers as current).
 
 **Method:** 3 parallel deep-review agents (Opus-class, research-only, no edits), each independently fetching live GovStack specs fresh from GitHub (not from memory or prior reports), re-running the actual test suites themselves, and — for Payments and Consent — executing live HTTP probes against the running Django stack to settle disputed behavior empirically rather than by code reading alone. Followed by personal verification of the highest-stakes findings across all four BBs: direct code reads, a fresh `makemigrations --check` run against all three apps, a live test-harness probe of the Payments voucher status-check endpoint, and direct reads of the Consent permission classes, the Payments callback-URL dispatch code, the Documents requirements files, and the Appointments `qry`-nesting serializers. Methodology: `GOVSTACK_BB_READINESS_ASSESSMENT_PROMPT.md` (10 dimensions, 4-tier scale, "never round up").

@@ -16,10 +16,7 @@ from .base import INSTALLED_APPS, MIDDLEWARE, env
 
 DEBUG = True
 
-SECRET_KEY = env(
-    "DJANGO_SECRET_KEY",
-    default="django-insecure-dev-key-change-before-production-do-not-use",
-)
+SECRET_KEY = env("DJANGO_SECRET_KEY")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]
 
