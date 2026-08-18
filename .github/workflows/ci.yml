@@ -30,6 +30,28 @@ jobs:
         run: ruff format --check .
 
   # ------------------------------------------------------------------
+  # Frontend quality
+  # ------------------------------------------------------------------
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: civicos-site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: civicos-site/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Lint frontend
+        run: npm run lint
+      - name: Build frontend
+        run: npm run build
+  # ------------------------------------------------------------------
   # Security scan
   # ------------------------------------------------------------------
   security:
@@ -92,6 +114,14 @@ jobs:
           GC_NOTIFY_API_KEY: ""
           DJANGO_SETTINGS_MODULE: config.settings.test
         run: python manage.py migrate --noinput
+      - name: Check migration consistency
+        env:
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+          DJANGO_SETTINGS_MODULE: config.settings.test
+        run: |
+          python manage.py makemigrations --check --dry-run --settings=config.settings.test
+          python manage.py showmigrations --plan --settings=config.settings.test
       - name: Run tests
         env:
           DATABASE_URL: postgres://civicos:ci_test_password@localhost:5432/civicos_test
@@ -101,6 +131,40 @@ jobs:
           DJANGO_SETTINGS_MODULE: config.settings.test
         run: python manage.py test --verbosity=2 --parallel 2>&1
 
+  # ------------------------------------------------------------------
+  # Production settings guardrail
+  # ------------------------------------------------------------------
+  production-check:
+    name: Production settings deploy check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: pip install -r requirements/production.txt
+      - name: Run production system checks
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.production
+          DJANGO_SECRET_KEY: ci-guardrail-secret-key-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ-abcdef
+          DJANGO_ALLOWED_HOSTS: localhost
+          CSRF_TRUSTED_ORIGINS: https://localhost
+          WAGTAILADMIN_BASE_URL: https://localhost
+          SITE_URL: https://localhost
+          AWS_ACCESS_KEY_ID: ci-dummy-access-key
+          AWS_SECRET_ACCESS_KEY: ci-dummy-secret-key
+          AWS_STORAGE_BUCKET_NAME: ci-dummy-bucket
+          AWS_S3_REGION_NAME: ca-central-1
+          AWS_SSE_KMS_KEY_ID: ci-dummy-kms-key
+          JWT_PRIVATE_KEY: ci-not-for-production-private-key
+          JWT_PUBLIC_KEY: ci-not-for-production-public-key
+          REDIS_URL: redis://localhost:6379/15
+          FERNET_KEYS: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          VOLUNTEER_SIN_FERNET_KEYS: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          GC_NOTIFY_API_KEY: ""
+          CLAMAV_REQUIRED: "false"
+        run: python manage.py check --deploy --settings=config.settings.production
   # ------------------------------------------------------------------
   # Docker build
   # ------------------------------------------------------------------
