@@ -4,6 +4,10 @@
 
 Built on [Wagtail](https://wagtail.org/) + [Django](https://www.djangoproject.com/), CivicOS gives municipalities a composable set of building blocks to deliver citizen-facing digital services — without rebuilding from scratch every time.
 
+- Website: [civicosbb.ca](https://civicosbb.ca)
+- Consent submission docs: [civicosbb.ca/docs/consent](https://civicosbb.ca/docs/consent)
+- Live consent API docs: [api.civicosbb.ca/api/v1/consent/docs/](https://api.civicosbb.ca/api/v1/consent/docs/)
+
 ---
 
 ## Vision
@@ -69,11 +73,15 @@ See [`context/tech-stack.md`](context/tech-stack.md) for detailed decisions.
 
 ## Getting Started
 
-> Full setup instructions coming in `docs/setup.md` once the project is initialized.
+For current deployment and project-state guidance, start with:
+
+- [`docs/PROJECT_OVERVIEW_AND_STATUS.md`](docs/PROJECT_OVERVIEW_AND_STATUS.md)
+- [`docs/DEPLOY_NOTES.md`](docs/DEPLOY_NOTES.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ```bash
-git clone https://github.com/your-org/civicos.git
-cd civicos
+git clone https://github.com/lioneltchami/civicos-platform.git
+cd civicos-platform
 cp .env.example .env
 docker compose up
 ```
