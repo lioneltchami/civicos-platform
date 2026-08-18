@@ -772,7 +772,7 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "apps.api.schema.GovStackAutoSchema",
     "EXCEPTION_HANDLER": "apps.api.exceptions.civicos_exception_handler",
     # NOTE: do NOT set UNAUTHENTICATED_USER: None — doing so causes DRF to raise
     # PermissionDenied (403) for unauthenticated requests instead of NotAuthenticated

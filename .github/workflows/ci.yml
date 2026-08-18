@@ -130,6 +130,12 @@ jobs:
           GC_NOTIFY_API_KEY: ""
           DJANGO_SETTINGS_MODULE: config.settings.test
         run: python manage.py test --verbosity=2 --parallel 2>&1
+      - name: Generate and validate OpenAPI schema
+        env:
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+          DJANGO_SETTINGS_MODULE: config.settings.test
+        run: python manage.py spectacular --file /tmp/civicos-schema.yml --validate --settings=config.settings.test
 
   # ------------------------------------------------------------------
   # Production settings guardrail

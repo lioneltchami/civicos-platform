@@ -4,8 +4,55 @@ OpenAPI schema customizations for CivicOS API.
 Extends drf-spectacular's AutoSchema to add consistent security schemes,
 error response schemas, and tag groupings for the CivicOS API.
 """
+
+from typing import Any
+
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
-from drf_spectacular.utils import OpenApiExample, extend_schema  # noqa: F401
+from drf_spectacular.openapi import AutoSchema
+from drf_spectacular.plumbing import build_parameter_type
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema  # noqa: F401
+
+
+class GovStackAutoSchema(AutoSchema):
+    """Add the BB credential pair required by GovStack authenticators."""
+
+    def _get_parameters(self):
+        parameters = super()._get_parameters()
+        authentication_classes = getattr(self.view, "authentication_classes", ())
+        target_names = {"GovStackSchedulerAuth", "GovStackCitizenAuth"}
+        if any(cls.__name__ in target_names for cls in authentication_classes):
+            existing = {parameter.get("name") for parameter in parameters}
+            required = (
+                OpenApiParameter(
+                    "requestor_id",
+                    OpenApiParameter.QUERY,
+                    str,
+                    required=True,
+                    description="Registered GovStack BB requestor identifier.",
+                ),
+                OpenApiParameter(
+                    "request_token",
+                    OpenApiParameter.QUERY,
+                    str,
+                    required=True,
+                    description=(
+                        "Registered GovStack BB request token. Both requestor_id "
+                        "and request_token are required."
+                    ),
+                ),
+            )
+            parameters.extend(
+                build_parameter_type(
+                    parameter.name,
+                    {"type": "string"},
+                    "query",
+                    required=True,
+                    description=parameter.description,
+                )
+                for parameter in required
+                if parameter.name not in existing
+            )
+        return parameters
 
 
 def preprocess_include_consent_endpoints(endpoints, **kwargs):
@@ -31,8 +78,7 @@ def preprocess_include_consent_endpoints(endpoints, **kwargs):
     return [
         endpoint
         for endpoint in endpoints
-        if endpoint[0].startswith(allowed_prefixes)
-        and endpoint[0] not in excluded_paths
+        if endpoint[0].startswith(allowed_prefixes) and endpoint[0] not in excluded_paths
     ]
 
 
@@ -48,6 +94,44 @@ class CivicOSTokenAuthScheme(OpenApiAuthenticationExtension):
             "in": "header",
             "name": "Authorization",
             "description": "Token-based authentication. Format: `Token <token>`",
+        }
+
+
+class GovStackSchedulerAuthScheme(OpenApiAuthenticationExtension):
+    """Describe GovStackSchedulerAuth's requestor and token query credentials."""
+
+    target_class = "apps.appointments.govstack_auth.GovStackSchedulerAuth"
+    name = "GovStackSchedulerAuth"
+
+    def get_security_definition(self, auto_schema: Any) -> dict[str, str]:
+        return {
+            "type": "apiKey",
+            "in": "query",
+            "name": "request_token",
+            "description": (
+                "GovStack Scheduler credential. Supply both non-empty "
+                "requestor_id and request_token query parameters."
+            ),
+        }
+
+
+class GovStackCitizenAuthScheme(OpenApiAuthenticationExtension):
+    """Describe GovStackCitizenAuth's GovStack query credential and optional JWT."""
+
+    target_class = "apps.appointments.govstack_auth.GovStackCitizenAuth"
+    name = "GovStackCitizenAuth"
+
+    def get_security_definition(self, auto_schema: Any) -> dict[str, str]:
+        return {
+            "type": "apiKey",
+            "in": "query",
+            "name": "request_token",
+            "description": (
+                "GovStack Scheduler credential. Supply both non-empty "
+                "requestor_id and request_token query parameters. The BB pair is "
+                "mandatory; when supplied, an Authorization Bearer JWT is validated "
+                "and may affect subscriber scope."
+            ),
         }
 
 
