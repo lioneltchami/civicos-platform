@@ -2630,3 +2630,37 @@ class ServiceDataAgreementCurrentConsentRecordParityTests(GovStackAPIBase):
         self.assertTrue(payload["signature"] is None or isinstance(payload["signature"], str))
         self.assertTrue(payload["dataAgreementRevision"] is None or isinstance(payload["dataAgreementRevision"], str))
         self.assertIsInstance(payload["dataAgreementRevisionHash"], str)
+
+
+    def test_current_record_get_is_read_only_and_never_calls_external_boundary(self):
+        ConsentService.grant(self.citizen, self.category.slug)
+        self._auth(self.citizen)
+        tracked = (ConsentRecord, ConsentRevision, ConsentSignature, ConsentAuditEntry, ConsentWebhook)
+        before_counts = {model.__name__: model.objects.count() for model in tracked}
+        before_record = list(
+            ConsentRecord.objects.values(
+                "id", "is_current", "status", "state", "updated_at", "data_agreement_revision_id"
+            ).order_by("id")
+        )
+        with patch(
+            "apps.consent.integration_boundary.ConsentIntegrationBoundary.publish",
+            side_effect=AssertionError("selected GET must not invoke an external boundary"),
+        ) as publish:
+            first = self.client.get(self.url)
+            second = self.client.get(self.url)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data, second.data)
+        publish.assert_not_called()
+        self.assertEqual(
+            {model.__name__: model.objects.count() for model in tracked},
+            before_counts,
+        )
+        self.assertEqual(
+            list(
+                ConsentRecord.objects.values(
+                    "id", "is_current", "status", "state", "updated_at", "data_agreement_revision_id"
+                ).order_by("id")
+            ),
+            before_record,
+        )
