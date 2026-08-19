@@ -127,6 +127,45 @@ class Command(BaseCommand):
             ),
         )
 
+        # ── Item 02: GovStack Payments failure remediation ─────────────────
+        # These tasks deliberately do not submit or retry provider payments.
+        # They persist callback delivery outcomes and route unresolved provider
+        # states to an auditable review path until a provider adapter is wired.
+        remediation_schedule = {
+            "minute": "*/5",
+            "hour": "*",
+            "day_of_week": "*",
+            "day_of_month": "*",
+            "month_of_year": "*",
+            "timezone": "UTC",
+        }
+        for task_name, task_path, description in (
+            (
+                "payments.replay_govstack_callbacks",
+                "apps.payments.govstack_tasks.replay_govstack_callbacks",
+                "Replay due GovStack Payments callback outbox records with bounded backoff and dead-letter tracking.",
+            ),
+            (
+                "payments.triage_govstack_uncertain_attempts",
+                "apps.payments.govstack_tasks.triage_govstack_uncertain_attempts",
+                "Reconcile unresolved GovStack payment attempts and route unknown outcomes to review without blind resubmission.",
+            ),
+            (
+                "payments.triage_govstack_retryable_attempts",
+                "apps.payments.govstack_tasks.triage_govstack_retryable_attempts",
+                "Route due retryable GovStack payment attempts to audited review while no provider adapter is configured.",
+            ),
+        ):
+            self._register_task(
+                dry_run=dry_run,
+                task_name=task_name,
+                task_path=task_path,
+                schedule_kwargs=remediation_schedule,
+                task_args="[]",
+                task_kwargs_str="{}",
+                description=description,
+            )
+
         self.stdout.write(self.style.SUCCESS("\nsetup_periodic_tasks complete.\n"))
 
     def _register_task(

@@ -53,6 +53,7 @@ from apps.payments.govstack_exceptions import (
     VoucherAlreadyUsed,
     VoucherExpired,
 )
+from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
@@ -61,6 +62,7 @@ from apps.payments.govstack_models import (
     GovStackBillPayment,
     GovStackPaymentAuditEntry,
     GovStackRegisteredBB,
+    PaymentOutcome,
     GovStackVoucher,
     PrepaymentValidationRequest,
     _generate_voucher_serial,
@@ -1381,6 +1383,36 @@ class GovStackP2GService:
                     len(request_id),
                 )
                 raise DuplicateBillPaymentError(request_id=request_id)
+
+            # ── Item 02 settlement-verification record ─────────────────────
+            # The existing P2G compatibility contract records the notification
+            # synchronously. A separate durable attempt makes the distinction
+            # explicit: local recording is not provider-settlement evidence.
+            p2g_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+                tenant_id=platform_tenant_id,
+                operation="p2g_bill_notification",
+                request_id=request_id,
+                payload={
+                    "bill_pk": str(locked_bill.pk),
+                    "payment_pk": str(payment.pk),
+                    "amount": str(payment.amount),
+                    "currency": payment.currency,
+                },
+                amount=payment.amount,
+                currency=payment.currency,
+                correlation_id=payment.correlation_id,
+                source_bb_id="",
+                external_transaction_id=payment.payment_reference_id,
+            )
+            PaymentLifecycleService.apply_outcome(
+                p2g_attempt,
+                PaymentOutcome(
+                    "review",
+                    code="P2G_SETTLEMENT_VERIFICATION_REQUIRED",
+                    category="reconciliation",
+                    message="Payment notification recorded; settlement verification is required.",
+                ),
+            )
 
             # ── Transition bill to PAID (idempotent if already PAID) ────────
             # DESIGN DECISION (M4): We do not restrict payment to STATUS_UNPAID

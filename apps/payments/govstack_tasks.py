@@ -64,15 +64,70 @@ from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
 
+from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
+    CallbackDelivery,
     CreditInstruction,
     GovStackBeneficiary,
     GovStackPaymentAuditEntry,
+    PaymentOutcome,
     PrepaymentValidationRequest,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _record_bulk_instruction_lifecycle(
+    batch: BulkPaymentBatch,
+    instruction: CreditInstruction,
+    *,
+    beneficiary_found: bool,
+) -> None:
+    """Persist non-PII execution evidence without treating ID lookup as settlement.
+
+    Existing GovStack G2P compatibility semantics continue to expose local ID
+    Mapper validation through ``CreditInstruction``. The durable attempt records
+    whether a provider settlement adapter has supplied financial finality. Until
+    such an adapter is configured, a locally valid instruction is explicitly
+    routed to review rather than silently represented as provider-settled.
+    """
+    attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+        tenant_id="",
+        operation="g2p_bulk_instruction",
+        request_id=f"{batch.request_id}:{instruction.instruction_id}",
+        payload={
+            "batch_pk": str(batch.pk),
+            "instruction_pk": str(instruction.pk),
+            "amount": str(instruction.amount),
+            "currency": instruction.currency,
+        },
+        amount=instruction.amount,
+        currency=instruction.currency,
+        correlation_id=batch.correlation_id,
+        source_bb_id=batch.source_bb_id,
+    )
+    if beneficiary_found:
+        PaymentLifecycleService.apply_outcome(
+            attempt,
+            PaymentOutcome(
+                "review",
+                code="SETTLEMENT_ADAPTER_UNCONFIGURED",
+                category="configuration",
+                message="Local account validation completed; settlement verification is required.",
+            ),
+        )
+    else:
+        PaymentLifecycleService.apply_outcome(
+            attempt,
+            PaymentOutcome(
+                "invalid_account",
+                code="ID_MAPPER_NOT_FOUND",
+                category="account",
+                message="Destination account could not be validated.",
+            ),
+        )
+
 
 # Seconds to wait for a callback endpoint to respond before abandoning the POST.
 # Non-fatal either way — this is purely a best-effort delivery.
@@ -187,11 +242,29 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                 instr.failure_reason = ""  # clear any stale value from a prior partial run
                 completed_count += 1
                 completed_amount += instr.amount
+                _record_bulk_instruction_lifecycle(
+                    batch,
+                    instr,
+                    beneficiary_found=True,
+                )
+                GovStackPaymentAuditEntry.objects.create(
+                    action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_COMPLETED,
+                    actor_bb_id=batch.source_bb_id,
+                    object_type="instruction",
+                    object_pk=str(instr.pk),
+                    request_id=batch.request_id,
+                    details={"local_account_validation": "passed"},
+                )
             else:
                 instr.status = CreditInstruction.STATUS_FAILED
                 instr.failure_reason = "PayeeFunctionalID not found in ID Mapper."
                 failed_count += 1
                 failed_amount += instr.amount
+                _record_bulk_instruction_lifecycle(
+                    batch,
+                    instr,
+                    beneficiary_found=False,
+                )
                 # Write a per-instruction audit entry for each failure.
                 # Security: failure_reason is a static string — no PII.
                 GovStackPaymentAuditEntry.objects.create(
@@ -253,18 +326,36 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
         callback_url = batch.callback_url
         callback_status = batch.status.upper()
 
-    # POST callback OUTSIDE the transaction — failure is non-fatal.
-    # The BulkPaymentBatch is already in its terminal state in the database.
-    # A callback failure does NOT retry the task or rollback the status change.
+    # Persist callback work before transport. A failed delivery is no longer
+    # log-only: it remains queryable/replayable through CallbackDelivery.
     if callback_url:
-        _post_callback(
+        callback_payload = {
+            "RequestID": batch.request_id,
+            "BatchID": batch.batch_id,
+            "Status": callback_status,
+            # NEVER include payee_functional_id or financial_address
+        }
+        callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+            tenant_id="",
+            operation="g2p_bulk_callback",
+            request_id=f"callback:{batch.request_id}:{batch.batch_id}",
+            payload=callback_payload,
+            correlation_id=batch.correlation_id,
+            source_bb_id=batch.source_bb_id,
+        )
+        delivery, _ = PaymentLifecycleService.queue_callback(
+            attempt=callback_attempt,
+            callback_url=callback_url,
+            payload=callback_payload,
+        )
+        success, http_status, error_code = _post_callback(
             url=callback_url,
-            payload={
-                "RequestID": batch.request_id,
-                "BatchID": batch.batch_id,
-                "Status": callback_status,
-                # NEVER include payee_functional_id or financial_address
-            },
+            payload=callback_payload,
+        )
+        PaymentLifecycleService.record_callback_result(
+            delivery,
+            http_status=http_status if success else None,
+            error_code=error_code,
         )
 
 
@@ -366,16 +457,117 @@ def validate_prepayment_async(self, pvr_pk: str) -> None:
             "FailedAccounts": [] if beneficiary_found else [pvr.instruction_id],
         }
 
-    # POST callback OUTSIDE the transaction — failure is non-fatal.
-    # The PrepaymentValidationRequest is already COMPLETED in the database.
+    # Persist callback work before transport. The original validation result is
+    # available for idempotent replay if the source endpoint is unavailable.
     if callback_url:
-        _post_callback(url=callback_url, payload=callback_payload)
+        callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+            tenant_id="",
+            operation="g2p_prepayment_callback",
+            request_id=f"callback:{pvr.request_id}:{pvr.instruction_id}",
+            payload=callback_payload,
+            correlation_id="",
+            source_bb_id=pvr.source_bb_id,
+        )
+        delivery, _ = PaymentLifecycleService.queue_callback(
+            attempt=callback_attempt,
+            callback_url=callback_url,
+            payload=callback_payload,
+        )
+        success, http_status, error_code = _post_callback(
+            url=callback_url,
+            payload=callback_payload,
+        )
+        PaymentLifecycleService.record_callback_result(
+            delivery,
+            http_status=http_status if success else None,
+            error_code=error_code,
+        )
+
+
+
+
+# ---------------------------------------------------------------------------
+# Item 02 failure-remediation sweeps
+# ---------------------------------------------------------------------------
+
+@shared_task(
+    name="payments.replay_govstack_callbacks",
+    queue="payments",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def replay_govstack_callbacks() -> int:
+    """Replay due non-PII callback outbox records with bounded persistence."""
+    delivered_or_recorded = 0
+    for delivery in PaymentLifecycleService.due_callbacks():
+        success, http_status, error_code = _post_callback(
+            delivery.callback_url,
+            delivery.payload,
+        )
+        PaymentLifecycleService.record_callback_result(
+            delivery,
+            http_status=http_status if success else None,
+            error_code=error_code,
+        )
+        delivered_or_recorded += 1
+    return delivered_or_recorded
+
+
+@shared_task(
+    name="payments.triage_govstack_uncertain_attempts",
+    queue="payments",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def triage_govstack_uncertain_attempts() -> int:
+    """Avoid a blind retry when a provider outcome remains uncertain.
+
+    A production provider adapter may replace this bounded safety net with a
+    status-query result. Until then, the record becomes an auditable review
+    item after an unknown reconciliation result rather than being resubmitted.
+    """
+    triaged = 0
+    for attempt in PaymentLifecycleService.due_uncertain():
+        PaymentLifecycleService.reconcile(attempt, provider_status="unknown")
+        PaymentLifecycleService.apply_outcome(
+            attempt,
+            PaymentOutcome(
+                "review",
+                code="UNCERTAIN_OUTCOME_REQUIRES_REVIEW",
+                category="reconciliation",
+                message="Provider outcome is unresolved; manual reconciliation is required.",
+            ),
+        )
+        triaged += 1
+    return triaged
+
+
+@shared_task(
+    name="payments.triage_govstack_retryable_attempts",
+    queue="payments",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def triage_govstack_retryable_attempts() -> int:
+    """Route due retryable work to review until a provider adapter is configured."""
+    triaged = 0
+    for attempt in PaymentLifecycleService.due_retries():
+        PaymentLifecycleService.apply_outcome(
+            attempt,
+            PaymentOutcome(
+                "review",
+                code="RETRY_ADAPTER_UNCONFIGURED",
+                category="configuration",
+                message="Retry requires a configured provider adapter.",
+            ),
+        )
+        triaged += 1
+    return triaged
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
 def _is_safe_callback_url(url: str) -> bool:
     """
     Defense against SSRF via the caller-supplied ``X-Callback-URL`` header.
@@ -464,7 +656,7 @@ def _is_safe_callback_url(url: str) -> bool:
         return False
 
 
-def _post_callback(url: str, payload: dict) -> None:
+def _post_callback(url: str, payload: dict) -> tuple[bool, int | None, str]:
     """
     POST a GovStack async result callback to the Source BB.
 
@@ -517,7 +709,7 @@ def _post_callback(url: str, payload: dict) -> None:
             "govstack.callback_post_blocked_unsafe_url url=%s",
             url,
         )
-        return
+        return False, None, "unsafe_callback_url"
 
     try:
         response = requests.post(
@@ -541,6 +733,7 @@ def _post_callback(url: str, payload: dict) -> None:
             url,
             response.status_code,
         )
+        return True, response.status_code, ""
     except Exception as exc:  # noqa: BLE001
         # Non-fatal: log the exception class name (not the message, which may
         # contain the URL parameters or response body) and return normally.
@@ -549,3 +742,4 @@ def _post_callback(url: str, payload: dict) -> None:
             url,
             type(exc).__name__,
         )
+        return False, None, type(exc).__name__
