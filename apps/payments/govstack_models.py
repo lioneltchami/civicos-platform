@@ -850,6 +850,17 @@ class GovStackPaymentAuditEntry(TimestampedModel):
     # P2G — Bill Payments (Wave 5)
     ACTION_BILL_PAYMENT_REQUESTED = "bill_payment_requested"
     ACTION_BILL_PAID = "bill_paid"
+    # Item 02 — failure remediation. Every value represents non-PII lifecycle
+    # metadata only and is persisted through the append-only audit model.
+    ACTION_PAYMENT_ATTEMPT_CREATED = "payment_attempt_created"
+    ACTION_PAYMENT_OUTCOME_RECORDED = "payment_outcome_recorded"
+    ACTION_PAYMENT_RETRY_SCHEDULED = "payment_retry_scheduled"
+    ACTION_PAYMENT_UNCERTAIN = "payment_uncertain"
+    ACTION_CALLBACK_QUEUED = "callback_queued"
+    ACTION_CALLBACK_DELIVERED = "callback_delivered"
+    ACTION_CALLBACK_DEAD_LETTERED = "callback_dead_lettered"
+    ACTION_RECONCILIATION_RECORDED = "reconciliation_recorded"
+    ACTION_PAYMENT_REVIEW_REQUIRED = "payment_review_required"
 
     ACTION_CHOICES = [
         (ACTION_BENEFICIARY_REGISTERED, _("Beneficiary Registered")),
@@ -869,6 +880,15 @@ class GovStackPaymentAuditEntry(TimestampedModel):
         # Wave 5
         (ACTION_BILL_PAYMENT_REQUESTED, _("Bill Payment Requested")),
         (ACTION_BILL_PAID, _("Bill Paid")),
+        (ACTION_PAYMENT_ATTEMPT_CREATED, _("Payment Attempt Created")),
+        (ACTION_PAYMENT_OUTCOME_RECORDED, _("Payment Outcome Recorded")),
+        (ACTION_PAYMENT_RETRY_SCHEDULED, _("Payment Retry Scheduled")),
+        (ACTION_PAYMENT_UNCERTAIN, _("Payment Outcome Uncertain")),
+        (ACTION_CALLBACK_QUEUED, _("Callback Queued")),
+        (ACTION_CALLBACK_DELIVERED, _("Callback Delivered")),
+        (ACTION_CALLBACK_DEAD_LETTERED, _("Callback Dead-Lettered")),
+        (ACTION_RECONCILIATION_RECORDED, _("Reconciliation Recorded")),
+        (ACTION_PAYMENT_REVIEW_REQUIRED, _("Payment Review Required")),
     ]
 
     id = models.UUIDField(
@@ -1346,3 +1366,111 @@ class GovStackRegisteredBB(TimestampedModel):
     def __str__(self) -> str:
         status = "active" if self.is_active else "inactive"
         return f"{self.bb_id} ({status})"
+
+
+# ---------------------------------------------------------------------------
+# Failure-remediation lifecycle (Item 02)
+# ---------------------------------------------------------------------------
+class PaymentAttempt(TimestampedModel):
+    """Provider-neutral, durable execution record; local validation is not settlement."""
+    STATUS_PENDING = "pending"
+    STATUS_RETRYABLE = "retryable"
+    STATUS_UNCERTAIN = "uncertain"
+    STATUS_SETTLED = "settled"
+    STATUS_REJECTED = "rejected"
+    STATUS_REVIEW = "review"
+    STATUS_DEAD_LETTER = "dead_letter"
+    STATUS_CHOICES = [(s, s.replace('_', ' ').title()) for s in (
+        STATUS_PENDING, STATUS_RETRYABLE, STATUS_UNCERTAIN, STATUS_SETTLED,
+        STATUS_REJECTED, STATUS_REVIEW, STATUS_DEAD_LETTER)]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant_id = models.CharField(max_length=100, blank=True, db_index=True)
+    request_id = models.CharField(max_length=100, db_index=True)
+    operation = models.CharField(max_length=30, default="g2p")
+    correlation_id = models.CharField(max_length=100, blank=True, db_index=True)
+    source_bb_id = models.CharField(max_length=50, blank=True)
+    provider_attempt_id = models.CharField(max_length=100, blank=True, db_index=True)
+    external_transaction_id = models.CharField(max_length=100, blank=True, db_index=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=3, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    failure_code = models.CharField(max_length=50, blank=True)
+    failure_category = models.CharField(max_length=30, blank=True)
+    retryable = models.BooleanField(default=False)
+    attempt_count = models.PositiveIntegerField(default=0)
+    next_retry_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=255, blank=True)
+    payload_fingerprint = models.CharField(max_length=64)
+    version = models.PositiveIntegerField(default=1)
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tenant_id", "operation", "request_id"], name="gs_attempt_scope_request_uniq")]
+        indexes = [models.Index(fields=["status", "next_retry_at"], name="gs_attempt_due_idx")]
+
+class CallbackDelivery(TimestampedModel):
+    """Idempotent callback outbox ledger with bounded retry/dead-letter state."""
+    STATUS_PENDING = "pending"; STATUS_DELIVERED = "delivered"; STATUS_RETRY = "retry"; STATUS_DEAD = "dead"
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    attempt = models.ForeignKey(PaymentAttempt, on_delete=models.PROTECT, related_name="callbacks")
+    callback_url = models.URLField(max_length=500)
+    # Payloads are restricted to the existing non-PII callback contract fields.
+    # The hash provides idempotent outbox uniqueness and is retained for replay.
+    payload = models.JSONField(default=dict)
+    payload_hash = models.CharField(max_length=64)
+    status = models.CharField(max_length=20, default=STATUS_PENDING, db_index=True)
+    delivery_count = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_http_status = models.PositiveIntegerField(null=True, blank=True)
+    last_error = models.CharField(max_length=255, blank=True)
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["attempt", "payload_hash"], name="gs_callback_attempt_payload_uniq")]
+
+class PaymentReconciliation(TimestampedModel):
+    """Comparison of internal and provider/source-BB outcomes."""
+    STATUS_MATCHED = "matched"; STATUS_MISMATCH = "mismatch"; STATUS_UNKNOWN = "unknown"; STATUS_RESOLVED = "resolved"
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    attempt = models.ForeignKey(PaymentAttempt, on_delete=models.PROTECT, related_name="reconciliations")
+    provider_status = models.CharField(max_length=30, blank=True)
+    internal_status = models.CharField(max_length=30)
+    source_bb_status = models.CharField(max_length=30, blank=True)
+    status = models.CharField(max_length=20, default=STATUS_UNKNOWN, db_index=True)
+    external_transaction_id = models.CharField(max_length=100, blank=True)
+    resolution_note = models.CharField(max_length=255, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    class Meta:
+        indexes = [models.Index(fields=["status", "created_at"], name="gs_recon_status_created_idx")]
+
+class IdempotencyConflict(Exception):
+    pass
+
+class InvalidPaymentTransition(Exception):
+    pass
+
+class PaymentOutcome:
+    """Stable adapter-neutral outcome vocabulary."""
+    def __init__(self, status, code="", category="", retryable=False, provider_attempt_id="", external_transaction_id="", message=""):
+        self.status, self.code, self.category, self.retryable = status, code, category, retryable
+        self.provider_attempt_id, self.external_transaction_id, self.message = provider_attempt_id, external_transaction_id, message
+
+
+PaymentAttempt.ALLOWED_TRANSITIONS = {
+    PaymentAttempt.STATUS_PENDING: {PaymentAttempt.STATUS_RETRYABLE, PaymentAttempt.STATUS_UNCERTAIN, PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW},
+    PaymentAttempt.STATUS_RETRYABLE: {PaymentAttempt.STATUS_PENDING, PaymentAttempt.STATUS_UNCERTAIN, PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW, PaymentAttempt.STATUS_DEAD_LETTER},
+    PaymentAttempt.STATUS_UNCERTAIN: {PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW, PaymentAttempt.STATUS_DEAD_LETTER},
+    PaymentAttempt.STATUS_REVIEW: {PaymentAttempt.STATUS_PENDING, PaymentAttempt.STATUS_DEAD_LETTER},
+    PaymentAttempt.STATUS_SETTLED: set(), PaymentAttempt.STATUS_REJECTED: set(), PaymentAttempt.STATUS_DEAD_LETTER: set(),
+}
+
+PaymentAttempt.is_terminal = property(lambda self: self.status in {PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_DEAD_LETTER})
+
+def _attempt_transition(self, new_status, **fields):
+    if new_status not in PaymentAttempt.ALLOWED_TRANSITIONS.get(self.status, set()):
+        raise InvalidPaymentTransition(f"invalid payment transition {self.status} -> {new_status}")
+    self.status = new_status
+    for key, value in fields.items(): setattr(self, key, value)
+    self.version += 1
+PaymentAttempt.transition_to = _attempt_transition
+PaymentAttempt.__str__ = lambda self: f"PaymentAttempt {self.pk} [{self.status}]"
+
+PaymentAttempt._meta.verbose_name = "Payment Attempt"
+CallbackDelivery._meta.verbose_name = "Callback Delivery"
+PaymentReconciliation._meta.verbose_name = "Payment Reconciliation"
