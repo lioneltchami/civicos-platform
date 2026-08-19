@@ -13,6 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "docs/item-01-consent-v23q4-operation-matrix.json"
+CONTRACT_MAP = ROOT / "docs/item-01-consent-v23q4-operation-contract-map.json"
+CONTRACT_MAP = ROOT / "docs/item-01-consent-v23q4-operation-contract-map.json"
 REQUIRED = {
     "operationId",
     "group",
@@ -101,6 +103,62 @@ def validate(data: dict[str, object], operations: dict[str, dict[str, object]] |
     return errors
 
 
+def validate_contract_map(matrix: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    if not CONTRACT_MAP.exists():
+        return ["operation contract map is missing"]
+    contract = json.loads(CONTRACT_MAP.read_text())
+    rows = matrix.get("operations", [])
+    mapped = contract.get("operations", [])
+    if not isinstance(mapped, list) or len(mapped) != len(rows):
+        return ["operation contract map must contain exactly one entry per matrix operation"]
+    by_id = {r.get("operationId"): r for r in mapped if isinstance(r, dict)}
+    for row in rows:
+        op = row.get("operationId")
+        item = by_id.get(op)
+        if not item:
+            errors.append(f"{op}: missing contract mapping")
+            continue
+        identity = item.get("identity", {})
+        for key in ("operationId", "method", "path", "pathParameters"):
+            if identity.get(key) != (op if key == "operationId" else row.get(key, [] if key == "pathParameters" else None)):
+                errors.append(f"{op}: identity mismatch for {key}")
+        evidence = item.get("evidence", {})
+        required = {"route", "view", "serializer", "auth", "status", "test", "identity", "local_only"}
+        if not required.issubset(evidence) or evidence.get("local_only") is not True:
+            errors.append(f"{op}: incomplete or non-local evidence mapping")
+        if item.get("disposition") != "partial":
+            errors.append(f"{op}: contract map may not promote disposition")
+    return errors
+
+def validate_contract_map(matrix: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    if not CONTRACT_MAP.exists():
+        return ["operation contract map is missing"]
+    contract = json.loads(CONTRACT_MAP.read_text())
+    rows = matrix.get("operations", [])
+    mapped = contract.get("operations", [])
+    if not isinstance(mapped, list) or len(mapped) != len(rows):
+        return ["operation contract map must contain exactly one entry per matrix operation"]
+    by_id = {r.get("operationId"): r for r in mapped if isinstance(r, dict)}
+    for row in rows:
+        op = row.get("operationId")
+        item = by_id.get(op)
+        if not item:
+            errors.append(f"{op}: missing contract mapping")
+            continue
+        identity = item.get("identity", {})
+        for key in ("operationId", "method", "path", "pathParameters"):
+            if identity.get(key) != (op if key == "operationId" else row.get(key, [] if key == "pathParameters" else None)):
+                errors.append(f"{op}: identity mismatch for {key}")
+        evidence = item.get("evidence", {})
+        required = {"route", "view", "serializer", "auth", "status", "test", "identity", "local_only"}
+        if not required.issubset(evidence) or evidence.get("local_only") is not True:
+            errors.append(f"{op}: incomplete or non-local evidence mapping")
+        if item.get("disposition") != "partial":
+            errors.append(f"{op}: contract map may not promote disposition")
+    return errors
+
 def main() -> int:
     """Run structural validation and, when supplied, exact OpenAPI identity validation."""
     parser = argparse.ArgumentParser()
@@ -116,7 +174,7 @@ def main() -> int:
     data = json.loads(MATRIX.read_text())
     openapi = args.openapi
     operations = official_ops(openapi) if openapi else None
-    errors = validate(data, operations)
+    errors = validate(data, operations) + validate_contract_map(data)
     if errors:
         print("Item 01 Consent matrix invalid:")
         print("\n".join(f"- {error}" for error in errors))

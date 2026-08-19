@@ -1,0 +1,1022 @@
+{
+  "schema_version": 1,
+  "baseline": "published v23Q4",
+  "source_matrix": "docs/item-01-consent-v23q4-operation-matrix.json",
+  "claim_boundary": "local contract/evidence mapping only; no official equivalence claim",
+  "operations": [
+    {
+      "operationId": "auditConsentRecordRead",
+      "method": "GET",
+      "path": "/audit/consent-record/{consentRecordId}/",
+      "identity": {
+        "operationId": "auditConsentRecordRead",
+        "method": "GET",
+        "path": "/audit/consent-record/{consentRecordId}/",
+        "pathParameters": [
+          "consentRecordId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "auditConsentRecordList",
+      "method": "GET",
+      "path": "/audit/consent-records/",
+      "identity": {
+        "operationId": "auditConsentRecordList",
+        "method": "GET",
+        "path": "/audit/consent-records/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "auditDataAgreementRead",
+      "method": "GET",
+      "path": "/audit/data-agreement/{dataAgreementId}/",
+      "identity": {
+        "operationId": "auditDataAgreementRead",
+        "method": "GET",
+        "path": "/audit/data-agreement/{dataAgreementId}/",
+        "pathParameters": [
+          "dataAgreementId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "auditDataAgreementList",
+      "method": "GET",
+      "path": "/audit/data-agreements/",
+      "identity": {
+        "operationId": "auditDataAgreementList",
+        "method": "GET",
+        "path": "/audit/data-agreements/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configDataAgreementCreate",
+      "method": "POST",
+      "path": "/config/data-agreement/",
+      "identity": {
+        "operationId": "configDataAgreementCreate",
+        "method": "POST",
+        "path": "/config/data-agreement/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configDataAgreementDelete",
+      "method": "DELETE",
+      "path": "/config/data-agreement/{dataAgreementId}/",
+      "identity": {
+        "operationId": "configDataAgreementDelete",
+        "method": "DELETE",
+        "path": "/config/data-agreement/{dataAgreementId}/",
+        "pathParameters": [
+          "dataAgreementId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configDataAgreementRead",
+      "method": "GET",
+      "path": "/config/data-agreement/{dataAgreementId}/",
+      "identity": {
+        "operationId": "configDataAgreementRead",
+        "method": "GET",
+        "path": "/config/data-agreement/{dataAgreementId}/",
+        "pathParameters": [
+          "dataAgreementId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configDataAgreementUpdate",
+      "method": "PUT",
+      "path": "/config/data-agreement/{dataAgreementId}/",
+      "identity": {
+        "operationId": "configDataAgreementUpdate",
+        "method": "PUT",
+        "path": "/config/data-agreement/{dataAgreementId}/",
+        "pathParameters": [
+          "dataAgreementId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configDataAgreementList",
+      "method": "GET",
+      "path": "/config/data-agreements/",
+      "identity": {
+        "operationId": "configDataAgreementList",
+        "method": "GET",
+        "path": "/config/data-agreements/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configIndividualCreate",
+      "method": "POST",
+      "path": "/config/individual/",
+      "identity": {
+        "operationId": "configIndividualCreate",
+        "method": "POST",
+        "path": "/config/individual/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configIndividualRead",
+      "method": "GET",
+      "path": "/config/individual/{individualId}/",
+      "identity": {
+        "operationId": "configIndividualRead",
+        "method": "GET",
+        "path": "/config/individual/{individualId}/",
+        "pathParameters": [
+          "individualId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configIndividualList",
+      "method": "GET",
+      "path": "/config/individuals/",
+      "identity": {
+        "operationId": "configIndividualList",
+        "method": "GET",
+        "path": "/config/individuals/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configPolicyList",
+      "method": "GET",
+      "path": "/config/policies/",
+      "identity": {
+        "operationId": "configPolicyList",
+        "method": "GET",
+        "path": "/config/policies/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configPolicyCreate",
+      "method": "POST",
+      "path": "/config/policy/",
+      "identity": {
+        "operationId": "configPolicyCreate",
+        "method": "POST",
+        "path": "/config/policy/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configPolicyDelete",
+      "method": "DELETE",
+      "path": "/config/policy/{policyId}/",
+      "identity": {
+        "operationId": "configPolicyDelete",
+        "method": "DELETE",
+        "path": "/config/policy/{policyId}/",
+        "pathParameters": [
+          "policyId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configPolicyRead",
+      "method": "GET",
+      "path": "/config/policy/{policyId}/",
+      "identity": {
+        "operationId": "configPolicyRead",
+        "method": "GET",
+        "path": "/config/policy/{policyId}/",
+        "pathParameters": [
+          "policyId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configPolicyUpdate",
+      "method": "PUT",
+      "path": "/config/policy/{policyId}/",
+      "identity": {
+        "operationId": "configPolicyUpdate",
+        "method": "PUT",
+        "path": "/config/policy/{policyId}/",
+        "pathParameters": [
+          "policyId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configPolicyRevisionsList",
+      "method": "GET",
+      "path": "/config/policy/{policyId}/revisions/",
+      "identity": {
+        "operationId": "configPolicyRevisionsList",
+        "method": "GET",
+        "path": "/config/policy/{policyId}/revisions/",
+        "pathParameters": [
+          "policyId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configWebhookCreate",
+      "method": "POST",
+      "path": "/config/webhook/",
+      "identity": {
+        "operationId": "configWebhookCreate",
+        "method": "POST",
+        "path": "/config/webhook/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configWebhookDelete",
+      "method": "DELETE",
+      "path": "/config/webhook/{webhookId}/",
+      "identity": {
+        "operationId": "configWebhookDelete",
+        "method": "DELETE",
+        "path": "/config/webhook/{webhookId}/",
+        "pathParameters": [
+          "webhookId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configWebhookRead",
+      "method": "GET",
+      "path": "/config/webhook/{webhookId}/",
+      "identity": {
+        "operationId": "configWebhookRead",
+        "method": "GET",
+        "path": "/config/webhook/{webhookId}/",
+        "pathParameters": [
+          "webhookId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configWebhookUpdate",
+      "method": "PUT",
+      "path": "/config/webhook/{webhookId}/",
+      "identity": {
+        "operationId": "configWebhookUpdate",
+        "method": "PUT",
+        "path": "/config/webhook/{webhookId}/",
+        "pathParameters": [
+          "webhookId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "configWebhookList",
+      "method": "GET",
+      "path": "/config/webhooks/",
+      "identity": {
+        "operationId": "configWebhookList",
+        "method": "GET",
+        "path": "/config/webhooks/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceDataAgreementRead",
+      "method": "GET",
+      "path": "/service/data-agreement/{dataAgreementId}/",
+      "identity": {
+        "operationId": "serviceDataAgreementRead",
+        "method": "GET",
+        "path": "/service/data-agreement/{dataAgreementId}/",
+        "pathParameters": [
+          "dataAgreementId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualCreate",
+      "method": "POST",
+      "path": "/service/individual/",
+      "identity": {
+        "operationId": "serviceIndividualCreate",
+        "method": "POST",
+        "path": "/service/individual/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualConsentRecordDeleteAll",
+      "method": "DELETE",
+      "path": "/service/individual/record/",
+      "identity": {
+        "operationId": "serviceIndividualConsentRecordDeleteAll",
+        "method": "DELETE",
+        "path": "/service/individual/record/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualConsentRecordList",
+      "method": "GET",
+      "path": "/service/individual/record/consent-record/",
+      "identity": {
+        "operationId": "serviceIndividualConsentRecordList",
+        "method": "GET",
+        "path": "/service/individual/record/consent-record/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualConsentRecordSignatureCreate",
+      "method": "POST",
+      "path": "/service/individual/record/consent-record/",
+      "identity": {
+        "operationId": "serviceIndividualConsentRecordSignatureCreate",
+        "method": "POST",
+        "path": "/service/individual/record/consent-record/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualConsentRecordDraftCreate",
+      "method": "POST",
+      "path": "/service/individual/record/consent-record/draft/",
+      "identity": {
+        "operationId": "serviceIndividualConsentRecordDraftCreate",
+        "method": "POST",
+        "path": "/service/individual/record/consent-record/draft/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualConsentRecordUpdate",
+      "method": "PUT",
+      "path": "/service/individual/record/consent-record/{consentRecordId}/",
+      "identity": {
+        "operationId": "serviceIndividualConsentRecordUpdate",
+        "method": "PUT",
+        "path": "/service/individual/record/consent-record/{consentRecordId}/",
+        "pathParameters": [
+          "consentRecordId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualSignatureCreate",
+      "method": "POST",
+      "path": "/service/individual/record/consent-record/{consentRecordId}/signature/",
+      "identity": {
+        "operationId": "serviceIndividualSignatureCreate",
+        "method": "POST",
+        "path": "/service/individual/record/consent-record/{consentRecordId}/signature/",
+        "pathParameters": [
+          "consentRecordId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualSignatureUpdate",
+      "method": "PUT",
+      "path": "/service/individual/record/consent-record/{consentRecordId}/signature/",
+      "identity": {
+        "operationId": "serviceIndividualSignatureUpdate",
+        "method": "PUT",
+        "path": "/service/individual/record/consent-record/{consentRecordId}/signature/",
+        "pathParameters": [
+          "consentRecordId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualConsentRecordRead",
+      "method": "GET",
+      "path": "/service/individual/record/data-agreement/{dataAgreementId}/",
+      "identity": {
+        "operationId": "serviceIndividualConsentRecordRead",
+        "method": "GET",
+        "path": "/service/individual/record/data-agreement/{dataAgreementId}/",
+        "pathParameters": [
+          "dataAgreementId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualConsentRecordCreate",
+      "method": "POST",
+      "path": "/service/individual/record/data-agreement/{dataAgreementId}/",
+      "identity": {
+        "operationId": "serviceIndividualConsentRecordCreate",
+        "method": "POST",
+        "path": "/service/individual/record/data-agreement/{dataAgreementId}/",
+        "pathParameters": [
+          "dataAgreementId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualDataAgreementConsentRecordList",
+      "method": "GET",
+      "path": "/service/individual/record/data-agreement/{dataAgreementId}/all/",
+      "identity": {
+        "operationId": "serviceIndividualDataAgreementConsentRecordList",
+        "method": "GET",
+        "path": "/service/individual/record/data-agreement/{dataAgreementId}/all/",
+        "pathParameters": [
+          "dataAgreementId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualRead",
+      "method": "GET",
+      "path": "/service/individual/{individualId}/",
+      "identity": {
+        "operationId": "serviceIndividualRead",
+        "method": "GET",
+        "path": "/service/individual/{individualId}/",
+        "pathParameters": [
+          "individualId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualUpdate",
+      "method": "PUT",
+      "path": "/service/individual/{individualId}/",
+      "identity": {
+        "operationId": "serviceIndividualUpdate",
+        "method": "PUT",
+        "path": "/service/individual/{individualId}/",
+        "pathParameters": [
+          "individualId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceIndividualList",
+      "method": "GET",
+      "path": "/service/individuals/",
+      "identity": {
+        "operationId": "serviceIndividualList",
+        "method": "GET",
+        "path": "/service/individuals/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "servicePolicyRead",
+      "method": "GET",
+      "path": "/service/policy/{policyId}/",
+      "identity": {
+        "operationId": "servicePolicyRead",
+        "method": "GET",
+        "path": "/service/policy/{policyId}/",
+        "pathParameters": [
+          "policyId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceVerificationConsentRecordRead",
+      "method": "GET",
+      "path": "/service/verification/consent-record/{consentRecordId}/",
+      "identity": {
+        "operationId": "serviceVerificationConsentRecordRead",
+        "method": "GET",
+        "path": "/service/verification/consent-record/{consentRecordId}/",
+        "pathParameters": [
+          "consentRecordId"
+        ]
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceVerificationConsentRecordList",
+      "method": "GET",
+      "path": "/service/verification/consent-records/",
+      "identity": {
+        "operationId": "serviceVerificationConsentRecordList",
+        "method": "GET",
+        "path": "/service/verification/consent-records/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    },
+    {
+      "operationId": "serviceVerificationDataAgreementList",
+      "method": "GET",
+      "path": "/service/verification/data-agreements/",
+      "identity": {
+        "operationId": "serviceVerificationDataAgreementList",
+        "method": "GET",
+        "path": "/service/verification/data-agreements/",
+        "pathParameters": []
+      },
+      "evidence": {
+        "route": "apps/consent/govstack_urls.py and apps/consent/govstack_views.py require row-level route/serializer/status proof; wire conformance unverified",
+        "view": "apps/consent/govstack_views.py",
+        "serializer": "apps/consent/serializers.py",
+        "auth": "apps/consent/govstack_views.py permission checks; operation-level proof pending",
+        "status": "statusCodes in matrix; local behavior proof pending official wire comparison",
+        "test": "tests/govstack/test_item01_consent_matrix.py; targeted operation test not yet linked",
+        "identity": "operationId + method + path + pathParameters",
+        "local_only": true
+      },
+      "disposition": "partial",
+      "externalGate": "official wire-conformance/staging and testing-site evidence"
+    }
+  ]
+}
