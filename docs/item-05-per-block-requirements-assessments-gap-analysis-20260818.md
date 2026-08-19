@@ -190,9 +190,9 @@ A later item must also define cross-block tenant/auth semantics, consent decisio
 | No contradictions with completed Items 1–4 | **Complete, subject to Stage 2 confirmation** | Bounded Item 01–04 conclusions are preserved throughout. |
 | Clear statement of what must still be done before Items 6 and 7 proceed safely | **Complete** | “Gate before Items 6 and 7” section. |
 
-## Stage 3 final-status update
+## Stage 1 status (superseded)
 
-**Status at Stage 1:** This assessment is a structured draft awaiting blind code review. Stage 3 must correct any validated inaccuracies, make the checklist fully green, and replace this paragraph with a final status and commit references. It must not re-open Items 1–4 except to correct a factual error.
+The initial Stage 1 draft was subject to the completed blind Stage 2 review. Its former awaiting-review status is superseded by the final Stage 3 status recorded below; it remains only as historical process context.
 
 ## References
 
