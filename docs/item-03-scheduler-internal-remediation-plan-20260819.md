@@ -51,3 +51,18 @@ Stage 3 must update this plan with per-ID final status and concrete code/test re
 [1]: [GovStackWorkingGroup Scheduler Building Block](https://github.com/GovStackWorkingGroup/bb-scheduler)
 
 [2]: [GovStack requirements model](https://specs.govstack.global/architecture/5-specification-framework/5.3-requirements-model)
+
+## Stage 3 implementation status — 2026-08-19
+
+The focused pass integrated an initial durable-default dispatch/outbox publisher protocol, an outbox publisher lease model/migration, initial local evidence/status helpers, and expanded local redaction. This is **partial implementation only**. The first isolated regression run exposed legacy dispatch-test incompatibilities after switching default execution to durable materialization; those tests require an explicit new durable-path expectation rather than an unreviewed legacy transport assertion. The source was also corrected to align the publisher-lease model index with its migration.
+
+| ID | Status | Evidence and remaining condition |
+|---|---|---|
+| S03-01 | Partially implemented | `tasks.py` now routes through durable materialization by default. Legacy-dispatch reconciliation/backfill, complete default-path behavior tests, and full request-level evidence remain required. |
+| S03-02 | Partially implemented | `SchedulerOutbox` publisher token/owner/lease/generation fields, migration `0020`, and initial claim/publish/failure functions exist. Race/crash/redrive tests and full stale-generation publication fencing remain required. |
+| S03-03 | Partially implemented | Initial exact-operation local evidence helpers were added, but no complete Django request/runtime suite proves all 37 operations. |
+| S03-04 | Partially implemented | Test-local fake boundary/redaction was expanded, but no end-to-end request→task→fake topology evidence is complete. |
+| S03-05 | Partially implemented | Initial status helper/route artifacts were added; verified authenticated persisted ownership isolation and non-PII query coverage remain required. |
+| S03-06 | Still open | Complete deterministic 37-operation evidence bundle, completeness validator evidence, and lifecycle/race/negative coverage remain required. |
+
+> **Stage 3 decision:** Do not promote any S03 defect to closed. Preserve the durable recipient/outbox foundations and proceed to independent verification with the final code and plan only.
