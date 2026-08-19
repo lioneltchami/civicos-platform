@@ -3,7 +3,7 @@
 **Date:** 2026-08-18
 **Scope:** Consent, Payments, Scheduler, and File Management only
 **Assessment source revision:** `f901f2f`
-**Status:** Stage 1 assessment complete; Stage 2 blind review pending
+**Status:** Finalised at Stage 3; independent verification pending
 
 ## Purpose and evidence boundary
 
@@ -186,8 +186,8 @@ A later item must also define cross-block tenant/auth semantics, consent decisio
 | Dependencies between blocks explicitly mapped | **Complete** | Cross-block dependency map. |
 | Assessment stored in well-structured Markdown | **Complete** | This dated Markdown record. |
 | Functional, cross-cutting, APIs, data models, error handling, and testability covered where applicable | **Complete** | Per-block current-alignment and gap tables. |
-| Assessment reviewed for completeness and accuracy | **Pending Stage 2 blind review** | Stage 2 must validate the narrative against the current codebase. |
-| No contradictions with completed Items 1–4 | **Complete, subject to Stage 2 confirmation** | Bounded Item 01–04 conclusions are preserved throughout. |
+| Assessment reviewed for completeness and accuracy | **Historical Stage 1 status — superseded** | Completed blind Stage 2 review and Stage 3 corrections are recorded in the final checklist below. |
+| No contradictions with completed Items 1–4 | **Historical Stage 1 status — superseded** | Final inherited-status controls and bounded conclusions are recorded below. |
 | Clear statement of what must still be done before Items 6 and 7 proceed safely | **Complete** | “Gate before Items 6 and 7” section. |
 
 ## Stage 1 status (superseded)
