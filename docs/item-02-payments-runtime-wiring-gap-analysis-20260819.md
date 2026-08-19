@@ -75,3 +75,21 @@ The analysts agree that the following order reduces unsafe intermediate states:
 | Provider, staging, official suite, testing site, certification, conformance, or submission result | No | None in this repository can establish it | Authorized external environment and applicable official evidence |
 
 > **Stage 1 conclusion:** Proceed to blind code review of the current repository state and this implementation scope. The next pass must wire existing safety controls into live runtime paths; adding more standalone helpers would not close the verified blockers.
+
+## Stage 3 implementation status — 2026-08-19
+
+The Stage 3 implementation pass incorporated two independently produced scoped patches and corrected an idempotency transaction defect found by the expanded isolated regression run. The resulting changes are intentionally additive and fail closed by default. They make an explicit provider-runtime execution boundary available without treating absent provider configuration as settlement.
+
+| Planned area | Stage 3 status | Implemented evidence | Remaining limitation |
+|---|---|---|---|
+| Explicit provider resolution and async submission boundary | **Partially implemented** | `provider_runtime.py` adds tenant/operation-scoped registration, unavailable handling, submit-or-poll orchestration, and a Celery wrapper. It records provider results through the existing finality recorder and does not default to the deterministic provider. | The registry is in-process and requires explicit deployment configuration; it is not a persisted provider-configuration system. |
+| G2P and P2G runtime adoption | **Partially implemented** | The G2P bulk lifecycle and P2G transfer creation path enqueue the provider attempt only when `GOVSTACK_PAYMENT_PROVIDER_RUNTIME_ENABLED` is explicitly enabled. Disabled deployments retain review-only behavior. | Prepayment remains account-validation behavior rather than a financial submission path; a full configured-adapter workflow has not been activated or externally validated. |
+| Status-first polling | **Partially implemented** | The runtime polls `get_status()` before any new submission when an attempt is uncertain. Provider invocation errors become non-final network outcomes. | The existing periodic uncertain/retry triage sweeps are not yet replaced by durable claim/lease-driven provider polling and resubmission. |
+| Persistent HTTP idempotency | **Partially implemented** | `IdempotencyLedger`, migrations `0032`/`0033`, and `IdempotencyService` persist tenant/method/path/key fingerprints and response replay state. The duplicate-key path was corrected to use a nested savepoint. | The service is not yet wrapped around every relevant G2P, prepayment, and P2G endpoint, and concurrent first-writer endpoint coverage is still absent. |
+| Batch lease/policy | **Partially implemented** | `BatchLease` adds durable ownership, generation, and expiry storage. | Existing bulk processing does not yet claim/renew/apply the lease and policy under task locks. |
+| Tenant-scoped reconciliation reporting | **Partially implemented** | A read-only GovStack reconciliation report route is registered and filters durable reconciliation rows through the requested tenant. | Route-level authorization, cross-tenant, pagination, and response-contract coverage remains incomplete; the report has not been exercised against an authoritative provider feed. |
+| Focused validation | **Passed** | The isolated workspace reported no pending Payments model changes and passed 203 focused Payments tests, including the four new runtime/idempotency tests. | The migration command still emitted the isolated environment's expected non-test PostgreSQL credential warning before the test database was created. |
+
+> **Stage 3 conclusion:** The pass improves executable local seams and preserves fail-closed behavior, but it does not close every runtime acceptance item. In particular, endpoint-wide HTTP idempotency, durable worker-claim integration, full prepayment/provider semantics, route-level report coverage, configured production adapter behavior, staging, official testing, certification, and submission remain outside the evidence.
+
+The raw expanded validation output is retained at `docs/govstack/testing/evidence/item-02-payments-runtime-wiring-validation-20260819.log`.

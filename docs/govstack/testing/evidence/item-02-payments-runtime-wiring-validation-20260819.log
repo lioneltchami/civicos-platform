@@ -1,0 +1,25 @@
+=== Item 02 runtime-wiring integrated validation ===
+2026-08-19T10:28:51Z
+=== Migration drift ===
+Step 2 - Fetching and parsing CSS - CSS string
+Step 2 - Fetching and parsing CSS - CSS string
+Step 2 - Fetching and parsing CSS - CSS string
+volunteers: VOLUNTEER_SIN_FERNET_KEYS is not set. SIN encryption is non-functional. Set this to a list of Fernet keys in your environment.
+CIVICOS['CLAMAV_HOST'] is not configured. Document uploads will bypass ClamAV virus scanning. Set CIVICOS['CLAMAV_HOST'] to the clamd socket host.
+pikepdf C++ to Python logger bridge initialized
+/usr/local/lib/python3.12/dist-packages/django/core/management/commands/makemigrations.py:161: RuntimeWarning: Got an error checking a consistent migration history performed for database connection 'default': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for user "civicos"
+connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for user "civicos"
+  warnings.warn(
+No changes detected in app 'payments'
+=== Expanded focused regression suite ===
+Creating test database for alias 'default'...
+..................../usr/local/lib/python3.12/dist-packages/django/core/handlers/base.py:61: UserWarning: No directory at: /home/ubuntu/item02-runtime-integrated-validation/staticfiles/
+  mw_instance = middleware(adapted_handler)
+.......................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 203 tests in 1.766s
+
+OK
+Destroying test database for alias 'default'...
+Found 203 test(s).
+System check identified no issues (0 silenced).
