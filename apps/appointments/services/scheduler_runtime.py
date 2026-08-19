@@ -11,6 +11,7 @@ import uuid
 from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.appointments.models import SchedulerOutbox, SchedulerRecipientDelivery
@@ -191,6 +192,46 @@ def reap_expired(*, now=None) -> int:
             row.save(update_fields=["status", "lease_token", "lease_expires_at", "dead_lettered_at", "next_attempt_at", "updated_at"])
             count += 1
     return count
+
+
+def claim_outbox(*, lease_seconds: int = 60, owner: str = "scheduler-publisher", now=None):
+    """Claim one due outbox row in a short transaction; never performs broker I/O."""
+    now = now or timezone.now()
+    token = uuid.uuid4().hex
+    with transaction.atomic():
+        row = (SchedulerOutbox.objects.select_for_update()
+               .filter(published_at__isnull=True, available_at__lte=now)
+               .filter(Q(publisher_lease_expires_at__isnull=True) | Q(publisher_lease_expires_at__lt=now))
+               .order_by("id").first())
+        if row is None:
+            return None
+        row.publisher_generation += 1
+        row.publisher_token = token
+        row.publisher_owner = owner[:120]
+        row.publisher_lease_expires_at = now + timedelta(seconds=lease_seconds)
+        row.publish_attempts += 1
+        row.save(update_fields=["publisher_generation", "publisher_token", "publisher_owner", "publisher_lease_expires_at", "publish_attempts", "updated_at"])
+        return row.pk, row.delivery.idempotency_key, token, row.publisher_generation
+
+
+def mark_outbox_published(*, outbox_id, token: str, generation: int, now=None) -> bool:
+    now = now or timezone.now()
+    with transaction.atomic():
+        updated = SchedulerOutbox.objects.filter(pk=outbox_id, published_at__isnull=True,
+            publisher_token=token, publisher_generation=generation).update(
+                published_at=now, publisher_token=None, publisher_owner="", publisher_lease_expires_at=None,
+                last_error="", updated_at=now)
+        return bool(updated)
+
+
+def mark_outbox_failed(*, outbox_id, token: str, generation: int, error_class: str, now=None) -> bool:
+    now = now or timezone.now()
+    with transaction.atomic():
+        updated = SchedulerOutbox.objects.filter(pk=outbox_id, published_at__isnull=True,
+            publisher_token=token, publisher_generation=generation).update(
+                publisher_token=None, publisher_owner="", publisher_lease_expires_at=None,
+                available_at=now, last_error=error_class[:240], updated_at=now)
+        return bool(updated)
 
 
 def due_outbox(*, now=None):

@@ -11,10 +11,12 @@ This stub registers the namespace so that the url include in config/urls.py
 resolves without error during Waves 1–4 (models, services, tasks only).
 """
 from django.urls import path
+from .evidence_views import scheduler_status
 
 app_name = "appointments"
 
 urlpatterns: list = [
+    path("scheduler/status/", scheduler_status, name="scheduler-status"),
     # Citizen views — Wave 5
     # Staff views — Wave 5
     # API endpoints — Wave 8

@@ -2894,6 +2894,16 @@ class SchedulerOutbox(TimestampedModel):
     published_at = models.DateTimeField(null=True, blank=True)
     available_at = models.DateTimeField(db_index=True)
     publish_attempts = models.PositiveIntegerField(default=0)
+    publisher_generation = models.PositiveIntegerField(default=0)
+    publisher_token = models.CharField(max_length=64, null=True, blank=True)
+    publisher_owner = models.CharField(max_length=120, blank=True, default="")
+    publisher_lease_expires_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=240, blank=True, default="")
     class Meta:
-        indexes = [models.Index(fields=["published_at", "available_at"], name="appt_sched_outbox_idx")]
+        indexes = [
+            models.Index(fields=["published_at", "available_at"], name="appt_sched_outbox_idx"),
+            models.Index(
+                fields=["published_at", "publisher_lease_expires_at"],
+                name="appt_sched_pub_lease_idx",
+            ),
+        ]

@@ -101,21 +101,21 @@ def deliver_scheduler_recipient(self, idempotency_key: str) -> dict:
     reject_on_worker_lost=True,
 )
 def publish_scheduler_outbox() -> dict:
-    """Publish due outbox rows. Duplicate publication is absorbed by delivery claims."""
+    """Claim, publish outside the transaction, then token-fence the outcome."""
     published = 0
-    for item in runtime.due_outbox():
+    while True:
+        claim = runtime.claim_outbox(owner="scheduler-publisher")
+        if claim is None:
+            break
+        outbox_id, idempotency_key, token, generation = claim
         try:
-            deliver_scheduler_recipient.delay(item.delivery.idempotency_key)
-            SchedulerOutbox.objects.filter(pk=item.pk, published_at__isnull=True).update(
-                published_at=timezone.now(),
-                publish_attempts=item.publish_attempts + 1,
-            )
-            published += 1
+            deliver_scheduler_recipient.delay(idempotency_key)
         except Exception as exc:
-            SchedulerOutbox.objects.filter(pk=item.pk, published_at__isnull=True).update(
-                publish_attempts=item.publish_attempts + 1,
-                last_error=type(exc).__name__[:240],
-            )
+            runtime.mark_outbox_failed(outbox_id=outbox_id, token=token, generation=generation,
+                                       error_class=type(exc).__name__)
+            continue
+        if runtime.mark_outbox_published(outbox_id=outbox_id, token=token, generation=generation):
+            published += 1
     return {"published": published}
 
 

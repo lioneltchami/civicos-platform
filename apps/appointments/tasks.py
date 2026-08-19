@@ -581,7 +581,8 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
     """
     from apps.appointments.models import Booking, GovStackAlertSchedule
 
-    durable_runtime_enabled = getattr(settings, "GOVSTACK_SCHEDULER_DURABLE_RUNTIME_ENABLED", False)
+    # Durable materialization is authoritative; the legacy Boolean is projection-only.
+    durable_runtime_enabled = True
 
     with transaction.atomic():
         try:
@@ -596,20 +597,6 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
             )
             return {"attempted": 0, "skipped_unsafe": 0}
 
-        if alert_schedule.dispatched and not durable_runtime_enabled:
-            # Legacy path: already processed — idempotent exit under the row lock.
-            logger.debug(
-                "dispatch_alert_schedule.already_dispatched alert_schedule_pk=%s",
-                alert_schedule_pk,
-            )
-            return {"attempted": 0, "skipped_unsafe": 0, "already_dispatched": True}
-
-        # The legacy path retains its original Boolean behavior.  The opt-in
-        # durable path sets this compatibility projection only in the same
-        # transaction that materializes recipient work below.
-        if not durable_runtime_enabled:
-            alert_schedule.dispatched = True
-            alert_schedule.save(update_fields=["dispatched"])
 
         # Snapshot everything needed for delivery BEFORE releasing the lock.
         slot = alert_schedule.slot
@@ -624,9 +611,8 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
         "alert_datetime": alert_datetime_iso,
     }
 
-    # The durable runtime is intentionally opt-in while its additive migration
-    # rolls out.  It materializes opaque recipient work/outbox rows and lets a
-    # separate task perform transport; no network call happens in this task.
+    # Materialize opaque recipient work/outbox rows and let a separate task
+    # perform transport; no network call happens in this task.
     if durable_runtime_enabled:
         from apps.appointments.services import scheduler_runtime
         from apps.appointments.scheduler_tasks import publish_scheduler_outbox
