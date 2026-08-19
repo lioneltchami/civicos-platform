@@ -1,0 +1,126 @@
+# Item 02 — Payments Failure Remediation: Gap Analysis
+
+**Date:** 2026-08-18  
+**Scope:** Payments failure remediation only  
+**CivicOS source revision reviewed:** `d10b3b587b56ec74b98914644043573b61bdb879`  
+**Official source revision pinned:** [`GovStackWorkingGroup/bb-payments@4b63a6b`](https://github.com/GovStackWorkingGroup/bb-payments/tree/4b63a6b5efbb20123c442e0b09fb44ec2d7e6b6a)  
+**Method:** Two independent reviewers received the same sanitized CivicOS source snapshot, the same official-source bundle, and the same mandate. Their evidence has been reconciled below. No code, official suite, container, or third-party artifact was executed during Stage 1.
+
+## Executive conclusion
+
+**Item 02 is not ready.** CivicOS has a meaningful GovStack-oriented Payments surface: dedicated routes, serializer-level validation, asynchronous batch intake, terminal batch and instruction states, controlled database-duplicate handling, callback URL hardening, P2G inquiry/status routes, and an append-only payment-audit model. These are genuine partial alignments, especially at the API boundary.
+
+The current evidence nevertheless shows an **intake, local-validation, and status-envelope implementation**, rather than a complete financial failure-remediation workflow. In particular, G2P processing marks an instruction completed after local beneficiary validation rather than a documented provider settlement result; P2G can mark a bill paid when a notification is recorded without a distinct settlement-verification lifecycle. The implementation lacks evidence of durable provider attempt identities, uncertain-completion handling, status polling, external reconciliation, policy-driven batch failure-rate detection, reliable callback delivery, dead-letter/review kick-back, or Scheduler-backed remediation. As a result, none of the required acceptance criteria can yet be marked fully aligned.
+
+> The official functional requirements require orchestration across services, workflow visibility and completion despite issues, destination-account validation, batching/queueing, error kick-back, reconciliation, and traceable transaction/event/audit logging.[1] This report therefore distinguishes a **local API record state** from a **verified financial settlement state**.
+
+## Authority and provenance
+
+The normative comparison point is the **GovStack Payments Building Block Specification, Version 3.0 (December 2025)**. The official service-API page describes its listed APIs as the minimal functionality a Payments Building Block should provide and directs implementers to the official Payments OpenAPI test repository.[2] The current analysis uses only the following official sources and the pinned official repository revision.
+
+| Authority | Role in this analysis |
+|---|---|
+| GovStack Payments Functional Requirements | Defines required orchestration, reconciliation, batch, logging, audit, and scheduling behaviours.[1] |
+| GovStack Payments Service APIs | Defines the minimum Payments API blueprint and links the official OpenAPI tests.[2] |
+| GovStack G2P Payments APIs | Establishes bulk-instruction handover, bank callbacks for batch/individual updates, and a status query when callbacks are incomplete.[3] |
+| GovStack P2G Bill Payments APIs | Establishes bill inquiry, request-to-pay, mark-payment, and status-update interactions.[4] |
+| `GovStackWorkingGroup/bb-payments@4b63a6b` | Pinned supporting official API/test source snapshot used for the reviewers’ contract comparison.[5] |
+
+The Stage 1 source package also preserved the current official-repository revision, file hashes, and a curated non-executed official API/test bundle. The repository snapshot excluded `.git`, dependency directories, generated output, local environments, media, and environment files. A historical note of **487 passed, 74 failed, and 225 skipped** in an earlier official-suite attempt, including 301 and 500 responses, was provided as an investigation lead only. It is not current validation evidence and is not used to make a conformance claim.
+
+## Material partial alignments
+
+The independent reviews agreed that the implementation is not empty or merely nominal. The following capabilities form a useful foundation, but each has a boundary that must be addressed in Stage 3.
+
+| Area | Concrete CivicOS evidence | Current assessment |
+|---|---|---|
+| GovStack route segregation | `apps/payments/govstack_urls.py` exposes dedicated G2P, voucher, and P2G routes separately from internal payment routes. | Structurally aligned; route behaviour must still be validated through the deployed proxy. |
+| Request validation and exception shaping | `apps/payments/govstack_views.py` performs serializer error flattening, tenant-header handling, and dedicated GovStack exception conversion. | Helpful boundary control, though production tenant enforcement is configuration-dependent. |
+| Batch/instruction persistence | `apps/payments/govstack_models.py` defines `BulkPaymentBatch` and `CreditInstruction` state, result, and amount fields. | Useful base for asynchronous work; persistence alone is not settlement orchestration. |
+| Asynchronous execution boundary | `apps/payments/govstack_services.py` and `apps/payments/govstack_tasks.py` accept work asynchronously and derive completed, partial, and failed local batch outcomes. | Partially aligned; current task completion is based on local beneficiary validation, not documented provider outcome. |
+| Database duplicate controls | Services convert narrow `IntegrityError` cases for batch, prepayment, and P2G request identifiers in `apps/payments/govstack_services.py`. | Prevents duplicate records in several paths, but does not provide replay-safe caller idempotency after an uncertain response. |
+| Callback transport hardening | `apps/payments/govstack_tasks.py` requires HTTPS, resolves addresses immediately, rejects unsafe address ranges, and disables redirects. | Strong SSRF and redirect-safety control; no durable delivery ledger or remediation path is evidenced. |
+| Local status/reporting | `apps/payments/govstack_services.py` provides local prepayment and P2G result/status records. | Partial; these are not reconciled external financial outcomes. |
+| Append-only audit intent | `GovStackPaymentAuditEntry` in `apps/payments/govstack_models.py` blocks mutation/deletion and includes batch and instruction outcome actions. | A strong integrity foundation, but it does not yet cover every relevant failure transition. |
+
+## Consolidated gap register
+
+The two independent analyses converged on the following remediation priorities. “Evidence” identifies the current implementation location; it is not a claim that every listed file is deficient in all respects.
+
+| ID | Severity | Consolidated finding | Evidence | Required end state |
+|---|---|---|---|---|
+| P0-1 | Critical | **No provider-neutral settlement state machine.** G2P completion is based on active local-beneficiary existence, not provider acceptance/settlement; P2G records notification and financial finality without a separate settlement-verification state. | `apps/payments/govstack_tasks.py` `process_bulk_payment_batch`; `apps/payments/govstack_services.py` `create_transfer_request`. | Model a durable payment attempt with internal, provider, external, request, and correlation IDs; record pending, uncertain, settled, rejected, retryable, review, and terminal states; never treat local validation as settlement. |
+| P0-2 | Critical | **Timeout and uncertain completion are not safely recoverable.** No durable provider-attempt identifier, no explicit unknown/uncertain state, and no evidence of status polling/reconciliation before retry. | `apps/payments/govstack_models.py` bulk/instruction state fields; `apps/payments/govstack_tasks.py`. | Timeout after possible provider acceptance must persist an uncertain state, avoid blind retry, query status, reconcile terminal result, and route unresolved cases to review/dead-letter. |
+| P0-3 | Critical | **Callback failures are not durable work.** Post-terminal callback failure is non-fatal with no persisted delivery attempt, retry schedule, dead-letter, or operator kick-back. | `apps/payments/govstack_tasks.py` callback dispatch and terminal-batch flow. | Persist delivery attempts, response/error evidence, next-attempt time, retry policy, terminal disposition, operator replay/review, and audit events. |
+| P0-4 | Critical | **Reconciliation is status aggregation, not financial reconciliation.** Current records can report local state but do not compare internal and provider/source-BB outcomes using traceable identifiers and time windows. | `apps/payments/govstack_services.py` prepayment/P2G result methods; `apps/payments/govstack_models.py`. | Add reconciliation service, provider-status integration seam, mismatch lifecycle, success/failure reports, query endpoints/jobs, and auditable resolution. |
+| P1-1 | High | **No policy-driven batch failure-rate detection or kick-back.** A partial status and count/amount totals exist, but no threshold, pause, review, inconsistency policy, or safe resubmission exists. | `apps/payments/govstack_tasks.py` batch outcome derivation; `BulkPaymentBatch` fields. | Calculate configured failure rate; retain per-item reason; transition over-threshold/inconsistent work to review; permit resubmission without duplicating successful settlement. |
+| P1-2 | High | **Invalid-account, insufficient-funds, provider rejection, and transport failure handling is incomplete.** Local beneficiary existence and generic failure text are insufficient as account/provider outcomes. | `apps/payments/govstack_tasks.py` local beneficiary lookup; `apps/payments/govstack_exceptions.py`; `apps/payments/govstack_models.py` generic `failure_reason`. | Use a stable, provider-neutral outcome taxonomy with retryability and source-BB/operator action. Validate account status before execution; distinguish insufficient funds, reject, network, and uncertain settlement. |
+| P1-3 | High | **Bulk idempotency is not demonstrably replay-safe.** `request_id` controls are inconsistent by path; duplicate failures are often returned rather than yielding a canonical original result/status location. | `apps/payments/govstack_models.py` batch `request_id`; `apps/payments/govstack_services.py` duplicate conversion. | Same scope/key/payload must atomically return the original result or status URL; same key with a changed payload must return a deterministic conflict; concurrent delivery must create one financial operation. |
+| P1-4 | High | **Audit coverage stops short of the full failure lifecycle.** The append-only model records intake/local failure/terminal events but does not demonstrate events for provider requests/responses, timeouts, retry decisions, callbacks, reconciliation, dead letter, compensation, or manual review. | `apps/payments/govstack_models.py` `GovStackPaymentAuditEntry`; audit calls in services/tasks. | Add immutable, non-PII, correlation-rich event types covering every state change and external interaction. |
+| P2-1 | Medium | **Scheduler-based remediation is absent or undocumented.** Existing scheduling evidence relates to annual receipts, not stuck payment recovery, callback redelivery, provider polling, or reconciliation. | `apps/payments/tests/test_scheduling.py`; `apps/payments/tests/test_setup_periodic_tasks.py`. | Add idempotent, observable periodic remediation for due retries, stale/uncertain work, callback delivery, and reconciliation; alternatively document a bounded, owned, manual operating procedure. |
+| P2-2 | Medium | **Failure-path and regression evidence is incomplete.** Contract/unit tests exist but do not evidence the complete single and bulk failure matrix, provider behaviour, or current official-suite result. | `apps/payments/tests/test_govstack_bulk_payment.py`; `apps/payments/tests/test_govstack_p2g.py`; `apps/payments/tests/test_govstack_tasks.py`. | Add tests for all listed scenarios, preserve raw output, run existing happy paths, and retain a traceability matrix. |
+| P2-3 | Medium | **301/500 mismatch causes remain unproven.** Non-trailing-slash GovStack paths plus middleware/proxy normalization could explain redirects; unmodeled contract/integration branches could explain 500s. | `apps/payments/govstack_urls.py`; `config/urls.py`; `config/settings/base.py`; prior-suite lead only. | Replay exact official route/method/slash variants in the non-production adapter; retain raw request, response, trace, adapter configuration hash, and resolution evidence before assigning cause. |
+| P2-4 | Medium | **Tenant isolation requires deployment proof.** Tenant-header enforcement is mode-controlled, and empty-tenant lookup behaviour can be ambiguous for duplicate bill IDs. | `apps/payments/govstack_views.py`; `apps/payments/govstack_services.py`. | Establish production setting invariant and negative isolation tests without weakening harness-only compatibility. |
+
+## Failure-scenario evidence matrix
+
+This matrix is intentionally conservative. “Partial” means that an adjacent or local behaviour exists; it does **not** mean that the official failure expectation is satisfied.
+
+| Scenario | Official expectation | Current CivicOS evidence | Status | Stage 3 acceptance evidence |
+|---|---|---|---|---|
+| Invalid destination account / lookup mismatch | Validate destination accounts and branch if account is not in good status.[1] | Local active-beneficiary lookup may fail an instruction, but no validated external account-status/provider path is evidenced. | **Missing** | Unit/integration test proves invalid, inactive, mismatched, and malformed account outcomes create typed durable failures without provider debit. |
+| Insufficient funds / payer-FSP rejection | Workflow stays visible and reaches an actionable failure outcome.[1] | Voucher-specific exception vocabulary exists; bulk/P2G provider rejection mapping is not shown. | **Partial** | Tests prove a non-retryable insufficient-funds/rejected outcome is persisted, audited, queryable, and not retried as a network failure. |
+| Timeout / uncertain completion | Preserve traceability and reconcile before duplicate-prone retry; G2P supports a source status query when callbacks are incomplete.[1] [3] | No explicit uncertain state, provider attempt ID, poller, or recovery mechanism is evidenced. | **Missing** | Simulated timeout before/after provider acceptance is reconciled safely, with no duplicate settlement. |
+| Duplicate / `request_id` collision | Avoid duplicate financial effects and give caller a deterministic result. | Constraints and duplicate exceptions exist, but responses are often 400/error rather than a replayed canonical result. | **Partial** | Concurrent duplicate tests prove exactly one operation; same payload replays original response/status, changed payload conflicts. |
+| Partial batch failure / rate detection | Detect batch failure rates; validate, queue, handle inconsistency, and kick errors to review/resubmission.[1] | `partial` state and totals exist; no threshold/policy/review/resubmission evidence. | **Partial** | Boundary tests demonstrate configurable failure-rate action, batch pause/kick-back, per-item visibility, and safe resubmission. |
+| Network/provider failure | Classify transient vs. financial vs. uncertain failure; retry safely only where permitted. | Generic gateway exceptions and callback hardening exist; no G2P/P2G provider policy is evidenced. | **Missing** | Tests cover retryable network/rate-limit errors, non-retryable rejects, exhausted attempt handling, and no duplicated settlement. |
+| Retry, compensation, dead-letter, kick-back | Complete workflow despite issues and provide review/resubmission paths.[1] | Celery task retry metadata exists, but no durable business retry, compensation, dead-letter, or review lifecycle is evidenced. | **Missing** | Persisted retry count/backoff and delivery/outcome ledger; poison-work dead letter; audited operator review/replay; compensation only where settlement semantics allow it. |
+| Reconciliation / success-and-failure reporting | Unique internal/external transaction traceability, status, and reconciliation.[1] | Local batch/prepayment/P2G records expose local status only. | **Partial** | Reports and queries reconcile provider/source-BB/internal states, expose mismatches, and retain resolution trail. |
+| Audit and event logging | Capture application/transaction success/failure events and immutable audit records without sensitive data.[1] | Append-only audit model and several terminal actions exist; many intermediary/external events are absent. | **Partial** | Tests prove audit rows for intake, validation, attempt, response, timeout, retry, callback, reconciliation, review, and terminal state; secrets/financial credentials absent. |
+| Scheduler / delayed remediation | Payments BB can internally schedule required workflow tasks.[1] | Receipt-related periodic patterns exist, not payment remediation. | **Missing** | Periodic, idempotent jobs handle stale records, scheduled retry, callback redelivery, provider polling, and reconciliation—or an approved operational deferment documents owner/SLA/manual process. |
+| Tests and happy-path safety | Failure paths and existing functionality must be proven without regression. | Existing GovStack and broader payment tests exist; current raw evidence is incomplete. | **Unverified** | New failure tests plus existing happy-path suite pass; raw results and coverage mapping are archived. |
+
+## Sequenced remediation backlog
+
+The implementation stage must work only on Item 02. It should use small, reviewable commits titled with **“Item 02 – Payments failure remediation”** and update this document’s final-status section after validation.
+
+| Order | Work package | Completion conditions |
+|---|---|---|
+| 1 | Introduce a provider-neutral payment-attempt model and transition service. | Atomic legal transitions, stable IDs, provider trace fields, typed outcome codes, explicit uncertain/retry/review/dead-letter state, and immutable audit emission. |
+| 2 | Repair idempotency semantics before retries are added. | Request fingerprinting and scoped uniqueness; canonical replay; deterministic key-reuse conflict; concurrency tests. |
+| 3 | Add provider/account adapter seams and failure taxonomy. | No production provider required for test: deterministic test adapter covers valid, invalid-account, insufficient-funds, rejected, timeout, and network outcomes. |
+| 4 | Implement recovery: retry, timeout poll, callback delivery ledger, dead letter, and operator kick-back. | Retry policy is state-aware and idempotent; uncertain work is reconciled rather than blindly retried; callbacks are persisted/replayed safely. |
+| 5 | Implement reconciliation, batch failure-rate policy, and reporting/status interfaces. | Internal/provider/source states compare via unique IDs; mismatches are actionable; batch thresholds route review safely. |
+| 6 | Integrate periodic remediation with Celery Beat/Scheduler or document a bounded deferment. | Jobs are observable, idempotent, and safe under duplicate dispatch; configuration and ownership are recorded. |
+| 7 | Add the complete regression/evidence suite and route checks. | Single/bulk scenarios, callback/dead-letter/reconciliation/scheduler paths, happy-path regressions, exact slash variants, and raw evidence artifacts all pass. |
+
+## Payments failure remediation checklist — current status
+
+- [ ] **Aligns with current GovStack Payments BB specification (latest version, focus on error handling, reconciliation, orchestration).** **Not met.** Route, model, and local-status foundations exist, but end-to-end provider orchestration and reconciliation are not evidenced.
+- [ ] **Explicit failure scenarios covered (invalid account, insufficient funds, timeout, duplicate, partial batch failure, network errors, etc.).** **Partially aligned.** Local beneficiary failure, duplicate constraints, partial batch counters, and voucher-specific insufficient-funds vocabulary exist; the G2P/P2G provider/timeout/network lifecycle does not.
+- [ ] **Retry / compensation / dead-letter / kick-back mechanisms implemented or clearly documented.** **Not met.** Celery worker retry metadata is not a durable business-retry/remediation design.
+- [ ] **Reconciliation and status-reporting APIs work for both successful and failed transactions.** **Partially aligned.** Local result/status records exist; external settlement reconciliation, fallback status recovery, and mismatch handling do not.
+- [ ] **Full audit/logging trail for every failure path.** **Partially aligned.** Append-only audit design and several events exist; provider, timeout, retry, callback, dead-letter, compensation, and reconciliation events are incomplete or unproven.
+- [ ] **Tests cover single-payment and bulk/batch failure cases.** **Partially aligned.** Existing tests cover parts of validation, envelopes, duplicate handling, and task mechanics; they do not demonstrate the full required failure matrix or current official-suite passage.
+- [ ] **Integration with Scheduler (for retries or delayed remediation) is clean or explicitly deferred with justification.** **Not met.** Receipt scheduling is not Payments failure remediation; no documented deferment with owner, trigger, SLA, and manual procedure is present.
+- [ ] **No regressions introduced to existing happy-path Payments functionality.** **Unverified.** No Stage 1 code was changed and no Stage 1 tests were executed; a regression baseline must be run during implementation validation.
+
+## Scope control and final-status update
+
+**Item 01 (Consent) is already completed. Items 03–07 are not started yet – out of scope for this run.** This file is the controlling Stage 1 record for Item 02. Stage 3 must amend the section below, preserving this original gap analysis and explicitly linking every completed, deferred, or rejected remediation item to tests and commits.
+
+### Stage 3 final-status update
+
+**Status as of Stage 1:** Pending implementation. No Item 02 alignment claim is made by this gap analysis.
+
+| Remediation ID | Final status | Evidence / commit / test |
+|---|---|---|
+| P0-1 through P2-4 | Pending Stage 3 | To be updated after implementation and validation. |
+
+## References
+
+[1]: https://specs.govstack.global/payments/6-functional-requirements.md "GovStack Payments Building Block v3.0 — Functional Requirements"
+[2]: https://specs.govstack.global/payments/8-service-apis.md "GovStack Payments Building Block v3.0 — Service APIs"
+[3]: https://specs.govstack.global/payments/8-service-apis/8.1-government-to-person-g2p-payments.md "GovStack Payments Building Block v3.0 — Government-to-Person APIs"
+[4]: https://specs.govstack.global/payments/8-service-apis/8.3-person-to-government-apis-p2g-bill-payments.md "GovStack Payments Building Block v3.0 — Person-to-Government Bill Payments APIs"
+[5]: https://github.com/GovStackWorkingGroup/bb-payments/tree/4b63a6b5efbb20123c442e0b09fb44ec2d7e6b6a "GovStackWorkingGroup/bb-payments pinned source snapshot"
