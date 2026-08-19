@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_policy": "local-only",
+  "required_environment": {
+    "SCHEDULER_API_BASE": "http://127.0.0.1:3333/",
+    "SCHEDULER_AUTH_MODE": "harness",
+    "SCHEDULER_CHANNELS": "push",
+    "SCHEDULER_TIMEOUT_SECONDS": 5,
+    "SCHEDULER_MAX_ATTEMPTS": 3,
+    "SCHEDULER_BACKOFF_SECONDS": 2,
+    "SCHEDULER_TIMEZONE": "UTC",
+    "SCHEDULER_DEPENDENCY_MODE": "fake",
+    "SCHEDULER_QUEUE_ALERT_THRESHOLD": 100,
+    "SCHEDULER_FEATURE_CROSS_BB": false
+  },
+  "rules": [
+    "SCHEDULER_API_BASE must be an http loopback URL for local runs",
+    "dependency endpoints must be omitted or loopback-only in local mode",
+    "timeouts and retry counts are bounded positive integers",
+    "unsupported channels are recorded as deferred, never reported delivered",
+    "Payments remains settlement authority and Consent remains consent authority"
+  ]
+}

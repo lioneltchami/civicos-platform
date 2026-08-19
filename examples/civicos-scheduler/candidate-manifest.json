@@ -6,7 +6,7 @@
   "official_revision": "d425be5cc0d6c606f351e5bf89be6d5c6c83c468",
   "official_suite": "test/openAPI",
   "official_candidate_convention": "examples/<candidate>/test_entrypoint.sh --config api-suite",
-  "local_candidate_url": "http://127.0.0.1:3333/",
+  "local_candidate_url": "${SCHEDULER_API_BASE:-http://127.0.0.1:3333/}",
   "civicos_surface": [
     "apps/appointments/govstack_urls.py",
     "apps/appointments/govstack_views.py",
@@ -15,9 +15,10 @@
   ],
   "deployment_scope": "single-government",
   "adapter": {
-    "enabled": false,
-    "policy": "Add only after a pinned official-suite failure identifies a specific inbound URL, header, or payload mismatch."
+    "enabled": true,
+    "policy": "Local-only adapter readiness; never targets production and does not imply official-suite success or certification."
   },
   "target_policy": "local-only",
+  "config_schema": "examples/civicos-scheduler/config.schema.json",
   "claim_boundary": "candidate preparation only; not an API compliance result or certification"
 }
