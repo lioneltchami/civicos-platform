@@ -25,6 +25,7 @@ Security invariants verified:
 import hashlib
 import json
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -38,6 +39,7 @@ from apps.consent.models import (
     ConsentPolicy,
     ConsentRecord,
     ConsentRevision,
+    ConsentSignature,
     ConsentWebhook,
 )
 from apps.consent.services import ConsentService
@@ -554,6 +556,32 @@ class ServiceConsentRecordTests(GovStackAPIBase):
             "consentRecord": {"dataAgreementId": str(uuid.uuid4())}
         }, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("apps.consent.integration_boundary.ConsentIntegrationBoundary.publish")
+    def test_get_consent_record_is_read_only_and_does_not_call_boundary(self, publish):
+        """Repeated mounted GETs must not mutate consent state or cross the boundary."""
+        ConsentService.grant(self.citizen, self.category.slug)
+        record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        before = {
+            "records": ConsentRecord.objects.count(),
+            "revisions": ConsentRevision.objects.count(),
+            "signatures": ConsentSignature.objects.count(),
+            "audits": ConsentAuditEntry.objects.count(),
+        }
+        self._auth(self.citizen)
+        url = f"/api/v1/consent/service/individual/record/consent-record/{record.pk}/"
+        first = self.client.get(url)
+        second = self.client.get(url)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data, second.data)
+        self.assertEqual(before, {
+            "records": ConsentRecord.objects.count(),
+            "revisions": ConsentRevision.objects.count(),
+            "signatures": ConsentSignature.objects.count(),
+            "audits": ConsentAuditEntry.objects.count(),
+        })
+        publish.assert_not_called()
 
     def test_delete_on_consent_record_detail_returns_405(self):
         """
@@ -2520,3 +2548,85 @@ class PolicyDetailMalformedRevisionIdTests(GovStackAPIBase):
             f"/api/v1/consent/service/policy/{self.policy.pk}/?revisionId={uuid.uuid4()}"
         )
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+# ===========================================================================
+# Stage 3 — selected current ConsentRecord GET parity (C01-01..C01-03)
+# ===========================================================================
+class ServiceDataAgreementCurrentConsentRecordParityTests(GovStackAPIBase):
+    def setUp(self):
+        super().setUp()
+        self.category = _make_category(slug="stage3-current-record")
+        self.other_category = _make_category(slug="stage3-other-category")
+        self.url = f"/api/v1/consent/service/individual/record/data-agreement/{self.category.pk}/"
+
+    def test_current_record_get_requires_authentication(self):
+        self._unauth()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn("consentRecord", response.data)
+
+    def test_current_record_get_has_bounded_malformed_and_not_found_errors(self):
+        self._auth(self.citizen)
+        malformed = self.client.get(
+            "/api/v1/consent/service/individual/record/data-agreement/not-an-integer/"
+        )
+        self.assertEqual(malformed.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsInstance(malformed.data, (dict, list))
+        unknown = self.client.get(
+            "/api/v1/consent/service/individual/record/data-agreement/999999999/"
+        )
+        self.assertEqual(unknown.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotIn("consentRecord", unknown.data)
+        no_current = self.client.get(self.url)
+        self.assertEqual(no_current.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotIn("consentRecord", no_current.data)
+
+    def test_current_record_get_is_scoped_to_authenticated_citizen_and_category(self):
+        current = ConsentService.grant(self.citizen, self.category.slug)
+        ConsentService.grant(self.citizen, self.other_category.slug)
+        ConsentService.grant(self.admin, self.category.slug)
+        self._auth(self.citizen)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["consentRecord"]["id"], str(current.pk))
+        self.assertEqual(response.data["consentRecord"]["dataAgreement"], str(self.category.pk))
+        self.assertEqual(response.data["consentRecord"]["individual"], str(self.citizen.pk))
+        self._auth(self.admin)
+        foreign_response = self.client.get(self.url)
+        self.assertEqual(foreign_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(foreign_response.data["consentRecord"]["individual"], str(self.admin.pk))
+
+    def test_current_record_get_returns_only_current_row_not_history(self):
+        historical = ConsentService.grant(self.citizen, self.category.slug)
+        historical.is_current = False
+        historical.save(update_fields=["is_current", "updated_at"])
+        current = ConsentService.grant(self.citizen, self.category.slug)
+        historical.refresh_from_db()
+        self.assertFalse(historical.is_current)
+        self.assertTrue(current.is_current)
+        self._auth(self.citizen)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.data["consentRecord"]
+        self.assertEqual(payload["id"], str(current.pk))
+        self.assertNotIn("history", payload)
+        self.assertNotIn(str(historical.pk), str(payload))
+
+    def test_current_record_get_matches_exact_existing_serializer_allowlist(self):
+        record = ConsentService.grant(self.citizen, self.category.slug)
+        self._auth(self.citizen)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.data["consentRecord"]
+        self.assertEqual(set(payload), {
+            "id", "dataAgreement", "dataAgreementRevision",
+            "dataAgreementRevisionHash", "individual", "optIn", "state", "signature",
+        })
+        self.assertEqual(payload["id"], str(record.pk))
+        self.assertEqual(payload["dataAgreement"], str(self.category.pk))
+        self.assertEqual(payload["individual"], str(self.citizen.pk))
+        self.assertIsInstance(payload["optIn"], bool)
+        self.assertIn(payload["state"], {"unsigned", "pending", "signed", "revoked"})
+        self.assertTrue(payload["signature"] is None or isinstance(payload["signature"], str))
+        self.assertTrue(payload["dataAgreementRevision"] is None or isinstance(payload["dataAgreementRevision"], str))
+        self.assertIsInstance(payload["dataAgreementRevisionHash"], str)
