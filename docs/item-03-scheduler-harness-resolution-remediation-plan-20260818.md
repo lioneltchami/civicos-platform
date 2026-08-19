@@ -28,12 +28,16 @@
 | Acceptance item | Current status |
 |---|---|
 | Event/entity/resource/subscriber management lifecycle | **Partially aligned** |
-| Alert/message delivery, status and recovery | **Partially aligned** |
-| Failure handling and safe retries | **Partially aligned** |
+| Alert/message delivery, status and recovery | **Locally implemented; external recipient semantics pending** |
+| Failure handling and safe retries | **Locally implemented with deterministic fault tests** |
 | Configuration externalisation and runtime topology | **Partially aligned** |
 | Harness/runtime tests and operation evidence | **Partially aligned** |
-| Cross-BB boundary and invocation evidence | **Still missing** |
-| Operational status/reporting and documentation | **Partially aligned** |
-| Current official-suite/staging evidence | **Still missing** |
+| Cross-BB boundary and invocation evidence | **Still missing; intentionally deferred** |
+| Operational status/reporting and documentation | **Locally implemented; deployment/official evidence pending** |
+| Current official-suite/staging evidence | **Still missing; external blocker** |
 
 > Local implementation and deterministic evidence may close repository controls, but they cannot establish official conformance, external recipient behavior, deployment evidence, or testing-site readiness.
+
+## Stage 3 final status
+
+Repository-only remediation added a deterministic recipient delivery-state primitive with retry, cancellation, acknowledgement, dead-letter/replay and non-PII operational views, plus a loopback-only local topology runner that emits redacted JSONL and a checksum. The delivery primitive and topology evidence are local safeguards only; they are not wired into durable Django/Celery recipient delivery persistence or a complete 37-operation official harness. External recipient, staging, official-harness and approval evidence remains unchanged.
