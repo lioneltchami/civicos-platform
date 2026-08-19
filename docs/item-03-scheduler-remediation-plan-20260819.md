@@ -46,3 +46,22 @@ The existing Scheduler implementation has a useful deterministic delivery-state 
 | Email/SMS/poll, real recipients, staging, official tests, credentials, and submission | **Deferred — do not touch** | No external claim or action. |
 
 > **Stage 1 conclusion:** The remaining work is internally actionable but substantial. The Stage 2 review must prioritize a minimal, migration-safe durable delivery/outbox design that preserves the existing route contract, task safety controls, and local-only evidence boundary.
+
+## Stage 3 implementation status — 2026-08-19
+
+The Stage 3 pass introduced additive, migration-backed Scheduler delivery/outbox structures, a lease-fenced delivery-state service, a dedicated recipient task, an outbox publisher/reaper, an opt-in bridge from the existing schedule-dispatch task, deterministic local fake primitives, and focused Django regression coverage. One duplicate-ledger-style migration metadata issue was corrected before the final isolated run.
+
+| Gap | Stage 3 status | Implemented evidence | Remaining limitation |
+|---|---|---|---|
+| S03-01 durable per-recipient state | **Partially implemented** | `SchedulerRecipientDelivery` is schedule-linked and generation-keyed; `SchedulerOutbox` persists a delivery publication record; migration `0019_scheduler_runtime_core.py` creates the schema. | The existing schedule-level `dispatched` field remains a compatibility projection and requires further deployment/migration-upgrade evidence. |
+| S03-02 Boolean crash window | **Partially implemented** | The opt-in durable path materializes recipient work and its outbox event in one transaction, then sets the Boolean projection in that same transaction. | The legacy default path preserves the earlier Boolean-before-fan-out behavior; the durable mode requires explicit configuration and complete rollout coverage. |
+| S03-03/S03-04 lifecycle, retry, claim, recovery | **Partially implemented** | `scheduler_runtime.py` implements materialization, claim fencing, success, retry/dead-letter, cancel, replay, acknowledgement, and expired-lease reaping. `scheduler_tasks.py` claims before transport and records outcome after transport. | No live multi-worker/broker or crash-after-HTTP provider evidence was run; publication has no separate durable publisher-claim token yet. |
+| S03-05 outbox recovery | **Partially implemented** | Recipient work and outbox rows are created atomically; a publisher task and reaper task exist; duplicate publication is absorbed by recipient claims. | Broker publication failure/re-drive and publish-lease concurrency tests are not yet complete. |
+| S03-06 37-operation runtime evidence | **Open** | Existing inventory remains intact; local evidence helpers were added. | No complete 37-operation Django request/runtime trace suite was added in this pass. |
+| S03-07 local Payments/Consent fakes | **Partially implemented** | `local_evidence.py` adds disabled-by-default deterministic Payments/Consent fake contracts, authority labels, outcome behavior, and redaction helpers. | The fakes are not yet wired into a full 37-operation trace topology or exercised by the Django test runner. |
+| S03-08 durable non-PII status | **Partially implemented** | Local owner/tenant status aggregation support exists in `local_evidence.py`. | It is not yet a database-backed, route-authorized operational status projection. |
+| Focused validation | **Passed** | Isolated `makemigrations --check --dry-run appointments` reported no changes; 60 focused Scheduler tests passed. | The migration command emitted the isolated environment's expected non-test PostgreSQL credential warning before test database creation. |
+
+> **Stage 3 conclusion:** The durable core is now an executable local foundation with migration and focused test evidence. The full internal target remains incomplete because the 37-operation runtime trace, fake topology integration, database-backed authorized status projection, publisher recovery coverage, and multi-worker fault evidence are still open. External staging, official suites, credentials, real recipients, certification, and submission remain out of scope.
+
+The raw isolated validation output is retained at `docs/govstack/testing/evidence/item-03-scheduler-durable-wiring-validation-20260819.log`.
