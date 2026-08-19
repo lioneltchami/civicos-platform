@@ -8,3 +8,5 @@ factory-boy==3.*
 faker==28.*
 responses==0.25.*
 time-machine==2.*
+# GovStack official OpenAPI evidence tools
+PyYAML==6.*
