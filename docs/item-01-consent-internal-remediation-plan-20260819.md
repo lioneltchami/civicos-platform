@@ -40,3 +40,20 @@ The selected GET operation is locally complete only if C01-01 through C01-04 hav
 [1]: [GovStackWorkingGroup Consent Building Block](https://github.com/GovStackWorkingGroup/bb-consent)
 
 [2]: [GovStack requirements model](https://specs.govstack.global/architecture/5-specification-framework/5.3-requirements-model)
+
+## Stage 3 implementation status — 2026-08-19
+
+The selected read-only `serviceIndividualConsentRecordRead` pass added mounted route regression tests without changing production route, serializer, authentication, operation-matrix disposition, or external integration behavior.
+
+| ID | Status | Evidence |
+|---|---|---|
+| C01-01 | **Implemented, pending independent verification** | New mounted regression coverage exercises authenticated success, no authentication, malformed identifier, unknown category, and no-current-record cases on the selected data-agreement route. |
+| C01-02 | **Implemented, pending independent verification** | Fixtures prove citizen/category scope and current-row selection over an explicit historical row; response contains no history envelope. |
+| C01-03 | **Implemented, pending independent verification** | Tests assert the exact existing eight-field `ConsentRecordGovStackSerializer` allowlist and scalar/null behavior without exposing additional model or audit fields. |
+| C01-04 | **Implemented, pending independent verification** | Repeated GET snapshots Consent record/revision/signature/audit state and patches the external publish boundary to fail if invoked; no production external-boundary behavior changed. |
+
+### Local validation
+
+The isolated snapshot reported **No changes detected in app `consent`** and passed **177 focused Consent tests**. Raw output is retained in `docs/govstack/testing/evidence/item-01-consent-internal-parity-validation-20260819.log`.
+
+> This evidence supports only the selected local read operation. All 42 operation rows remain **partial**; no unsupported operation was promoted and the Identity/Information Mediator boundary remains fail-closed.
