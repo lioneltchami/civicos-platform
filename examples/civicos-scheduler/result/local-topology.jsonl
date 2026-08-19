@@ -1,0 +1,9 @@
+{"method": "GET", "path": "/health", "response": {"building_block": "Scheduler", "status": "ok"}, "scenario": "health", "status": 200}
+{"method": "POST", "path": "/entities", "response": {"id": "entity-1", "status": "created"}, "scenario": "entity-create", "status": 201}
+{"method": "POST", "path": "/entities", "response": {"id": "entity-1", "status": "duplicate"}, "scenario": "entity-duplicate", "status": 200}
+{"method": "POST", "path": "/resources", "response": {"error": "owner_mismatch"}, "scenario": "resource-owner-reject", "status": 403}
+{"method": "POST", "path": "/subscribers", "response": {"id": "subscriber-1", "status": "created"}, "scenario": "subscriber-create", "status": 201}
+{"method": "POST", "path": "/dispatch", "response": {"attempt": 1, "delivery_id": "delivery-1", "status": "accepted"}, "scenario": "dispatch", "status": 202}
+{"method": "POST", "path": "/payments/authorize", "response": {"authority": "payments", "correlation_id": "corr-1", "status": "approved"}, "scenario": "payments-authority", "status": 200}
+{"method": "POST", "path": "/consent/check", "response": {"authority": "consent", "correlation_id": "corr-1", "status": "approved"}, "scenario": "consent-authority", "status": 200}
+{"method": "DELETE", "path": "/subscribers/subscriber-1", "response": {}, "scenario": "subscriber-cleanup", "status": 204}
