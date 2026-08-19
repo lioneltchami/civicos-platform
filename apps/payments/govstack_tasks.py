@@ -57,6 +57,7 @@ import ipaddress
 import logging
 import socket
 from decimal import Decimal
+from datetime import timedelta
 from urllib.parse import urlsplit
 
 import requests
@@ -64,6 +65,7 @@ from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from apps.payments.govstack_models import BatchLease
 
 from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.provider_runtime import enqueue_attempt
@@ -223,6 +225,29 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
             )
             return
 
+        # A worker may process a batch only while holding a live, durable lease.
+        # Claiming is serialized with the batch lock; an expired lease is replaced
+        # with a new generation so stale workers cannot safely continue.
+        now = timezone.now()
+        lease, created = BatchLease.objects.select_for_update().get_or_create(
+            batch=batch,
+            defaults={
+                "owner_token": str(self.request.id or batch_pk),
+                "generation": 1,
+                "expires_at": now + timedelta(minutes=5),
+            },
+        )
+        if not created and lease.expires_at <= now:
+            lease.owner_token = str(self.request.id or batch_pk)
+            lease.generation += 1
+            lease.expires_at = now + timedelta(minutes=5)
+            lease.save(update_fields=["owner_token", "generation", "expires_at", "updated_at"])
+        elif not created and lease.owner_token != str(self.request.id or batch_pk):
+            logger.info("process_bulk_payment_batch.lease_busy batch_pk=%s", batch_pk)
+            return
+
+        lease_generation = lease.generation
+
         # Per-instruction ID Mapper lookup.
         # We iterate rather than bulk-update so that each instruction can be
         # individually COMPLETED or FAILED based on whether an active beneficiary
@@ -235,6 +260,11 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
         failed_count: int = 0
         completed_amount: Decimal = Decimal("0.00")
         failed_amount: Decimal = Decimal("0.00")
+
+        lease.refresh_from_db()
+        if lease.generation != lease_generation or lease.owner_token != str(self.request.id or batch_pk) or lease.expires_at <= timezone.now():
+            logger.info("process_bulk_payment_batch.stale_lease batch_pk=%s", batch_pk)
+            return
 
         for instr in (
             CreditInstruction.objects

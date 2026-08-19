@@ -1371,6 +1371,19 @@ class GovStackRegisteredBB(TimestampedModel):
 # ---------------------------------------------------------------------------
 # Failure-remediation lifecycle (Item 02)
 # ---------------------------------------------------------------------------
+class ProviderRegistration(TimestampedModel):
+    """Durable, redacted provider configuration selected by tenant and operation."""
+    tenant_id = models.CharField(max_length=100, db_index=True)
+    operation = models.CharField(max_length=30)
+    provider_name = models.CharField(max_length=80)
+    configuration_version = models.CharField(max_length=80)
+    configuration = models.JSONField(default=dict)
+    active = models.BooleanField(default=True, db_index=True)
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tenant_id", "operation"], name="gs_provider_registration_scope_uniq")]
+        indexes = [models.Index(fields=["tenant_id", "operation", "active"], name="gs_provider_reg_lookup_idx")]
+
+
 class PaymentAttempt(TimestampedModel):
     """Provider-neutral, durable execution record; local validation is not settlement."""
     STATUS_PENDING = "pending"
@@ -1384,7 +1397,12 @@ class PaymentAttempt(TimestampedModel):
         STATUS_PENDING, STATUS_RETRYABLE, STATUS_UNCERTAIN, STATUS_SETTLED,
         STATUS_REJECTED, STATUS_REVIEW, STATUS_DEAD_LETTER)]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    tenant_id = models.CharField(max_length=100, blank=True, db_index=True)
+    tenant_id = models.CharField(max_length=100, blank=False, db_index=True)
+    provider_registration = models.ForeignKey("ProviderRegistration", on_delete=models.PROTECT, null=True, blank=True, related_name="attempts")
+    claim_token = models.CharField(max_length=128, blank=True)
+    claim_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    claim_generation = models.PositiveIntegerField(default=0)
+
     request_id = models.CharField(max_length=100, db_index=True)
     operation = models.CharField(max_length=30, default="g2p")
     correlation_id = models.CharField(max_length=100, blank=True, db_index=True)
@@ -1491,7 +1509,7 @@ class PaymentOutcome:
 PaymentAttempt.ALLOWED_TRANSITIONS = {
     PaymentAttempt.STATUS_PENDING: {PaymentAttempt.STATUS_RETRYABLE, PaymentAttempt.STATUS_UNCERTAIN, PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW},
     PaymentAttempt.STATUS_RETRYABLE: {PaymentAttempt.STATUS_PENDING, PaymentAttempt.STATUS_UNCERTAIN, PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW, PaymentAttempt.STATUS_DEAD_LETTER},
-    PaymentAttempt.STATUS_UNCERTAIN: {PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW, PaymentAttempt.STATUS_DEAD_LETTER},
+    PaymentAttempt.STATUS_UNCERTAIN: {PaymentAttempt.STATUS_UNCERTAIN, PaymentAttempt.STATUS_SETTLED, PaymentAttempt.STATUS_REJECTED, PaymentAttempt.STATUS_REVIEW, PaymentAttempt.STATUS_DEAD_LETTER},
     PaymentAttempt.STATUS_REVIEW: {PaymentAttempt.STATUS_PENDING, PaymentAttempt.STATUS_DEAD_LETTER},
     PaymentAttempt.STATUS_SETTLED: set(), PaymentAttempt.STATUS_REJECTED: set(), PaymentAttempt.STATUS_DEAD_LETTER: set(),
 }
