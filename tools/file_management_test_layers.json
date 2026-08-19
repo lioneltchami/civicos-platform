@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "scope_root": "apps/documents/tests",
+  "layers": {
+    "unit": [
+      "test_access_tokens.py",
+      "test_models.py",
+      "test_services_retention.py",
+      "test_services_upload.py",
+      "test_services_versioning.py",
+      "test_signals.py",
+      "test_tasks.py",
+      "test_upload_presign_template.py"
+    ],
+    "integration": [
+      "test_admin.py",
+      "test_api.py",
+      "test_audit.py",
+      "test_integration.py",
+      "test_pipeda.py",
+      "test_presign_kms_and_clamav_settings.py",
+      "test_scan_audit_and_promotion.py",
+      "test_upload_content_gating.py",
+      "test_wave3_clamav.py",
+      "test_wave3_download.py",
+      "test_wave4_retention.py",
+      "test_wave6_integration.py"
+    ],
+    "e2e": [
+      "test_views_citizen.py",
+      "test_views_http_contract.py",
+      "test_views_staff.py",
+      "test_wave5_views.py",
+      "test_wcag.py"
+    ]
+  }
+}

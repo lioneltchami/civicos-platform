@@ -110,6 +110,14 @@ test-docker: ## Run test suite in Docker
 test-docker-app: ## Run tests for a specific app in Docker: make test-docker-app APP=appointments
 	$(DC) run --rm -e DJANGO_SETTINGS_MODULE=config.settings.test web pytest apps/$(APP)/
 
+.PHONY: test-file-management
+test-file-management: ## Run the local File Management runner with scoped reports
+	python tools/run_file_management_tests.py
+
+.PHONY: test-file-management-collect
+test-file-management-collect: ## Validate File Management discovery without executing tests
+	python tools/run_file_management_tests.py --collect-only
+
 .PHONY: test-cov
 test-cov: ## Run tests with coverage report
 	pytest --cov=apps --cov-report=term-missing --cov-report=html

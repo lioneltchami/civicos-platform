@@ -132,6 +132,22 @@ jobs:
           GC_NOTIFY_API_KEY: ""
           DJANGO_SETTINGS_MODULE: config.settings.test
         run: python manage.py test --verbosity=2 --parallel 2>&1
+      - name: Run File Management scoped runner
+        env:
+          DATABASE_URL: postgres://civicos:ci_test_password@localhost:5432/civicos_test
+          REDIS_URL: redis://localhost:6379/1
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+          DJANGO_SETTINGS_MODULE: config.settings.test
+        run: make test-file-management
+      - name: Upload File Management test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: file-management-test-results
+          path: test-results/file-management/
+          if-no-files-found: error
+
       - name: Generate and validate OpenAPI schema
         env:
           DJANGO_SECRET_KEY: ci-not-for-production
