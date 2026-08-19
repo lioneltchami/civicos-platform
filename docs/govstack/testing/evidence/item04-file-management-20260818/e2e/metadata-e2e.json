@@ -1,0 +1,14 @@
+{
+  "collected": 205,
+  "django_settings_module": "config.settings.test",
+  "layer": "e2e",
+  "official_harness_executed": false,
+  "runner": "local/CI File Management candidate runner",
+  "selector": [
+    "apps/documents/tests/test_views_citizen.py",
+    "apps/documents/tests/test_views_http_contract.py",
+    "apps/documents/tests/test_views_staff.py",
+    "apps/documents/tests/test_wave5_views.py",
+    "apps/documents/tests/test_wcag.py"
+  ]
+}

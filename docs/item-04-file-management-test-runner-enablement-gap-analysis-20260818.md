@@ -61,11 +61,18 @@ Item 04 test-runner enablement will be complete only when the dedicated runner i
 
 ### Stage 3 final-status update
 
-**Status as of Stage 1:** Pending implementation. Stage 3 must update this section with completed, deferred, and validation statuses, including commit references and exact report paths.
+**Stage 3 status:** Implemented and locally validated in an isolated, dependency-complete test environment. The runner is a local/CI CivicOS test product. It does not start containers, contact an external service, run the optional official harness, or make a conformance claim.
 
 | Remediation area | Final status | Evidence / commit / test |
 |---|---|---|
-| P0–P2 File Management test-runner backlog | Pending Stage 3 | To be updated after implementation and validation. |
+| Canonical File Management runner and stable Make targets | **Implemented** | `tools/run_file_management_tests.py`; `make test-file-management`; `make test-file-management-collect`. The runner fixes selection to `apps/documents/tests`, preserves pytest exit status, refuses zero collection, and writes redacted raw/collection logs, JUnit, coverage XML, and metadata. |
+| Deterministic unit/integration/e2e separation | **Implemented** | `tools/file_management_test_layers.json` maps every current File Management test module exactly once to an explicit layer without unsafe mass marker reclassification. The static contract validates manifest completeness. |
+| Local/CI parity and actionable artifacts | **Implemented in source; remote CI not invoked** | `.github/workflows/ci.yml` invokes the same `make test-file-management` target after the broad Django regression lane and uploads its artifact directory with `if: always()`. No external CI run was triggered in this local-only work. |
+| Contributor documentation, fixture/report safety, and official-harness boundary | **Implemented** | `docs/testing/file-management.md` documents synthetic/ephemeral fixtures, cleanup, layers, commands, report redaction, artifacts, and the separately labeled local-only candidate/official-harness boundary. |
+| Core happy/failure operation map | **Implemented** | `docs/testing/file-management-operation-matrix.md` maps upload, read/list, download/token, attach/version, delete/retention, scan/quarantine, audit, and contract/accessibility areas to existing happy and failure source tests. |
+| Runner regression protection | **Implemented and passed locally** | `tests/test_file_management_runner_contract.py`: **5 passed**. It verifies fixed scope, report policy, zero-test guard, manifest exactness, guide policy, matrix coverage, and Make targets. |
+| Full File Management local execution evidence | **Passed locally** | Canonical all-layer run: **1,159 passed**, 387 warnings, 81.90% scoped coverage. Layer runs: **317 unit**, **637 integration**, and **205 e2e** tests passed. Redacted raw/JUnit/coverage/metadata evidence is archived at `docs/govstack/testing/evidence/item04-file-management-20260818/`. |
+| Optional official harness / testing-site evidence | **Intentionally not run** | File Management remains a project-specific capability. Candidate metadata remains local-only with its adapter disabled; no external submission, official-suite, conformance, or certification claim was made. |
 
 ## References
 
