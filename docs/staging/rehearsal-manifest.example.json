@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "rehearsal_id": "EXAMPLE-NOT-AUTHORISED",
+  "authorization": {
+    "authorized": false,
+    "approval_reference": "REQUIRED-BEFORE-REMOTE-EXECUTION",
+    "approver_role": "release-authority"
+  },
+  "target": {
+    "alias": "UNSET",
+    "network_action_permitted": false,
+    "synthetic_data_only": true
+  },
+  "release": {
+    "commit_sha": "UNSET",
+    "image_digest": "UNSET",
+    "migration_set": "UNSET",
+    "configuration_fingerprint": "UNSET"
+  },
+  "ownership": {
+    "deployment_owner": "UNSET",
+    "rollback_owner": "UNSET",
+    "evidence_custodian": "UNSET"
+  },
+  "controls": {
+    "abort_criteria": ["UNSET"],
+    "rollback_plan_reference": "UNSET",
+    "evidence_location": "UNSET",
+    "items_1_to_5_regression_matrix": "docs/staging/CONTROL_TEMPLATES_AND_REGRESSION_MATRIX.md"
+  },
+  "outcome": "NOT_RUN"
+}
