@@ -67,3 +67,12 @@ Without external posting, Stage 3 may create a **submission-readiness dossier**:
 [1]: https://govstack.global/how-to-submit-software/ "How to Submit Software?"
 [2]: https://testing.govstack.global/requirements "GovStack testing-site requirements"
 [3]: https://specs.govstack.global/readme.md?ask=What%20artifacts%2C%20evidence%2C%20versions%2C%20and%20steps%20are%20required%20to%20submit%20a%20software%20Building%20Block%20for%20GovStack%20testing%20or%20software%20requirements%20compliance%3F&goal=Prepare%20CivicOS%20packages%20for%20official%20testing-site%20submission "GovStack submission artifact guidance"
+
+
+---
+
+## Stage 3 final-status update
+
+**Repository-safe preparation completed:** `docs/item-07-submissions/` now contains a four-candidate evidence index, individual Consent/Payments/Scheduler/File Management dossiers, and a portal checklist/receipt ledger explicitly set to `NOT SUBMITTED`. `scripts/validate_item07_submission.py` performs an offline, fail-closed validation of the candidate set, repository paths, non-release binding, `NOT_READY` decisions, and negative portal/external states. The dossiers consolidate candidate-specific limitations and evidence paths without translating local artifacts into staging, official, or compliance claims.
+
+**Still externally blocked:** release/tag/image binding, authorised staging rehearsal, release-bound official API/requirements results, deployment metadata, real CI/security provenance where required, official portal form completion, any Jira tracking record, and an external receipt. No portal action, account access, upload, Jira ticket, testing-site run, release/tag, or external claim was performed.
