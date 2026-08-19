@@ -82,11 +82,18 @@ The asynchronous alert work demonstrates several appropriate safety choices. `di
 
 ### Stage 3 final-status update
 
-**Status as of Stage 1:** Pending implementation. Stage 3 must preserve the analysis above and update this section with each remediation’s completed, deferred, or rejected status, including commits and validation evidence.
+**Stage 3 status:** Partially remediated. The implementation safely improves traceability, local-only harness configuration, and external-BB registration documentation. It does not claim that the official suite passed and does not treat an enabled local adapter descriptor as an executed adapter.
 
 | Remediation area | Final status | Evidence / commit / test |
 |---|---|---|
-| P0–P2 Scheduler harness remediation backlog | Pending Stage 3 | To be updated after implementation and validation. |
+| Pinned operation inventory and validator | **Implemented, evidence remains partial** | `examples/civicos-scheduler/operation-matrix.json` tracks all 37 CivicOS routes against pinned revision `d425be5…`; all operations remain honestly marked `partial` pending current contract execution. `scripts/validate_scheduler_harness.py` passed locally. Commit `be44052`. |
+| Local-only candidate configuration and harness hardening | **Implemented for preparation** | Candidate manifest now has an explicit local-only readiness boundary, config schema, loopback enforcement, and configurable port. No official suite or testing-site run occurred. Commit `be44052`. |
+| External-BB resource/subscriber registration guide | **Implemented** | `examples/civicos-scheduler/README.md` documents local-only entity/resource/subscriber/affiliation sequencing, token mode, cleanup, authority boundaries, and deferred channels. Commit `be44052`. |
+| Focused Scheduler regression evidence | **Passed locally** | Isolated Django test run: **502 tests passed**. Redacted raw output at `docs/govstack/testing/evidence/ITEM03_SCHEDULER_FOCUSED_TESTS_20260818.log`; test-only ephemeral configuration used no production data or secrets. |
+| Durable per-recipient delivery lifecycle, retry/backoff, dead-letter/manual remediation | **Deferred** | The existing one-Boolean best-effort dispatch semantics require a migration-safe lifecycle design plus focused partial-delivery/worker-loss regression coverage. It was not safe to claim this P0 outcome complete without those changes and tests. |
+| Payments/Consent Scheduler integration adapters | **Deferred** | No provider-neutral local contract/topology was available to safely add outbound calls. Scheduler must preserve Payments settlement authority and Consent decision/audit authority. |
+| Scheduler operational metrics, acknowledgement, all delivery channels, and escalation | **Deferred** | Requires a broader bounded operational model and explicit channel/inbound-status contract. Push-only local preparation is documented as such. |
+| Pinned official harness execution | **Deferred / not run** | No external submission or certification claim. A local non-production adapter/harness topology must be completed and current raw official-suite output archived before readiness can change. |
 
 ## References
 
