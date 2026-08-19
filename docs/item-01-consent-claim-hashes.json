@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "claims": {
+    "docs/item-01-consent-v23q4-operation-matrix.json": "b893dee7ab52f0f56fe01e5f0f9571725624384c558af5ac6daf92ecd3fbefb3",
+    "docs/govstack/authority-manifest.json": "bb308cfc47748537bf47c0d95f3f47804d34d348d7790e75abe1d6906ea67e4e",
+    "apps/consent/models.py": "bf19d04c054e6443421ce825c7563154ae75c69db1d626dc9ff3992ebdcadf84",
+    "apps/consent/services.py": "3f282dbe97362b00f6b1a737900d77ea3b3965fc014a364216aec7298ac9bca8",
+    "apps/consent/govstack_urls.py": "afa066129b4090e13177f923da89bac1d9446323d7bc09f65e9e27fa2a1e6fa9",
+    "apps/consent/govstack_views.py": "11d16cfaa386dd7bd37ad81e0bfeccd9e190efd39d2502348bc108a1220886b4",
+    "scripts/validate_item01_consent.py": "b4bd5baa137bc6966c5474911d5a27e5eb46ebcedb7163ef479153c26e724e4f",
+    "scripts/enrich_item01_consent_matrix.py": "da869bd4d4076db2a4064df75bd63d4ee4a02cd551468d44bcff9ba9256b66c9",
+    "tests/govstack/test_item01_consent_matrix.py": "fde967ca8db33d60d23818a343f2f8483c9c919a81e6e687d3d27b3d2dc09ab6"
+  }
+}
