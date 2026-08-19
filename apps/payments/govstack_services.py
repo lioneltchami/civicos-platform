@@ -1404,15 +1404,24 @@ class GovStackP2GService:
                 source_bb_id="",
                 external_transaction_id=payment.payment_reference_id,
             )
-            PaymentLifecycleService.apply_outcome(
-                p2g_attempt,
-                PaymentOutcome(
-                    "review",
-                    code="P2G_SETTLEMENT_VERIFICATION_REQUIRED",
-                    category="reconciliation",
-                    message="Payment notification recorded; settlement verification is required.",
-                ),
-            )
+            # Local P2G notification is never provider finality.  A deployment
+            # must explicitly enable and configure the asynchronous provider
+            # runtime before this durable attempt is dispatched.  The legacy
+            # fallback remains review-only and preserves existing API behavior.
+            if getattr(settings, "GOVSTACK_PAYMENT_PROVIDER_RUNTIME_ENABLED", False):
+                from apps.payments.provider_runtime import enqueue_attempt
+
+                enqueue_attempt(p2g_attempt)
+            else:
+                PaymentLifecycleService.apply_outcome(
+                    p2g_attempt,
+                    PaymentOutcome(
+                        "review",
+                        code="P2G_SETTLEMENT_VERIFICATION_REQUIRED",
+                        category="reconciliation",
+                        message="Payment notification recorded; settlement verification is required.",
+                    ),
+                )
 
             # ── Transition bill to PAID (idempotent if already PAID) ────────
             # DESIGN DECISION (M4): We do not restrict payment to STATUS_UNPAID

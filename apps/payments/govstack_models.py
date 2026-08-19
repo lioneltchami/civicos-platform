@@ -1510,3 +1510,38 @@ PaymentAttempt.__str__ = lambda self: f"PaymentAttempt {self.pk} [{self.status}]
 PaymentAttempt._meta.verbose_name = "Payment Attempt"
 CallbackDelivery._meta.verbose_name = "Callback Delivery"
 PaymentReconciliation._meta.verbose_name = "Payment Reconciliation"
+
+
+class IdempotencyLedger(TimestampedModel):
+    """Durable endpoint reservation and exact response replay record."""
+    STATE_IN_PROGRESS = "in_progress"
+    STATE_COMPLETE = "complete"
+    STATE_CHOICES = [(STATE_IN_PROGRESS, "In progress"), (STATE_COMPLETE, "Complete")]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant_id = models.CharField(max_length=100)
+    method = models.CharField(max_length=10)
+    path = models.CharField(max_length=255)
+    key = models.CharField(max_length=255)
+    fingerprint = models.CharField(max_length=64)
+    state = models.CharField(max_length=20, choices=STATE_CHOICES, default=STATE_IN_PROGRESS)
+    status_code = models.PositiveSmallIntegerField(null=True, blank=True)
+    body = models.JSONField(default=dict)
+    headers = models.JSONField(default=dict)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tenant_id", "method", "path", "key"], name="gs_idem_tenant_method_path_key")]
+        indexes = [models.Index(fields=["tenant_id", "created_at"], name="gs_idem_tenant_created_idx")]
+
+
+class BatchLease(TimestampedModel):
+    """Durable ownership token for batch workers; stale owners cannot renew or commit."""
+    batch = models.OneToOneField(BulkPaymentBatch, on_delete=models.PROTECT, related_name="runtime_lease")
+    owner_token = models.CharField(max_length=128)
+    generation = models.PositiveIntegerField(default=1)
+    expires_at = models.DateTimeField(db_index=True)
+    class Meta:
+        indexes = [models.Index(fields=["expires_at", "generation"], name="gs_batch_lease_due_idx")]
+
+    def is_expired(self):
+        from django.utils import timezone
+        return self.expires_at <= timezone.now()

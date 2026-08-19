@@ -24,10 +24,12 @@ P2G note:
 from django.urls import path
 
 from apps.payments import govstack_views as gv
+from apps.payments.platform_scope import ReconciliationReportView
 
 app_name = "govstack_payments"
 
 urlpatterns = [
+    path("reconciliation/report", ReconciliationReportView.as_view(), name="reconciliation_report"),
     # ── G2P Beneficiary (Wave 2) ──────────────────────────────────────────
     path(
         "register-beneficiary",

@@ -61,10 +61,12 @@ from urllib.parse import urlsplit
 
 import requests
 from celery import shared_task
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from apps.payments.govstack_failure_services import PaymentLifecycleService
+from apps.payments.provider_runtime import enqueue_attempt
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CallbackDelivery,
@@ -108,15 +110,22 @@ def _record_bulk_instruction_lifecycle(
         source_bb_id=batch.source_bb_id,
     )
     if beneficiary_found:
-        PaymentLifecycleService.apply_outcome(
-            attempt,
-            PaymentOutcome(
-                "review",
-                code="SETTLEMENT_ADAPTER_UNCONFIGURED",
-                category="configuration",
-                message="Local account validation completed; settlement verification is required.",
-            ),
-        )
+        # Local ID Mapper validation remains distinct from settlement.  An
+        # explicitly enabled provider runtime owns the next asynchronous step;
+        # without that deployment configuration we preserve the existing
+        # fail-closed, operator-review behavior.
+        if getattr(settings, "GOVSTACK_PAYMENT_PROVIDER_RUNTIME_ENABLED", False):
+            enqueue_attempt(attempt)
+        else:
+            PaymentLifecycleService.apply_outcome(
+                attempt,
+                PaymentOutcome(
+                    "review",
+                    code="SETTLEMENT_ADAPTER_UNCONFIGURED",
+                    category="configuration",
+                    message="Local account validation completed; settlement verification is required.",
+                ),
+            )
     else:
         PaymentLifecycleService.apply_outcome(
             attempt,
