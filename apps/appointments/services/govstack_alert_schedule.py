@@ -259,17 +259,21 @@ def alert_schedule_modify(
         update_fields: list[str] = []
         alert_datetime_changed = False
         message_id_changed = False
+        delivery_content_changed = False
 
         if event_id is not None:
             slot = Slot.objects.get(pk=event_id)
             if slot.pk != alert_schedule.slot_id:
                 alert_schedule.slot = slot
                 update_fields.append("slot")
+                delivery_content_changed = True
 
         if target_category is not None:
             _validate_target_category(target_category)
-            alert_schedule.target_category = target_category
-            update_fields.append("target_category")
+            if target_category != alert_schedule.target_category:
+                alert_schedule.target_category = target_category
+                update_fields.append("target_category")
+                delivery_content_changed = True
 
         if message_id is not None:
             message = _resolve_message(message_id)
@@ -277,6 +281,7 @@ def alert_schedule_modify(
                 alert_schedule.message = message
                 update_fields.append("message")
                 message_id_changed = True
+                delivery_content_changed = True
 
         if alert_datetime is not None:
             new_dt = _parse_datetime_str(alert_datetime)
@@ -285,6 +290,17 @@ def alert_schedule_modify(
                 alert_schedule.alert_datetime = new_dt
                 update_fields.append("alert_datetime")
                 alert_datetime_changed = True
+                delivery_content_changed = True
+
+        if delivery_content_changed:
+            # Durable recipient work is fenced by generation.  Existing
+            # non-terminal rows become cancelled; late worker outcomes are
+            # rejected by their claim token/status checks.
+            from apps.appointments.services import scheduler_runtime
+
+            scheduler_runtime.cancel_schedule(schedule_id=alert_schedule.pk)
+            alert_schedule.delivery_generation += 1
+            update_fields.append("delivery_generation")
 
         reschedule_needed = False
         if alert_schedule.dispatched:

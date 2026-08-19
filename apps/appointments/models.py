@@ -2690,6 +2690,11 @@ class GovStackAlertSchedule(TimestampedModel):
         verbose_name=_("Dispatched"),
         help_text=_("True once the Celery task has fired and delivered the alert."),
     )
+    delivery_generation = models.PositiveIntegerField(
+        default=1,
+        verbose_name=_("Delivery generation"),
+        help_text=_("Incremented when an alert is re-armed or superseded to fence stale work."),
+    )
 
     class Meta:
         ordering = ["alert_datetime"]
@@ -2837,3 +2842,58 @@ class GovStackBBCredential(TimestampedModel):
         if not plaintext or not self.token_hash:
             return False
         return check_password(plaintext, self.token_hash)
+
+
+class SchedulerRecipientDelivery(TimestampedModel):
+    PENDING = "pending"
+    IN_FLIGHT = "in_flight"
+    RETRY = "retry"
+    DELIVERED = "delivered"
+    ACKNOWLEDGED = "acknowledged"
+    CANCELLED = "cancelled"
+    DEAD_LETTER = "dead_letter"
+    STATUS_CHOICES = [(v, v.replace("_", " ").title()) for v in (PENDING, IN_FLIGHT, RETRY, DELIVERED, ACKNOWLEDGED, CANCELLED, DEAD_LETTER)]
+    schedule = models.ForeignKey(
+        GovStackAlertSchedule,
+        on_delete=models.CASCADE,
+        related_name="recipient_deliveries",
+    )
+    dispatch_generation = models.PositiveIntegerField(default=1)
+    recipient_kind = models.CharField(max_length=30)
+    idempotency_key = models.CharField(max_length=180, unique=True)
+    correlation_id = models.CharField(max_length=180, db_index=True)
+    owner_key = models.CharField(max_length=180, db_index=True)
+    recipient_ref = models.CharField(max_length=180)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING, db_index=True)
+    attempts = models.PositiveIntegerField(default=0)
+    max_attempts = models.PositiveIntegerField(default=3)
+    next_attempt_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    lease_token = models.CharField(max_length=180, null=True, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_error = models.CharField(max_length=240, blank=True, default="")
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    dead_lettered_at = models.DateTimeField(null=True, blank=True)
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["schedule", "dispatch_generation", "recipient_kind", "recipient_ref"],
+                name="appt_sched_delivery_generation_recipient_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["status", "next_attempt_at"], name="appt_sched_due_idx"),
+            models.Index(fields=["status", "lease_expires_at"], name="appt_sched_lease_idx"),
+            models.Index(fields=["owner_key", "status"], name="appt_sched_owner_status_idx"),
+        ]
+
+
+class SchedulerOutbox(TimestampedModel):
+    delivery = models.OneToOneField(SchedulerRecipientDelivery, on_delete=models.CASCADE, related_name="outbox")
+    published_at = models.DateTimeField(null=True, blank=True)
+    available_at = models.DateTimeField(db_index=True)
+    publish_attempts = models.PositiveIntegerField(default=0)
+    last_error = models.CharField(max_length=240, blank=True, default="")
+    class Meta:
+        indexes = [models.Index(fields=["published_at", "available_at"], name="appt_sched_outbox_idx")]

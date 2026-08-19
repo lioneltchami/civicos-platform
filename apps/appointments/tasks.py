@@ -48,6 +48,7 @@ from urllib.parse import urlparse
 import requests
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -580,6 +581,8 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
     """
     from apps.appointments.models import Booking, GovStackAlertSchedule
 
+    durable_runtime_enabled = getattr(settings, "GOVSTACK_SCHEDULER_DURABLE_RUNTIME_ENABLED", False)
+
     with transaction.atomic():
         try:
             alert_schedule = (
@@ -593,21 +596,20 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
             )
             return {"attempted": 0, "skipped_unsafe": 0}
 
-        if alert_schedule.dispatched:
-            # Already processed — idempotent exit under the row lock.
+        if alert_schedule.dispatched and not durable_runtime_enabled:
+            # Legacy path: already processed — idempotent exit under the row lock.
             logger.debug(
                 "dispatch_alert_schedule.already_dispatched alert_schedule_pk=%s",
                 alert_schedule_pk,
             )
             return {"attempted": 0, "skipped_unsafe": 0, "already_dispatched": True}
 
-        # Mark dispatched=True NOW, in the same locked transaction as the
-        # idempotency check above, BEFORE any outbound HTTP call is
-        # attempted — see docstring "Crash-safety tradeoff" for why this
-        # ordering (under-delivery-on-crash, never duplicate-delivery-on-
-        # crash) was deliberately chosen over marking dispatched at the end.
-        alert_schedule.dispatched = True
-        alert_schedule.save(update_fields=["dispatched"])
+        # The legacy path retains its original Boolean behavior.  The opt-in
+        # durable path sets this compatibility projection only in the same
+        # transaction that materializes recipient work below.
+        if not durable_runtime_enabled:
+            alert_schedule.dispatched = True
+            alert_schedule.save(update_fields=["dispatched"])
 
         # Snapshot everything needed for delivery BEFORE releasing the lock.
         slot = alert_schedule.slot
@@ -621,6 +623,57 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
         "message_body": message.message_body,
         "alert_datetime": alert_datetime_iso,
     }
+
+    # The durable runtime is intentionally opt-in while its additive migration
+    # rolls out.  It materializes opaque recipient work/outbox rows and lets a
+    # separate task perform transport; no network call happens in this task.
+    if durable_runtime_enabled:
+        from apps.appointments.services import scheduler_runtime
+        from apps.appointments.scheduler_tasks import publish_scheduler_outbox
+
+        recipients: list[tuple[str, str]] = []
+        if target_category in ("", "subscriber"):
+            bookings = Booking.objects.filter(
+                slot=slot, status__in=_ALERT_ELIGIBLE_BOOKING_STATUSES
+            ).select_related("citizen__govstack_subscriber_profile")
+            for booking in bookings:
+                profile = getattr(booking.citizen, "govstack_subscriber_profile", None)
+                if profile is not None and profile.alert_preference == "push" and profile.alert_url:
+                    recipients.append(("subscriber", str(profile.pk)))
+        if target_category in ("", "resource"):
+            staff = slot.staff
+            if staff is not None and staff.gs_alert_preference == "push" and staff.gs_alert_url:
+                recipients.append(("staff", str(staff.pk)))
+            resource = slot.resource
+            if resource is not None and resource.alert_preference == "push" and resource.alert_url:
+                recipients.append(("resource", str(resource.pk)))
+
+        with transaction.atomic():
+            # Lock again only for the generation snapshot and all durable row
+            # creation.  Transport and broker publication occur after commit.
+            locked_schedule = GovStackAlertSchedule.objects.select_for_update().get(pk=alert_schedule.pk)
+            materialized = 0
+            for recipient_kind, recipient_ref in recipients:
+                _, created = scheduler_runtime.materialize(
+                    schedule=locked_schedule,
+                    owner_key=f"schedule:{locked_schedule.pk}",
+                    correlation_id=f"scheduler:{locked_schedule.pk}:{locked_schedule.delivery_generation}",
+                    recipient_kind=recipient_kind,
+                    recipient_ref=recipient_ref,
+                    payload={},
+                    generation=locked_schedule.delivery_generation,
+                )
+                materialized += int(created)
+            if not locked_schedule.dispatched:
+                locked_schedule.dispatched = True
+                locked_schedule.save(update_fields=["dispatched"])
+            transaction.on_commit(lambda: publish_scheduler_outbox.delay())
+        logger.info(
+            "dispatch_alert_schedule.materialized alert_schedule_pk=%s recipients=%d",
+            alert_schedule_pk,
+            materialized,
+        )
+        return {"attempted": 0, "skipped_unsafe": 0, "materialized": materialized}
 
     attempted = 0
     skipped_unsafe = 0
