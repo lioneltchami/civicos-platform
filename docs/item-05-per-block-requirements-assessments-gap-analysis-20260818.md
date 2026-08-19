@@ -203,3 +203,81 @@ A later item must also define cross-block tenant/auth semantics, consent decisio
 [5]: https://specs.govstack.global/consent/readme.md "Consent specification portal index"
 [6]: https://specs.govstack.global/payments/readme.md "Payments specification portal index"
 [7]: https://specs.govstack.global/scheduler/readme.md "Scheduler specification portal index"
+
+
+---
+
+## Inherited Item 01–04 status
+
+The following conclusions are **inherited / not re-executed by Item 05**. They are preserved to prevent this assessment from contradicting prior verified scope, not reasserted as fresh test results.
+
+| Item | Evidence record and key commit | Bounded conclusion retained by Item 05 | Item 05 treatment |
+|---|---|---|---|
+| Item 01 — Consent | `docs/item-01-consent-verification-20260818.md`; `d10b3b5` | Local Consent-suite evidence and a 42-operation matrix exist; the matrix remains `partial`; no blanket conformance claim. | Inherited / not re-executed. |
+| Item 02 — Payments | `docs/item-02-payments-failure-remediation-verification-20260818.md`; `eed79b4` | Failure-remediation foundations exist, but Payments is **Not ready** for testing-site submission. | Inherited / not re-executed. |
+| Item 03 — Scheduler | `docs/item-03-scheduler-harness-resolution-verification-20260818.md`; `8de06b7` | Harness/traceability work exists, but Scheduler is **Partially aligned / remediation required**. | Inherited / not re-executed. |
+| Item 04 — File Management | `docs/item-04-file-management-test-runner-enablement-verification-20260818.md`; `f901f2f` | **Fully aligned / ready** only for Item 04’s stated local/CI test-runner checklist; no official harness, deployment, certification, or conformance claim. | Inherited / not re-executed. |
+
+## Scope-sensitive priority legend
+
+A priority is meaningful only with the claim scope it blocks. **Must-fix** means a requirement must be closed before the stated scope may proceed; it does not make every gap a prerequisite for unrelated block-isolated local work.
+
+| Claim scope | Meaning |
+|---|---|
+| `local` | Accurate and safe block-isolated local documentation/test use. |
+| `combined-rehearsal` | A flow involving more than one Building Block. |
+| `authorized-staging` | An approved production-like staging rehearsal. |
+| `official-submission` | An official harness, testing-site, or conformance/submission claim. |
+
+## Dependency classification
+
+| Class | Meaning | Example |
+|---|---|---|
+| `source-observed` | A current route, model, task, test, or service path exists. | `config/urls.py` mounts distinct GovStack Payments and Scheduler namespaces. |
+| `required-contract` | A versioned, executable contract is required before the stated combined flow is exercised. | Scheduler fee/cancellation events require Payments correlation, idempotency, and compensation semantics. |
+| `not-evidenced` | No Item 05 source/evidence proves the alleged automatic integration. | Consent withdrawal propagation to all downstream records. |
+
+## Evidence-control matrix
+
+The portable evidence index `docs/item-05-per-block-requirements-evidence-20260818.json` contains one source-anchored record for every block and control dimension. Permitted evidence states are `implemented`, `locally_tested`, `staging_tested`, `officially_mapped`, and `not_evidenced`. Each entry cites a CivicOS path, pinned official authority URL, priority, dependency class, and gate scope; the index is validated by `scripts/validate_item05_per_block_assessment.py`.
+
+| Block | Functional | API | Data/audit | Error/failure | Security/cross-cutting | Testability | Dependency |
+|---|---|---|---|---|---|---|---|
+| Consent | implemented | locally tested | implemented | implemented | not evidenced | locally tested | required contract / not evidenced |
+| Payments | implemented | locally tested | implemented | implemented | not evidenced | locally tested | required contract / not evidenced |
+| Scheduler | implemented | locally tested | implemented | locally tested | not evidenced | locally tested | required contract / not evidenced |
+| File Management | implemented | locally tested | implemented | locally tested | locally tested | locally tested | required contract / not evidenced |
+
+> The matrix is an evidence classification, not a conformance score. In particular, route presence, local tests, and candidate packages do not establish an official API, deployment, staging, or submission result.
+
+## Auditable Items 6–7 gate
+
+No row below authorizes staging, external testing, or submission. These are accountable gating conditions for a later expressly approved scope.
+
+| Gate condition | Affected blocks | Evidence required | Accountable role | Current status | Blocks Item 6 | Blocks Item 7 |
+|---|---|---|---|---|---|---|
+| Pinned authority and approved claim scope | All | Version record and scope approval | BB owner / release authority | blocked | Yes | Yes |
+| Deployed routes, schema, auth, and tenant isolation | All | Environment inventory and auth tests | Platform/security owner | not evidenced | Yes | Yes |
+| Correlation, idempotency, replay, and retry ownership | All; Payments/Scheduler priority | Executable cross-block contract tests | Architecture owner | blocked | Yes | Yes |
+| Consent propagation and notification suppression | Consent/Scheduler/Payments/File Management | Policy propagation tests | Consent owner | blocked | Yes | Yes |
+| Settlement, reconciliation, compensation, and batch remediation | Payments | Provider-backed traces, reports, and runbook | Payments owner | blocked | Yes | Yes |
+| Recipient delivery, retry/dead-letter, acknowledgement, reporting | Scheduler | Recipient-level evidence and runbook | Scheduler owner | blocked | Yes | Yes |
+| Secure document lifecycle under storage/scan outage | File Management | Storage/scan/retention/authorization evidence | Documents/security owner | not evidenced | Yes | Yes |
+| Raw evidence, rollback/replay, synthetic data, explicit approval | All | Archived output, topology, rollback plan, approval | Release authority | blocked | Yes | Yes |
+
+## Per-Block requirements assessments checklist — final Item 05 status
+
+| Checklist item | Final status | Evidence |
+|---|---|---|
+| Gap analysis written for every implemented Building Block / area | **Complete** | Consent, Payments, Scheduler, and File Management assessments plus 28-record evidence index. |
+| Must-fix / Should-fix / Nice-to-have prioritisation for each block | **Complete** | Per-block priority tables, scope legend, and indexed priority/gate scope. |
+| Dependencies explicitly mapped | **Complete** | Dependency map, classification table, and indexed dependency fields. |
+| Well-structured Markdown assessment | **Complete** | This dated record and companion JSON. |
+| Functional, cross-cutting, APIs, data, errors, and testability covered | **Complete** | Uniform seven-dimension evidence-control matrix. |
+| Assessment reviewed for completeness and accuracy | **Complete** | Two blind Stage 2 reviews; corrections implemented in this Stage 3 update. |
+| No contradiction with Items 1–4 | **Complete** | Explicit inherited-status table with bounded records and commits. |
+| Clear safety statement before Items 6 and 7 | **Complete** | Auditable gate remains blocked/not evidenced for every external/staging condition. |
+
+## Stage 3 final-status update
+
+**Status at Stage 3:** Definitive Item 05 assessment documentation finalised. Stage 2’s validated corrections are implemented through the inherited-status controls, evidence index, scope-aware priorities, dependency classes, uniform control matrix, and auditable blocked gate. `scripts/validate_item05_per_block_assessment.py` and `tests/test_item05_per_block_assessment.py` provide offline regression checks. This update does not re-open Items 1–4, start Items 6–7, execute official suites, access external services, or authorize staging/submission.
