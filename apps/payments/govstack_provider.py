@@ -32,6 +32,13 @@ class ProviderResult:
     message: str = ""
     retryable: bool = False
     raw: Mapping[str, Any] | None = None
+    # Finality is explicit: an adapter must supply a stable observation/event
+    # identity and the caller must separately attest that its source was
+    # verified. Defaults preserve fail-closed behavior for existing adapters.
+    observation_id: str = ""
+    event_id: str = ""
+    verified: bool = False
+    verification_method: str = ""
 
     @property
     def is_final(self) -> bool:
@@ -50,4 +57,16 @@ class PaymentProvider(Protocol):
 
 def normalize_result(result: ProviderResult) -> ProviderResult:
     """Strip potentially sensitive raw provider data at the application boundary."""
-    return ProviderResult(result.outcome, result.provider_attempt_id[:100], result.external_transaction_id[:100], result.code[:50], result.message[:255], result.retryable)
+    return ProviderResult(
+        result.outcome,
+        result.provider_attempt_id[:100],
+        result.external_transaction_id[:100],
+        result.code[:50],
+        result.message[:255],
+        result.retryable,
+        None,
+        result.observation_id[:160],
+        result.event_id[:160],
+        bool(result.verified),
+        result.verification_method[:80],
+    )

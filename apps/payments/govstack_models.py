@@ -1439,6 +1439,42 @@ class PaymentReconciliation(TimestampedModel):
     class Meta:
         indexes = [models.Index(fields=["status", "created_at"], name="gs_recon_status_created_idx")]
 
+class ProviderObservation(TimestampedModel):
+    """Immutable exact-binding provider/source evidence; never local finality."""
+    KIND_PROVIDER = "provider"
+    KIND_SOURCE = "source"
+    OUTCOME_SETTLED = "settled"
+    OUTCOME_REJECTED = "rejected"
+    OUTCOME_UNCERTAIN = "uncertain"
+    OUTCOME_REVIEW = "manual_review"
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    attempt = models.ForeignKey(PaymentAttempt, on_delete=models.PROTECT, related_name="observations")
+    tenant_id = models.CharField(max_length=100, db_index=True)
+    observation_kind = models.CharField(max_length=20)
+    observation_id = models.CharField(max_length=160)
+    provider_transaction_id = models.CharField(max_length=100, blank=True)
+    event_id = models.CharField(max_length=160, blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    currency = models.CharField(max_length=3)
+    outcome = models.CharField(max_length=20)
+    verified = models.BooleanField(default=False)
+    verification_method = models.CharField(max_length=80, blank=True)
+    binding_hash = models.CharField(max_length=64)
+    accepted_finality = models.BooleanField(default=False, db_index=True)
+    metadata = models.JSONField(default=dict)
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["observation_kind", "observation_id"], name="gs_observation_kind_id_uniq"),
+            models.UniqueConstraint(fields=["attempt", "accepted_finality"], condition=models.Q(accepted_finality=True), name="gs_one_accepted_finality"),
+        ]
+        indexes = [models.Index(fields=["tenant_id", "attempt", "created_at"], name="gs_obs_tenant_attempt_idx")]
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValueError("ProviderObservation is immutable")
+        return super().save(*args, **kwargs)
+    def delete(self, *args, **kwargs):
+        raise ValueError("ProviderObservation is append-only")
+
 class IdempotencyConflict(Exception):
     pass
 

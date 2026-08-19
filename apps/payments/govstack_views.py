@@ -74,7 +74,7 @@ from .govstack_exceptions import (
     govstack_exception_handler,
     govstack_g2p_exception_handler,
 )
-from .govstack_models import GovStackVoucher
+from .govstack_models import GovStackVoucher, PaymentAttempt
 from .govstack_serializers import (
     BillTransferRequestSerializer,
     BulkPaymentRequestSerializer,
@@ -95,6 +95,7 @@ from .govstack_services import (
     _is_known_invalid_gov_stack_bb,
     _is_unregistered_gov_stack_bb,
 )
+from .govstack_status_views import tenant_status
 from .govstack_tasks import process_bulk_payment_batch, validate_prepayment_async
 from .govstack_throttling import GovStackPaymentsIdentityThrottle
 
@@ -1713,16 +1714,31 @@ class TransferRequestStatusView(GovStackAPIView):
             platform_tenant_id=tenant_id,
         )
 
-        return Response(
-            {
-                "responseCode": "00",
-                "reason": "Transfer request retrieved successfully.",
-                "requestID": payment.request_id,
-                "requestId": payment.request_id,
-                "billId": payment.bill.bill_id,
-                "amount": float(payment.amount),  # Spec: JSON number, not string
-                "currency": payment.currency,
-                "status": payment.status,
-            },
-            status=202,
-        )
+        attempt = PaymentAttempt.objects.filter(
+            tenant_id=tenant_id,
+            operation="p2g_bill_notification",
+            request_id=payment.request_id,
+        ).order_by("-created_at").first()
+        response_body = {
+            "responseCode": "00",
+            "reason": "Transfer request retrieved successfully.",
+            "requestID": payment.request_id,
+            "requestId": payment.request_id,
+            "billId": payment.bill.bill_id,
+            "amount": float(payment.amount),  # Spec: JSON number, not string
+            "currency": payment.currency,
+            "status": payment.status,
+        }
+        if attempt is not None:
+            reconciliation = attempt.reconciliations.order_by("-created_at").first()
+            response_body["settlementStatus"] = tenant_status(
+                tenant_id=tenant_id,
+                attempt_id=str(attempt.pk),
+                internal=attempt.status,
+                provider=reconciliation.provider_status if reconciliation else "",
+                reconciliation=reconciliation.status if reconciliation else "",
+            )["status"]
+            response_body["reconciliationStatus"] = (
+                reconciliation.status if reconciliation else "unknown"
+            )
+        return Response(response_body, status=202)

@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.payments.govstack_provider import ProviderOutcome, ProviderResult, normalize_result
 from apps.payments.govstack_models import (
     CallbackDelivery,
     GovStackPaymentAuditEntry,
@@ -22,6 +23,7 @@ from apps.payments.govstack_models import (
     PaymentAttempt,
     PaymentOutcome,
     PaymentReconciliation,
+    ProviderObservation,
 )
 
 
@@ -299,6 +301,117 @@ class PaymentLifecycleService:
             {"status": status, "provider_status": provider_status},
         )
         return reconciliation
+
+    @staticmethod
+    def binding_hash(tenant_id: str, attempt: PaymentAttempt, amount: Any, currency: str) -> str:
+        return hashlib.sha256(f"{tenant_id}|{attempt.pk}|{amount}|{currency.upper()}".encode()).hexdigest()
+
+    @classmethod
+    def record_observation(cls, attempt: PaymentAttempt, *, tenant_id: str, observation_kind: str, observation_id: str, outcome: str, amount: Any, currency: str, provider_transaction_id: str = "", event_id: str = "", verified: bool = False, verification_method: str = "", binding_hash: str = "", metadata: Mapping[str, Any] | None = None) -> ProviderObservation:
+        """Persist evidence; only verified exact bindings can establish finality."""
+        exact = (tenant_id == attempt.tenant_id and amount == attempt.amount and currency.upper() == attempt.currency.upper() and binding_hash == cls.binding_hash(tenant_id, attempt, amount, currency) and verified and outcome in {ProviderObservation.OUTCOME_SETTLED, ProviderObservation.OUTCOME_REJECTED})
+        with transaction.atomic():
+            locked = PaymentAttempt.objects.select_for_update().get(pk=attempt.pk)
+            obs = ProviderObservation.objects.create(attempt=locked, tenant_id=tenant_id[:100], observation_kind=observation_kind[:20], observation_id=observation_id[:160], provider_transaction_id=provider_transaction_id[:100], event_id=event_id[:160], amount=amount, currency=currency[:3], outcome=outcome[:20], verified=verified, verification_method=verification_method[:80], binding_hash=binding_hash[:64], accepted_finality=exact, metadata=dict(metadata or {}))
+            if exact and not locked.is_terminal:
+                cls.apply_outcome(locked, PaymentOutcome(outcome, provider_attempt_id=provider_transaction_id, external_transaction_id=provider_transaction_id))
+            else:
+                cls.audit(locked, GovStackPaymentAuditEntry.ACTION_PAYMENT_REVIEW_REQUIRED, {"observation_id": str(obs.pk), "exact_binding": exact})
+            return obs
+
+    @classmethod
+    def record_provider_result(
+        cls,
+        attempt: PaymentAttempt,
+        result: ProviderResult,
+        *,
+        source: str = ProviderObservation.KIND_PROVIDER,
+    ) -> ProviderObservation:
+        """Persist one adapter result under an exact-binding, fail-closed policy.
+
+        A returned status is not itself proof of finality.  Only a result that
+        identifies a stable observation/event and is explicitly marked verified
+        by the configured adapter can settle or reject a payment attempt.
+        """
+        normalized = normalize_result(result)
+        final_outcome = {
+            ProviderOutcome.SETTLED: ProviderObservation.OUTCOME_SETTLED,
+            ProviderOutcome.REJECTED: ProviderObservation.OUTCOME_REJECTED,
+            ProviderOutcome.INVALID_ACCOUNT: ProviderObservation.OUTCOME_REJECTED,
+            ProviderOutcome.INSUFFICIENT_FUNDS: ProviderObservation.OUTCOME_REJECTED,
+        }.get(normalized.outcome, ProviderObservation.OUTCOME_UNCERTAIN)
+        observation_id = (
+            normalized.observation_id
+            or normalized.event_id
+            or normalized.external_transaction_id
+            or normalized.provider_attempt_id
+        )
+        # There is no durable, independently addressable observation without an
+        # identifier; leave such responses explicitly non-final even if an
+        # adapter accidentally marks them verified.
+        verified = bool(normalized.verified and observation_id)
+        binding_hash = cls.binding_hash(
+            attempt.tenant_id,
+            attempt,
+            attempt.amount,
+            attempt.currency,
+        )
+        observation = cls.record_observation(
+            attempt,
+            tenant_id=attempt.tenant_id,
+            observation_kind=source,
+            observation_id=observation_id or f"unidentified:{attempt.pk}",
+            outcome=final_outcome,
+            amount=attempt.amount,
+            currency=attempt.currency,
+            provider_transaction_id=(
+                normalized.external_transaction_id or normalized.provider_attempt_id
+            ),
+            event_id=normalized.event_id,
+            verified=verified,
+            verification_method=normalized.verification_method,
+            binding_hash=binding_hash if verified else "",
+            metadata={
+                "provider_code": normalized.code,
+                "outcome": str(normalized.outcome),
+                "source": source,
+            },
+        )
+        attempt.refresh_from_db()
+        if not observation.accepted_finality and not attempt.is_terminal:
+            if normalized.outcome in {
+                ProviderOutcome.TIMEOUT,
+                ProviderOutcome.NETWORK,
+                ProviderOutcome.UNCERTAIN,
+            }:
+                non_final = PaymentOutcome(
+                    "uncertain",
+                    code=normalized.code or "PROVIDER_OUTCOME_UNCERTAIN",
+                    category="provider",
+                    message=normalized.message or "Provider outcome requires a status check.",
+                )
+            elif normalized.retryable:
+                non_final = PaymentOutcome(
+                    "retryable",
+                    code=normalized.code or "PROVIDER_RETRYABLE_FAILURE",
+                    category="provider",
+                    retryable=True,
+                    message=normalized.message or "Provider retry is eligible after reconciliation.",
+                )
+            else:
+                non_final = PaymentOutcome(
+                    "review",
+                    code=normalized.code or "UNVERIFIED_PROVIDER_OBSERVATION",
+                    category="reconciliation",
+                    message=normalized.message or "Provider observation is not verified for finality.",
+                )
+            cls.apply_outcome(attempt, non_final)
+            attempt.refresh_from_db()
+        cls.reconcile(
+            attempt,
+            provider_status=final_outcome if verified else "unknown",
+        )
+        return observation
 
     @staticmethod
     def due_retries(now: Any = None):
