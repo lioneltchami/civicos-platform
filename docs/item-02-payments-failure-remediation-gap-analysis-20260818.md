@@ -111,11 +111,24 @@ The implementation stage must work only on Item 02. It should use small, reviewa
 
 ### Stage 3 final-status update
 
-**Status as of Stage 1:** Pending implementation. No Item 02 alignment claim is made by this gap analysis.
+**Stage 3 status:** **Partially implemented and locally regression-tested; not ready for a conformance or testing-site claim.** The implementation deliberately adds a provider-neutral durable lifecycle without real provider credentials, production data, or live financial execution. No external suite was submitted or claimed.
 
-| Remediation ID | Final status | Evidence / commit / test |
+| Remediation ID | Stage 3 final status | Evidence / commit / test |
 |---|---|---|
-| P0-1 through P2-4 | Pending Stage 3 | To be updated after implementation and validation. |
+| P0-1 — durable attempt/lifecycle state | **Partially implemented.** `PaymentAttempt` supplies scoped IDs, typed state, guarded transitions, versioning, and immutable lifecycle audit. G2P/P2G now create reviewable attempts instead of treating local validation/notification as provider-settlement evidence. A real provider adapter/status-query integration remains required. | `83ff9e1`; `apps/payments/govstack_models.py`; `apps/payments/govstack_failure_services.py`; Item 02 focused tests. |
+| P0-2 — timeout/uncertain recovery | **Partially implemented.** Explicit uncertain outcome, provider attempt identity, due-uncertain query, unknown reconciliation record, and no-blind-retry review triage are present. No live provider status polling connector is configured. | `apps/payments/govstack_failure_services.py`; `apps/payments/govstack_tasks.py`; `test_item02_failure_recovery.py`. |
+| P0-3 — callback delivery durability | **Implemented for the CivicOS outbox boundary.** Callback payloads are persisted without protected identity/address fields, deduplicated by payload hash, retried with bounded backoff, and dead-lettered with immutable events. Transport continues to use the existing HTTPS/SSRF/redirect guard. | `apps/payments/govstack_models.py`; `apps/payments/govstack_failure_services.py`; `apps/payments/govstack_tasks.py`; `test_item02_failure_recovery.py`. |
+| P0-4 — reconciliation/status lifecycle | **Partially implemented.** `PaymentReconciliation` records internal/provider/source comparison and audit evidence; reports/query endpoints and actual provider/source data feed remain to be wired. | `apps/payments/govstack_models.py`; `apps/payments/govstack_failure_services.py`. |
+| P1-1 — batch failure-rate/kick-back | **Still missing.** Batch totals are preserved and every instruction gains lifecycle evidence, but a configurable failure-rate threshold and safe partial resubmission policy have not been implemented. | Explicit Stage 3 deferment; retain as blocker for full alignment. |
+| P1-2 — typed outcome taxonomy | **Partially implemented.** Provider-neutral invalid-account, insufficient-funds, rejected, retryable, uncertain, review, and dead-letter vocabulary exists. Real provider mapping remains pending. | `apps/payments/govstack_models.py`; `apps/payments/govstack_failure_services.py`. |
+| P1-3 — canonical idempotency | **Partially implemented.** Scoped same-key/same-payload replay and deterministic changed-payload conflict are implemented in `PaymentLifecycleService`; existing HTTP entry points still return their legacy duplicate envelopes and need endpoint adoption. | `test_item02_failure_lifecycle.py`; `apps/payments/govstack_failure_services.py`. |
+| P1-4 — lifecycle audit coverage | **Partially implemented.** Append-only audit actions now cover attempt, outcome, retry, uncertain, callback, reconciliation, and review events. Full provider/source-BB call evidence awaits actual adapter integration. | `apps/payments/govstack_models.py`; `0028_item02_audit_lifecycle_actions.py`. |
+| P2-1 — Scheduler remediation | **Implemented for the bounded no-adapter safety path.** Idempotent Celery Beat registrations scan callback outbox, uncertain attempts, and retryable attempts every five minutes; unresolved operations route to review rather than hidden retry. | `apps/payments/management/commands/setup_periodic_tasks.py`; `apps/payments/govstack_tasks.py`; existing scheduling regression suite. |
+| P2-2 — regression evidence | **Partially implemented.** Seven new focused lifecycle/recovery tests plus existing G2P task, periodic-registration, and P2G regressions passed in the isolated sandbox: **220 tests**, migration drift check clean, Django system checks clean. | `docs/govstack/testing/evidence/ITEM02_PAYMENTS_FAILURE_REMEDIATION_VALIDATION_20260818.log` (SHA-256 `847e3aa83bb9d583bbbb563da5ef67c8c8d8588a897f0d356f6f10d66b629329`). |
+| P2-3 — 301/500 causes | **Still unproven.** No exact external-harness raw request/response/trace run was performed in Stage 3. | Explicitly retained for adapter/official-suite validation. |
+| P2-4 — tenant deployment invariant | **Still partially evidenced.** Existing tenant tests passed; production deployment setting evidence is outside this isolated run. | Existing P2G tenant regression suite passed; deployment proof pending. |
+
+**Current checklist implication:** The implementation advances durable failure state, callback recovery, auditability, and scheduler hygiene, but Items P0-1, P0-2, P0-4, P1-1, P1-3, P2-3, and P2-4 prevent an honest “Fully aligned / ready” finding today. Stage 4 must independently verify both the implemented behaviour and these bounded remaining gaps.
 
 ## References
 
