@@ -8,6 +8,12 @@
 | Identity/IM boundary | `docs/item-01-consent-integration-boundary-20260818.md`, `apps/consent/integration_boundary.py` | fail-closed stub |
 | Audit inventory | `docs/item-01-consent-audit-event-inventory-20260818.md` | complete as inventory; emission gaps remain |
 | Local evidence | `docs/govstack/testing/runs/consent-2026-08-19-revalidated-pinned-7af4b62/` | prior bounded run retained |
-| External submission/certification | none | not performed / not claimed |
+| External submission/certification | none | NOT_READY — not performed / not claimed |
 
 Authorised reviewer: ____________________  Date: __________  Decision: __________
+
+
+**Readiness guard:** This index is a local evidence inventory only. No artifact may be represented as staging, official, submitted, or certified evidence while readiness is `NOT_READY`.
+
+
+**Readiness guard:** This index is a local evidence inventory only. No artifact may be represented as staging, official, submitted, or certified evidence while readiness is `NOT_READY`.

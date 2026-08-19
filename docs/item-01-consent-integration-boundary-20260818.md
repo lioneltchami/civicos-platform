@@ -12,3 +12,10 @@ External Identity and Information Mediator endpoints and credentials were not su
 | Failure mode | `ConsentIntegrationUnavailable` is raised before any outbound request when configuration is absent |
 
 This boundary is tested locally only. It does not prove external interoperability.
+
+
+## Local contract guardrails
+
+The boundary validates event type, opaque subject identity, resource identity, idempotency key, and JSON-object payload before configuration. Configuration is fail-closed: both deployment-owned endpoint values must be non-empty strings, and the bounded stub performs no transport, retry, replay, credential, or endpoint work. Configured calls deliberately raise `NotImplementedError` so local execution cannot be mistaken for interoperability evidence.
+
+Local tests cover missing configuration, malformed message fields, deterministic idempotency requirements, and the configured-but-unimplemented transport boundary.

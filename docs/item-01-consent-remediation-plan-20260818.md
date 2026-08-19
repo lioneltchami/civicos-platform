@@ -33,4 +33,4 @@ The following current controls are **Fully aligned** under the latest verificati
 
 ## Stage 3 final-status update
 
-**Pending.** Repository-only changes may close the focused regression/import defect and improve evidence documentation. External integration, authorised staging, full official-suite execution, functional assessment approval, and testing-site submission cannot be completed or claimed without separately authorised access and evidence.
+**Complete for repository-only scope.** The Stage 3 implementation closes the focused regression/import defect and improves evidence documentation. External integration, authorised staging, full official-suite execution, functional assessment approval, and testing-site submission cannot be completed or claimed without separately authorised access and evidence.

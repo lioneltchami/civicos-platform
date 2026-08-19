@@ -10,3 +10,8 @@
 | Audit retrieval | `consent.audit.read` | actor, filters, sort, result count, outcome | partial |
 
 Existing hash-chain and Consent history infrastructure is retained. Complete mutation emission and official Audit list/detail parity remain evidence gates.
+
+
+## Evidence guard
+
+Every inventory row remains `partial` until mutation provenance, lifecycle transition, revision/signature linkage, and retrieval behavior are demonstrated by bounded executable evidence. Local model/history tests establish only that the local structures exist; they do not promote audit parity or official equivalence. Any export or package index must carry an evidence identity and remain `NOT_READY` for staging, official, submitted, or certified claims.
