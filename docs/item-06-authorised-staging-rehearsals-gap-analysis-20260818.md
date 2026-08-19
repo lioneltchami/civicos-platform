@@ -83,3 +83,12 @@ The following actions cannot be completed safely from this repository alone: pro
 
 [1]: https://specs.govstack.global/technical-specifications/building-blocks.md "GovStack Building Blocks"
 [2]: https://specs.govstack.global/readme.md?ask=What%20cross-cutting%20security%2C%20deployment%2C%20operational%2C%20observability%2C%20and%20testing%20evidence%20requirements%20apply%20to%20a%20GovStack%20Building%20Block%20staging%20rehearsal%3F "GovStack cross-functional staging-rehearsal requirements"
+
+
+---
+
+## Stage 3 final-status update
+
+**Repository-safe preparation completed:** `docs/staging/rehearsal-manifest.example.json` provides a non-secret, synthetic-data-only, network-disabled manifest with `authorized=false`. `scripts/validate_item06_staging_preflight.py` is an offline fail-closed validator; it rejects unresolved approvals/targets/releases/ownership/evidence, unsafe execution permissions, non-synthetic data intent, secret-like keys, and any outcome other than `NOT_RUN` or `BLOCKED`. `docs/staging/CONTROL_TEMPLATES_AND_REGRESSION_MATRIX.md` adds access/authorisation, rollback/restore, redaction/evidence, and Items 1–5 regression controls. `tests/test_item06_staging_rehearsal.py` protects the non-execution boundary.
+
+**Remote-only conditions remain blocked/not evidenced:** provisioning, protected promotion, IAM/MFA/OIDC, remote secret configuration, TLS/DNS, deployment, migrations, backup/restore execution, centralized observability, external integrations, and a successful authorised full rehearsal. No external action or completion claim was made. These controls now have an explicit future rehearsal contract, but their remote acceptance checklist rows cannot turn green until a human authorises an environment and evidence-producing execution.
