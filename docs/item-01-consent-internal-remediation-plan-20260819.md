@@ -57,3 +57,9 @@ The selected read-only `serviceIndividualConsentRecordRead` pass added mounted r
 The isolated snapshot reported **No changes detected in app `consent`** and passed **177 focused Consent tests**. Raw output is retained in `docs/govstack/testing/evidence/item-01-consent-internal-parity-validation-20260819.log`.
 
 > This evidence supports only the selected local read operation. All 42 operation rows remain **partial**; no unsupported operation was promoted and the Identity/Information Mediator boundary remains fail-closed.
+
+### C01-04 correction — 2026-08-19
+
+Independent review found that the original selected-route tests did not explicitly prove no mutation and no boundary invocation. The mounted regression now snapshots `ConsentRecord`, `ConsentRevision`, `ConsentSignature`, `ConsentAuditEntry`, and `ConsentWebhook` counts and selected persisted record fields across two authenticated GETs, and patches `ConsentIntegrationBoundary.publish` with a fail-fast sentinel. The test proves both responses are identical, no tracked state changes, and no external-boundary call occurs.
+
+The corrected isolated run passed **178 focused Consent tests**. Raw output is retained in `docs/govstack/testing/evidence/item-01-consent-internal-parity-c0104-validation-20260819.log`. This correction does not alter the fail-closed boundary, promotion guards, or all-42-partial operation status.
