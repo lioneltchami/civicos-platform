@@ -36,3 +36,7 @@ Do not rework durable `PaymentAttempt`, `CallbackDelivery`, and `PaymentReconcil
 ## Stage 3 final-status update
 
 **Pending.** Repository-only changes may close adapter abstractions, local policy, route, reporting, test, audit and runbook gaps. A real provider/source integration, authorised non-production adapter, current official-suite run and deployment-level tenant evidence remain separately required before any full-green claim.
+
+## Stage 3 final status
+
+Repository-only remediation added deterministic provider-contract primitives, canonical HTTP idempotency primitives, non-PII status/batch/operations helpers, local evidence validation, a failure-operations runbook, and deterministic primitive tests. These additions are **not** wired to a real provider and do not establish deployment, route, staging, official-suite, tenant-equivalent, or portal evidence. The acceptance checklist therefore remains partially aligned pending complete route integration, provider/source outcomes, authorised non-production evidence, and current official-suite results.
