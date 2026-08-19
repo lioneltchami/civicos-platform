@@ -1,0 +1,8 @@
+services:
+  web:
+    environment:
+      GOVSTACK_CANDIDATE_ID: civicos-file-management-testing
+      GOVSTACK_CANDIDATE_BUILDING_BLOCK: file-management
+      GOVSTACK_TEST_TARGET: ${GOVSTACK_TEST_TARGET:-local}
+      # Candidate data is created only in the existing ephemeral/local Compose volumes.
+      CIVICOS_GOVSTACK_SYNTHETIC_DOCUMENTS_ONLY: "true"

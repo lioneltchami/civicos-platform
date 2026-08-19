@@ -1,0 +1,9 @@
+{
+  "building_block": "Scheduler",
+  "official_repository": "GovStackWorkingGroup/bb-scheduler",
+  "official_revision": "d425be5cc0d6c606f351e5bf89be6d5c6c83c468",
+  "execution_scope": "local-only",
+  "command": "bash test/openAPI/test_entrypoint.sh",
+  "result": "harness_blocked",
+  "interpretation": "The pinned harness exited 0 after a dependency-confusion placeholder message and did not produce scenario results."
+}

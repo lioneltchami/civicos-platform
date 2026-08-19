@@ -1,0 +1,1571 @@
+<?xml version="1.0"?>
+<testsuite failures="74" skipped="0" name="cucumber-js" time="3.571220926" tests="74">
+  <testcase classname="Handover a batch of credit instructions to be processed" name="Succesfully handovered a batch of credit instructions to be processed smoke type test" time="0.063164335">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_bulk_payment.js:72:38)]]></failure>
+    <system-out><![CDATA[Given Source BB wants to handover a batch of credit instructions to be ...passed
+When POST request to bulk-payments with given "RequestID111" as Request...passed
+Then The response from the /bulk-payment is received......................passed
+And The /bulk-payment response should be returned in a timely manner 15...passed
+And The /bulk-payment response should have status 200.....................failed
+And The /bulk-payment response should have "content-type": "applicatio...skipped
+And The /bulk-payment response should match json schema..................skipped]]></system-out>
+  </testcase>
+  <testcase classname="Handover a batch of credit instructions to be processed" name="Succesfully handovered a batch of credit instructions to be processed using not obligatory fields in the request payload" time="0.046117431">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_bulk_payment.js:72:38)]]></failure>
+    <system-out><![CDATA[Given Source BB wants to handover a batch of credit instructions to be ...passed
+When POST request to bulk-payments with given "RequestID222" as Request...passed
+Then The response from the /bulk-payment is received......................passed
+And The /bulk-payment response should be returned in a timely manner 15...passed
+And The /bulk-payment response should have status 200.....................failed
+And The /bulk-payment response should have "content-type": "applicatio...skipped
+And The /bulk-payment response should match json schema..................skipped
+And The /bulk-payment response ResponseCode field should be "00".........skipped
+And The /bulk-payment response RequestID field should be "RequestID222...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Handover a batch of credit instructions to be processed" name="Unable to handover a batch of credit instructions to be processed because of missing required SourceBBID in the payload" time="0.09114553099999999">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_bulk_payment.js:72:38)]]></failure>
+    <system-out><![CDATA[Given Source BB wants to handover a batch of credit instructions to be ...passed
+When POST request to bulk-payments with given "RequestID111" as Request...passed
+Then The response from the /bulk-payment is received......................passed
+And The /bulk-payment response should be returned in a timely manner 15...passed
+And The /bulk-payment response should have status 400.....................failed]]></system-out>
+  </testcase>
+  <testcase classname="Handover a batch of credit instructions to be processed" name="Unable to handover a batch of credit instructions to be processed because of missing required BatchID in the payload" time="0.045420428">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_bulk_payment.js:72:38)]]></failure>
+    <system-out><![CDATA[Given Source BB wants to handover a batch of credit instructions to be ...passed
+When POST request to bulk-payments with given "RequestID111" as Request...passed
+Then The response from the /bulk-payment is received......................passed
+And The /bulk-payment response should be returned in a timely manner 15...passed
+And The /bulk-payment response should have status 400.....................failed]]></system-out>
+  </testcase>
+  <testcase classname="Handover a batch of credit instructions to be processed" name="Unable to handover a batch of credit instructions to be processed because of empty CreditInstructions array in the payload" time="0.046402928">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_bulk_payment.js:72:38)]]></failure>
+    <system-out><![CDATA[Given Source BB wants to handover a batch of credit instructions to be ...passed
+When POST request to bulk-payments with given "RequestID111" as Request...passed
+Then The response from the /bulk-payment is received......................passed
+And The /bulk-payment response should be returned in a timely manner 15...passed
+And The /bulk-payment response should have status 400.....................failed]]></system-out>
+  </testcase>
+  <testcase classname="Handover a batch of credit instructions to be processed" name="Unable to handover a batch of credit instructions to be processed because of invalid SourceBBID value in the payload" time="0.046764139">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_bulk_payment.js:72:38)]]></failure>
+    <system-out><![CDATA[Given Source BB wants to handover a batch of credit instructions to be ...passed
+When POST request to bulk-payments with given "RequestID111" as Request...passed
+Then The response from the /bulk-payment is received......................passed
+And The /bulk-payment response should be returned in a timely manner 15...passed
+And The /bulk-payment response should have status 400.....................failed]]></system-out>
+  </testcase>
+  <testcase classname="Handover a batch of credit instructions to be processed" name="Unable to handover a batch of credit instructions to be processed because of invalid BatchID value in the payload" time="0.045257429">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_bulk_payment.js:72:38)]]></failure>
+    <system-out><![CDATA[Given Source BB wants to handover a batch of credit instructions to be ...passed
+When POST request to bulk-payments with given "RequestID111" as Request...passed
+Then The response from the /bulk-payment is received......................passed
+And The /bulk-payment response should be returned in a timely manner 15...passed
+And The /bulk-payment response should have status 400.....................failed]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Successfully retrieved eligible Functional IDs from the account mapper for credit transfers smoke type test" time="0.048393178999999995">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+When POST /prepayment-validation-response request with required body w...skipped
+Then The response from the /prepayment-validation-response is received...skipped
+And The /prepayment-validation-response response should be returned in...skipped
+And The /prepayment-validation-response response should have status 20...skipped
+And The /prepayment-validation-response response should have "content-...skipped
+And The /prepayment-validation-response response should match json sch...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Successfully retrieved eligible Functional IDs from the account mapper for credit transfers" time="0.048453385">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped
+And The /prepayment-validation response RequestID field should be "d52...skipped
+When POST /prepayment-validation-response request with required body w...skipped
+Then The response from the /prepayment-validation-response is received...skipped
+And The /prepayment-validation-response response should be returned in...skipped
+And The /prepayment-validation-response response should have status 20...skipped
+And The /prepayment-validation-response response should have "content-...skipped
+And The /prepayment-validation-response response should match json sch...skipped
+And The /prepayment-validation-response response RequestID field shoul...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of missing required SourceBBID in the payload" time="0.04577251200000001">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of missing required BatchID in the payload" time="0.047746346999999995">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of missing required InstructionID in the payload" time="0.046654844">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of missing required PayeeFunctionalID in the payload" time="0.052404889">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of missing required Amount in the payload" time="0.04899600700000001">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of missing required Currency in the payload" time="0.050268887000000005">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of missing required Narration in the payload" time="0.046659137">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of invalid SourceBBID paramater in payload" time="0.048375678">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of invalid BatchID paramater in payload" time="0.046804553">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of invalid InstructionID paramater in payload" time="0.053245971">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of invalid PayeeFunctionalID paramater in payload" time="0.067628628">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of invalid Amount paramater in payload" time="0.057510006">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Pre-payment validation" name="Unable to retrieve eligible Functional IDs from the account mapper for credit transfers because of invalid Currency paramater in payload" time="0.056430798">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_prepayment_validation.js:83:47)]]></failure>
+    <system-out><![CDATA[Given Wants to retrieve eligible Functional IDs from the account mapper...passed
+When POST /prepayment-validation request with required body with given ...passed
+Then The response from the /prepayment-validation is received.............passed
+And The /prepayment-validation response should be returned in a timely ...passed
+And The /prepayment-validation response should have status 200............failed
+And The /prepayment-validation response should have "content-type": "a...skipped
+And The /prepayment-validation response should match json schema.........skipped
+And The /prepayment-validation response ResponseCode field should be "...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Register beneficiary" name="Succesfully registered a beneficiary smoke type test" time="0.030165186">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_register_beneficiary.js:56:56)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to register a beneficiary.............passed
+When POST request to register a beneficiary with given "4a0425ef-008" a...passed
+Then The response from the /register-beneficiary is received..............passed
+And The /register-beneficiary response should be returned in a timely m...passed
+And The /register-beneficiary response should have status 200.............failed
+And The /register-beneficiary response should have "content-type": "ap...skipped
+And The /register-beneficiary response should match json schema..........skipped]]></system-out>
+  </testcase>
+  <testcase classname="Register beneficiary" name="Succesfully registered a beneficiary using not obligatory fields in the request payload" time="0.030406603999999997">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_register_beneficiary.js:56:56)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to register a beneficiary.............passed
+When POST request to register a beneficiary with given "90566839-ad0" a...passed
+Then The response from the /register-beneficiary is received..............passed
+And The /register-beneficiary response should be returned in a timely m...passed
+And The /register-beneficiary response should have status 200.............failed
+And The /register-beneficiary response should have "content-type": "ap...skipped
+And The /register-beneficiary response should match json schema..........skipped
+And The /register-beneficiary response ResponseCode field should be "0...skipped
+And The /register-beneficiary response RequestID field should be "9056...skipped
+And The /register-beneficiary response should have a "ResponseDescript...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Register beneficiary" name="Unable to register a beneficiary because of missing required SourceBBID in the payload" time="0.028972477000000003">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_register_beneficiary.js:56:56)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to register a beneficiary.............passed
+When POST request to register a beneficiary with given "4a0425ef-008" a...passed
+Then The response from the /register-beneficiary is received..............passed
+And The /register-beneficiary response should be returned in a timely m...passed
+And The /register-beneficiary response should have status 400.............failed
+And The /register-beneficiary response should have "content-type": "ap...skipped
+And The /register-beneficiary response should match json schema..........skipped
+And The /register-beneficiary response ResponseCode field should be "0...skipped
+And The /register-beneficiary response RequestID field should be "4a04...skipped
+And The /register-beneficiary response should have a "ResponseDescript...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Register beneficiary" name="Unable to register a beneficiary because of missing required PayeeFunctionalID in the payload" time="0.0836562">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_register_beneficiary.js:56:56)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to register a beneficiary.............passed
+When POST request to register a beneficiary with given "4a0425ef-008" a...passed
+Then The response from the /register-beneficiary is received..............passed
+And The /register-beneficiary response should be returned in a timely m...passed
+And The /register-beneficiary response should have status 400.............failed
+And The /register-beneficiary response should have "content-type": "ap...skipped
+And The /register-beneficiary response should match json schema..........skipped
+And The /register-beneficiary response ResponseCode field should be "0...skipped
+And The /register-beneficiary response RequestID field should be "4a04...skipped
+And The /register-beneficiary response should have a "ResponseDescript...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Register beneficiary" name="Unable to register a beneficiary because of invalid SourceBBID value in the payload" time="0.02397436">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_register_beneficiary.js:56:56)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to register a beneficiary.............passed
+When POST request to register a beneficiary with given "4a0425ef-008" a...passed
+Then The response from the /register-beneficiary is received..............passed
+And The /register-beneficiary response should be returned in a timely m...passed
+And The /register-beneficiary response should have status 400.............failed
+And The /register-beneficiary response should have "content-type": "ap...skipped
+And The /register-beneficiary response should match json schema..........skipped
+And The /register-beneficiary response ResponseCode field should be "0...skipped
+And The /register-beneficiary response RequestID field should be "4a04...skipped
+And The /register-beneficiary response should have a "ResponseDescript...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Register beneficiary" name="Unable to register a beneficiary because of invalid PayeeFunctionalID value in the payload" time="0.022941565">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_register_beneficiary.js:56:56)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to register a beneficiary.............passed
+When POST request to register a beneficiary with given "4a0425ef-008" a...passed
+Then The response from the /register-beneficiary is received..............passed
+And The /register-beneficiary response should be returned in a timely m...passed
+And The /register-beneficiary response should have status 400.............failed
+And The /register-beneficiary response should have "content-type": "ap...skipped
+And The /register-beneficiary response should match json schema..........skipped
+And The /register-beneficiary response ResponseCode field should be "0...skipped
+And The /register-beneficiary response RequestID field should be "4a04...skipped
+And The /register-beneficiary response should have a "ResponseDescript...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Update beneficiary details" name="Succesfully updated beneficiary details smoke type test" time="0.048619305">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_update_beneficiary_details.js:57:53)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to update beneficiary details.........passed
+When POST request to update beneficiary details with given "c2b861bf-ef...passed
+Then The response from the /update-beneficiary-details is received........passed
+And The /update-beneficiary-details response should be returned in a ti...passed
+And The /update-beneficiary-details response should have status 200.......failed
+And The /update-beneficiary-details response should have "content-type...skipped
+And The /update-beneficiary-details response should match json schema....skipped]]></system-out>
+  </testcase>
+  <testcase classname="Update beneficiary details" name="Succesfully updated beneficiary details using not obligatory fields in the request payload" time="0.04931371700000001">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_update_beneficiary_details.js:57:53)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to update beneficiary details.........passed
+When POST request to update beneficiary details with given "29517635-b4...passed
+Then The response from the /update-beneficiary-details is received........passed
+And The /update-beneficiary-details response should be returned in a ti...passed
+And The /update-beneficiary-details response should have status 200.......failed
+And The /update-beneficiary-details response should have "content-type...skipped
+And The /update-beneficiary-details response should match json schema....skipped
+And The /update-beneficiary-details response ResponseCode field should...skipped
+And The /update-beneficiary-details response RequestID field should be...skipped
+And The /update-beneficiary-details response should have a "ResponseDe...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Update beneficiary details" name="Unable to update beneficiary details because of missing required SourceBBID in the payload" time="0.048486889000000005">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_update_beneficiary_details.js:57:53)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to update beneficiary details.........passed
+When POST request to update beneficiary details with given "e2d40d31-80...passed
+Then The response from the /update-beneficiary-details is received........passed
+And The /update-beneficiary-details response should be returned in a ti...passed
+And The /update-beneficiary-details response should have status 400.......failed
+And The /update-beneficiary-details response should have "content-type...skipped
+And The /update-beneficiary-details response should match json schema....skipped
+And The /update-beneficiary-details response ResponseCode field should...skipped
+And The /update-beneficiary-details response RequestID field should be...skipped
+And The /update-beneficiary-details response should have a "ResponseDe...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Update beneficiary details" name="Unable to update beneficiary details because of missing required PayeeFunctionalID in the payload" time="0.04549317900000001">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_update_beneficiary_details.js:57:53)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to update beneficiary details.........passed
+When POST request to update beneficiary details with given "e2d40d31-80...passed
+Then The response from the /update-beneficiary-details is received........passed
+And The /update-beneficiary-details response should be returned in a ti...passed
+And The /update-beneficiary-details response should have status 400.......failed
+And The /update-beneficiary-details response should have "content-type...skipped
+And The /update-beneficiary-details response should match json schema....skipped
+And The /update-beneficiary-details response ResponseCode field should...skipped
+And The /update-beneficiary-details response RequestID field should be...skipped
+And The /update-beneficiary-details response should have a "ResponseDe...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Update beneficiary details" name="Unable to update beneficiary details because of invalid SourceBBID value in the payload" time="0.046367678999999995">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_update_beneficiary_details.js:57:53)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to update beneficiary details.........passed
+When POST request to update beneficiary details with given "e2d40d31-80...passed
+Then The response from the /update-beneficiary-details is received........passed
+And The /update-beneficiary-details response should be returned in a ti...passed
+And The /update-beneficiary-details response should have status 400.......failed
+And The /update-beneficiary-details response should have "content-type...skipped
+And The /update-beneficiary-details response should match json schema....skipped
+And The /update-beneficiary-details response ResponseCode field should...skipped
+And The /update-beneficiary-details response RequestID field should be...skipped
+And The /update-beneficiary-details response should have a "ResponseDe...skipped]]></system-out>
+  </testcase>
+  <testcase classname="Update beneficiary details" name="Unable to update beneficiary details because of invalid PayeeFunctionalID value in the payload" time="0.046342014">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/g2p_update_beneficiary_details.js:57:53)]]></failure>
+    <system-out><![CDATA[Given Information Mediator BB wants to update beneficiary details.........passed
+When POST request to update beneficiary details with given "e2d40d31-80...passed
+Then The response from the /update-beneficiary-details is received........passed
+And The /update-beneficiary-details response should be returned in a ti...passed
+And The /update-beneficiary-details response should have status 400.......failed
+And The /update-beneficiary-details response should have "content-type...skipped
+And The /update-beneficiary-details response should match json schema....skipped
+And The /update-beneficiary-details response ResponseCode field should...skipped
+And The /update-beneficiary-details response RequestID field should be...skipped
+And The /update-beneficiary-details response should have a "ResponseDe...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherActivation API is used to activate a pre-activated voucher" name="Successfully activates a pre-activated voucher smoke type test" time="0.066264793">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_activation.js:53:54)]]></failure>
+    <system-out><![CDATA[Given Non Payment Building Block wants to activate a pre-activated vouc...passed
+When Sends PATCH /vouchers/voucher_activation request with valid payloa...passed
+Then Receives a response from the /vouchers/voucher_activation endpoint...passed
+And The /vouchers/voucher_activation endpoint response should be return...passed
+And The /vouchers/voucher_activation endpoint response should have stat...failed
+And The /vouchers/voucher_activation endpoint response should match js...skipped
+And The /vouchers/voucher_activation response should have "content-typ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherActivation API is used to activate a pre-activated voucher" name="Successfully activates a pre-activated voucher with the optional X-Callback-URL header" time="0.062259085">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_activation.js:53:54)]]></failure>
+    <system-out><![CDATA[Given Non Payment Building Block wants to activate a pre-activated vouc...passed
+When Sends PATCH /vouchers/voucher_activation request with valid payloa...passed
+And Provides optional X-Callback-URL header...............................passed
+Then Receives a response from the /vouchers/voucher_activation endpoint...passed
+And The /vouchers/voucher_activation endpoint response should be return...passed
+And The /vouchers/voucher_activation endpoint response should have stat...failed
+And The /vouchers/voucher_activation endpoint response should match js...skipped
+And The /vouchers/voucher_activation response should have "content-typ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherActivation API is used to activate a pre-activated voucher" name="Successfully activates a pre-activated voucher with the optional X-Channel header" time="0.062363713">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_activation.js:53:54)]]></failure>
+    <system-out><![CDATA[Given Non Payment Building Block wants to activate a pre-activated vouc...passed
+When Sends PATCH /vouchers/voucher_activation request with valid payloa...passed
+And Provides optional X-Channel header....................................passed
+Then Receives a response from the /vouchers/voucher_activation endpoint...passed
+And The /vouchers/voucher_activation endpoint response should be return...passed
+And The /vouchers/voucher_activation endpoint response should have stat...failed
+And The /vouchers/voucher_activation endpoint response should match js...skipped
+And The /vouchers/voucher_activation response should have "content-typ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherActivation API is used to activate a pre-activated voucher" name="Successfully activates a pre-activated voucher with the optional X-Date header" time="0.06636495700000002">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_activation.js:53:54)]]></failure>
+    <system-out><![CDATA[Given Non Payment Building Block wants to activate a pre-activated vouc...passed
+When Sends PATCH /vouchers/voucher_activation request with valid payloa...passed
+And Provides optional X-Date header.......................................passed
+Then Receives a response from the /vouchers/voucher_activation endpoint...passed
+And The /vouchers/voucher_activation endpoint response should be return...passed
+And The /vouchers/voucher_activation endpoint response should have stat...failed
+And The /vouchers/voucher_activation endpoint response should match js...skipped
+And The /vouchers/voucher_activation response should have "content-typ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherActivation API is used to activate a pre-activated voucher" name="Successfully activates a pre-activated voucher with the optional X-CorrelationID header" time="0.06394921099999999">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_activation.js:53:54)]]></failure>
+    <system-out><![CDATA[Given Non Payment Building Block wants to activate a pre-activated vouc...passed
+When Sends PATCH /vouchers/voucher_activation request with valid payloa...passed
+And Provides optional X-CorrelationID header..............................passed
+Then Receives a response from the /vouchers/voucher_activation endpoint...passed
+And The /vouchers/voucher_activation endpoint response should be return...passed
+And The /vouchers/voucher_activation endpoint response should have stat...failed
+And The /vouchers/voucher_activation endpoint response should match js...skipped
+And The /vouchers/voucher_activation response should have "content-typ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherActivation API is used to activate a pre-activated voucher" name="Unable to activate a pre-activated voucher because of an empty payload" time="0.067793625">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_activation.js:53:54)]]></failure>
+    <system-out><![CDATA[Given Non Payment Building Block wants to activate a pre-activated vouc...passed
+When Sends PATCH /vouchers/voucher_activation request without payload.....passed
+Then Receives a response from the /vouchers/voucher_activation endpoint...passed
+And The /vouchers/voucher_activation endpoint response should be return...passed
+And The /vouchers/voucher_activation endpoint response should have stat...failed
+And The /vouchers/voucher_activation endpoint response should match js...skipped
+And The /vouchers/voucher_activation response should have "content-typ...skipped
+And The /vouchers/voucher_activation response should have a "message" ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherActivation API is used to activate a pre-activated voucher" name="Unable to activate a pre-activated voucher because of an invalid voucher_serial_number" time="0.06635925100000001">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 456
+    + expected - actual
+
+    -500
+    +456
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_activation.js:53:54)]]></failure>
+    <system-out><![CDATA[Given Non Payment Building Block wants to activate a pre-activated vouc...passed
+When Sends PATCH /vouchers/voucher_activation request with an invalid v...passed
+Then Receives a response from the /vouchers/voucher_activation endpoint...passed
+And The /vouchers/voucher_activation endpoint response should be return...passed
+And The /vouchers/voucher_activation endpoint response should have stat...failed
+And The /vouchers/voucher_activation endpoint response should match js...skipped
+And The /vouchers/voucher_activation response should have "content-typ...skipped
+And The /vouchers/voucher_activation response should have a "message" ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherActivation API is used to activate a pre-activated voucher" name="Unable to activate a pre-activated voucher because given Gov_Stack_BB does not exist" time="0.06576074900000001">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 460
+    + expected - actual
+
+    -500
+    +460
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_activation.js:53:54)]]></failure>
+    <system-out><![CDATA[Given Non Payment Building Block wants to activate a pre-activated vouc...passed
+When Sends PATCH /vouchers/voucher_activation request with an invalid G...passed
+Then Receives a response from the /vouchers/voucher_activation endpoint...passed
+And The /vouchers/voucher_activation endpoint response should be return...passed
+And The /vouchers/voucher_activation endpoint response should have stat...failed
+And The /vouchers/voucher_activation endpoint response should match js...skipped
+And The /vouchers/voucher_activation response should have "content-typ...skipped
+And The /vouchers/voucher_activation response should have a "message" ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherCancelation API is used to cancel a voucher" name="A non Payment Building Block successfully cancels a voucher smoke type test" time="0.037256308">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_cancelation.js:64:47)]]></failure>
+    <system-out><![CDATA[Given A non Payment Building Block wants to cancel a voucher..............passed
+When A PATCH request to cancel the voucher with voucherserialnumber = "...passed
+Then The response from the voucher cancelation endpoint is received.......passed
+And The voucher cancelation response should be returned in a timely man...passed
+And The voucher cancelation response should have status 200...............failed
+And The voucher cancelation response should match json schema............skipped
+And The voucher cancelation response should have "content-type": "appl...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherCancelation API is used to cancel a voucher" name="A non Payment Building Block is unable to cancel a voucher that has already been canceled" time="0.03545751999999999">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_cancelation.js:64:47)]]></failure>
+    <system-out><![CDATA[Given A non Payment Building Block wants to cancel a voucher..............passed
+When A PATCH request to cancel the voucher with voucherserialnumber = "...passed
+Then The response from the voucher cancelation endpoint is received.......passed
+And The voucher cancelation response should have status 200...............failed
+When A PATCH request to cancel the same voucher is sent second time......skipped
+Then The response from re-cancellation is received.......................skipped
+And The response from re-cancellation should be returned in a timely m...skipped
+And The response from re-cancellation should have status 464.............skipped
+And The response from re-cancellation should match json schema...........skipped
+And The voucher re-cancellation response should have "content-type": "...skipped
+And The voucher re-cancellation response should have a "message" prope...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherCancelation API is used to cancel a voucher" name="A non Payment Building Block is unable to cancel a voucher due to providing invalid voucher serial number in the payload" time="0.03602822399999999">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 463
+    + expected - actual
+
+    -500
+    +463
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_cancelation.js:64:47)]]></failure>
+    <system-out><![CDATA[Given A non Payment Building Block wants to cancel a voucher..............passed
+When A PATCH request to cancel the voucher with invalid voucherserialnu...passed
+Then The response from the voucher cancelation endpoint is received.......passed
+And The voucher cancelation response should be returned in a timely man...passed
+And The voucher cancelation response should have status 463...............failed
+And The voucher cancelation response should match json schema............skipped
+And The voucher cancelation response should have "content-type": "appl...skipped
+And The voucher cancelation response should have a "message" property....skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherCancelation API is used to cancel a voucher" name="A non Payment Building Block is unable to cancel a voucher due to providing invalid Gov Stack Building Block in the payload" time="0.037723932999999994">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 463
+    + expected - actual
+
+    -500
+    +463
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_cancelation.js:64:47)]]></failure>
+    <system-out><![CDATA[Given A non Payment Building Block wants to cancel a voucher..............passed
+When A PATCH request to cancel the voucher with invalid Gov Stack Build...passed
+Then The response from the voucher cancelation endpoint is received.......passed
+And The voucher cancelation response should be returned in a timely man...passed
+And The voucher cancelation response should have status 463...............failed
+And The voucher cancelation response should match json schema............skipped
+And The voucher cancelation response should have "content-type": "appl...skipped
+And The voucher cancelation response should have a "message" property....skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherCancelation API is used to cancel a voucher" name="A non Payment Building Block is unable to cancel a voucher due to missing required voucher serial number in the payload" time="0.04114622299999999">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_cancelation.js:64:47)]]></failure>
+    <system-out><![CDATA[Given A non Payment Building Block wants to cancel a voucher..............passed
+When A PATCH request to cancel the voucher is sent with missing voucher...passed
+Then The response from the voucher cancelation endpoint is received.......passed
+And The voucher cancelation response should be returned in a timely man...passed
+And The voucher cancelation response should have status 400...............failed
+And The voucher cancelation response should match json schema............skipped
+And The voucher cancelation response should have "content-type": "appl...skipped
+And The voucher cancelation response should have a "message" property....skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherCancelation API is used to cancel a voucher" name="A non Payment Building Block is unable to cancel a voucher due to missing required Gov Stack Building Block in the payload" time="0.043147387">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_cancelation.js:64:47)]]></failure>
+    <system-out><![CDATA[Given A non Payment Building Block wants to cancel a voucher..............passed
+When A PATCH request to cancel the voucher is sent with missing Gov Sta...passed
+Then The response from the voucher cancelation endpoint is received.......passed
+And The voucher cancelation response should be returned in a timely man...passed
+And The voucher cancelation response should have status 400...............failed
+And The voucher cancelation response should match json schema............skipped
+And The voucher cancelation response should have "content-type": "appl...skipped
+And The voucher cancelation response should have a "message" property....skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherCancelation API is used to cancel a voucher" name="A non Payment Building Block is unable to cancel a voucher due to missing payload in the request" time="0.13274154200000002">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_cancelation.js:64:47)]]></failure>
+    <system-out><![CDATA[Given A non Payment Building Block wants to cancel a voucher..............passed
+When A PATCH request to cancel the voucher is sent without payload........passed
+Then The response from the voucher cancelation endpoint is received.......passed
+And The voucher cancelation response should be returned in a timely man...passed
+And The voucher cancelation response should have status 400...............failed
+And The voucher cancelation response should match json schema............skipped
+And The voucher cancelation response should have "content-type": "appl...skipped
+And The voucher cancelation response should have a "message" property....skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user successfully receives a pre-activated voucher smoke type test" time="0.034618393">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation with required body with ...passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user successfully receives a pre-activated voucher by providing the optional X-Callback-URL header" time="0.068896833">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation with required body with ...passed
+And Send with optional X-Callback-URL header..............................passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user successfully receives a pre-activated voucher by providing the optional X-Channel header" time="0.06533675099999998">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation with required body with ...passed
+And Send with optional X-Channel header...................................passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user successfully receives a pre-activated voucher by providing the optional X-Date header" time="0.066001874">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation with required body with ...passed
+And Send with optional X-Date header......................................passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user successfully receives a pre-activated voucher by providing the optional X-CorrelationID header" time="0.06412675100000001">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation with required body with ...passed
+And Send with optional X-CorrelationID header.............................passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user is not able to receives a pre-activated voucher because of an invalid voucher amount" time="0.06356687700000001">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 452
+    + expected - actual
+
+    -500
+    +452
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation request with an invalid ...passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped
+And The /vouchers/voucher_preactivation response should have a "messag...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user is not able to receives a pre-activated voucher because of an invalid voucher currency" time="0.065528624">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 453
+    + expected - actual
+
+    -500
+    +453
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation request with an invalid ...passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped
+And The /vouchers/voucher_preactivation response should have a "messag...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user is not able to receives a pre-activated voucher because of an invalid voucher_group" time="0.065158543">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 454
+    + expected - actual
+
+    -500
+    +454
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation request with an invalid ...passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped
+And The /vouchers/voucher_preactivation response should have a "messag...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user is not able to receives a pre-activated voucher because of Gov Stack Building Block does not exist" time="0.065580792">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 460
+    + expected - actual
+
+    -500
+    +460
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation request with an invalid ...passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped
+And The /vouchers/voucher_preactivation response should have a "messag...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherPreactivation API is used to request for a pre-activated voucher to be used." name="The user is not able to receives a pre-activated voucher because of an empty payload" time="0.06606274999999999">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_preactivation.js:57:57)]]></failure>
+    <system-out><![CDATA[Given The user wants to receives a pre-activated voucher..................passed
+When Send POST /vouchers/voucher_preactivation request an empty payload...passed
+Then Receive a response from the /vouchers/voucher_preactivation endpoi...passed
+And The /vouchers/voucher_preactivation endpoint response should be ret...passed
+And The /vouchers/voucher_preactivation endpoint response should have s...failed
+And The /vouchers/voucher_preactivation endpoint response should match...skipped
+And The /vouchers/voucher_preactivation response should have "content-...skipped
+And The /vouchers/voucher_preactivation response should have a "messag...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherRedemption API is used by a non Payment Building Blocks in the GovStack Framework to redeem a voucher." name="A non-Payment Building Block successfully redeems a voucher smoke type test" time="0.034753267000000004">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 200
+    + expected - actual
+
+    -500
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_redemption.js:54:54)]]></failure>
+    <system-out><![CDATA[Given A non-Payment Building Block wants to redeem a voucher..............passed
+When Sends POST request to redeem a voucher with 6004 as voucher_number...passed
+Then Receives a response from the /vouchers/voucher_redemption endpoint...passed
+And The /vouchers/voucher_redemption endpoint response should be return...passed
+And The /vouchers/voucher_redemption endpoint response should have stat...failed
+And The /vouchers/voucher_redemption endpoint response should match js...skipped
+And The /vouchers/voucher_redemption response should have "content-typ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherRedemption API is used by a non Payment Building Blocks in the GovStack Framework to redeem a voucher." name="A non-Payment Building Block is unable to redeem a voucher because of the invalid request" time="0.032534647">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 400
+    + expected - actual
+
+    -500
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_redemption.js:54:54)]]></failure>
+    <system-out><![CDATA[Given A non-Payment Building Block wants to redeem a voucher..............passed
+When Sends POST request without payload to redeem a voucher...............passed
+Then Receives a response from the /vouchers/voucher_redemption endpoint...passed
+And The /vouchers/voucher_redemption endpoint response should be return...passed
+And The /vouchers/voucher_redemption endpoint response should have stat...failed
+And The /vouchers/voucher_redemption endpoint response should match js...skipped
+And The /vouchers/voucher_redemption response should have "content-typ...skipped
+And The /vouchers/voucher_redemption response should have a "message" ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherRedemption API is used by a non Payment Building Blocks in the GovStack Framework to redeem a voucher." name="A non-Payment Building Block is unable to redeem a voucher because the GovStack Building Block does not exist" time="0.032929228">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 460
+    + expected - actual
+
+    -500
+    +460
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_redemption.js:54:54)]]></failure>
+    <system-out><![CDATA[Given A non-Payment Building Block wants to redeem a voucher..............passed
+When Sends POST request with invalid Gov_Stack_BB, 6004 as voucher_numb...passed
+Then Receives a response from the /vouchers/voucher_redemption endpoint...passed
+And The /vouchers/voucher_redemption endpoint response should be return...passed
+And The /vouchers/voucher_redemption endpoint response should have stat...failed
+And The /vouchers/voucher_redemption endpoint response should match js...skipped
+And The /vouchers/voucher_redemption response should have "content-typ...skipped
+And The /vouchers/voucher_redemption response should have a "message" ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherRedemption API is used by a non Payment Building Blocks in the GovStack Framework to redeem a voucher." name="A non-Payment Building Block is unable to redeem a voucher because of the invalid voucher number" time="0.032090312999999995">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 461
+    + expected - actual
+
+    -500
+    +461
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_redemption.js:54:54)]]></failure>
+    <system-out><![CDATA[Given A non-Payment Building Block wants to redeem a voucher..............passed
+When Sends POST request with invalid voucher_number, "bb-digital-regist...passed
+Then Receives a response from the /vouchers/voucher_redemption endpoint...passed
+And The /vouchers/voucher_redemption endpoint response should be return...passed
+And The /vouchers/voucher_redemption endpoint response should have stat...failed
+And The /vouchers/voucher_redemption endpoint response should match js...skipped
+And The /vouchers/voucher_redemption response should have "content-typ...skipped
+And The /vouchers/voucher_redemption response should have a "message" ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherRedemption API is used by a non Payment Building Blocks in the GovStack Framework to redeem a voucher." name="A non-Payment Building Block is unable to redeem a voucher because of insufficient funds in funding a/c" time="0.033179017">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 462
+    + expected - actual
+
+    -500
+    +462
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_redemption.js:54:54)]]></failure>
+    <system-out><![CDATA[Given A non-Payment Building Block wants to redeem a voucher..............passed
+When Sends POST request to redeem a voucher with insufficient funds in ...passed
+Then Receives a response from the /vouchers/voucher_redemption endpoint...passed
+And The /vouchers/voucher_redemption endpoint response should be return...passed
+And The /vouchers/voucher_redemption endpoint response should have stat...failed
+And The /vouchers/voucher_redemption endpoint response should match js...skipped
+And The /vouchers/voucher_redemption response should have "content-typ...skipped
+And The /vouchers/voucher_redemption response should have a "message" ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherRedemption API is used by a non Payment Building Blocks in the GovStack Framework to redeem a voucher." name="A non-Payment Building Block is unable to redeem a voucher because the merchant cannot be credited" time="0.033025061">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 500 !== 463
+    + expected - actual
+
+    -500
+    +463
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_redemption.js:54:54)]]></failure>
+    <system-out><![CDATA[Given A non-Payment Building Block wants to redeem a voucher..............passed
+When Sends POST request to redeem a voucher with merchant that cannot b...passed
+Then Receives a response from the /vouchers/voucher_redemption endpoint...passed
+And The /vouchers/voucher_redemption endpoint response should be return...passed
+And The /vouchers/voucher_redemption endpoint response should have stat...failed
+And The /vouchers/voucher_redemption endpoint response should match js...skipped
+And The /vouchers/voucher_redemption response should have "content-typ...skipped
+And The /vouchers/voucher_redemption response should have a "message" ...skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Successfully checks the status of a voucher smoke type test" time="0.019136067">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 301 !== 200
+    + expected - actual
+
+    -301
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher with voucherserialn...passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 200...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json schema............skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Successfully checks the status of a voucher with the optional X-Callback-URL header" time="0.019492192">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 301 !== 200
+    + expected - actual
+
+    -301
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher with voucherserialn...passed
+And The request contains optional X-Callback-URL header...................passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 200...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json schema............skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Successfully checks the status of a voucher with the optional X-Channel header" time="0.017985153">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 301 !== 200
+    + expected - actual
+
+    -301
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher with voucherserialn...passed
+And The request contains optional X-Channel header........................passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 200...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json schema............skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Successfully checks the status of a voucher with the optional X-Date header" time="0.01938648">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 301 !== 200
+    + expected - actual
+
+    -301
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher with voucherserialn...passed
+And The request contains optional X-Date header...........................passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 200...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json schema............skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Successfully checks the status of a voucher with the optional X-CorrelationID header" time="0.019763649">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 301 !== 200
+    + expected - actual
+
+    -301
+    +200
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher with voucherserialn...passed
+And The request contains optional X-CorrelationID header..................passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 200...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json schema............skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Unable to check the status of a voucher because of the invalid request" time="0.020046069">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 404 !== 400
+    + expected - actual
+
+    -404
+    +400
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher is sent with invali...passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 400...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json error schema......skipped
+And The /voucherstatuscheck response should have a "message" property....skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Unable to check the status of a voucher because of the invalid voucher number" time="0.020481405">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 301 !== 456
+    + expected - actual
+
+    -301
+    +456
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher with voucherserialn...passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 456...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json error schema......skipped
+And The /voucherstatuscheck response should have a "message" property....skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Unable to check the status of a voucher because the voucher number was already used" time="0.041856766999999996">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 301 !== 458
+    + expected - actual
+
+    -301
+    +458
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher with voucherserialn...passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 458...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json error schema......skipped
+And The /voucherstatuscheck response should have a "message" property....skipped]]></system-out>
+  </testcase>
+  <testcase classname="The VoucherStatus API is used to check the status of a voucher" name="Unable to check the status of a voucher, because the voucher has expired" time="0.030710684999999998">
+    <failure type="FAILED" message="A hook or step failed"><![CDATA[AssertionError [ERR_ASSERTION]: HTTP status 301 !== 459
+    + expected - actual
+
+    -301
+    +459
+
+    at Expect._validateStatus (/app/node_modules/pactum/src/models/expect.js:104:14)
+    at Expect.validate (/app/node_modules/pactum/src/models/expect.js:46:10)
+    at Have._validate (/app/node_modules/pactum/src/exports/expect.js:111:26)
+    at Have.status (/app/node_modules/pactum/src/exports/expect.js:14:10)
+    at World.<anonymous> (/app/features/support/voucher_status_check.js:53:45)]]></failure>
+    <system-out><![CDATA[Given Wants to check the status of a voucher..............................passed
+When GET request to check the status of the voucher with voucherserialn...passed
+Then Receives a response from the /voucherstatuscheck endpoint............passed
+And The /voucherstatuscheck response should be returned in a timely man...passed
+And The /voucherstatuscheck response should have status 459...............failed
+And The /voucherstatuscheck response should have "content-type": "appl...skipped
+And The /voucherstatuscheck response should match json error schema......skipped
+And The /voucherstatuscheck response should have a "message" property....skipped]]></system-out>
+  </testcase>
+</testsuite>

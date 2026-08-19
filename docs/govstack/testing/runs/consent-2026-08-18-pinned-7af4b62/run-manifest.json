@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "claim_boundary": "Local execution of a pinned official Consent suite; not a testing-site submission, public certification, or cross-version conformance claim.",
+  "building_block": "Consent",
+  "official_source": {
+    "repository": "https://github.com/GovStackWorkingGroup/bb-consent",
+    "commit": "7af4b62a1c0b0d7073d42b37c71b0f08bea63dda",
+    "suite": "test/gherkin/test_entrypoint.sh --config api-suite"
+  },
+  "candidate": {
+    "repository": "CivicOS-Platform",
+    "git_revision_before_preparation": "20bc151736d93a7df9a49f3685b687868c38c6cc",
+    "endpoint": "https://host.docker.internal:8888",
+    "target_policy": "local-only",
+    "adapter": "Inbound /config, /service, and /audit prefix rewrite to /api/v1/consent; local internal TLS only.",
+    "source_state": "Uncommitted local candidate-preparation changes were present during this run; the artifact hashes below identify the exact candidate controls.",
+    "artifact_sha256": {
+      "examples/_common/candidate_common.sh": "c947bec860dbb95114c0dd26b61649f655a1c6691cb64e8b71bac2a394c561d7",
+      "examples/civicos-consent/test_entrypoint.sh": "4fcfff8bfc9e0ca877bf3dc4d3f7fb198075212871030e862465d23a4730f831",
+      "examples/civicos-consent/docker-compose.yml": "8462955e8b11328bcd2bad6aff38d419657e3d92a2e9e7d417691b7779499075",
+      "examples/civicos-consent/Caddyfile": "9dfb6fb7692731cc2fea489f126849fb7ec19ad2200df7894ff5028c72d0277b",
+      "apps/consent/management/commands/seed_govstack_consent_candidate.py": "91ff570359b99353ef9e611624a016daa2583c37ea4e617a08f2bf642248104b"
+    }
+  },
+  "execution": {
+    "exit_code": 0,
+    "feature_summary": "2 passed, 0 failed",
+    "scenario_summary": "4 passed, 0 failed",
+    "step_summary": "16 passed, 0 failed",
+    "result_status_count": {
+      "passed": 22
+    },
+    "notes": [
+      "The official harness image reported an amd64-on-arm64 platform warning.",
+      "The official Compose file emitted an obsolete version-field warning.",
+      "Neither warning changed the passed feature, scenario, or step results."
+    ]
+  },
+  "artifacts": {
+    "result_sha256": "b70968c68f93cc413f22914eb9d38c47b620ec8421c7272504b7b01ad142d583",
+    "raw_results_sha256": "b70968c68f93cc413f22914eb9d38c47b620ec8421c7272504b7b01ad142d583"
+  }
+}

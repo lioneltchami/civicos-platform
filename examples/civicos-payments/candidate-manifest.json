@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "candidate_id": "civicos-payments-testing",
+  "building_block": "Payments",
+  "official_repository": "GovStackWorkingGroup/bb-payments",
+  "official_revision": "4b63a6b5efbb20123c442e0b09fb44ec2d7e6b6a",
+  "official_suite": "test/openAPI",
+  "official_candidate_convention": "examples/<candidate>/test_entrypoint.sh --config api-suite",
+  "local_candidate_url": "http://127.0.0.1:3333/",
+  "civicos_surface": [
+    "apps/payments/govstack_urls.py",
+    "apps/payments/govstack_views.py",
+    "apps/payments/tests/test_govstack_auth.py"
+  ],
+  "adapter": {
+    "enabled": false,
+    "policy": "Add only after a pinned official-suite failure identifies a specific inbound URL or payload mismatch."
+  },
+  "local_stubs_required": ["processor", "information-mediator", "callback receiver"],
+  "target_policy": "local-only",
+  "claim_boundary": "candidate preparation only; not an API compliance result or certification"
+}

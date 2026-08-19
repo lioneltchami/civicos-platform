@@ -61,6 +61,9 @@ Thumbs.db
 ops/cloudflared/config.yml
 ops/cloudflared/credentials.json
 
+# GovStack local candidate run artifacts — generated only after local or official-suite runs.
+examples/civicos-*/result/
+
 # Celery
 celerybeat-schedule
 celerybeat.pid

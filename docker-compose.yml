@@ -107,7 +107,9 @@ services:
       # Persist media uploads between restarts
       - media_data:/app/media
     ports:
-      - "8000:8000"
+      # Default preserves normal development access; candidate packages set a
+      # loopback-only CIVICOS_WEB_PORT matching an official GovStack harness.
+      - "${CIVICOS_WEB_PORT:-8000}:8000"
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.development
       DATABASE_URL: postgres://civicos:civicos@db:5432/civicos

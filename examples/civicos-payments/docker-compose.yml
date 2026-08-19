@@ -1,0 +1,13 @@
+services:
+  web:
+    # Payments API preparation does not upload documents, so avoid the root
+    # development dependency on a ClamAV image unavailable for this host.
+    depends_on: !reset null
+    environment:
+      GOVSTACK_CANDIDATE_ID: civicos-payments-testing
+      GOVSTACK_CANDIDATE_BUILDING_BLOCK: payments
+      GOVSTACK_TEST_TARGET: ${GOVSTACK_TEST_TARGET:-local}
+      # Real processor, IM, wallet, and callback credentials are deliberately
+      # absent. Use local stubs only until an authorised staging run exists.
+      STRIPE_SECRET_KEY: ""
+      STRIPE_WEBHOOK_SECRET: ""

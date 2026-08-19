@@ -18,7 +18,12 @@ DEBUG = True
 
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]
+# Keep a safe local default while allowing a non-production candidate overlay
+# to add the exact hostname used by an official local GovStack test harness.
+ALLOWED_HOSTS = env.list(
+    "DJANGO_ALLOWED_HOSTS",
+    default=["localhost", "127.0.0.1", "0.0.0.0", "[::1]"],
+)
 
 SITE_URL = env("SITE_URL", default="http://localhost:8000")
 
