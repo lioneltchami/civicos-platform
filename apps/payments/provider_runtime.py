@@ -162,6 +162,15 @@ class ProviderRuntime:
             result = ProviderResult(ProviderOutcome.NETWORK, provider_attempt_id=provider_attempt_id, external_transaction_id=external_transaction_id, code="PROVIDER_RUNTIME_ERROR", message="Provider invocation failed; authoritative status is required.", observation_id=f"runtime-error:{attempt_id}:{generation}", event_id=f"runtime-error:{attempt_id}:{generation}")
         if not isinstance(result, ProviderResult):
             raise TypeError("provider must return ProviderResult")
+        return cls.finalize_claimed_result(
+            attempt_id=str(attempt_id), token=token, generation=generation, result=result
+        )
+
+    @classmethod
+    def finalize_claimed_result(
+        cls, *, attempt_id: str, token: str, generation: int, result: ProviderResult
+    ) -> ProviderResult:
+        """Persist a provider result only for the current fenced claim."""
         with transaction.atomic():
             attempt = PaymentAttempt.objects.select_for_update().get(pk=attempt_id)
             if attempt.claim_token != token or attempt.claim_generation != generation:

@@ -94,3 +94,48 @@ class RB01RecoveryEvidenceTests(TestCase):
         self.assertEqual(result.outcome, ProviderOutcome.TIMEOUT)
         self.assertEqual(attempt.status, PaymentAttempt.STATUS_UNCERTAIN)
         self.assertTrue(attempt.recovery_evidence.get("ambiguous_outcome"))
+
+    def test_stale_claim_finalization_cannot_persist_after_takeover(self):
+        attempt = self._attempt(
+            "rb01-stale",
+            claim_token="worker-a",
+            claim_generation=4,
+            claim_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        # Simulate the durable state written by a takeover before worker A's
+        # delayed completion tries to persist.
+        attempt.claim_token = "worker-b"
+        attempt.claim_generation = 5
+        attempt.claim_expires_at = timezone.now() + timedelta(minutes=5)
+        attempt.save(
+            update_fields=[
+                "claim_token",
+                "claim_generation",
+                "claim_expires_at",
+                "updated_at",
+            ]
+        )
+
+        result = ProviderRuntime.finalize_claimed_result(
+            attempt_id=str(attempt.pk),
+            token="worker-a",
+            generation=4,
+            result=ProviderResult(
+                ProviderOutcome.SETTLED,
+                observation_id="rb01-stale-observation",
+                event_id="rb01-stale-event",
+                verified=True,
+                verification_method="test",
+            ),
+        )
+
+        attempt.refresh_from_db()
+        self.assertEqual(result.code, "STALE_CLAIM")
+        self.assertEqual(attempt.status, PaymentAttempt.STATUS_PENDING)
+        self.assertEqual(attempt.claim_token, "worker-b")
+        self.assertEqual(attempt.claim_generation, 5)
+        self.assertFalse(
+            attempt.observations.filter(
+                observation_id="rb01-stale-observation"
+            ).exists()
+        )
