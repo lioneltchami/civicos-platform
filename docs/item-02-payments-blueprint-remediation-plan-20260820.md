@@ -142,3 +142,12 @@ A third validated increment adds `PaymentExecutionIntent`, an append-only one-to
 The isolated validation reported **no Payments migration drift** and **203 focused tests passing**, including the execution-intent creation, replay, conflict, and correlation-immutability cases. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-execution-intent-validation-20260820.log`.
 
 This does not yet connect intent creation to the worker path and therefore does not close P02-04 or P02-05. Claim acquire/heartbeat/takeover fencing, worker status-first polling, stale completion handling, universal recovery task routing, and two-worker crash evidence remain mandatory before a recovery closure claim.
+
+
+### Stage 3 interim increment — recovery-command task consolidation
+
+`RecoverPaymentAttemptCommand` is now the common worker-side command used by `orchestrate_attempt()` and the existing explicit status-first recovery task. Terminal and review attempts return a bounded no-op result; uncertain attempts delegate to the existing status-first runtime path; other nonterminal attempts delegate to the provider runtime’s fenced submit-or-poll primitive. This removes the immediate divergence between the two provider runtime task entry points without introducing request-path provider access.
+
+The isolated validation reported **no Payments migration drift** and **196 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-recovery-command-validation-20260820.log`.
+
+This is a routing increment only. It does **not** establish execution-intent creation from the canonical route/command boundary, does not connect correlated intents to authoritative provider status polling, and does not prove lease heartbeat, expiry takeover, stale completion fencing, accepted-then-crashed recovery, or complete retry/replay/reconciliation caller coverage. P02-04 and P02-05 remain open.
