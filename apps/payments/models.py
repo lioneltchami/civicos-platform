@@ -2000,11 +2000,14 @@ class PaymentCommandOutbox(TimestampedModel):
     topic = models.CharField(max_length=120)
     payload = models.JSONField(default=dict)
     published_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    acknowledgement_token = models.CharField(max_length=64, null=True, blank=True)
+    acknowledgement_result = models.JSONField(null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(
-                fields=["published_at", "created_at"],
+                fields=["acknowledged_at", "created_at"],
                 name="payment_outbox_due_idx",
             )
         ]
