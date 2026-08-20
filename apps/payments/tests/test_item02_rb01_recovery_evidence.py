@@ -1,6 +1,8 @@
 from datetime import timedelta
+import threading
+from unittest import mock
 
-from django.test import TestCase
+from django.test import TransactionTestCase
 from django.utils import timezone
 
 from apps.payments.govstack_failure_services import PaymentLifecycleService
@@ -11,7 +13,8 @@ from apps.payments.provider_runtime import ProviderRuntime, orchestrate_attempt
 from apps.payments.providers.deterministic import DeterministicProvider
 
 
-class RB01RecoveryEvidenceTests(TestCase):
+class RB01RecoveryEvidenceTests(TransactionTestCase):
+    reset_sequences = True
     def _attempt(self, request_id, **changes):
         attempt, _ = PaymentLifecycleService.get_or_create_attempt(
             tenant_id="rb01-tenant",
@@ -174,3 +177,52 @@ class RB01RecoveryEvidenceTests(TestCase):
         intent.refresh_from_db()
         self.assertIsNotNone(intent.submit_started_at)
         self.assertEqual(intent.submit_admission_generation, 1)
+
+    def test_delayed_worker_completion_is_fenced_after_expiry_takeover(self):
+        attempt = self._attempt("rb01-delayed-worker")
+        self._configure(
+            ProviderResult(
+                ProviderOutcome.UNCERTAIN,
+                provider_attempt_id="rb01-provider-attempt",
+                external_transaction_id="rb01-provider-correlation",
+                code="ACCEPTED_PENDING",
+                observation_id="rb01-accepted-observation",
+                event_id="rb01-accepted-event",
+            )
+        )
+        provider_returned = threading.Event()
+        release_first = threading.Event()
+        first_errors = []
+
+        def seam(*, phase, attempt_id, generation):
+            if phase == "after_provider_call" and generation == 1:
+                provider_returned.set()
+                if not release_first.wait(10):
+                    raise TimeoutError("test did not release delayed worker")
+
+        def first_worker():
+            try:
+                orchestrate_attempt(str(attempt.pk))
+            except Exception as exc:
+                first_errors.append(exc)
+
+        with mock.patch.object(ProviderRuntime, "worker_test_seam", side_effect=seam):
+            thread = threading.Thread(target=first_worker)
+            thread.start()
+            self.assertTrue(provider_returned.wait(10))
+            PaymentAttempt.objects.filter(pk=attempt.pk).update(
+                claim_expires_at=timezone.now() - timedelta(seconds=1)
+            )
+            # The durable submit-admission marker forces recovery to poll rather
+            # than open a second submit admission after takeover.
+            second = ProviderRuntime.submit_or_poll(str(attempt.pk))
+            release_first.set()
+            thread.join(10)
+
+        self.assertFalse(first_errors)
+        attempt.refresh_from_db()
+        intent = attempt.execution_intent
+        self.assertEqual(intent.submit_admission_generation, 1)
+        self.assertIsNotNone(intent.submit_started_at)
+        self.assertNotEqual(attempt.claim_generation, 1)
+        self.assertNotEqual(second.code, "STALE_CLAIM")
