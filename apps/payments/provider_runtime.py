@@ -135,7 +135,9 @@ class ProviderRuntime:
                 return ProviderResult(ProviderOutcome.UNCERTAIN, code="CLAIMED")
             provider = cls.resolve(tenant_id=attempt.tenant_id, operation=attempt.operation)
             generation = attempt.claim_generation + 1
-            execution_intent = PaymentExecutionIntent.objects.filter(attempt_id=attempt.pk).only("provider_correlation").first()
+            execution_intent = PaymentExecutionIntent.objects.select_for_update().filter(
+                attempt_id=attempt.pk
+            ).first()
             durable_correlation = execution_intent.provider_correlation if execution_intent else ""
             evidence = attempt.recovery_evidence or {}
             # Reservation alone is not evidence of provider acceptance. Poll only
@@ -146,6 +148,28 @@ class ProviderRuntime:
                 or attempt.external_transaction_id
                 or evidence.get("ambiguous_outcome")
             )
+            if execution_intent is None:
+                execution_intent = PaymentExecutionIntent.objects.create(
+                    attempt=attempt,
+                    scope=attempt.tenant_id,
+                    operation=attempt.operation,
+                    request_identity=attempt.request_id,
+                    payload_fingerprint=attempt.payload_fingerprint,
+                )
+            # A committed submit admission is fail-closed evidence that an
+            # external call may have happened. A takeover must poll, not submit.
+            if not should_poll and execution_intent.submit_started_at:
+                should_poll = True
+            elif not should_poll:
+                execution_intent.submit_started_at = now
+                execution_intent.submit_admission_generation = generation
+                execution_intent.save(
+                    update_fields=[
+                        "submit_started_at",
+                        "submit_admission_generation",
+                        "updated_at",
+                    ]
+                )
             intent = {"kind": "poll" if should_poll else "submit", "request_id": attempt.request_id, "generation": generation}
             attempt.claim_token, attempt.claim_generation = token, generation
             attempt.claim_expires_at = now + timedelta(minutes=5)

@@ -1477,6 +1477,10 @@ class PaymentExecutionIntent(TimestampedModel):
     request_identity = models.CharField(max_length=100)
     payload_fingerprint = models.CharField(max_length=64)
     provider_correlation = models.CharField(max_length=160, blank=True, db_index=True)
+    # The first submit admission is durable. Any later worker must poll rather
+    # than initiate another external submission when this marker is present.
+    submit_started_at = models.DateTimeField(null=True, blank=True)
+    submit_admission_generation = models.PositiveIntegerField(null=True, blank=True)
     state = models.CharField(max_length=20, choices=STATE_CHOICES, default=STATE_RESERVED, db_index=True)
 
     class Meta:

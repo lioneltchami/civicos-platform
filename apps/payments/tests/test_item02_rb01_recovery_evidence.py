@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import PaymentAttempt
+from apps.payments.execution_intent import reserve_execution_intent
 from apps.payments.govstack_provider import ProviderOutcome, ProviderResult
 from apps.payments.provider_runtime import ProviderRuntime, orchestrate_attempt
 from apps.payments.providers.deterministic import DeterministicProvider
@@ -139,3 +140,37 @@ class RB01RecoveryEvidenceTests(TestCase):
                 observation_id="rb01-stale-observation"
             ).exists()
         )
+
+    def test_submit_admission_marker_forces_later_worker_to_poll_without_reopening_submit(self):
+        attempt = self._attempt("rb01-submit-admission")
+        intent = reserve_execution_intent(
+            attempt=attempt,
+            scope="rb01-tenant",
+            operation=attempt.operation,
+            request_identity=attempt.request_id,
+            payload={"request_id": attempt.request_id, "amount": "1.00", "currency": "USD"},
+        )
+        intent.submit_started_at = timezone.now()
+        intent.submit_admission_generation = 1
+        intent.save(
+            update_fields=[
+                "submit_started_at",
+                "submit_admission_generation",
+                "updated_at",
+            ]
+        )
+        self._configure(
+            ProviderResult(
+                ProviderOutcome.REJECTED,
+                observation_id="rb01-submit-admission-observation",
+                event_id="rb01-submit-admission-event",
+                verified=True,
+                verification_method="test",
+            )
+        )
+
+        orchestrate_attempt(str(attempt.pk))
+
+        intent.refresh_from_db()
+        self.assertIsNotNone(intent.submit_started_at)
+        self.assertEqual(intent.submit_admission_generation, 1)
