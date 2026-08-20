@@ -43,3 +43,16 @@ A defect may be claimed closed only when its listed mounted/runtime proof passes
 [3]: [Item 01–07 refreshed readiness reconciliation](item-01-07-govstack-readiness-reconciliation-refresh-20260819.md)
 
 [4]: [Item 02 internal remediation verification](item-02-payments-internal-remediation-verification-20260819.md)
+
+## Stage 3 interim implementation record — 2026-08-20
+
+A focused runtime foundation has been integrated and validated locally. The change removes process-local adapter authority, stores a bounded durable adapter-factory configuration, materializes a fresh deterministic adapter in the worker, adds durable submission-intent and heartbeat fields, retains token/generation fencing, and exposes a status-first recovery task. The strict migration check reported no pending Payments changes, and the focused existing suite completed with **203 tests passing**; raw output is retained at `docs/govstack/testing/evidence/item-02-payments-strict-runtime-foundation-validation-20260820.log`.
+
+This evidence is deliberately **not a closure claim** for P02-01, P02-04, P02-05, or P02-07. The required mounted-route, independently initialized worker, two-worker race/crash/takeover, exclusive recovery-path, and live batch-lease policy evidence remains to be implemented and tested. P02-02, P02-03, P02-06, P02-08, and P02-09 remain open pending the surface enforcement implementation.
+
+| Defect group | Stage 3 state | Reason it remains open |
+|---|---|---|
+| P02-01, P02-04, P02-05, P02-07 | **Foundations integrated; open** | The production protocol must still be proved through mounted workflow, durable race/recovery, and live batch-worker tests. |
+| P02-02, P02-03, P02-06, P02-08, P02-09 | **Open** | Trusted mounted routes, real prepayment execution, universal idempotency, reconciliation authorization, and mandatory admission integration are not yet complete. |
+
+No external provider, staging system, official suite, portal, deployment, credential, or submission action was used.
