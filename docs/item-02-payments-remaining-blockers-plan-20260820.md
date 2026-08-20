@@ -66,3 +66,12 @@ RB-01 remains open. This test proves stale persistence fencing, but the strict a
 The isolated validation reported **no Payments migration drift** and **14 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-submit-admission-validation-20260820.log`.
 
 RB-01 remains open. The strict acceptance set still lacks the required barrier-controlled accepted-submit/crash and delayed-outcome scenario exercising the actual worker handoff, plus correlation-collision evidence. No P02 result is promoted.
+
+
+### Stage 3 interim increment — RB-01 coordinated delayed-worker recovery proof
+
+The provider runtime now exposes a no-op production synchronization seam used only by deterministic worker-race tests. The focused `TransactionTestCase` starts a delayed first worker after its provider call, expires the durable lease, runs a second recovery invocation, then releases the stale first completion. Assertions use persisted claim generation and execution-intent submit-admission state rather than a process-local provider object.
+
+The isolated validation reported **no Payments migration drift** and **7 dedicated RB-01 tests passing**. The durable submit-admission marker remains generation `1` after takeover, the takeover generation advances, and the stale completion is fenced. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-two-worker-validation-20260820.log`.
+
+RB-01 remains open pending correlation-collision coverage and an explicit accepted-submit/crash scenario through the published command-consumer handoff. The evidence materially covers delayed completion, expiry takeover, stale finalization, and the no-second-submit admission invariant, but does not yet meet the entire strict acceptance set.
