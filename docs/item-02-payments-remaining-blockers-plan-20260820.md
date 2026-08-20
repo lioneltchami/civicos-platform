@@ -48,3 +48,12 @@ Each increment must be accompanied by focused regression tests and a small block
 The isolated validation reported **no Payments migration drift** and **12 focused tests passing**. The focused evidence covers reserved first submission, correlation-driven polling, live claim refusal, expired claim generation increase, and timeout remaining uncertain. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-recovery-evidence-validation-20260820.log`.
 
 RB-01 is still open. The required barrier-controlled two-worker stale-completion, accepted-submit/crash, delayed outcome, correlation-collision, and at-most-one-submit proof remains unimplemented; therefore no P02 result is promoted.
+
+
+### Stage 3 interim increment — RB-01 production stale-finalization guard
+
+`ProviderRuntime.finalize_claimed_result()` now owns the production token-and-generation finalization guard used by `submit_or_poll()`. The focused `TransactionTestCase` persists a simulated post-expiry takeover, invokes the production finalization method with the stale worker identity, and proves that the stale result cannot change lifecycle status, overwrite the new claim, or append an accepted observation.
+
+The isolated validation reported **no Payments migration drift** and **13 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-stale-finalization-validation-20260820.log`.
+
+RB-01 remains open. This test proves stale persistence fencing, but the strict acceptance set still requires a barrier-controlled accepted-submit/crash and delayed-outcome two-worker scenario, correlation collision evidence, and a durable at-most-one-submit record across the actual worker handoff.
