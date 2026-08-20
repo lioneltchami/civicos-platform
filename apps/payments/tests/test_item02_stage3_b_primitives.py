@@ -29,3 +29,38 @@ def test_status_and_batch_exclude_settled_items():
     result = evaluate([{"id": "1", "status": "settled"}, {"id": "2", "status": "retryable"}], failure_threshold=.9)
     assert result.retry_ids == ("2",) and result.settled_ids == ("1",)
     assert review("a", "ops", "mismatch").action == "review"
+
+
+def test_batch_policy_all_settled_is_completed():
+    result = evaluate([{"id": "1", "status": "settled"}, {"id": "2", "status": "settled"}])
+    assert result.state == "completed" and result.kick_back is False
+
+
+def test_batch_policy_settled_and_rejected_is_terminal_partial():
+    result = evaluate([{"id": "1", "status": "settled"}, {"id": "2", "status": "rejected"}], failure_threshold=1.0)
+    assert result.state == "partial" and result.kick_back is False
+    assert result.settled_ids == ("1",)
+
+
+def test_batch_policy_non_final_states_are_not_terminal():
+    for status, expected in (("uncertain", "uncertain"), ("retryable", "retryable"), ("review", "review"), ("unresolved", "unresolved")):
+        result = evaluate([{"id": "1", "status": status}], failure_threshold=1.0)
+        assert result.state == expected
+        assert result.kick_back is True
+        assert result.state not in {"completed", "partial"}
+
+
+def test_batch_policy_threshold_pause_is_explicit():
+    result = evaluate([{"id": "1", "status": "settled"}, {"id": "2", "status": "uncertain"}], failure_threshold=0.4)
+    assert result.state == "paused" and result.kick_back is True
+    assert result.retry_ids == ("2",)
+
+
+def test_batch_policy_non_final_prevents_partial_even_with_rejection():
+    result = evaluate([
+        {"id": "1", "status": "settled"},
+        {"id": "2", "status": "rejected"},
+        {"id": "3", "status": "uncertain"},
+    ], failure_threshold=1.0)
+    assert result.state == "uncertain"
+    assert result.state not in {"completed", "partial"}
