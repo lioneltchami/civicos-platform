@@ -75,3 +75,12 @@ The provider runtime now exposes a no-op production synchronization seam used on
 The isolated validation reported **no Payments migration drift** and **7 dedicated RB-01 tests passing**. The durable submit-admission marker remains generation `1` after takeover, the takeover generation advances, and the stale completion is fenced. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-two-worker-validation-20260820.log`.
 
 RB-01 remains open pending correlation-collision coverage and an explicit accepted-submit/crash scenario through the published command-consumer handoff. The evidence materially covers delayed completion, expiry takeover, stale finalization, and the no-second-submit admission invariant, but does not yet meet the entire strict acceptance set.
+
+
+### Stage 3 interim increment — RB-01 durable consumer acknowledgement and correlation collision
+
+Focused `TransactionTestCase` coverage now proves that a bound published command has one durable attempt and intent before acknowledgement, redelivery persists one acknowledgement and schedules orchestration once, and a conflicting provider correlation fails closed without overwriting the original durable correlation.
+
+The isolated validation reported **no Payments migration drift** and **6 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-consumer-durable-validation-20260820.log`.
+
+RB-01 remains open. The accepted-submit/crash scenario still needs a fully database-backed assertion that follows the real consumer-to-worker handoff through an ambiguous external result and demonstrates no second provider submit without relying on process-local adapter state.
