@@ -13,6 +13,11 @@ from apps.payments.payment_command_boundary import (
 
 
 class BoundCommandHandoffTests(TransactionTestCase):
+    def setUp(self):
+        self.enqueue_patcher = patch.object(PaymentCommandService, "enqueue_consumer")
+        self.enqueue_patcher.start()
+        self.addCleanup(self.enqueue_patcher.stop)
+
     def scope(self):
         return PaymentScope(caller_bb_id="caller", tenant_id="tenant")
 

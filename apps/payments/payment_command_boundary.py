@@ -186,3 +186,10 @@ class PaymentCommandService:
             outbox.save(update_fields=["published_at", "updated_at"])
             command.status = PaymentCommand.STATUS_DISPATCHED
             command.save(update_fields=["status", "updated_at"])
+            transaction.on_commit(lambda bound_outbox_id=str(outbox.pk): PaymentCommandService.enqueue_consumer(bound_outbox_id))
+
+    @staticmethod
+    def enqueue_consumer(outbox_id: str) -> None:
+        from apps.payments.payment_command_tasks import consume_bound_command_outbox_task
+
+        consume_bound_command_outbox_task.delay(outbox_id)

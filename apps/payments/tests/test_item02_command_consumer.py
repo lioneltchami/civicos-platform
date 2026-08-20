@@ -13,6 +13,9 @@ from apps.payments.payment_command_consumer import (
 
 class PaymentCommandConsumerFenceTests(TransactionTestCase):
     def setUp(self):
+        self.enqueue_patcher = patch.object(PaymentCommandService, "enqueue_consumer")
+        self.enqueue_patcher.start()
+        self.addCleanup(self.enqueue_patcher.stop)
         command, _ = PaymentCommandService.reserve(
             scope=PaymentScope(caller_bb_id="caller", tenant_id="tenant"),
             operation="g2p_bulk_payment",
