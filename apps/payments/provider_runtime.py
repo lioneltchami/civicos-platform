@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from importlib import import_module
 from datetime import timedelta
 from typing import Any, Mapping
 
@@ -13,6 +12,12 @@ from django.utils import timezone
 from .govstack_failure_services import PaymentLifecycleService
 from .govstack_models import PaymentAttempt, ProviderObservation, ProviderRegistration
 from .govstack_provider import PaymentProvider, ProviderOutcome, ProviderResult
+from .provider_registry import (
+    FACTORY_DETERMINISTIC,
+    SCHEMA_VERSION,
+    ProviderRegistryError,
+    resolve_provider,
+)
 
 
 class ProviderUnavailable(RuntimeError):
@@ -71,24 +76,25 @@ class ProviderRuntime:
             raise ValueError("tenant_id, operation, and provider are required")
         provider_type = type(provider)
         path = f"{provider_type.__module__}.{provider_type.__qualname__}"
-        if "<locals>" in path:
-            raise ValueError("provider must be an importable durable factory")
-        configuration: dict[str, Any] = {"adapter_path": path}
-        # The local deterministic adapter is the only supported fixture type.
-        # Serialize bounded result metadata so the worker can construct a fresh
-        # adapter without sharing web-process memory.
-        if path == "apps.payments.providers.deterministic.DeterministicProvider":
-            configuration["factory_kwargs"] = {
-                "outcomes": [cls._serialize_result(item) for item in getattr(provider, "_outcomes", ())],
-                "statuses": {str(key): cls._serialize_result(item) for key, item in getattr(provider, "_statuses", {}).items()},
-            }
+        if path != "apps.payments.providers.deterministic.DeterministicProvider":
+            raise ValueError("provider type is not allowlisted")
+        # The deterministic adapter is deliberately the sole local fixture.
+        # Persist bounded result metadata so a fresh worker does not share
+        # request-process state or execute arbitrary import paths.
+        configuration: dict[str, Any] = {
+            "outcomes": [cls._serialize_result(item) for item in getattr(provider, "_outcomes", ())],
+            "statuses": {str(key): cls._serialize_result(item) for key, item in getattr(provider, "_statuses", {}).items()},
+        }
         with transaction.atomic():
             registration, _ = ProviderRegistration.objects.update_or_create(
                 tenant_id=tenant_id, operation=operation,
                 defaults={
                     "provider_name": provider_type.__name__[:80],
-                    "configuration_version": "durable-factory-v3",
+                    "factory_key": FACTORY_DETERMINISTIC,
+                    "schema_version": SCHEMA_VERSION,
+                    "configuration_version": "allowlisted-registry-v1",
                     "configuration": configuration,
+                    "audit_metadata": {"source": "local-deterministic-fixture"},
                     "active": True,
                 },
             )
@@ -102,33 +108,10 @@ class ProviderRuntime:
     def resolve(cls, *, tenant_id: str, operation: str) -> PaymentProvider:
         if not tenant_id or not operation:
             raise ProviderUnavailable("provider scope is blank")
-        registrations = list(ProviderRegistration.objects.filter(tenant_id=tenant_id, operation=operation, active=True))
-        if len(registrations) != 1:
-            raise ProviderUnavailable("provider registration is missing or ambiguous")
-        registration = registrations[0]
-        config = registration.configuration
-        path = config.get("adapter_path") if isinstance(config, dict) else None
-        if not isinstance(path, str) or not path or path.count(".") < 1:
-            raise ProviderUnavailable("durable provider factory is malformed")
         try:
-            module_name, attr = path.rsplit(".", 1)
-            factory = getattr(import_module(module_name), attr)
-            kwargs = config.get("factory_kwargs", {})
-            if not isinstance(kwargs, dict):
-                raise ValueError("durable provider factory arguments are malformed")
-            if path == "apps.payments.providers.deterministic.DeterministicProvider":
-                kwargs = {
-                    "outcomes": [cls._deserialize_result(item) for item in kwargs.get("outcomes", []) if isinstance(item, dict)],
-                    "statuses": {str(key): cls._deserialize_result(item) for key, item in kwargs.get("statuses", {}).items() if isinstance(item, dict)},
-                }
-            elif kwargs:
-                raise ValueError("provider factory arguments are not supported")
-            provider = factory(**kwargs) if callable(factory) else None
-        except (ImportError, AttributeError, TypeError, ValueError) as exc:
+            return resolve_provider(tenant_id=tenant_id, operation=operation)
+        except ProviderRegistryError as exc:
             raise ProviderUnavailable("durable provider adapter cannot be resolved") from exc
-        if not isinstance(provider, PaymentProvider):
-            raise ProviderUnavailable("durable provider adapter has invalid type")
-        return provider
 
     @classmethod
     def status_first_recovery(cls, attempt_id: str) -> ProviderResult:

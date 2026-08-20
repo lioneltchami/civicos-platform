@@ -1376,8 +1376,15 @@ class ProviderRegistration(TimestampedModel):
     tenant_id = models.CharField(max_length=100, db_index=True)
     operation = models.CharField(max_length=30)
     provider_name = models.CharField(max_length=80)
+    # Factory metadata is deliberately distinct from provider_name: workers may
+    # resolve only a reviewed allowlisted factory key and schema version.
+    factory_key = models.CharField(max_length=80, default="", db_index=True)
+    schema_version = models.PositiveIntegerField(default=0)
     configuration_version = models.CharField(max_length=80)
     configuration = models.JSONField(default=dict)
+    active_from = models.DateTimeField(null=True, blank=True)
+    active_until = models.DateTimeField(null=True, blank=True)
+    audit_metadata = models.JSONField(default=dict)
     active = models.BooleanField(default=True, db_index=True)
     class Meta:
         constraints = [models.UniqueConstraint(fields=["tenant_id", "operation"], name="gs_provider_registration_scope_uniq")]
