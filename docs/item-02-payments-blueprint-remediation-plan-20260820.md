@@ -151,3 +151,12 @@ This does not yet connect intent creation to the worker path and therefore does 
 The isolated validation reported **no Payments migration drift** and **196 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-recovery-command-validation-20260820.log`.
 
 This is a routing increment only. It does **not** establish execution-intent creation from the canonical route/command boundary, does not connect correlated intents to authoritative provider status polling, and does not prove lease heartbeat, expiry takeover, stale completion fencing, accepted-then-crashed recovery, or complete retry/replay/reconciliation caller coverage. P02-04 and P02-05 remain open.
+
+
+### Stage 3 interim increment — resolver-derived full Payments surface inventory
+
+`resolver_inventory.py` now walks Django's active resolver and returns every callback implemented by the Payments application, including the GovStack API, internal payments, donation, portal, fee, refund, and webhook surfaces. It records the full route, name, callable, supported methods, and whether the resolver identifies the endpoint as mutating. The corresponding test proves that both the internal `/payments/` and GovStack `/govstack/payments/` surfaces are present and that discovered mutations cannot disappear from the inventory silently.
+
+The isolated validation reported **no Payments migration drift** and **198 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-route-inventory-validation-20260820.log`.
+
+This inventory is intentionally discovery-only. It does not classify every mutation into domain-only/provider-executable/unsupported policy and does not route every executable mutation through the command boundary. Therefore P02-09 remains open and no admission-bypass conclusion is implied.
