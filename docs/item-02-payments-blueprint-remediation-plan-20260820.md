@@ -178,3 +178,12 @@ This increment improves only the mounted bulk route. It does not prove full-surf
 The isolated validation reported **no Payments migration drift** and **37 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-prepayment-execution-validation-20260820.log`.
 
 This is an eligibility/admission gate only. It does not create or bind a `PaymentAttempt` and `PaymentExecutionIntent`, does not publish a worker handoff, and does not establish financial finality. P02-03 remains open.
+
+
+### Stage 3 interim increment — provider-finality-aware batch decision primitive
+
+`govstack_batch_policy.evaluate()` now distinguishes terminal settled/rejected outcomes from `retryable`, `uncertain`, `review`, and `unresolved` work. Non-final outcomes cannot produce a `completed` or `partial` terminal decision; threshold excess produces explicit `paused`; only retryable, uncertain, and unresolved IDs are eligible for retry selection. The focused primitive tests cover all-settled, terminal settled/rejected mix, each non-final state, threshold pause, and mixed rejection/uncertainty.
+
+The isolated validation reported **no Payments migration drift** and **27 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-batch-policy-validation-20260820.log`.
+
+This is a pure policy increment only. `process_bulk_payment_batch` does not yet build provider-finality child inputs from `PaymentAttempt`/observations or use this decision under a fenced lease, so P02-06 and P02-08 remain open.
