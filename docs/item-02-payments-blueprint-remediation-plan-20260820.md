@@ -196,3 +196,12 @@ This is a pure policy increment only. `process_bulk_payment_batch` does not yet 
 The isolated validation reported **no Payments migration drift** and **11 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-authorised-read-validation-20260820.log`.
 
 This improves one authorised read surface only. It does not prove mounted status/reconciliation reads for every operation, complete caller-to-tenant evidence across all routes, or route-wide mutation idempotency. P02-08 and P02-09 remain open.
+
+
+### Stage 3 interim increment — bound bulk command handoff
+
+The canonical bulk command reservation now creates a `PaymentAttempt` and immutable `PaymentExecutionIntent` inside the same transaction, binds that attempt one-to-one to `PaymentCommand`, and writes its ID into the command outbox before the post-commit publisher can expose the handoff. Publisher-side state changes now require the command, attempt, execution intent, and outbox payload IDs to agree. Same-key replay returns the single bound chain; changed payloads conflict; request admission does not resolve a provider.
+
+The isolated validation reported **no Payments migration drift** and **11 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-bound-command-handoff-validation-20260820.log`.
+
+The publisher currently only records a bound handoff as dispatched; no worker consumer has yet acknowledged the outbox and invoked a claim-fenced orchestration path. The implementation therefore improves the P02-02/P02-04 foundation without closing either defect.
