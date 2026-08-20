@@ -84,3 +84,12 @@ Focused `TransactionTestCase` coverage now proves that a bound published command
 The isolated validation reported **no Payments migration drift** and **6 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-consumer-durable-validation-20260820.log`.
 
 RB-01 remains open. The accepted-submit/crash scenario still needs a fully database-backed assertion that follows the real consumer-to-worker handoff through an ambiguous external result and demonstrates no second provider submit without relying on process-local adapter state.
+
+
+### Stage 3 interim increment — RB-01 real bound command accepted-submit/crash proof
+
+A focused `TransactionTestCase` now drives the actual durable command → outbox → consumer acknowledgement → provider runtime path. It configures the bounded deterministic provider registration before deliberate worker execution, simulates a crash immediately after the first provider call and before finalization, expires the claim, then runs recovery. Database assertions prove that the execution intent retains submit-admission generation `1`, the recovery claim advances to generation `2`, no crash-time final observation is recorded, and recovery clears the transient submission intent without reopening the submit admission.
+
+The isolated validation reported the focused accepted-submit/crash test passing. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-accepted-crash-validation-20260820.log`.
+
+RB-01 still remains open because the strict acceptance set requires this scenario to be retained in the full RB-01 suite with migration-drift output and explicitly assessed alongside all timeout/network and correlation-collision evidence. The evidence is now substantially complete, but no P02 status is promoted ahead of the full Stage 3 evidence bundle.
