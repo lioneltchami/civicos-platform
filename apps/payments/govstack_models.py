@@ -518,6 +518,26 @@ class PrepaymentValidationRequest(TimestampedModel):
         return f"Prepayment {self.request_id} [{self.status}]"
 
 
+class PrepaymentExecution(models.Model):
+    """Internal admission record for one validated prepayment execution."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    validation_request = models.OneToOneField(
+        PrepaymentValidationRequest,
+        on_delete=models.PROTECT,
+        related_name="execution",
+    )
+    execution_key = models.CharField(max_length=160, unique=True)
+    admitted_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = _("Prepayment Execution")
+        verbose_name_plural = _("Prepayment Executions")
+
+    def __str__(self) -> str:
+        return f"Prepayment execution {self.validation_request_id}"
+
+
 # ---------------------------------------------------------------------------
 # GovStackVoucher
 # ---------------------------------------------------------------------------
