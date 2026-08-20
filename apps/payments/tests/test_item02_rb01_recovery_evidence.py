@@ -1,0 +1,96 @@
+from datetime import timedelta
+
+from django.test import TestCase
+from django.utils import timezone
+
+from apps.payments.govstack_failure_services import PaymentLifecycleService
+from apps.payments.govstack_models import PaymentAttempt
+from apps.payments.govstack_provider import ProviderOutcome, ProviderResult
+from apps.payments.provider_runtime import ProviderRuntime, orchestrate_attempt
+from apps.payments.providers.deterministic import DeterministicProvider
+
+
+class RB01RecoveryEvidenceTests(TestCase):
+    def _attempt(self, request_id, **changes):
+        attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+            tenant_id="rb01-tenant",
+            operation="g2p_bulk_instruction",
+            request_id=request_id,
+            payload={"request_id": request_id, "amount": "1.00", "currency": "USD"},
+            amount=1,
+            currency="USD",
+        )
+        for name, value in changes.items():
+            setattr(attempt, name, value)
+        if changes:
+            attempt.save(update_fields=[*changes, "updated_at"])
+        return attempt
+
+    def _configure(self, outcome):
+        ProviderRuntime.configure(
+            tenant_id="rb01-tenant",
+            operation="g2p_bulk_instruction",
+            provider=DeterministicProvider([outcome]),
+        )
+
+    def tearDown(self):
+        ProviderRuntime.clear()
+
+    def test_reserved_attempt_submits_first_when_no_durable_external_evidence_exists(self):
+        attempt = self._attempt("rb01-first")
+        self._configure(
+            ProviderResult(
+                ProviderOutcome.REJECTED,
+                observation_id="rb01-first-observation",
+                event_id="rb01-first-event",
+                verified=True,
+                verification_method="test",
+            )
+        )
+        result = orchestrate_attempt(str(attempt.pk))
+        attempt.refresh_from_db()
+        self.assertEqual(result.outcome, ProviderOutcome.REJECTED)
+        self.assertEqual(attempt.status, PaymentAttempt.STATUS_REJECTED)
+
+    def test_live_claim_is_not_taken_over(self):
+        attempt = self._attempt(
+            "rb01-live",
+            claim_token="worker-a",
+            claim_generation=7,
+            claim_expires_at=timezone.now() + timedelta(minutes=1),
+        )
+        result = ProviderRuntime.submit_or_poll(str(attempt.pk))
+        attempt.refresh_from_db()
+        self.assertEqual(result.code, "CLAIMED")
+        self.assertEqual(attempt.claim_token, "worker-a")
+        self.assertEqual(attempt.claim_generation, 7)
+
+    def test_expired_claim_is_taken_over_with_new_generation(self):
+        attempt = self._attempt(
+            "rb01-expired",
+            claim_token="worker-a",
+            claim_generation=7,
+            claim_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        self._configure(
+            ProviderResult(
+                ProviderOutcome.REJECTED,
+                observation_id="rb01-expired-observation",
+                event_id="rb01-expired-event",
+                verified=True,
+                verification_method="test",
+            )
+        )
+        orchestrate_attempt(str(attempt.pk))
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.claim_generation, 8)
+        self.assertEqual(attempt.status, PaymentAttempt.STATUS_REJECTED)
+
+    def test_timeout_stays_non_final_and_records_ambiguous_recovery_evidence(self):
+        attempt = self._attempt("rb01-timeout")
+        self._configure(ProviderResult(ProviderOutcome.TIMEOUT, code="TIMEOUT"))
+        result = orchestrate_attempt(str(attempt.pk))
+        attempt.refresh_from_db()
+        self.assertEqual(result.outcome, ProviderOutcome.TIMEOUT)
+        self.assertEqual(attempt.status, PaymentAttempt.STATUS_UNCERTAIN)
+        self.assertTrue(attempt.recovery_evidence.get("ambiguous_outcome"))

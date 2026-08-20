@@ -137,7 +137,15 @@ class ProviderRuntime:
             generation = attempt.claim_generation + 1
             execution_intent = PaymentExecutionIntent.objects.filter(attempt_id=attempt.pk).only("provider_correlation").first()
             durable_correlation = execution_intent.provider_correlation if execution_intent else ""
-            should_poll = attempt.status == PaymentAttempt.STATUS_UNCERTAIN or bool(durable_correlation)
+            evidence = attempt.recovery_evidence or {}
+            # Reservation alone is not evidence of provider acceptance. Poll only
+            # where a durable provider identifier or ambiguous provider outcome exists.
+            should_poll = bool(
+                durable_correlation
+                or attempt.provider_attempt_id
+                or attempt.external_transaction_id
+                or evidence.get("ambiguous_outcome")
+            )
             intent = {"kind": "poll" if should_poll else "submit", "request_id": attempt.request_id, "generation": generation}
             attempt.claim_token, attempt.claim_generation = token, generation
             attempt.claim_expires_at = now + timedelta(minutes=5)
@@ -159,11 +167,23 @@ class ProviderRuntime:
             if attempt.claim_token != token or attempt.claim_generation != generation:
                 return ProviderResult(ProviderOutcome.UNCERTAIN, code="STALE_CLAIM")
             PaymentLifecycleService.record_provider_result(attempt, result)
+            if result.outcome in (ProviderOutcome.NETWORK, ProviderOutcome.TIMEOUT, ProviderOutcome.UNCERTAIN):
+                attempt.recovery_evidence = {
+                    "ambiguous_outcome": True,
+                    "code": result.code[:50],
+                    "provider_attempt_id": result.provider_attempt_id[:100],
+                    "external_transaction_id": result.external_transaction_id[:100],
+                }
+            elif result.provider_attempt_id or result.external_transaction_id:
+                attempt.recovery_evidence = {
+                    "provider_attempt_id": result.provider_attempt_id[:100],
+                    "external_transaction_id": result.external_transaction_id[:100],
+                }
             attempt.claim_token = ""
             attempt.claim_expires_at = None
             attempt.claim_heartbeat_at = None
             attempt.submission_intent = {}
-            attempt.save(update_fields=["claim_token", "claim_expires_at", "claim_heartbeat_at", "submission_intent", "updated_at"])
+            attempt.save(update_fields=["claim_token", "claim_expires_at", "claim_heartbeat_at", "submission_intent", "recovery_evidence", "updated_at"])
         return result
 
     @classmethod

@@ -64,6 +64,8 @@ class ProviderRuntimeIntegrationTests(TestCase):
 
     def test_uncertain_attempt_polls_before_any_resubmission(self):
         attempt = self._attempt("runtime-poll", status=PaymentAttempt.STATUS_UNCERTAIN)
+        attempt.recovery_evidence = {"ambiguous_outcome": True}
+        attempt.save(update_fields=["recovery_evidence", "updated_at"])
         provider = DeterministicProvider(
             outcomes=[ProviderResult(ProviderOutcome.SETTLED)],
             statuses={

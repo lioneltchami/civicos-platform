@@ -1431,6 +1431,9 @@ class PaymentAttempt(TimestampedModel):
     claim_generation = models.PositiveIntegerField(default=0)
     claim_heartbeat_at = models.DateTimeField(null=True, blank=True)
     submission_intent = models.JSONField(default=dict)
+    # Evidence from an accepted or ambiguous provider interaction. A reserved
+    # command alone never establishes that external work may exist.
+    recovery_evidence = models.JSONField(default=dict)
 
     request_id = models.CharField(max_length=100, db_index=True)
     operation = models.CharField(max_length=30, default="g2p")
