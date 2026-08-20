@@ -124,3 +124,12 @@ The first strictly validated implementation increment is complete but **does not
 The final isolated run recorded **no Payments migration drift** and **196 focused Payments tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-command-boundary-validation-20260820.log`.
 
 This increment has not yet satisfied the blueprint closure matrix. The following work remains mandatory before any P02 conclusion: resolver-driven classification across both mounted prefixes; representative-route tests for missing/forged/cross-tenant scope, replay/conflict, rollback and post-commit publication; an allowlisted versioned provider factory; immutable execution intent plus fenced claim/heartbeat and universal recovery; tenant-authorised prepayment execution; live batch lease/accounting; scoped redacted cursor status/reconciliation reads; and the full resolver-generated route-to-worker matrix. Stage 4 must not be run until those locked implementation steps are complete.
+
+
+### Stage 3 interim increment — allowlisted worker-only provider registry
+
+The second validated implementation increment replaces unrestricted dynamic adapter imports in `ProviderRuntime.resolve()` with an explicit allowlisted provider registry. `ProviderRegistration` now carries an allowlisted `factory_key`, `schema_version`, activation window, and redacted audit metadata. Existing legacy registration rows default to an unresolved factory key/schema and therefore fail closed until an operator re-registers an approved configuration. The deterministic provider is the sole local fixture factory; its bounded outcomes/statuses are reconstructed by a fresh worker from durable JSON configuration.
+
+The registry rejects blank scope, missing/ambiguous/expired registration, unknown factory, malformed configuration, wrong tenant/operation, and factory/type failure before provider invocation. The isolated validation reported **no Payments migration drift** and **199 focused tests passing**, including fresh-worker resolution and zero-provider-call rejection cases. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-provider-registry-validation-20260820.log`.
+
+This increment advances P02-01 only as a foundation; it does not close P02-01 because mounted route → command → outbox → worker execution and factory-rotation/fresh-worker end-to-end proofs are still incomplete. P02-02 through P02-09 remain open. The next locked work is immutable execution intent, claim heartbeat/fencing, and universal status-first recovery.
