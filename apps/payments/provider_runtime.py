@@ -10,7 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .govstack_failure_services import PaymentLifecycleService
-from .govstack_models import PaymentAttempt, ProviderObservation, ProviderRegistration
+from .govstack_models import PaymentAttempt, PaymentExecutionIntent, ProviderObservation, ProviderRegistration
 from .govstack_provider import PaymentProvider, ProviderOutcome, ProviderResult
 from .provider_registry import (
     FACTORY_DETERMINISTIC,
@@ -135,7 +135,9 @@ class ProviderRuntime:
                 return ProviderResult(ProviderOutcome.UNCERTAIN, code="CLAIMED")
             provider = cls.resolve(tenant_id=attempt.tenant_id, operation=attempt.operation)
             generation = attempt.claim_generation + 1
-            should_poll = attempt.status == PaymentAttempt.STATUS_UNCERTAIN
+            execution_intent = PaymentExecutionIntent.objects.filter(attempt_id=attempt.pk).only("provider_correlation").first()
+            durable_correlation = execution_intent.provider_correlation if execution_intent else ""
+            should_poll = attempt.status == PaymentAttempt.STATUS_UNCERTAIN or bool(durable_correlation)
             intent = {"kind": "poll" if should_poll else "submit", "request_id": attempt.request_id, "generation": generation}
             attempt.claim_token, attempt.claim_generation = token, generation
             attempt.claim_expires_at = now + timedelta(minutes=5)
@@ -144,7 +146,7 @@ class ProviderRuntime:
             attempt.attempt_count += 1
             attempt.save(update_fields=["claim_token", "claim_generation", "claim_expires_at", "claim_heartbeat_at", "submission_intent", "attempt_count", "updated_at"])
             request_id, provider_attempt_id = attempt.request_id, attempt.provider_attempt_id
-            external_transaction_id = attempt.external_transaction_id
+            external_transaction_id = durable_correlation or attempt.external_transaction_id
             payload = {"request_id": request_id, "amount": str(attempt.amount or ""), "currency": attempt.currency}
         try:
             result = provider.get_status(request_id=request_id, provider_attempt_id=provider_attempt_id, external_transaction_id=external_transaction_id) if should_poll else provider.submit(request_id=request_id, payment=payload)

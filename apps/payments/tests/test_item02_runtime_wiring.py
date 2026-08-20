@@ -5,6 +5,7 @@ from django.test import TestCase
 
 from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import PaymentAttempt
+from apps.payments.execution_intent import record_provider_correlation, reserve_execution_intent
 from apps.payments.govstack_provider import ProviderOutcome, ProviderResult
 from apps.payments.platform_scope import IdempotencyService
 from apps.payments.provider_runtime import ProviderRuntime, orchestrate_attempt
@@ -89,6 +90,41 @@ class ProviderRuntimeIntegrationTests(TestCase):
         # the original process-local fixture.
         self.assertEqual(provider.submissions, [])
         self.assertEqual(provider.status_queries, [])
+        self.assertEqual(attempt.status, PaymentAttempt.STATUS_REJECTED)
+
+    def test_durable_correlation_forces_status_first_polling_from_pending(self):
+        attempt = self._attempt("runtime-correlation")
+        intent = reserve_execution_intent(
+            attempt=attempt,
+            scope="tenant-runtime",
+            operation="g2p_bulk_instruction",
+            request_identity="runtime-correlation",
+            payload={"request_id": "runtime-correlation", "amount": "4.25", "currency": "USD"},
+        )
+        record_provider_correlation(intent, "correlation-1")
+        provider = DeterministicProvider(
+            outcomes=[ProviderResult(ProviderOutcome.SETTLED)],
+            statuses={
+                "correlation-1": ProviderResult(
+                    ProviderOutcome.REJECTED,
+                    external_transaction_id="correlation-1",
+                    observation_id="correlation-event-1",
+                    event_id="correlation-event-1",
+                    verified=True,
+                    verification_method="deterministic-test",
+                )
+            },
+        )
+        ProviderRuntime.configure(
+            tenant_id="tenant-runtime",
+            operation="g2p_bulk_instruction",
+            provider=provider,
+        )
+
+        orchestrate_attempt(str(attempt.pk))
+
+        attempt.refresh_from_db()
+        self.assertEqual(provider.submissions, [])
         self.assertEqual(attempt.status, PaymentAttempt.STATUS_REJECTED)
 
     def test_unconfigured_runtime_fails_closed_without_provider_submission(self):
