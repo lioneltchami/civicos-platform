@@ -169,3 +169,12 @@ This inventory is intentionally discovery-only. It does not classify every mutat
 The isolated validation reported **no Payments migration drift** and **198 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-canonical-admission-validation-20260820.log`.
 
 This increment improves only the mounted bulk route. It does not prove full-surface admission because voucher, bill, fee, donation, refund, and any future provider-executable route remain outside the universal `PaymentCommandService.admit()` matrix. P02-02, P02-07, and P02-09 remain open.
+
+
+### Stage 3 interim increment — prepayment execution eligibility gate
+
+`PrepaymentExecution` now provides a durable one-to-one internal admission record for a completed `PrepaymentValidationRequest`. `admit_prepayment_execution()` locks the validation record, requires completed validation with both beneficiary and financial-address checks true, reserves a unique execution key, returns a stable same-key replay, rejects a changed key, and performs no provider I/O. The validation and validation-response HTTP contracts remain unchanged.
+
+The isolated validation reported **no Payments migration drift** and **37 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-prepayment-execution-validation-20260820.log`.
+
+This is an eligibility/admission gate only. It does not create or bind a `PaymentAttempt` and `PaymentExecutionIntent`, does not publish a worker handoff, and does not establish financial finality. P02-03 remains open.
