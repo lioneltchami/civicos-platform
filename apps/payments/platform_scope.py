@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework.views import APIView
 from apps.payments.govstack_auth import IsTrustedPayerFI
 from apps.payments.govstack_models import IdempotencyLedger, PaymentReconciliation
+from apps.payments.payment_command_boundary import PaymentScopeDenied, resolve_registered_bb_scope
 
 
 def canonical_fingerprint(payload: Any) -> str:
@@ -65,10 +66,11 @@ class ReconciliationReportView(APIView):
     page_size = 50
 
     def get(self, request):
-        tenant_id = (request.headers.get("X-Platform-TenantId") or request.headers.get("Platform-TenantId") or "").strip()
-        if not tenant_id or len(tenant_id) > 100:
+        try:
+            scope = resolve_registered_bb_scope(request)
+        except PaymentScopeDenied:
             return JsonResponse({"error": "tenant authorization required"}, status=403)
-        qs = PaymentReconciliation.objects.filter(attempt__tenant_id=tenant_id).select_related("attempt").order_by("-created_at")
+        qs = PaymentReconciliation.objects.filter(attempt__tenant_id=scope.tenant_id).select_related("attempt").order_by("-created_at")
         try:
             limit = min(max(int(request.GET.get("limit", self.page_size)), 1), self.page_size)
         except (TypeError, ValueError):
