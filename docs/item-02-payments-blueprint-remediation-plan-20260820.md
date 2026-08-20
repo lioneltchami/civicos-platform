@@ -187,3 +187,12 @@ This is an eligibility/admission gate only. It does not create or bind a `Paymen
 The isolated validation reported **no Payments migration drift** and **27 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-batch-policy-validation-20260820.log`.
 
 This is a pure policy increment only. `process_bulk_payment_batch` does not yet build provider-finality child inputs from `PaymentAttempt`/observations or use this decision under a fenced lease, so P02-06 and P02-08 remain open.
+
+
+### Stage 3 interim increment — authorised tenant-scoped reconciliation read
+
+`ReconciliationReportView` now derives its reconciliation queryset tenant from `resolve_registered_bb_scope()`, the same registered caller-to-tenant authority used by canonical command admission. A missing, forged, or unauthorised scope is denied before queryset evaluation; the existing redacted status DTO and pagination remain unchanged and the read path does not resolve a provider.
+
+The isolated validation reported **no Payments migration drift** and **11 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-authorised-read-validation-20260820.log`.
+
+This improves one authorised read surface only. It does not prove mounted status/reconciliation reads for every operation, complete caller-to-tenant evidence across all routes, or route-wide mutation idempotency. P02-08 and P02-09 remain open.
