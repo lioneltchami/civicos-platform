@@ -54,7 +54,10 @@ class ProviderRuntimeIntegrationTests(TestCase):
 
         attempt.refresh_from_db()
         self.assertEqual(result.outcome, ProviderOutcome.SETTLED)
-        self.assertEqual(provider.submissions, ["runtime-settled"])
+        # A fresh worker-local deterministic adapter is materialized from the
+        # durable registration; the web-process fixture itself must not receive
+        # the invocation.
+        self.assertEqual(provider.submissions, [])
         self.assertEqual(attempt.status, PaymentAttempt.STATUS_SETTLED)
         self.assertEqual(attempt.reconciliations.latest("created_at").status, "matched")
 
@@ -82,8 +85,10 @@ class ProviderRuntimeIntegrationTests(TestCase):
         orchestrate_attempt(str(attempt.pk))
 
         attempt.refresh_from_db()
+        # The poll was performed by a newly materialized worker adapter, not by
+        # the original process-local fixture.
         self.assertEqual(provider.submissions, [])
-        self.assertEqual(provider.status_queries, ["runtime-poll"])
+        self.assertEqual(provider.status_queries, [])
         self.assertEqual(attempt.status, PaymentAttempt.STATUS_REJECTED)
 
     def test_unconfigured_runtime_fails_closed_without_provider_submission(self):

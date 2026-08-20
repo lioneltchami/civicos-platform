@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, runtime_checkable
 
 
 class ProviderOutcome(StrEnum):
@@ -49,6 +49,7 @@ class ProviderResult:
         return self.outcome is ProviderOutcome.SETTLED
 
 
+@runtime_checkable
 class PaymentProvider(Protocol):
     def submit(self, *, request_id: str, payment: Mapping[str, Any]) -> ProviderResult: ...
     def get_status(self, *, request_id: str, provider_attempt_id: str = "", external_transaction_id: str = "") -> ProviderResult: ...

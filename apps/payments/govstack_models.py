@@ -1402,6 +1402,8 @@ class PaymentAttempt(TimestampedModel):
     claim_token = models.CharField(max_length=128, blank=True)
     claim_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
     claim_generation = models.PositiveIntegerField(default=0)
+    claim_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    submission_intent = models.JSONField(default=dict)
 
     request_id = models.CharField(max_length=100, db_index=True)
     operation = models.CharField(max_length=30, default="g2p")
