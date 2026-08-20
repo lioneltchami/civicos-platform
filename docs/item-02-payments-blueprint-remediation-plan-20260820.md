@@ -205,3 +205,12 @@ The canonical bulk command reservation now creates a `PaymentAttempt` and immuta
 The isolated validation reported **no Payments migration drift** and **11 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-bound-command-handoff-validation-20260820.log`.
 
 The publisher currently only records a bound handoff as dispatched; no worker consumer has yet acknowledged the outbox and invoked a claim-fenced orchestration path. The implementation therefore improves the P02-02/P02-04 foundation without closing either defect.
+
+
+### Stage 3 interim increment — durable worker consumer acknowledgement
+
+`PaymentCommandOutbox` now stores a durable acknowledgement timestamp, token, and result. The worker-only `acknowledge_reserved_command()` path locks the existing outbox/command/attempt/intent chain, validates the topic, command/attempt IDs, tenant, operation, fingerprint, and immutable execution identity, and schedules orchestration only for the first valid post-commit acknowledgement. Duplicate delivery returns the stored result without another schedule; malformed deliveries create no provider work and no new attempts.
+
+The isolated validation reported **no Payments migration drift** and **11 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-command-consumer-validation-20260820.log`.
+
+The publisher still does not enqueue this consumer automatically, and the consumer currently schedules the existing orchestration task rather than a fully status-first, lease-fenced recovery command. P02-02, P02-04, and P02-05 remain open.
