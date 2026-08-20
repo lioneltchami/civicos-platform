@@ -223,3 +223,12 @@ The bound command publisher now queues the durable command-consumer task only af
 The isolated validation reported **no Payments migration drift** and **10 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-command-publisher-validation-20260820.log`.
 
 This establishes a durable publisher-to-consumer handoff for the single mounted bulk route. The orchestration task still needs full status-first recovery and lease-fencing proof, while the other provider-executable routes remain outside the universal path. P02-02, P02-04, P02-05, and P02-09 remain open.
+
+
+### Stage 3 interim increment — durable correlation status-first recovery
+
+The worker runtime now checks the durable `PaymentExecutionIntent.provider_correlation` before choosing submit versus poll. A non-terminal attempt with a stored correlation polls authoritative provider status even when its current lifecycle state is not already `uncertain`; it does not create a second provider submission. The focused test uses a pending attempt with an immutable correlation and verifies the fresh worker runtime settles the result through status polling rather than submission.
+
+The isolated validation reported **no Payments migration drift** and **10 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-recovery-correlation-validation-20260820.log`.
+
+Claim acquisition still requires explicit expired-lease takeover coverage, stale completion proof, and timeout/network diagnostic evidence. The live batch task has not yet supplied its child records to this recovery path. P02-04, P02-05, P02-06, and P02-08 remain open.
