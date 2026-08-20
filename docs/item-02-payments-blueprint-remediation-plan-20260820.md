@@ -113,3 +113,14 @@ All nine defects are still open. Stage 2 reviewers must receive only the current
 [2]: `config/urls.py`, `apps/payments/urls.py`, and `apps/payments/govstack_urls.py` — actual Django mounted route sources.
 
 [3]: `docs/item-02-payments-strict-remediation-verification-20260820.md` — prior strict verification showing the existing foundations did not close P02-01 through P02-09.
+
+
+## Stage 3 interim implementation record — 2026-08-20
+
+The first strictly validated implementation increment is complete but **does not close any P02 defect**. It adds `PaymentCommand` and `PaymentCommandOutbox` as additive durable models, a canonical JSON-safe command fingerprint and reservation service, and a scope resolver that treats `X-Platform-TenantId` only as a claim. In production mode, the resolver requires an active caller identity already established by the existing registered-BB permission and requires the claimed tenant to appear in that caller's nonempty `GovStackRegisteredBB.allowed_platform_tenant_ids` mapping. In explicitly disabled registered-BB harness mode, the adapter uses isolated non-authoritative synthetic scope values and still requires a canonical request identity.
+
+`BulkPaymentView` now reserves the command before legacy batch acceptance. Duplicate commands with the same scope, operation, request identity, and fingerprint return the stable receipt path; a changed payload conflicts before batch acceptance. The reservation creates one durable outbox record and publication occurs only through `transaction.on_commit`. The publisher deliberately marks the durable handoff; provider-worker routing remains a later locked step and has not been claimed.
+
+The final isolated run recorded **no Payments migration drift** and **196 focused Payments tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-command-boundary-validation-20260820.log`.
+
+This increment has not yet satisfied the blueprint closure matrix. The following work remains mandatory before any P02 conclusion: resolver-driven classification across both mounted prefixes; representative-route tests for missing/forged/cross-tenant scope, replay/conflict, rollback and post-commit publication; an allowlisted versioned provider factory; immutable execution intent plus fenced claim/heartbeat and universal recovery; tenant-authorised prepayment execution; live batch lease/accounting; scoped redacted cursor status/reconciliation reads; and the full resolver-generated route-to-worker matrix. Stage 4 must not be run until those locked implementation steps are complete.
