@@ -214,3 +214,12 @@ The publisher currently only records a bound handoff as dispatched; no worker co
 The isolated validation reported **no Payments migration drift** and **11 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-command-consumer-validation-20260820.log`.
 
 The publisher still does not enqueue this consumer automatically, and the consumer currently schedules the existing orchestration task rather than a fully status-first, lease-fenced recovery command. P02-02, P02-04, and P02-05 remain open.
+
+
+### Stage 3 interim increment — publisher-to-consumer handoff
+
+The bound command publisher now queues the durable command-consumer task only after the command/attempt/intent/outbox dispatch state is durable. The consumer task reconstructs its delivery identity from the bound records and hands it to the acknowledgement fence. Focused tests isolate the broker edge, verify one queue handoff for the first bounded command, and verify replay does not queue a second consumer task.
+
+The isolated validation reported **no Payments migration drift** and **10 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-command-publisher-validation-20260820.log`.
+
+This establishes a durable publisher-to-consumer handoff for the single mounted bulk route. The orchestration task still needs full status-first recovery and lease-fencing proof, while the other provider-executable routes remain outside the universal path. P02-02, P02-04, P02-05, and P02-09 remain open.
