@@ -1965,6 +1965,13 @@ class PaymentCommand(TimestampedModel):
     fingerprint = models.CharField(max_length=64)
     payload = models.JSONField(default=dict)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_RESERVED)
+    attempt = models.OneToOneField(
+        "payments.PaymentAttempt",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payment_command",
+    )
 
     class Meta:
         constraints = [

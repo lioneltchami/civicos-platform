@@ -14,7 +14,11 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.payments.govstack_models import GovStackRegisteredBB
+from apps.payments.govstack_models import (
+    GovStackRegisteredBB,
+    PaymentAttempt,
+    PaymentExecutionIntent,
+)
 from apps.payments.models import PaymentCommand, PaymentCommandOutbox
 
 
@@ -125,10 +129,31 @@ class PaymentCommandService:
                         fingerprint=fingerprint,
                         payload=stored_payload,
                     )
+                    attempt = PaymentAttempt.objects.create(
+                        tenant_id=scope.tenant_id,
+                        request_id=request_identity[:100],
+                        operation=operation[:30],
+                        source_bb_id=scope.caller_bb_id,
+                        payload_fingerprint=fingerprint,
+                        submission_intent={"command_id": str(command.id)},
+                    )
+                    PaymentExecutionIntent.objects.create(
+                        attempt=attempt,
+                        scope=scope.tenant_id,
+                        operation=operation[:30],
+                        request_identity=request_identity[:100],
+                        payload_fingerprint=fingerprint,
+                    )
+                    command.attempt = attempt
+                    command.save(update_fields=["attempt", "updated_at"])
                     outbox = PaymentCommandOutbox.objects.create(
                         command=command,
                         topic="payments.command.reserved",
-                        payload={"command_id": str(command.id), "operation": operation},
+                        payload={
+                            "command_id": str(command.id),
+                            "attempt_id": str(attempt.id),
+                            "operation": operation,
+                        },
                     )
             except IntegrityError:
                 command = PaymentCommand.objects.select_for_update().get(
@@ -138,6 +163,8 @@ class PaymentCommandService:
                 )
                 if command.fingerprint != fingerprint:
                     raise PaymentIdempotencyConflict("request identity was reused with a different payload")
+                if command.attempt_id is None:
+                    raise PaymentScopeDenied("existing payment command has no durable attempt binding")
                 return command, True
 
             transaction.on_commit(lambda: PaymentCommandService.publish(outbox.id))
@@ -145,12 +172,17 @@ class PaymentCommandService:
 
     @staticmethod
     def publish(outbox_id) -> None:
-        """Mark the durable handoff published; worker routing is a later locked step."""
-        updated = PaymentCommandOutbox.objects.filter(
-            id=outbox_id,
-            published_at__isnull=True,
-        ).update(published_at=timezone.now())
-        if updated:
-            PaymentCommand.objects.filter(
-                id=PaymentCommandOutbox.objects.values_list("command_id", flat=True).get(id=outbox_id)
-            ).update(status=PaymentCommand.STATUS_DISPATCHED)
+        """Expose a handoff only after its command/attempt/intent chain exists."""
+        with transaction.atomic():
+            outbox = PaymentCommandOutbox.objects.select_for_update().select_related("command", "command__attempt").get(id=outbox_id)
+            command = outbox.command
+            if outbox.published_at is not None:
+                return
+            if command.attempt_id is None or str(outbox.payload.get("attempt_id", "")) != str(command.attempt_id):
+                return
+            if not PaymentExecutionIntent.objects.filter(attempt_id=command.attempt_id).exists():
+                return
+            outbox.published_at = timezone.now()
+            outbox.save(update_fields=["published_at", "updated_at"])
+            command.status = PaymentCommand.STATUS_DISPATCHED
+            command.save(update_fields=["status", "updated_at"])
