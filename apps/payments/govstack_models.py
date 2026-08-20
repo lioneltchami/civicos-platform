@@ -1433,6 +1433,63 @@ class PaymentAttempt(TimestampedModel):
         constraints = [models.UniqueConstraint(fields=["tenant_id", "operation", "request_id"], name="gs_attempt_scope_request_uniq")]
         indexes = [models.Index(fields=["status", "next_retry_at"], name="gs_attempt_due_idx")]
 
+class PaymentExecutionIntent(TimestampedModel):
+    """Append-only provider execution identity reserved before external I/O."""
+
+    STATE_RESERVED = "reserved"
+    STATE_CORRELATED = "correlated"
+    STATE_CHOICES = [
+        (STATE_RESERVED, "Reserved"),
+        (STATE_CORRELATED, "Correlated"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    attempt = models.OneToOneField(
+        PaymentAttempt,
+        on_delete=models.PROTECT,
+        related_name="execution_intent",
+    )
+    scope = models.CharField(max_length=100, db_index=True)
+    operation = models.CharField(max_length=30)
+    request_identity = models.CharField(max_length=100)
+    payload_fingerprint = models.CharField(max_length=64)
+    provider_correlation = models.CharField(max_length=160, blank=True, db_index=True)
+    state = models.CharField(max_length=20, choices=STATE_CHOICES, default=STATE_RESERVED, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["scope", "operation", "request_identity"],
+                name="gs_exec_intent_identity_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["scope", "operation", "created_at"],
+                name="gs_exec_intent_scope_idx",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            original = type(self).objects.get(pk=self.pk)
+            immutable = (
+                "attempt_id",
+                "scope",
+                "operation",
+                "request_identity",
+                "payload_fingerprint",
+            )
+            if any(getattr(original, field) != getattr(self, field) for field in immutable):
+                raise ValueError("PaymentExecutionIntent canonical identity is immutable")
+            if original.provider_correlation and self.provider_correlation != original.provider_correlation:
+                raise ValueError("PaymentExecutionIntent provider correlation is immutable")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("PaymentExecutionIntent is append-only")
+
+
 class CallbackDelivery(TimestampedModel):
     """Idempotent callback outbox ledger with bounded retry/dead-letter state."""
     STATUS_PENDING = "pending"; STATUS_DELIVERED = "delivered"; STATUS_RETRY = "retry"; STATUS_DEAD = "dead"
