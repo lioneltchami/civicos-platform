@@ -97,6 +97,12 @@ from .govstack_services import (
 )
 from .govstack_status_views import tenant_status
 from .govstack_tasks import process_bulk_payment_batch, validate_prepayment_async
+from .payment_command_boundary import (
+    PaymentCommandService,
+    PaymentIdempotencyConflict,
+    PaymentScopeDenied,
+    resolve_registered_bb_scope,
+)
 from .govstack_throttling import GovStackPaymentsIdentityThrottle
 
 logger = logging.getLogger(__name__)
@@ -670,6 +676,22 @@ class BulkPaymentView(GovStackG2PView):
             return self._g2p_bad(request, self._flatten_errors(ser.errors))
 
         d = ser.validated_data
+        try:
+            scope = resolve_registered_bb_scope(request)
+            command, replayed = PaymentCommandService.reserve(
+                scope=scope,
+                operation="g2p_bulk_payment",
+                request_identity=d.get("RequestID", ""),
+                payload=d,
+            )
+        except PaymentScopeDenied as exc:
+            return self._g2p_bad(request, str(exc))
+        except PaymentIdempotencyConflict as exc:
+            return self._g2p_bad(request, str(exc))
+
+        if replayed:
+            return self._g2p_ok(request, "Bulk payment batch was already received.")
+
         try:
             batch = GovStackBulkPaymentService.receive_batch(
                 request_id=d.get("RequestID", ""),

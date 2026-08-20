@@ -1942,3 +1942,62 @@ class OfficialDonationReceipt(TimestampedModel):
             self.status = self.RECEIPT_STATUS_SUPERSEDED
             self.superseded_by = new_receipt
             self.updated_at = now
+
+
+# ---------------------------------------------------------------------------
+# Item 02 blueprint command boundary
+# ---------------------------------------------------------------------------
+class PaymentCommand(TimestampedModel):
+    """Immutable request command reserved before provider-executable work."""
+
+    STATUS_RESERVED = "reserved"
+    STATUS_DISPATCHED = "dispatched"
+    STATUS_CHOICES = [
+        (STATUS_RESERVED, "Reserved"),
+        (STATUS_DISPATCHED, "Dispatched"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant_id = models.CharField(max_length=100, db_index=True)
+    caller_bb_id = models.CharField(max_length=20)
+    operation = models.CharField(max_length=64)
+    request_identity = models.CharField(max_length=255)
+    fingerprint = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_RESERVED)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "operation", "request_identity"],
+                name="payment_command_identity_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant_id", "operation", "created_at"],
+                name="payment_command_scope_idx",
+            )
+        ]
+
+
+class PaymentCommandOutbox(TimestampedModel):
+    """One publishable post-commit handoff record for a PaymentCommand."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    command = models.OneToOneField(
+        PaymentCommand,
+        on_delete=models.PROTECT,
+        related_name="outbox",
+    )
+    topic = models.CharField(max_length=120)
+    payload = models.JSONField(default=dict)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["published_at", "created_at"],
+                name="payment_outbox_due_idx",
+            )
+        ]
