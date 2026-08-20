@@ -57,3 +57,12 @@ RB-01 is still open. The required barrier-controlled two-worker stale-completion
 The isolated validation reported **no Payments migration drift** and **13 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-stale-finalization-validation-20260820.log`.
 
 RB-01 remains open. This test proves stale persistence fencing, but the strict acceptance set still requires a barrier-controlled accepted-submit/crash and delayed-outcome two-worker scenario, correlation collision evidence, and a durable at-most-one-submit record across the actual worker handoff.
+
+
+### Stage 3 interim increment — RB-01 durable one-submit admission fence
+
+`PaymentExecutionIntent` now carries additive `submit_started_at` and `submit_admission_generation` markers. Under the attempt row lock, the first worker persists this marker before provider submission. A later worker that observes the marker takes the fail-closed polling branch rather than opening another submit admission, including after lease expiry. This preserves newly reserved commands as first-submit eligible while treating a committed submit admission as durable external-work ambiguity.
+
+The isolated validation reported **no Payments migration drift** and **14 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-submit-admission-validation-20260820.log`.
+
+RB-01 remains open. The strict acceptance set still lacks the required barrier-controlled accepted-submit/crash and delayed-outcome scenario exercising the actual worker handoff, plus correlation-collision evidence. No P02 result is promoted.
