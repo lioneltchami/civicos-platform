@@ -93,3 +93,10 @@ A focused `TransactionTestCase` now drives the actual durable command → outbox
 The isolated validation reported the focused accepted-submit/crash test passing. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-accepted-crash-validation-20260820.log`.
 
 RB-01 still remains open because the strict acceptance set requires this scenario to be retained in the full RB-01 suite with migration-drift output and explicitly assessed alongside all timeout/network and correlation-collision evidence. The evidence is now substantially complete, but no P02 status is promoted ahead of the full Stage 3 evidence bundle.
+
+
+### RB-01 consolidated evidence status
+
+The full RB-01 focused evidence suite now passes with **no Payments migration drift** and **19 tests passing**. It covers reserved first submit, explicit ambiguity and timeout non-finality, durable submit admission, coordinated delayed completion and expiry takeover, stale finalization fencing, durable command publication/acknowledgement/redelivery, correlation collision, and the real accepted-submit/crash/recovery path. Raw consolidated output is archived at `docs/govstack/testing/evidence/item-02-payments-rb01-consolidated-validation-20260820.log`.
+
+**RB-01 blocker status: evidence complete for this internal pass.** This does not close P02-01 through P02-09 or authorize Stage 4; the remaining RB-02 through RB-04 implementation and the final full mounted-surface validation remain mandatory. The locked dependency order may now proceed to RB-02.
