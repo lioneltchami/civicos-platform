@@ -133,3 +133,12 @@ The second validated implementation increment replaces unrestricted dynamic adap
 The registry rejects blank scope, missing/ambiguous/expired registration, unknown factory, malformed configuration, wrong tenant/operation, and factory/type failure before provider invocation. The isolated validation reported **no Payments migration drift** and **199 focused tests passing**, including fresh-worker resolution and zero-provider-call rejection cases. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-provider-registry-validation-20260820.log`.
 
 This increment advances P02-01 only as a foundation; it does not close P02-01 because mounted route → command → outbox → worker execution and factory-rotation/fresh-worker end-to-end proofs are still incomplete. P02-02 through P02-09 remain open. The next locked work is immutable execution intent, claim heartbeat/fencing, and universal status-first recovery.
+
+
+### Stage 3 interim increment — immutable execution intent persistence
+
+A third validated increment adds `PaymentExecutionIntent`, an append-only one-to-one record for the canonical attempt scope, operation, request identity, payload fingerprint, and write-once provider correlation. `reserve_execution_intent()` obtains the record atomically before provider I/O and rejects a changed payload or a different attempt for the same canonical identity. `record_provider_correlation()` accepts only the first durable correlation value. The intent model prevents canonical identity mutation and deletion after creation.
+
+The isolated validation reported **no Payments migration drift** and **203 focused tests passing**, including the execution-intent creation, replay, conflict, and correlation-immutability cases. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-execution-intent-validation-20260820.log`.
+
+This does not yet connect intent creation to the worker path and therefore does not close P02-04 or P02-05. Claim acquire/heartbeat/takeover fencing, worker status-first polling, stale completion handling, universal recovery task routing, and two-worker crash evidence remain mandatory before a recovery closure claim.
