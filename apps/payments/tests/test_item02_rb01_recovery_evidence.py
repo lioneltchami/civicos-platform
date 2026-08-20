@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 import threading
 from unittest import mock
 
@@ -6,6 +7,9 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 from apps.payments.govstack_failure_services import PaymentLifecycleService
+from apps.payments.models import PaymentCommand, PaymentCommandOutbox
+from apps.payments.payment_command_boundary import PaymentCommandService, PaymentScope
+from apps.payments.payment_command_tasks import consume_bound_command_outbox_task
 from apps.payments.govstack_models import PaymentAttempt
 from apps.payments.execution_intent import reserve_execution_intent
 from apps.payments.govstack_provider import ProviderOutcome, ProviderResult
@@ -30,10 +34,10 @@ class RB01RecoveryEvidenceTests(TransactionTestCase):
             attempt.save(update_fields=[*changes, "updated_at"])
         return attempt
 
-    def _configure(self, outcome):
-        ProviderRuntime.configure(
+    def _configure(self, outcome, *, operation="g2p_bulk_instruction"):
+        return ProviderRuntime.configure(
             tenant_id="rb01-tenant",
-            operation="g2p_bulk_instruction",
+            operation=operation,
             provider=DeterministicProvider([outcome]),
         )
 
@@ -226,3 +230,79 @@ class RB01RecoveryEvidenceTests(TransactionTestCase):
         self.assertIsNotNone(intent.submit_started_at)
         self.assertNotEqual(attempt.claim_generation, 1)
         self.assertNotEqual(second.code, "STALE_CLAIM")
+
+    def test_bound_command_crash_then_takeover_preserves_one_submit_admission(self):
+        payload = {"request_id": "rb01-bound-crash", "amount": "1.00", "currency": "USD"}
+        with mock.patch.object(PaymentCommandService, "enqueue_consumer"):
+            command, created = PaymentCommandService.reserve(
+                scope=PaymentScope(caller_bb_id="__harness__", tenant_id="rb01-tenant"),
+                operation="g2p_bulk_instruction",
+                request_identity=payload["request_id"],
+                payload=payload,
+            )
+        # The established service returns False for the initial writer and True
+        # only when a prior durable command is replayed.
+        self.assertFalse(created)
+        outbox = PaymentCommandOutbox.objects.get(command=command)
+        command.refresh_from_db()
+        outbox.refresh_from_db()
+        self.assertEqual(command.status, PaymentCommand.STATUS_DISPATCHED)
+        self.assertIsNotNone(outbox.published_at)
+
+        with mock.patch("apps.payments.payment_command_consumer._schedule_orchestration"):
+            consumed = consume_bound_command_outbox_task.run(str(outbox.pk))
+        outbox.refresh_from_db()
+        self.assertTrue(consumed["acknowledged"])
+        self.assertIsNotNone(outbox.acknowledged_at)
+
+        attempt = PaymentAttempt.objects.get(pk=command.attempt_id)
+        # This proof follows one financial child attempt. The command boundary
+        # itself does not parse the batch payload into a beneficiary amount.
+        attempt.amount = Decimal("1.00")
+        attempt.currency = "USD"
+        attempt.save(update_fields=["amount", "currency", "updated_at"])
+        registration = self._configure(
+            ProviderResult(
+                ProviderOutcome.UNCERTAIN,
+                provider_attempt_id="rb01-crash-provider-attempt",
+                external_transaction_id="rb01-crash-correlation",
+                code="ACCEPTED_PENDING",
+                observation_id="rb01-crash-observation",
+                event_id="rb01-crash-event",
+            ),
+            operation=attempt.operation,
+        )
+        attempt.provider_registration = registration
+        attempt.save(update_fields=["provider_registration", "updated_at"])
+        self.assertIsNotNone(
+            ProviderRuntime.resolve(tenant_id=attempt.tenant_id, operation=attempt.operation)
+        )
+        with mock.patch.object(
+            ProviderRuntime,
+            "worker_test_seam",
+            side_effect=RuntimeError("simulated crash after provider call"),
+        ):
+            with self.assertRaises(RuntimeError):
+                orchestrate_attempt(str(attempt.pk))
+
+        attempt.refresh_from_db()
+        intent = attempt.execution_intent
+        self.assertIsNotNone(intent.submit_started_at)
+        self.assertEqual(intent.submit_admission_generation, 1)
+        self.assertEqual(attempt.claim_generation, 1)
+        self.assertEqual(attempt.submission_intent["kind"], "submit")
+
+        PaymentAttempt.objects.filter(pk=attempt.pk).update(
+            claim_expires_at=timezone.now() - timedelta(seconds=1)
+        )
+        # The committed submit admission causes this recovery call to poll, not
+        # reopen another submit admission. The test asserts durable state only.
+        orchestrate_attempt(str(attempt.pk))
+        attempt.refresh_from_db()
+        intent.refresh_from_db()
+        self.assertEqual(attempt.claim_generation, 2)
+        self.assertEqual(intent.submit_admission_generation, 1)
+        self.assertEqual(attempt.submission_intent, {})
+        self.assertFalse(
+            attempt.observations.filter(observation_id="rb01-crash-observation").exists()
+        )
