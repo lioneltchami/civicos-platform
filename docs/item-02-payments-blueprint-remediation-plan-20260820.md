@@ -160,3 +160,12 @@ This is a routing increment only. It does **not** establish execution-intent cre
 The isolated validation reported **no Payments migration drift** and **198 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-route-inventory-validation-20260820.log`.
 
 This inventory is intentionally discovery-only. It does not classify every mutation into domain-only/provider-executable/unsupported policy and does not route every executable mutation through the command boundary. Therefore P02-09 remains open and no admission-bypass conclusion is implied.
+
+
+### Stage 3 interim increment — canonical mounted bulk admission interface
+
+`PaymentCommandService.admit()` now makes trusted scope resolution and durable command/outbox reservation one explicit request-facing boundary. `BulkPaymentView` calls this canonical interface rather than independently resolving scope and then calling `reserve()`. The boundary still performs no provider I/O and publishes only the durable command handoff after commit.
+
+The isolated validation reported **no Payments migration drift** and **198 focused tests passing**. Raw output is archived at `docs/govstack/testing/evidence/item-02-payments-canonical-admission-validation-20260820.log`.
+
+This increment improves only the mounted bulk route. It does not prove full-surface admission because voucher, bill, fee, donation, refund, and any future provider-executable route remain outside the universal `PaymentCommandService.admit()` matrix. P02-02, P02-07, and P02-09 remain open.
