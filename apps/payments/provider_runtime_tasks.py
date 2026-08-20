@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from celery import shared_task
 
-from .provider_runtime import ProviderRuntime, orchestrate_attempt
+from .payment_recovery import RecoverPaymentAttemptCommand
+from .provider_runtime import orchestrate_attempt
 
 
 @shared_task(
@@ -29,4 +30,4 @@ def orchestrate_attempt_task(attempt_id: str):
 def recover_attempt_status_first_task(attempt_id: str):
     if not attempt_id:
         raise ValueError("admitted attempt ID is required")
-    return ProviderRuntime.status_first_recovery(str(attempt_id))
+    return RecoverPaymentAttemptCommand.execute(str(attempt_id))

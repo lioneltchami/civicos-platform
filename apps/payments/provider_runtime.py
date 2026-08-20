@@ -178,8 +178,10 @@ class ProviderRuntime:
 def orchestrate_attempt(attempt_id: str) -> ProviderResult:
     if not attempt_id:
         raise ValueError("admitted attempt ID is required")
+    from .payment_recovery import RecoverPaymentAttemptCommand
+
     try:
-        return ProviderRuntime.submit_or_poll(str(attempt_id))
+        return RecoverPaymentAttemptCommand.execute(str(attempt_id))
     except ProviderUnavailable:
         return ProviderRuntime.unavailable(attempt_id)
 
