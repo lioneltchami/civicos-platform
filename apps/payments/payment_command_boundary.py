@@ -88,6 +88,23 @@ def canonical_fingerprint(payload: Any) -> str:
 class PaymentCommandService:
     """Reserve one immutable command and one post-commit outbox record."""
 
+    @classmethod
+    def admit(
+        cls,
+        *,
+        request: Any,
+        operation: str,
+        request_identity: str,
+        payload: dict[str, Any],
+    ) -> tuple[PaymentCommand, bool]:
+        """Canonical request boundary: trusted scope, then durable reservation."""
+        return cls.reserve(
+            scope=resolve_registered_bb_scope(request),
+            operation=operation,
+            request_identity=request_identity,
+            payload=payload,
+        )
+
     @staticmethod
     def reserve(*, scope: PaymentScope, operation: str, request_identity: str, payload: dict[str, Any]) -> tuple[PaymentCommand, bool]:
         operation = (operation or "").strip()

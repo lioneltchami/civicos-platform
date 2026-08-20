@@ -677,9 +677,8 @@ class BulkPaymentView(GovStackG2PView):
 
         d = ser.validated_data
         try:
-            scope = resolve_registered_bb_scope(request)
-            command, replayed = PaymentCommandService.reserve(
-                scope=scope,
+            command, replayed = PaymentCommandService.admit(
+                request=request,
                 operation="g2p_bulk_payment",
                 request_identity=d.get("RequestID", ""),
                 payload=d,
