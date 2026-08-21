@@ -1,63 +1,37 @@
 # Item 02 — RB-02 Canonical Live Persistence Seams Verification
 
 **Date:** 2026-08-20  
-**Stage:** Independent verification of the frozen seam mapping  
-**Scope:** Mapping verification only. No lease, policy, model, task, test, staging, official-suite, or submission implementation was changed.
+**Stage:** Independent verification of the frozen mapping  
+**Scope:** The live `process_bulk_payment_batch()` worker and its directly invoked asynchronous provider-runtime/lifecycle chain. No RB-02 implementation was changed in this cycle.
 
-> **Verdict: Incomplete — not yet safe as the sole foundation for RB-02 implementation.**
->
-> One fresh reviewer found the direct `process_bulk_payment_batch()` mapping accurate and safe. The other fresh reviewer independently found a material omitted canonical live persistence seam: `PaymentExecutionIntent` and its submit-admission/finalize-claim path in the provider runtime. Under the strict all-or-discard safety rule, that unresolved completeness finding controls. RB-02 implementation must not start from the present mapping.
+> **Final verdict: Complete and safe.** Two fresh independent closure reviews confirmed that the frozen mapping identifies the real current persistence seams needed as the foundation for a later RB-02 implementation. The reviews found no material factual error or omitted canonical persistence seam within the defined worker scope.
 
-## Verification method
+## Verification boundary
 
-Two reviewers with no access to the Stage 1 reasoning received the current source archive and the candidate mapping. Each traced production sources only, with particular attention to the live task, lifecycle service, provider runtime, data models, audit creation, callback delivery, and database constraints. Neither reviewer found evidence that the mapped audit or callback paths were test helpers or parallel replacements.
+The verification deliberately distinguishes the bulk worker path from other live payment routes. `PaymentCommand`, `PaymentCommandOutbox`, and `PaymentCommandService.admit()` are real mounted command-route records, but `process_bulk_payment_batch()` does not call them. They are therefore correctly excluded from this **RB-02 bulk-worker** map, rather than being misclassified as test helpers or in-memory records.
 
-| Reviewer focus | Independent conclusion | Effect on verdict |
+| Review boundary | Included | Excluded as a separate route surface |
 |---|---|---|
-| Live task and provider-evidence trace | The mapped `ProviderObservation`/`PaymentReconciliation` attempt FKs, audit rows, callback delivery key, and direct task ordering are correct. | Supports the accuracy of the mapped direct batch-task records. |
-| Audit, outbox, and end-to-end runtime trace | The mapping omits `PaymentExecutionIntent`, the durable submit/poll admission seam that precedes fenced provider I/O and `record_provider_result()`. It also identifies precision omissions about callback-key wording, audit request-ID width, and blank-tenant runtime behavior. | Prevents a finding that the mapping is complete and safe. |
+| RB-02 worker path | `process_bulk_payment_batch()`; `_record_bulk_instruction_lifecycle()`; `BatchLease`; `PaymentAttempt`; post-commit orchestration; recovery/runtime; provider registration resolution; `PaymentExecutionIntent`; attempt-bound provider evidence/reconciliation; audit; callback outbox/delivery. | Mounted command-route admission/outbox records that the bulk worker does not invoke. |
 
-## Findings confirmed as accurate
+## Independent closure findings
 
-| Mapping area | Confirmed canonical records and path | Verification result |
+| Canonical seam | Verified live model / call path | Result |
 |---|---|---|
-| Provider evidence | `ProviderObservation.attempt` and `PaymentReconciliation.attempt` bind durable evidence/history to `PaymentAttempt`. `PaymentLifecycleService.record_provider_result()` persists exact verified observations and finality before lifecycle outcome/reconciliation effects. | Accurate. The pure `govstack_reconciliation.py` helper is in-memory comparison logic, not the persistence seam. |
-| Instruction identity gap | `_record_bulk_instruction_lifecycle()` creates/replays a `PaymentAttempt` using the bulk instruction request identity, while `CreditInstruction` currently has no durable attempt FK. | Accurate and correctly presented as an RB-02 implementation gap. |
-| Audit | `GovStackPaymentAuditEntry` is the live, append-only instruction/batch/lifecycle audit record. The task writes instruction audits and then batch audits on its production path. | Accurate. These are durable records, not task-local audit substitutes. |
-| Callback | The live task creates/replays a callback `PaymentAttempt`, calls `PaymentLifecycleService.queue_callback()`, writes `CallbackDelivery`, performs network delivery, then records the durable result. The delivery uniqueness key is `(attempt, payload_hash)` named `gs_callback_attempt_payload_uniq`. | Accurate. The HTTP request is task-local I/O; outbox state and delivery result are durable. |
-| Direct bulk task ordering | The current task locks the batch, performs its task-local lease handling and early recheck, locks instructions and validates beneficiaries, records local lifecycle/audit/status effects, saves mapper-count batch status, writes batch audit, then queues callback delivery after commit. | Accurate for direct task effects. The current completion is correctly identified as not provider-finality-aware. |
+| Worker lease | `BatchLease` is a durable one-to-one batch row with `owner_token`, `generation`, and `expires_at`; the task acquires it or takes it over only after expiry, then performs an early recheck. | **Confirmed.** The map correctly records that no current-owner renewal/heartbeat exists and that existing task-local handling is not the future fenced lease service. |
+| Instruction attempt identity | `_record_bulk_instruction_lifecycle()` calls `PaymentLifecycleService.get_or_create_attempt()` with bulk `operation="g2p_bulk_instruction"` and `request_id="{batch.request_id}:{instruction.instruction_id}"`. | **Confirmed.** `PaymentAttempt` has durable unique `(tenant_id, operation, request_id)` identity; `CreditInstruction` has no existing attempt binding. |
+| Asynchronous bridge | `enqueue_attempt()` registers `orchestrate_attempt_task` through `transaction.on_commit()`; the task reaches `orchestrate_attempt()` and `RecoverPaymentAttemptCommand.execute()` before runtime submit/poll processing. | **Confirmed.** This is dispatch/recovery orchestration, not evidence or settlement. |
+| Provider configuration | `ProviderRuntime.resolve()` and `resolve_provider()` read active tenant/operation-scoped `ProviderRegistration`; `PaymentAttempt.provider_registration` is the protected durable relationship when populated. | **Confirmed.** Registration is a durable configuration read, never provider financial evidence; blank-tenant bulk attempts can stop before normal provider resolution. |
+| Execution admission and claims | `ProviderRuntime.submit_or_poll()` creates/locks one-to-one `PaymentExecutionIntent`, records submit admission, selects poll versus resubmit, and writes fenced attempt-claim state. `finalize_claimed_result()` rejects stale token/generation before result persistence. | **Confirmed.** `PaymentExecutionIntent` is admission/correlation protection, not finality. |
+| Finality and reconciliation | `record_provider_result()` writes attempt-bound `ProviderObservation`; only exact, verified, accepted-finality `settled`/`rejected` evidence is terminal. `reconcile()` writes attempt-bound `PaymentReconciliation`. | **Confirmed.** Observation uniqueness is `(observation_kind, observation_id)` plus one accepted-finality observation per attempt; reconciliation is durable history without a uniqueness constraint. |
+| Audit | `GovStackPaymentAuditEntry` is written for instruction and batch events by the live task and for lifecycle/provider/reconciliation/callback events by the lifecycle service. | **Confirmed.** Records are append-only, have no current batch-decision uniqueness key, and are not currently lease-generation fenced. |
+| Callback outbox | The task creates/replays a callback `PaymentAttempt`, queues `CallbackDelivery`, posts the callback, and persists the result. | **Confirmed.** Attempt identity is `(tenant_id, operation, request_id)` with `g2p_bulk_callback`; delivery uniqueness is separately `(attempt, payload_hash)` via `gs_callback_attempt_payload_uniq`. Network I/O is task-local; outbox/result/retry/dead-letter state is durable. |
+| Current ordering | Batch lock/status gate; lease acquisition or expired takeover; early ownership recheck; instruction lock/lookup; attempt lifecycle/on-commit dispatch or local outcome; instruction audit/status; mapper-count batch status/audit; commit; callback outbox; transport; durable callback result. | **Confirmed.** The map documents the actual current order, including its lack of provider-finality-aware batch completion. |
 
-## Blocking omission: provider-execution admission and finalization seam
+## Mapping corrections completed during verification
 
-The candidate mapping identifies the durable provider-evidence result seam but not the preceding durable execution-admission seam through which the live provider runtime reaches it. This omission is material because the requested frozen mapping must identify the canonical production persistence path, uniqueness behavior, and durability status—not only the rows written directly by the batch task.
+The initial mapping review identified gaps and precision risks. They were corrected before the closure reviews: the provider execution-admission seam (`PaymentExecutionIntent`), execution/finalization distinction, separate command-route scope boundary, `BatchLease`, provider-registration configuration read, attempt claim/recovery fields, post-commit orchestration/recovery bridge, and the absence of current lease renewal/heartbeat. The preliminary record is retained as `item-02-payments-rb02-canonical-seams-initial-verification-20260820.md` for traceability.
 
-| Omitted seam | Production location | Durable role | Why it is required in the frozen map |
-|---|---|---|---|
-| `PaymentExecutionIntent` | `apps/payments/govstack_models.py`; used by `ProviderRuntime.submit_or_poll()` in `apps/payments/provider_runtime.py` | Durable execution identity and submit-admission record associated one-to-one with `PaymentAttempt`; unique `(scope, operation, request_identity)`. Its state includes provider correlation and committed submit-admission/claim information before provider I/O. | It is the actual idempotency and recovery/admission boundary between `enqueue_attempt()` from the bulk task and `record_provider_result()`/`ProviderObservation` persistence. Without it, an implementation could incorrectly reason about duplicate prevention, recovery ordering, or ownership of provider submission. |
-| Fenced provider finalization | `ProviderRuntime.finalize_claimed_result()` in `provider_runtime.py`, which calls `PaymentLifecycleService.record_provider_result()` | Fenced persistence boundary after a claimed provider operation. | It identifies the live call chain that creates the durable observation/reconciliation evidence the batch must later aggregate. |
-| Provider dispatch timing | Provider runtime enqueue is registered after commit; runtime handling for blank-tenant attempts can take an early non-provider-I/O terminal/uncertain path. | The task dispatch is asynchronous and not itself an evidence write. | The mapping must distinguish “attempt created/enqueued” from “provider observation/reconciliation exists.” The current bulk task cannot assume provider evidence will necessarily appear. |
+## Implementation gate
 
-## Non-blocking precision corrections required in the revised mapping
-
-| Topic | Required correction |
-|---|---|
-| Callback idempotency language | State separately that `PaymentAttempt` deduplicates callback attempts by `(tenant_id, operation, request_id)`, while `CallbackDelivery` deduplicates delivery rows by `(attempt, payload_hash)`. The attempt key does not itself mean “identical payload identity.” |
-| Audit request ID | Record the actual `GovStackPaymentAuditEntry.request_id` field width and lifecycle-path truncation behavior. This does not replace the logical batch request correlation, but it matters when designing a future unique batch-decision identity. |
-| Execution vs. evidence | State explicitly that `PaymentExecutionIntent` is neither provider evidence nor a direct instruction FK; it is the durable provider submit/poll admission seam. Provider finality remains authoritative only through the attempt-bound verified observation/reconciliation path. |
-
-## Required next action and implementation gate
-
-The canonical mapping document must be amended to include the full live chain:
-
-`process_bulk_payment_batch` → `_record_bulk_instruction_lifecycle` → `PaymentAttempt` → post-commit provider enqueue → `PaymentExecutionIntent` admission/claim → provider I/O → `finalize_claimed_result` → `record_provider_result` → `ProviderObservation` / `PaymentReconciliation`.
-
-It must also incorporate the three precision corrections above. Two fresh independent reviewers must then re-verify the amended mapping. Until both the scope and accuracy are confirmed, the mapping is **not frozen**, RB-02 remains **blocked**, and no Stage 3 implementation may begin.
-
-## Evidence locations
-
-| Evidence | Locations |
-|---|---|
-| Live bulk task, instruction audit, batch audit, callback creation/transport/result | `apps/payments/govstack_tasks.py`, especially `process_bulk_payment_batch()` and `_record_bulk_instruction_lifecycle()` |
-| Attempt creation, observation, reconciliation, audit, callback outbox/result | `apps/payments/govstack_failure_services.py`, especially `get_or_create_attempt()`, `record_provider_result()`, `record_observation()`, `reconcile()`, `queue_callback()`, and `record_callback_result()` |
-| Provider submit/poll, execution admission, claim finalization, and result persistence call | `apps/payments/provider_runtime.py`, especially `submit_or_poll()` and `finalize_claimed_result()` |
-| Durable schema and database constraints | `apps/payments/govstack_models.py`, especially `PaymentAttempt`, `PaymentExecutionIntent`, `CallbackDelivery`, `PaymentReconciliation`, and `ProviderObservation` |
+The mapping is now frozen and may be used as the foundation for a **full RB-02 implementation attempt only**. This conclusion does **not** claim RB-02 is closed. The seven acceptance points, mandatory live `TransactionTestCase` methods, all-or-discard rule, and prohibition on RB-03, RB-04, staging, official-suite, or Stage 4 work remain in effect until a complete implementation is independently verified.

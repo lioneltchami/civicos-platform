@@ -1,10 +1,10 @@
 # Item 02 — RB-02 Canonical Live Persistence Seams
 
 **Date:** 2026-08-20  
-**Status:** Amended after initial independent verification; pending fresh re-verification  
+**Status:** Frozen — independently verified complete and safe for the scoped RB-02 worker path  
 **Scope:** Frozen persistence mapping only for the live `process_bulk_payment_batch()` worker and the provider-runtime/lifecycle chain it directly invokes. No RB-02 implementation is included.
 
-> **Candidate mapping conclusion:** The live path includes both direct `process_bulk_payment_batch()` writes and the asynchronous provider-execution admission and finalization path. The seams below are current production records and call sites, not test helpers or parallel replacement records. Two fresh reviews must confirm the amended mapping before it may be treated as frozen and safe for RB-02 implementation.
+> **Frozen mapping conclusion:** Two fresh independent closure reviews confirmed this scoped mapping is complete and safe as the persistence foundation for a future RB-02 implementation. The live path includes both direct `process_bulk_payment_batch()` writes and the asynchronous provider-execution admission and finalization path. The seams below are current production records and call sites, not test helpers or parallel replacement records.
 
 ## Scope boundary: separate live command-route records
 
