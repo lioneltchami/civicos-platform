@@ -2695,6 +2695,31 @@ class GovStackAlertSchedule(TimestampedModel):
         verbose_name=_("Delivery generation"),
         help_text=_("Incremented when an alert is re-armed or superseded to fence stale work."),
     )
+    ADMISSION_CREATED = "created"
+    ADMISSION_DUPLICATE = "duplicate"
+    ADMISSION_STALE_GENERATION = "stale_generation"
+    ADMISSION_ZERO_RECIPIENTS = "zero_recipients"
+    ADMISSION_OUTCOME_CHOICES = [
+        ("", "Not admitted"),
+        (ADMISSION_CREATED, "Created"),
+        (ADMISSION_DUPLICATE, "Duplicate"),
+        (ADMISSION_STALE_GENERATION, "Stale generation"),
+        (ADMISSION_ZERO_RECIPIENTS, "Zero recipients"),
+    ]
+    admitted_generation = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Admitted generation"),
+        help_text=_("The delivery generation durably admitted by the authoritative scheduler admission service."),
+    )
+    admission_outcome = models.CharField(
+        max_length=32,
+        choices=ADMISSION_OUTCOME_CHOICES,
+        default="",
+        blank=True,
+        verbose_name=_("Admission outcome"),
+        help_text=_("Durable outcome of the current authoritative scheduler admission."),
+    )
 
     class Meta:
         ordering = ["alert_datetime"]
