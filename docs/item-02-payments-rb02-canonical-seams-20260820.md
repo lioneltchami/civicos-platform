@@ -2,9 +2,15 @@
 
 **Date:** 2026-08-20  
 **Status:** Amended after initial independent verification; pending fresh re-verification  
-**Scope:** Frozen persistence mapping only. No RB-02 implementation is included.
+**Scope:** Frozen persistence mapping only for the live `process_bulk_payment_batch()` worker and the provider-runtime/lifecycle chain it directly invokes. No RB-02 implementation is included.
 
 > **Candidate mapping conclusion:** The live path includes both direct `process_bulk_payment_batch()` writes and the asynchronous provider-execution admission and finalization path. The seams below are current production records and call sites, not test helpers or parallel replacement records. Two fresh reviews must confirm the amended mapping before it may be treated as frozen and safe for RB-02 implementation.
+
+## Scope boundary: separate live command-route records
+
+`PaymentCommand`, `PaymentCommandOutbox`, and `PaymentCommandService.admit()` are live persistence records/call sites for mounted command-route admission in `apps/payments/govstack_views.py` and `apps/payments/payment_command_boundary.py`. They are intentionally **out of scope** for this RB-02 worker mapping: `apps/payments/govstack_tasks.py` has no `PaymentCommand`, `PaymentCommandService`, or `PaymentCommandOutbox` reference. The live bulk worker creates/replays `PaymentAttempt` directly in `_record_bulk_instruction_lifecycle()` and hands it to `enqueue_attempt()`.
+
+This exclusion does not treat the command-route records as tests or in-memory helpers. It establishes only that they are a separate mounted-route admission/outbox path, not a persistence seam the current bulk worker calls or that a lease-fenced bulk-finalization change may substitute for its own direct attempt/provider-runtime chain.
 
 ## 1. Canonical production chain
 
