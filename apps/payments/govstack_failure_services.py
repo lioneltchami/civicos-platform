@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Mapping
 
@@ -18,6 +19,7 @@ from django.utils import timezone
 from apps.payments.govstack_provider import ProviderOutcome, ProviderResult, normalize_result
 from apps.payments.govstack_models import (
     CallbackDelivery,
+    CreditInstruction,
     GovStackPaymentAuditEntry,
     IdempotencyConflict,
     PaymentAttempt,
@@ -25,6 +27,16 @@ from apps.payments.govstack_models import (
     PaymentReconciliation,
     ProviderObservation,
 )
+
+
+@dataclass(frozen=True)
+class AuthoritativeChildFinality:
+    """Read-only finality projection for one durably bound credit instruction."""
+
+    status: str
+    final: bool
+    reason: str
+    attempt_id: str | None = None
 
 
 class PaymentLifecycleService:
@@ -305,6 +317,131 @@ class PaymentLifecycleService:
     @staticmethod
     def binding_hash(tenant_id: str, attempt: PaymentAttempt, amount: Any, currency: str) -> str:
         return hashlib.sha256(f"{tenant_id}|{attempt.pk}|{amount}|{currency.upper()}".encode()).hexdigest()
+
+    @classmethod
+    def bind_credit_instruction_attempt(
+        cls,
+        instruction: CreditInstruction,
+        attempt: PaymentAttempt,
+    ) -> CreditInstruction:
+        """Durably bind one instruction to its canonical existing bulk attempt.
+
+        The binding is additive and immutable in practice: a replay can reuse the
+        same attempt but a different attempt for the same instruction is rejected.
+        This prevents batch aggregation from selecting a parallel lifecycle row.
+        """
+        with transaction.atomic():
+            locked_instruction = CreditInstruction.objects.select_for_update().get(
+                pk=instruction.pk
+            )
+            locked_attempt = PaymentAttempt.objects.select_for_update().get(pk=attempt.pk)
+            expected_request_id = (
+                f"{locked_instruction.batch.request_id}:{locked_instruction.instruction_id}"
+            )
+            if (
+                locked_attempt.operation != "g2p_bulk_instruction"
+                or locked_attempt.request_id != expected_request_id
+                or locked_attempt.amount != locked_instruction.amount
+                or locked_attempt.currency.upper() != locked_instruction.currency.upper()
+            ):
+                raise ValueError("payment attempt does not match the credit instruction identity")
+            if locked_instruction.payment_attempt_id is None:
+                locked_instruction.payment_attempt = locked_attempt
+                locked_instruction.save(update_fields=["payment_attempt", "updated_at"])
+            elif locked_instruction.payment_attempt_id != locked_attempt.pk:
+                raise IdempotencyConflict("credit instruction is already bound to another attempt")
+            return locked_instruction
+
+    @classmethod
+    def materialize_credit_instruction_finality(
+        cls,
+        instruction: CreditInstruction,
+    ) -> AuthoritativeChildFinality:
+        """Project child finality from bound, verified, reconciled provider evidence.
+
+        Local mapper eligibility, attempt status alone, and unverified or
+        conflicting evidence are deliberately insufficient.  The method does not
+        create policy decisions or mutate provider/audit/callback records.
+        """
+        with transaction.atomic():
+            locked_instruction = (
+                CreditInstruction.objects.select_for_update()
+                .select_related("batch", "payment_attempt")
+                .get(pk=instruction.pk)
+            )
+            attempt = locked_instruction.payment_attempt
+            if attempt is None:
+                return AuthoritativeChildFinality("review", False, "instruction_unbound")
+            attempt = PaymentAttempt.objects.select_for_update().get(pk=attempt.pk)
+            expected_request_id = (
+                f"{locked_instruction.batch.request_id}:{locked_instruction.instruction_id}"
+            )
+            if (
+                attempt.operation != "g2p_bulk_instruction"
+                or attempt.request_id != expected_request_id
+                or attempt.amount != locked_instruction.amount
+                or attempt.currency.upper() != locked_instruction.currency.upper()
+            ):
+                return AuthoritativeChildFinality(
+                    "review", False, "bound_attempt_malformed", str(attempt.pk)
+                )
+
+            observations = list(
+                ProviderObservation.objects.select_for_update()
+                .filter(attempt=attempt)
+                .order_by("created_at", "pk")
+            )
+            accepted = [
+                observation
+                for observation in observations
+                if observation.accepted_finality
+                and observation.verified
+                and observation.outcome
+                in {ProviderObservation.OUTCOME_SETTLED, ProviderObservation.OUTCOME_REJECTED}
+            ]
+            if len(accepted) != 1:
+                return AuthoritativeChildFinality(
+                    "review", False, "missing_or_conflicting_observation", str(attempt.pk)
+                )
+            observation = accepted[0]
+            expected_hash = cls.binding_hash(
+                attempt.tenant_id,
+                attempt,
+                locked_instruction.amount,
+                locked_instruction.currency,
+            )
+            if (
+                observation.tenant_id != attempt.tenant_id
+                or observation.amount != locked_instruction.amount
+                or observation.currency.upper() != locked_instruction.currency.upper()
+                or observation.binding_hash != expected_hash
+                or any(item.pk != observation.pk for item in observations)
+            ):
+                return AuthoritativeChildFinality(
+                    "review", False, "observation_unverified_or_conflicting", str(attempt.pk)
+                )
+            if attempt.status != observation.outcome:
+                return AuthoritativeChildFinality(
+                    "review", False, "attempt_status_not_authoritative", str(attempt.pk)
+                )
+
+            reconciliations = list(
+                PaymentReconciliation.objects.select_for_update()
+                .filter(attempt=attempt)
+                .order_by("created_at", "pk")
+            )
+            if not reconciliations or any(
+                reconciliation.status != PaymentReconciliation.STATUS_MATCHED
+                or reconciliation.provider_status != observation.outcome
+                or reconciliation.internal_status != observation.outcome
+                for reconciliation in reconciliations
+            ):
+                return AuthoritativeChildFinality(
+                    "review", False, "reconciliation_unresolved_or_conflicting", str(attempt.pk)
+                )
+            return AuthoritativeChildFinality(
+                observation.outcome, True, "verified_reconciled_finality", str(attempt.pk)
+            )
 
     @classmethod
     def record_observation(cls, attempt: PaymentAttempt, *, tenant_id: str, observation_kind: str, observation_id: str, outcome: str, amount: Any, currency: str, provider_transaction_id: str = "", event_id: str = "", verified: bool = False, verification_method: str = "", binding_hash: str = "", metadata: Mapping[str, Any] | None = None) -> ProviderObservation:

@@ -1,8 +1,9 @@
 """Live-path RB-02.1 lease and basic-fencing tests.
 
-These tests deliberately exercise the real ``process_bulk_payment_batch`` task
-and the durable ``BatchLease`` row.  They do not test RB-02.2 provider-finality,
-policy, decision, or broader competing-worker behavior.
+These tests deliberately exercise the real ``process_bulk_payment_batch`` task,
+the durable ``BatchLease`` row, and the authoritative RB-02.2 child-finality
+projection. They do not test policy, durable decisions, or broader
+competing-worker behavior.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from apps.payments.govstack_batch_lease import (
     BatchLeaseOwnershipLost,
     BatchLeaseService,
 )
+from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import (
     BatchLease,
     BulkPaymentBatch,
@@ -58,6 +60,72 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
 
     def _run_live_task(self, batch: BulkPaymentBatch, *, task_id: str | None = None) -> None:
         process_bulk_payment_batch.apply(args=[str(batch.pk)], task_id=task_id)
+
+    def _bind_final_attempt(
+        self,
+        *,
+        batch: BulkPaymentBatch,
+        instruction: CreditInstruction,
+        outcome: str,
+        observation_id: str,
+    ) -> PaymentAttempt:
+        attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+            tenant_id="",
+            operation="g2p_bulk_instruction",
+            request_id=f"{batch.request_id}:{instruction.instruction_id}",
+            payload={
+                "batch_pk": str(batch.pk),
+                "instruction_pk": str(instruction.pk),
+                "amount": str(instruction.amount),
+                "currency": instruction.currency,
+            },
+            amount=instruction.amount,
+            currency=instruction.currency,
+            correlation_id=batch.correlation_id,
+            source_bb_id=batch.source_bb_id,
+        )
+        PaymentLifecycleService.bind_credit_instruction_attempt(instruction, attempt)
+        PaymentLifecycleService.record_observation(
+            attempt,
+            tenant_id="",
+            observation_kind="provider",
+            observation_id=observation_id,
+            outcome=outcome,
+            amount=instruction.amount,
+            currency=instruction.currency,
+            verified=True,
+            verification_method="rb02_2_test",
+            binding_hash=PaymentLifecycleService.binding_hash(
+                "", attempt, instruction.amount, instruction.currency
+            ),
+        )
+        attempt.refresh_from_db()
+        PaymentLifecycleService.reconcile(attempt, provider_status=outcome)
+        return attempt
+
+    def _bind_nonfinal_attempt(
+        self,
+        *,
+        batch: BulkPaymentBatch,
+        instruction: CreditInstruction,
+    ) -> PaymentAttempt:
+        attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+            tenant_id="",
+            operation="g2p_bulk_instruction",
+            request_id=f"{batch.request_id}:{instruction.instruction_id}",
+            payload={
+                "batch_pk": str(batch.pk),
+                "instruction_pk": str(instruction.pk),
+                "amount": str(instruction.amount),
+                "currency": instruction.currency,
+            },
+            amount=instruction.amount,
+            currency=instruction.currency,
+            correlation_id=batch.correlation_id,
+            source_bb_id=batch.source_bb_id,
+        )
+        PaymentLifecycleService.bind_credit_instruction_attempt(instruction, attempt)
+        return attempt
 
     def test_fresh_acquire_and_heartbeat_is_fenced(self):
         batch = self._make_batch(suffix="fresh")
@@ -170,3 +238,67 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
         )
         self.assertFalse(GovStackPaymentAuditEntry.objects.filter(object_pk=str(batch.pk)).exists())
         self.assertFalse(CallbackDelivery.objects.exists())
+
+    def test_authoritative_mixed_child_finality_is_nonterminal(self):
+        batch = self._make_batch(suffix="mixed")
+        settled_instruction = CreditInstruction.objects.get(batch=batch)
+        unsettled_instruction = CreditInstruction.objects.create(
+            batch=batch,
+            instruction_id="LeaseInstructionMixedTwo",
+            payee_functional_id="LeasePayeeMixedTwo",
+            amount=Decimal("50.00"),
+            currency="USD",
+            narration="RB-02.2 non-final child",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        batch.total_amount = Decimal("150.00")
+        batch.save(update_fields=["total_amount"])
+        self._bind_final_attempt(
+            batch=batch,
+            instruction=settled_instruction,
+            outcome="settled",
+            observation_id="rb022-mixed-settled",
+        )
+        nonfinal_attempt = self._bind_nonfinal_attempt(
+            batch=batch,
+            instruction=unsettled_instruction,
+        )
+
+        self._run_live_task(batch)
+
+        batch.refresh_from_db()
+        settled_instruction.refresh_from_db()
+        unsettled_instruction.refresh_from_db()
+        nonfinal_attempt.refresh_from_db()
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
+        self.assertEqual(batch.completed_amount, Decimal("100.00"))
+        self.assertEqual(batch.failed_amount, Decimal("0.00"))
+        self.assertIsNone(batch.result_generated_at)
+        self.assertEqual(settled_instruction.status, CreditInstruction.STATUS_COMPLETED)
+        self.assertEqual(unsettled_instruction.status, CreditInstruction.STATUS_VALIDATED)
+        self.assertEqual(nonfinal_attempt.status, PaymentAttempt.STATUS_PENDING)
+
+    def test_already_terminal_children_are_aggregated_not_reprocessed(self):
+        batch = self._make_batch(suffix="terminal")
+        instruction = CreditInstruction.objects.get(batch=batch)
+        attempt = self._bind_final_attempt(
+            batch=batch,
+            instruction=instruction,
+            outcome="settled",
+            observation_id="rb022-terminal-settled",
+        )
+        instruction.status = CreditInstruction.STATUS_COMPLETED
+        instruction.save(update_fields=["status"])
+        attempt.refresh_from_db()
+        attempt_count_before = attempt.attempt_count
+
+        self._run_live_task(batch)
+
+        batch.refresh_from_db()
+        instruction.refresh_from_db()
+        attempt.refresh_from_db()
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_COMPLETED)
+        self.assertEqual(batch.completed_amount, instruction.amount)
+        self.assertEqual(instruction.payment_attempt_id, attempt.pk)
+        self.assertEqual(instruction.status, CreditInstruction.STATUS_COMPLETED)
+        self.assertEqual(attempt.attempt_count, attempt_count_before)

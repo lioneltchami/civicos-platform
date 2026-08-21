@@ -396,6 +396,16 @@ class CreditInstruction(TimestampedModel):
         blank=True,
         verbose_name=_("Failure Reason"),
     )
+    # The canonical provider lifecycle attempt for this individual instruction.
+    # Nullable during the additive migration so historic rows remain readable.
+    payment_attempt = models.OneToOneField(
+        "PaymentAttempt",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="credit_instruction",
+        verbose_name=_("Payment Attempt"),
+    )
 
     class Meta:
         verbose_name = _("Credit Instruction")
