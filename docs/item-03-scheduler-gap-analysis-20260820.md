@@ -1,0 +1,68 @@
+# Item 03 — Scheduler Current-State Gap Analysis
+
+**Date:** 2026-08-20  
+**Stage:** Shared-context current-state gap analysis  
+**Scope:** Internal Scheduler runtime and durable-path remediation only. This assessment excludes staging, official-suite execution, testing-site submission, deployment, and any certification claim.
+
+## Assessment basis
+
+This assessment compares the current CivicOS Scheduler implementation with the official Scheduler description, functional requirements, service-API specification, and the official `GovStackWorkingGroup/bb-scheduler` repository. The official Scheduler is a time-driven coordinator that must track schedules, send uniquely tokened alerts, log sends and updates, update state by time/capacity, handle configured communication failure, and maintain operational information. [1] [2] The official minimum API spans event, entity, alert-schedule, message, resource, subscriber, affiliation, appointment, and log services. [3] [4]
+
+> **Current internal conclusion: Partially aligned / remediation required.** CivicOS has meaningful durable-delivery, outbox, lease, routing, and 37-route foundations. The remaining issue is not simply API presence: the internal runtime path is not yet proven as one authoritative, crash-safe, recovery-complete, authorized, observable execution chain.
+
+## What is already solid
+
+| Area | Current CivicOS evidence | Assessment |
+|---|---|---|
+| Official service-family route inventory | `apps/appointments/govstack_urls.py:88–151` registers 37 routes: event 4, entity 4, alert schedule 4, message 4, resource 5, subscriber 4, affiliation 4, appointment 4, and log 4. | **Solid surface inventory.** The registered count matches the official nine-family minimum inventory; this corrects any suggestion that only event/appointment/log operations are routed. Route presence is not runtime conformance. |
+| Durable recipient delivery state | `apps/appointments/models.py` defines `SchedulerRecipientDelivery` with recipient identity, schedule generation, status, attempts, retry timing, token, lease expiry, error state, and terminal timestamps; migrations `0019_scheduler_runtime_core.py` and `0020_scheduler_outbox_publisher_claim.py` preserve the durable foundation. | **Strong local state foundation.** It supports recipient-level idempotency and stale-worker fencing rather than relying on an in-memory HTTP loop. |
+| Transactional outbox structure | `SchedulerOutbox` is linked to durable delivery state; `apps/appointments/services/scheduler_runtime.py` includes outbox claim, success, and failure transitions with publisher token/generation/lease fields. | **Strong primitive.** The model/service design is appropriate for broker I/O after commit and stale publisher rejection. |
+| Lease and recovery primitives | `scheduler_runtime.py` exposes recipient claim, delivered/failed, acknowledgement, replay, and expired-lease reaping; publisher rows use comparable claim/fence fields. | **Good reusable mechanism.** The gap is closed-loop task/recovery wiring and fault evidence, not the absence of all primitives. |
+| Safe outbound transport controls | `apps/appointments/tasks.py` retains URL validation, bounded timeout, no-redirect behavior, and non-PII transport controls. | **Preserve.** These controls are aligned with safe Scheduler-to-recipient/BB communication and must remain intact during remediation. |
+| GovStack resource services and auth building blocks | `govstack_{event,entity,alert_schedule,message,resource,subscriber,affiliation,appointment,log}.py`, `govstack_views.py`, `govstack_auth.py`, and `GovStackBBCredential` provide broad CRUD/service/auth coverage. | **Substantial implementation breadth.** The remaining concern is uniform request-level authorization, lifecycle wiring, and durable evidence. |
+| Internal-only cross-BB scaffolding | `apps/appointments/services/local_evidence.py` includes disabled-by-default local Payments/Consent fake concepts, correlation/redaction helpers, and authority labels. | **Directionally correct isolation.** It avoids claiming external integration, but is not yet mounted through a representative Scheduler request/task topology. |
+
+## Remaining internal gaps
+
+| Priority | Gap | Code evidence | Why it remains open |
+|---|---|---|---|
+| **P0** | **The durable schedule-to-recipient-to-outbox path is not yet proven as the single authoritative default.** | `apps/appointments/tasks.py` retains durable materialization alongside legacy dispatch/Boolean behavior; `GovStackAlertSchedule.dispatched` coexists with recipient/outbox state. Earlier verification records this as S03-01 partial. | A Boolean and the new durable rows can diverge. Create, duplicate, modify, cancel, re-arm, zero-recipient, and rollback semantics must be made explicit and generation-fenced. Official requirements require durable alert schedules, multiple targets, scheduled initiation, and deletion propagation. [2] |
+| **P0** | **Publisher/recipient recovery is not a fully proven closed loop.** | `scheduler_runtime.py` has `claim_outbox`, fenced publish transitions, recipient claims, `reap_expired`, `replay`, and failure states; `scheduler_tasks.py`/task callers do not yet provide complete runtime fault evidence. | Claim/lease fields do not by themselves prove concurrent publisher safety, broker failure, crash before/after enqueue, lease-expiry redrive, stale completion, retry exhaustion, or deterministic recovery invocation. Official requirements call for retry/backoff, failure handling, and transaction history. [1] [2] |
+| **P0** | **Recipient adapter outcome and retry taxonomy are incomplete.** | Recipient records retain attempts, retry timing, errors, and state; `tasks.py` dispatch controls are push-oriented. | The implementation needs one normalized internal adapter result for accepted/duplicate/transient/terminal/timeout/auth/schema outcomes. Retryability, bounded backoff, durable `next_attempt_at`, dead-letter, and replay must be driven once at this boundary rather than by independent task and transport behavior. |
+| **P1** | **Schedule modification, cancellation, deletion, and re-arm are not comprehensively generation-safe.** | `GovStackAlertSchedule.delivery_generation`, recipient uniqueness, and durable rows exist, but no complete transition contract is evidenced for queued/in-flight work across schedule changes. | Older queued work must not deliver after modification or cancellation. Deletion must invalidate future dependent alerts while retaining a safe history. The official specification explicitly requires alert-schedule and event deletion propagation. [2] |
+| **P1** | **Status, projection, logs, and metrics do not yet form a single durable lifecycle view.** | `govstack_event.py`, `govstack_log.py`, log resources, local evidence aggregation, recipient/outbox rows, and status helpers exist. | There is no proven authorized projection from schedule → materialization → publication → recipient result → acknowledgement/retry/dead-letter/replay/cancellation into searchable status, event state, immutable history, and operational metrics. Official requirements cover status updates, searchable logs, metrics, and error handling. [1] [2] |
+| **P1** | **Persisted tenant/owner authorization is unproven across durable reads and recovery transitions.** | `GovStackSchedulerAuth`, role classes, credential model, and many protected views exist; prior verification identifies missing complete tenant predicates and owner authority evidence for status/replay/recovery. | Initial route authentication is insufficient if query and transition boundaries can expose or mutate another tenant/owner’s durable schedule, recipient, outbox, status, or replay state. |
+| **P1** | **The official 37-operation inventory lacks complete request/runtime evidence.** | `govstack_urls.py` registers all 37 inventory routes; `examples/civicos-scheduler/operation-matrix.json`, `scripts/validate_scheduler_harness.py`, and local topology artifacts provide inventory/evidence scaffolding. | The inventory is not proof that every operation has valid and negative request behavior, authentication/owner isolation, response schema, correlation/idempotency, expected durable delta, task/outbox behavior, and redacted trace through the actual Django boundary. [3] [4] |
+| **P1** | **Payments/Consent fakes are helper-level, not topology-wired.** | `local_evidence.py` contains disabled local fakes and authority/redaction helpers. | Representative Scheduler request → service → task → fake success/timeout/rejection/duplicate paths have not established correlation propagation, retry semantics, and non-mutation of Payments/Consent-owned state. |
+| **P2** | **Operational evidence/redaction remains intent rather than a complete contract.** | Local trace/evidence helpers and scheduler log services exist. | A durable history needs stable correlation/idempotency/lease identifiers, redacted error class, attempt count, queue/claim/send/ack timestamps, retry/dead-letter/replay transitions, and non-PII query behavior. |
+| **P2** | **Inbound status/PubSub/Information-Mediator behavior is not internally closed.** | Scheduler API/resource layers and endpoint concepts exist; a full inbound durable transaction/history/projector loop is not evidenced. | The specification requires interface endpoint management, data-exchange error handling, transaction history, and status logging. [2] Inbound duplicates and ordering need durable treatment before they can drive event projection. |
+
+## Official-operation surface finding
+
+The official OpenAPI artifact enumerates the nine Scheduler service families. [3] [4] CivicOS currently registers the corresponding **37 route operations** in `apps/appointments/govstack_urls.py`; the count is therefore an inventory/route fact, not merely a comment or class-method count.
+
+The remaining defect is evidentiary and behavioral. For all 37 operations, CivicOS still needs a deterministic internal request-level proof of valid behavior, relevant negative behavior, authorization and owner isolation, response/error schema, correlation/idempotency, durable state/task/outbox delta where applicable, and redaction. The route inventory must not be described as official validation or external conformance.
+
+## Recommended incremental remediation sequence
+
+| Increment | Objective | Minimum closure evidence | Explicitly deferred |
+|---|---|---|---|
+| **SCH-01 — Authoritative durable schedule admission** | Make the durable schedule-generation → recipient materialization → outbox handoff the authoritative internal dispatch admission path. Reconcile legacy `dispatched` state with migration-safe rules. | Real database tests for one-time materialization, duplicate invocation convergence, rollback/no orphan rows, zero recipients, re-arm, modification/cancellation invalidation, and no transport before commit. | Adapter redesign, full recovery matrix, 37-operation harness, external fakes, staging/official suite. |
+| **SCH-02 — Publisher and recipient fault/recovery protocol** | Wire claim/lease/reaper/replay into a bounded durable retry loop for publisher and recipient rows. | Competing publisher and recipient tests for broker/transport failure, crash windows, lease expiry, stale completion, retry/backoff, exhaustion/dead letter, and explicit replay. | Full status projection, full API harness, staging/official suite. |
+| **SCH-03 — Authoritative status/history/authorization projection** | Build tenant/owner-scoped durable lifecycle projection, immutable redacted history, and metrics over schedule/delivery/outbox state. | Request/service tests for owner isolation, unauthorized access, stale recovery/replay authority, query pagination, queue age/attempt/error/retry/dead-letter/ack visibility, and PII rejection. | Full 37-operation proof, staging/official suite. |
+| **SCH-04 — Normalized local adapter and fake topology** | Mount disabled deterministic local Payments/Consent and channel adapters at the actual Scheduler boundary. | Success, duplicate, retryable timeout, terminal failure, malformed/auth failure, correlation/idempotency, and no BB-owned-state mutation through real request/task paths. | External endpoints, secrets, staging, official suite. |
+| **SCH-05 — Complete local 37-operation runtime harness** | Exercise every official operation through the real Django boundary with a generated trace/evidence bundle. | Per-operation valid/negative/schema/auth/correlation/durable-delta/redaction checks, fixed source revision, synthetic-only data, deterministic order, and checksum. | External official suite, certification, submission. |
+
+## First recommended remediation increment
+
+Begin with **SCH-01 — Authoritative durable schedule admission**. It is the prerequisite for recovery, status, fakes, and operation-level proof: later controls cannot reliably reason about retry, stale work, authorization, or lifecycle status while the system permits a parallel legacy/Boolean dispatch truth. The increment should be deliberately small and must not add adapters, external communication, full recovery semantics, 37-operation test work, staging, official-suite execution, or submission.
+
+## References
+
+[1]: [GovStack Scheduler — Description](https://specs.govstack.global/scheduler/2-description)
+
+[2]: [GovStack Scheduler — Functional Requirements](https://specs.govstack.global/scheduler/6-functional-requirements)
+
+[3]: [GovStack Scheduler — Service APIs](https://specs.govstack.global/scheduler/8-service-apis)
+
+[4]: [GovStackWorkingGroup/bb-scheduler — official repository](https://github.com/GovStackWorkingGroup/bb-scheduler)
