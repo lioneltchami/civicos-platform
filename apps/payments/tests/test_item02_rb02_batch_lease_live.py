@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
+import threading
+
+from django.db import close_old_connections
 from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
@@ -29,6 +32,7 @@ from apps.payments.govstack_models import (
     PaymentAttempt,
     PaymentOutcome,
 )
+from apps.payments import govstack_tasks
 from apps.payments.govstack_tasks import process_bulk_payment_batch
 
 
@@ -511,3 +515,160 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
             request_id=f"callback:{batch.request_id}:{batch.batch_id}",
         )
         self.assertEqual(CallbackDelivery.objects.filter(attempt=callback_attempt).count(), 1)
+
+    def test_two_live_workers_cross_expiry_and_stale_finalization(self):
+        batch = self._make_batch(
+            suffix="cross_expiry",
+            callback_url="https://example.com/callback",
+        )
+        instruction = CreditInstruction.objects.get(batch=batch)
+        self._bind_final_attempt(
+            batch=batch,
+            instruction=instruction,
+            outcome="settled",
+            observation_id="rb024-cross-expiry-settled",
+        )
+
+        worker_a_entered = threading.Event()
+        release_worker_a = threading.Event()
+        worker_a_handles: list[BatchLeaseHandle] = []
+        worker_a_errors: list[BaseException] = []
+
+        def pause_after_committed_admission(handle: BatchLeaseHandle) -> None:
+            if handle.owner_token != "worker-a-live":
+                return
+            worker_a_handles.append(handle)
+            worker_a_entered.set()
+            self.assertTrue(
+                release_worker_a.wait(timeout=10),
+                "Worker A was not released after Worker B completed takeover",
+            )
+
+        def run_worker_a() -> None:
+            close_old_connections()
+            try:
+                self._run_live_task(batch, task_id="worker-a-live")
+            except BaseException as exc:  # surface thread failures to the test
+                worker_a_errors.append(exc)
+            finally:
+                close_old_connections()
+
+        original_hook = govstack_tasks._PROCESS_BULK_PAYMENT_BATCH_TEST_HOOK
+        govstack_tasks._PROCESS_BULK_PAYMENT_BATCH_TEST_HOOK = pause_after_committed_admission
+        worker_a = threading.Thread(target=run_worker_a, name="rb024-worker-a")
+        try:
+            worker_a.start()
+            self.assertTrue(
+                worker_a_entered.wait(timeout=10),
+                "Worker A did not reach the committed-admission pause point",
+            )
+            self.assertEqual(len(worker_a_handles), 1)
+            handle_a = worker_a_handles[0]
+            self.assertEqual(handle_a.owner_token, "worker-a-live")
+            self.assertEqual(handle_a.generation, 1)
+
+            # The admission transaction has committed, so expiry is a durable
+            # condition visible to Worker B's independent real task invocation.
+            BatchLease.objects.filter(batch=batch, generation=handle_a.generation).update(
+                expires_at=timezone.now() - timedelta(seconds=1)
+            )
+            self._run_live_task(batch, task_id="worker-b-live")
+
+            batch.refresh_from_db()
+            instruction.refresh_from_db()
+            lease_after_b = BatchLease.objects.get(batch=batch)
+            decision_after_b = GovStackBatchDecision.objects.get(batch=batch)
+            callback_attempt_after_b = PaymentAttempt.objects.get(
+                operation="g2p_bulk_callback",
+                request_id=f"callback:{batch.request_id}:{batch.batch_id}",
+            )
+            delivery_after_b = CallbackDelivery.objects.get(attempt=callback_attempt_after_b)
+            audit_count_after_b = GovStackPaymentAuditEntry.objects.filter(
+                object_type="batch_decision",
+                object_pk=str(decision_after_b.pk),
+            ).count()
+            snapshot_after_b = {
+                "lease_owner": lease_after_b.owner_token,
+                "lease_generation": lease_after_b.generation,
+                "batch_status": batch.status,
+                "completed_amount": batch.completed_amount,
+                "failed_amount": batch.failed_amount,
+                "result_generated_at": batch.result_generated_at,
+                "instruction_status": instruction.status,
+                "instruction_failure_reason": instruction.failure_reason,
+                "decision_count": GovStackBatchDecision.objects.filter(batch=batch).count(),
+                "decision_id": decision_after_b.pk,
+                "decision_owner": decision_after_b.lease_owner_token,
+                "decision_generation": decision_after_b.lease_generation,
+                "audit_count": audit_count_after_b,
+                "callback_attempt_count": PaymentAttempt.objects.filter(
+                    operation="g2p_bulk_callback",
+                    request_id=f"callback:{batch.request_id}:{batch.batch_id}",
+                ).count(),
+                "callback_delivery_count": CallbackDelivery.objects.filter(
+                    attempt=callback_attempt_after_b
+                ).count(),
+                "delivery_id": delivery_after_b.pk,
+            }
+
+            self.assertEqual(snapshot_after_b["lease_owner"], "worker-b-live")
+            self.assertEqual(snapshot_after_b["lease_generation"], handle_a.generation + 1)
+            self.assertEqual(snapshot_after_b["decision_count"], 1)
+            self.assertEqual(snapshot_after_b["decision_owner"], "worker-b-live")
+            self.assertEqual(
+                snapshot_after_b["decision_generation"], snapshot_after_b["lease_generation"]
+            )
+            self.assertEqual(batch.status, BulkPaymentBatch.STATUS_COMPLETED)
+            self.assertEqual(instruction.status, CreditInstruction.STATUS_COMPLETED)
+            self.assertEqual(audit_count_after_b, 1)
+            self.assertEqual(snapshot_after_b["callback_attempt_count"], 1)
+            self.assertEqual(snapshot_after_b["callback_delivery_count"], 1)
+
+            release_worker_a.set()
+            worker_a.join(timeout=10)
+            self.assertFalse(worker_a.is_alive(), "Worker A did not finish after release")
+            self.assertEqual(worker_a_errors, [])
+
+            batch.refresh_from_db()
+            instruction.refresh_from_db()
+            lease_after_a = BatchLease.objects.get(batch=batch)
+            decision_after_a = GovStackBatchDecision.objects.get(batch=batch)
+            callback_attempt_after_a = PaymentAttempt.objects.get(
+                operation="g2p_bulk_callback",
+                request_id=f"callback:{batch.request_id}:{batch.batch_id}",
+            )
+            self.assertEqual(
+                {
+                    "lease_owner": lease_after_a.owner_token,
+                    "lease_generation": lease_after_a.generation,
+                    "batch_status": batch.status,
+                    "completed_amount": batch.completed_amount,
+                    "failed_amount": batch.failed_amount,
+                    "result_generated_at": batch.result_generated_at,
+                    "instruction_status": instruction.status,
+                    "instruction_failure_reason": instruction.failure_reason,
+                    "decision_count": GovStackBatchDecision.objects.filter(batch=batch).count(),
+                    "decision_id": decision_after_a.pk,
+                    "decision_owner": decision_after_a.lease_owner_token,
+                    "decision_generation": decision_after_a.lease_generation,
+                    "audit_count": GovStackPaymentAuditEntry.objects.filter(
+                        object_type="batch_decision",
+                        object_pk=str(decision_after_a.pk),
+                    ).count(),
+                    "callback_attempt_count": PaymentAttempt.objects.filter(
+                        operation="g2p_bulk_callback",
+                        request_id=f"callback:{batch.request_id}:{batch.batch_id}",
+                    ).count(),
+                    "callback_delivery_count": CallbackDelivery.objects.filter(
+                        attempt=callback_attempt_after_a
+                    ).count(),
+                    "delivery_id": CallbackDelivery.objects.get(
+                        attempt=callback_attempt_after_a
+                    ).pk,
+                },
+                snapshot_after_b,
+            )
+        finally:
+            release_worker_a.set()
+            worker_a.join(timeout=10)
+            govstack_tasks._PROCESS_BULK_PAYMENT_BATCH_TEST_HOOK = original_hook

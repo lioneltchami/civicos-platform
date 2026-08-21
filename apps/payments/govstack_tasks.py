@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+from collections.abc import Callable
 import socket
 from decimal import Decimal
 from urllib.parse import urlsplit
@@ -89,6 +90,18 @@ from apps.payments.govstack_models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# RB-02.4 test-only timing seam. It is ``None`` in every normal worker process
+# and is deliberately positioned between committed lease admission and the
+# downstream processing transaction. The durable lease service remains the
+# production fence; this hook never authorizes or persists anything.
+_PROCESS_BULK_PAYMENT_BATCH_TEST_HOOK: Callable[[BatchLeaseHandle], None] | None = None
+
+
+def _run_bulk_payment_batch_test_hook(lease_handle: BatchLeaseHandle) -> None:
+    hook = _PROCESS_BULK_PAYMENT_BATCH_TEST_HOOK
+    if hook is not None:
+        hook(lease_handle)
 
 
 def _record_bulk_instruction_lifecycle(
@@ -205,6 +218,9 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
     owner_token = str(getattr(self.request, "id", None) or uuid4())
 
     try:
+        # Commit durable lease admission before any test pause or expensive child
+        # processing. A subsequent worker can therefore observe expiry/takeover
+        # instead of being blocked by this worker's batch-row lock.
         with transaction.atomic():
             try:
                 batch = BulkPaymentBatch.objects.select_for_update().get(pk=batch_pk)
@@ -226,6 +242,21 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
             lease_handle = BatchLeaseService.acquire(batch=batch, owner_token=owner_token)
             if lease_handle is None:
                 logger.info("process_bulk_payment_batch.lease_busy batch_pk=%s", batch_pk)
+                return
+            BatchLeaseService.heartbeat(lease_handle)
+
+        assert lease_handle is not None
+        _run_bulk_payment_batch_test_hook(lease_handle)
+
+        with transaction.atomic():
+            batch = BulkPaymentBatch.objects.select_for_update().get(pk=batch_pk)
+            # This fresh downstream assertion rejects a worker that was paused
+            # across expiry/takeover before it can mutate any child or batch row.
+            BatchLeaseService.assert_current_owner(lease_handle)
+            if batch.status not in {
+                BulkPaymentBatch.STATUS_RECEIVED,
+                BulkPaymentBatch.STATUS_PROCESSING,
+            }:
                 return
             BatchLeaseService.heartbeat(lease_handle)
 
