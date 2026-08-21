@@ -14,7 +14,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.appointments.models import GovStackAlertSchedule, SchedulerOutbox, SchedulerRecipientDelivery
+from apps.appointments.models import SchedulerOutbox, SchedulerRecipientDelivery
 
 
 TERMINAL = frozenset(
@@ -70,76 +70,6 @@ def materialize(
         if created:
             SchedulerOutbox.objects.create(delivery=delivery, available_at=now)
         return delivery, created
-
-
-def admit_schedule_generation(
-    *,
-    schedule_id,
-    expected_generation: int,
-    recipients: list[tuple[str, str]],
-    owner_key: str | None = None,
-    correlation_id: str | None = None,
-    payload: dict | None = None,
-    max_attempts: int = 3,
-) -> dict:
-    """Durably admit one current schedule generation without external I/O.
-
-    The caller supplies already-resolved logical recipients.  This deliberately
-    keeps recipient resolution, broker publication, and lifecycle transitions
-    outside SCH-01.1 while making the current-generation admission transaction
-    the sole persistence authority for its own callers.
-    """
-    payload = dict(payload or {})
-    with transaction.atomic():
-        schedule = GovStackAlertSchedule.objects.select_for_update().get(pk=schedule_id)
-        if expected_generation != schedule.delivery_generation:
-            return {
-                "outcome": GovStackAlertSchedule.ADMISSION_STALE_GENERATION,
-                "generation": schedule.delivery_generation,
-                "created": 0,
-            }
-
-        generation = schedule.delivery_generation
-        if schedule.admitted_generation == generation:
-            return {
-                "outcome": GovStackAlertSchedule.ADMISSION_DUPLICATE,
-                "generation": generation,
-                "created": 0,
-            }
-
-        canonical_recipients = sorted({(str(kind), str(reference)) for kind, reference in recipients})
-        if not canonical_recipients:
-            schedule.admitted_generation = generation
-            schedule.admission_outcome = GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS
-            schedule.save(update_fields=["admitted_generation", "admission_outcome", "updated_at"])
-            return {
-                "outcome": GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS,
-                "generation": generation,
-                "created": 0,
-            }
-
-        created_count = 0
-        for recipient_kind, recipient_ref in canonical_recipients:
-            _, created = materialize(
-                schedule=schedule,
-                owner_key=owner_key or f"schedule:{schedule.pk}",
-                correlation_id=correlation_id or f"scheduler:{schedule.pk}:{generation}",
-                recipient_kind=recipient_kind,
-                recipient_ref=recipient_ref,
-                payload=payload,
-                generation=generation,
-                max_attempts=max_attempts,
-            )
-            created_count += int(created)
-
-        schedule.admitted_generation = generation
-        schedule.admission_outcome = GovStackAlertSchedule.ADMISSION_CREATED
-        schedule.save(update_fields=["admitted_generation", "admission_outcome", "updated_at"])
-        return {
-            "outcome": GovStackAlertSchedule.ADMISSION_CREATED,
-            "generation": generation,
-            "created": created_count,
-        }
 
 
 def claim(*, idempotency_key: str, lease_seconds: int = 300, now=None) -> str | None:
