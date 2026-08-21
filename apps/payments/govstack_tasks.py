@@ -57,16 +57,20 @@ import ipaddress
 import logging
 import socket
 from decimal import Decimal
-from datetime import timedelta
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import requests
 from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from apps.payments.govstack_models import BatchLease
 
+from apps.payments.govstack_batch_lease import (
+    BatchLeaseHandle,
+    BatchLeaseOwnershipLost,
+    BatchLeaseService,
+)
 from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.provider_runtime import enqueue_attempt
 from apps.payments.govstack_models import (
@@ -87,6 +91,7 @@ def _record_bulk_instruction_lifecycle(
     instruction: CreditInstruction,
     *,
     beneficiary_found: bool,
+    lease_handle: BatchLeaseHandle | None = None,
 ) -> None:
     """Persist non-PII execution evidence without treating ID lookup as settlement.
 
@@ -96,6 +101,8 @@ def _record_bulk_instruction_lifecycle(
     such an adapter is configured, a locally valid instruction is explicitly
     routed to review rather than silently represented as provider-settled.
     """
+    if lease_handle is not None:
+        BatchLeaseService.assert_current_owner(lease_handle)
     attempt, _ = PaymentLifecycleService.get_or_create_attempt(
         tenant_id="",
         operation="g2p_bulk_instruction",
@@ -117,8 +124,12 @@ def _record_bulk_instruction_lifecycle(
         # without that deployment configuration we preserve the existing
         # fail-closed, operator-review behavior.
         if getattr(settings, "GOVSTACK_PAYMENT_PROVIDER_RUNTIME_ENABLED", False):
+            if lease_handle is not None:
+                BatchLeaseService.assert_current_owner(lease_handle)
             enqueue_attempt(attempt)
         else:
+            if lease_handle is not None:
+                BatchLeaseService.assert_current_owner(lease_handle)
             PaymentLifecycleService.apply_outcome(
                 attempt,
                 PaymentOutcome(
@@ -129,6 +140,8 @@ def _record_bulk_instruction_lifecycle(
                 ),
             )
     else:
+        if lease_handle is not None:
+            BatchLeaseService.assert_current_owner(lease_handle)
         PaymentLifecycleService.apply_outcome(
             attempt,
             PaymentOutcome(
@@ -176,226 +189,184 @@ _IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
     soft_time_limit=120,
 )
 def process_bulk_payment_batch(self, batch_pk: str) -> None:
+    """Process one bulk batch while holding a durable fenced ``BatchLease``.
+
+    RB-02.1 intentionally preserves the existing local ID-Mapper business
+    semantics.  It replaces only inline lease handling and adds owner-token /
+    generation checks before every current durable task side effect.
     """
-    Per-instruction ID Mapper lookup: marks each CreditInstruction COMPLETED
-    or FAILED, derives batch status as COMPLETED / PARTIAL / FAILED, updates
-    accounting fields, writes audit entries, and POSTs the result to the
-    X-Callback-URL.
+    lease_handle: BatchLeaseHandle | None = None
+    callback_url = ""
+    callback_status = ""
+    callback_batch: BulkPaymentBatch | None = None
+    owner_token = str(getattr(self.request, "id", None) or uuid4())
 
-    ID Mapper rule
-    --------------
-    An instruction is COMPLETED when an active ``GovStackBeneficiary`` exists
-    for its ``payee_functional_id`` (``is_active=True``).  Otherwise it is
-    FAILED and ``failure_reason`` is set to a non-PII string.
+    try:
+        with transaction.atomic():
+            try:
+                batch = BulkPaymentBatch.objects.select_for_update().get(pk=batch_pk)
+            except BulkPaymentBatch.DoesNotExist:
+                logger.error("process_bulk_payment_batch.not_found batch_pk=%s", batch_pk)
+                return
 
-    Batch status derivation
-    -----------------------
-    - All instructions COMPLETED → ``STATUS_COMPLETED``
-    - Some COMPLETED, some FAILED → ``STATUS_PARTIAL``
-    - All instructions FAILED → ``STATUS_FAILED``
-
-    Idempotent: exits without modification if ``batch.status`` is not
-    ``STATUS_RECEIVED`` (i.e., already processed or in a terminal state).
-
-    Args:
-        batch_pk: ``str(batch.pk)`` — UUID string primary key of the
-                  ``BulkPaymentBatch`` to process.
-
-    Security:
-        ``payee_functional_id`` and ``financial_address`` MUST NOT appear in
-        any log message or callback payload.  Use ``batch.pk`` / ``instr.pk``
-        in logs.
-    """
-    with transaction.atomic():
-        try:
-            batch = BulkPaymentBatch.objects.select_for_update().get(pk=batch_pk)
-        except BulkPaymentBatch.DoesNotExist:
-            logger.error(
-                "process_bulk_payment_batch.not_found batch_pk=%s",
-                batch_pk,
-            )
-            return
-
-        if batch.status != BulkPaymentBatch.STATUS_RECEIVED:
-            # Already processed — idempotent exit under the row lock.
-            logger.debug(
-                "process_bulk_payment_batch.already_processed batch_pk=%s status=%s",
-                batch_pk,
-                batch.status,
-            )
-            return
-
-        # A worker may process a batch only while holding a live, durable lease.
-        # Claiming is serialized with the batch lock; an expired lease is replaced
-        # with a new generation so stale workers cannot safely continue.
-        now = timezone.now()
-        lease, created = BatchLease.objects.select_for_update().get_or_create(
-            batch=batch,
-            defaults={
-                "owner_token": str(self.request.id or batch_pk),
-                "generation": 1,
-                "expires_at": now + timedelta(minutes=5),
-            },
-        )
-        if not created and lease.expires_at <= now:
-            lease.owner_token = str(self.request.id or batch_pk)
-            lease.generation += 1
-            lease.expires_at = now + timedelta(minutes=5)
-            lease.save(update_fields=["owner_token", "generation", "expires_at", "updated_at"])
-        elif not created and lease.owner_token != str(self.request.id or batch_pk):
-            logger.info("process_bulk_payment_batch.lease_busy batch_pk=%s", batch_pk)
-            return
-
-        lease_generation = lease.generation
-
-        # Per-instruction ID Mapper lookup.
-        # We iterate rather than bulk-update so that each instruction can be
-        # individually COMPLETED or FAILED based on whether an active beneficiary
-        # exists for its payee_functional_id.
-        # select_for_update() on the instruction queryset prevents concurrent
-        # task retries from racing on the same rows.
-        # Security: payee_functional_id is used ONLY as a DB filter key —
-        # NEVER passed to logger or included in any audit details.
-        completed_count: int = 0
-        failed_count: int = 0
-        completed_amount: Decimal = Decimal("0.00")
-        failed_amount: Decimal = Decimal("0.00")
-
-        lease.refresh_from_db()
-        if lease.generation != lease_generation or lease.owner_token != str(self.request.id or batch_pk) or lease.expires_at <= timezone.now():
-            logger.info("process_bulk_payment_batch.stale_lease batch_pk=%s", batch_pk)
-            return
-
-        for instr in (
-            CreditInstruction.objects
-            .filter(batch=batch, status=CreditInstruction.STATUS_PENDING)
-            .select_for_update()
-        ):
-            found: bool = GovStackBeneficiary.objects.filter(
-                payee_functional_id=instr.payee_functional_id,
-                is_active=True,
-            ).exists()
-
-            if found:
-                instr.status = CreditInstruction.STATUS_COMPLETED
-                instr.failure_reason = ""  # clear any stale value from a prior partial run
-                completed_count += 1
-                completed_amount += instr.amount
-                _record_bulk_instruction_lifecycle(
-                    batch,
-                    instr,
-                    beneficiary_found=True,
+            if batch.status != BulkPaymentBatch.STATUS_RECEIVED:
+                logger.debug(
+                    "process_bulk_payment_batch.already_processed batch_pk=%s status=%s",
+                    batch_pk,
+                    batch.status,
                 )
-                GovStackPaymentAuditEntry.objects.create(
-                    action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_COMPLETED,
-                    actor_bb_id=batch.source_bb_id,
-                    object_type="instruction",
-                    object_pk=str(instr.pk),
-                    request_id=batch.request_id,
-                    details={"local_account_validation": "passed"},
-                )
+                return
+
+            lease_handle = BatchLeaseService.acquire(batch=batch, owner_token=owner_token)
+            if lease_handle is None:
+                logger.info("process_bulk_payment_batch.lease_busy batch_pk=%s", batch_pk)
+                return
+            BatchLeaseService.heartbeat(lease_handle)
+
+            completed_count: int = 0
+            failed_count: int = 0
+            completed_amount: Decimal = Decimal("0.00")
+            failed_amount: Decimal = Decimal("0.00")
+
+            for instr in (
+                CreditInstruction.objects.filter(
+                    batch=batch,
+                    status=CreditInstruction.STATUS_PENDING,
+                ).select_for_update()
+            ):
+                # Heartbeat and validate before any instruction-level mutation.
+                BatchLeaseService.heartbeat(lease_handle)
+                BatchLeaseService.assert_current_owner(lease_handle)
+                found: bool = GovStackBeneficiary.objects.filter(
+                    payee_functional_id=instr.payee_functional_id,
+                    is_active=True,
+                ).exists()
+
+                if found:
+                    instr.status = CreditInstruction.STATUS_COMPLETED
+                    instr.failure_reason = ""
+                    completed_count += 1
+                    completed_amount += instr.amount
+                    _record_bulk_instruction_lifecycle(
+                        batch,
+                        instr,
+                        beneficiary_found=True,
+                        lease_handle=lease_handle,
+                    )
+                    BatchLeaseService.assert_current_owner(lease_handle)
+                    GovStackPaymentAuditEntry.objects.create(
+                        action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_COMPLETED,
+                        actor_bb_id=batch.source_bb_id,
+                        object_type="instruction",
+                        object_pk=str(instr.pk),
+                        request_id=batch.request_id,
+                        details={"local_account_validation": "passed"},
+                    )
+                else:
+                    instr.status = CreditInstruction.STATUS_FAILED
+                    instr.failure_reason = "PayeeFunctionalID not found in ID Mapper."
+                    failed_count += 1
+                    failed_amount += instr.amount
+                    _record_bulk_instruction_lifecycle(
+                        batch,
+                        instr,
+                        beneficiary_found=False,
+                        lease_handle=lease_handle,
+                    )
+                    BatchLeaseService.assert_current_owner(lease_handle)
+                    GovStackPaymentAuditEntry.objects.create(
+                        action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
+                        actor_bb_id=batch.source_bb_id,
+                        object_type="instruction",
+                        object_pk=str(instr.pk),
+                        request_id=batch.request_id,
+                        details={"failure_reason": instr.failure_reason},
+                    )
+
+                BatchLeaseService.assert_current_owner(lease_handle)
+                instr.save(update_fields=["status", "failure_reason"])
+
+            if failed_count == 0:
+                batch.status = BulkPaymentBatch.STATUS_COMPLETED
+                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_COMPLETED
+            elif completed_count == 0:
+                batch.status = BulkPaymentBatch.STATUS_FAILED
+                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_FAILED
             else:
-                instr.status = CreditInstruction.STATUS_FAILED
-                instr.failure_reason = "PayeeFunctionalID not found in ID Mapper."
-                failed_count += 1
-                failed_amount += instr.amount
-                _record_bulk_instruction_lifecycle(
-                    batch,
-                    instr,
-                    beneficiary_found=False,
-                )
-                # Write a per-instruction audit entry for each failure.
-                # Security: failure_reason is a static string — no PII.
-                GovStackPaymentAuditEntry.objects.create(
-                    action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
-                    actor_bb_id=batch.source_bb_id,
-                    object_type="instruction",
-                    object_pk=str(instr.pk),
-                    request_id=batch.request_id,
-                    details={
-                        "failure_reason": instr.failure_reason,
-                        # NEVER include payee_functional_id or financial_address
-                    },
-                )
+                batch.status = BulkPaymentBatch.STATUS_PARTIAL
+                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_PARTIAL
 
-            instr.save(update_fields=["status", "failure_reason"])
+            batch.completed_amount = completed_amount
+            batch.failed_amount = failed_amount
+            batch.result_generated_at = timezone.now()
+            BatchLeaseService.assert_current_owner(lease_handle)
+            batch.save(
+                update_fields=[
+                    "status",
+                    "completed_amount",
+                    "failed_amount",
+                    "result_generated_at",
+                ]
+            )
 
-        # Derive batch outcome from instruction counts.
-        if failed_count == 0:
-            batch.status = BulkPaymentBatch.STATUS_COMPLETED
-            batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_COMPLETED
-        elif completed_count == 0:
-            batch.status = BulkPaymentBatch.STATUS_FAILED
-            batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_FAILED
-        else:
-            batch.status = BulkPaymentBatch.STATUS_PARTIAL
-            batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_PARTIAL
+            BatchLeaseService.assert_current_owner(lease_handle)
+            GovStackPaymentAuditEntry.objects.create(
+                action=batch_audit_action,
+                actor_bb_id=batch.source_bb_id,
+                object_type="batch",
+                object_pk=str(batch.pk),
+                request_id=batch.request_id,
+                details={
+                    "batch_id": batch.batch_id,
+                    "source_bb_id": batch.source_bb_id,
+                    "completed_count": completed_count,
+                    "failed_count": failed_count,
+                },
+            )
+            callback_url = batch.callback_url
+            callback_status = batch.status.upper()
+            callback_batch = batch
 
-        # result_generated_at timestamps when this Celery task finished so that
-        # monitoring queries can detect stuck batches (result_generated_at IS NULL
-        # after sufficient time would indicate a processing error).
-        batch.completed_amount = completed_amount
-        batch.failed_amount = failed_amount
-        batch.result_generated_at = timezone.now()
-        batch.save(update_fields=[
-            "status",
-            "completed_amount",
-            "failed_amount",
-            "result_generated_at",
-        ])
-
-        GovStackPaymentAuditEntry.objects.create(
-            action=batch_audit_action,
-            actor_bb_id=batch.source_bb_id,
-            object_type="batch",
-            object_pk=str(batch.pk),
-            request_id=batch.request_id,
-            details={
-                "batch_id": batch.batch_id,          # batch_id is not PII
-                "source_bb_id": batch.source_bb_id,
-                "completed_count": completed_count,
-                "failed_count": failed_count,
-                # NEVER include payee_functional_id or financial_address
-            },
-        )
-
-        # Capture callback fields inside the transaction before the lock releases.
-        # batch.status.upper(): "completed"→"COMPLETED", "partial"→"PARTIAL",
-        # "failed"→"FAILED" — matches the GovStack spec callback Status values.
-        callback_url = batch.callback_url
-        callback_status = batch.status.upper()
-
-    # Persist callback work before transport. A failed delivery is no longer
-    # log-only: it remains queryable/replayable through CallbackDelivery.
-    if callback_url:
-        callback_payload = {
-            "RequestID": batch.request_id,
-            "BatchID": batch.batch_id,
-            "Status": callback_status,
-            # NEVER include payee_functional_id or financial_address
-        }
-        callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
-            tenant_id="",
-            operation="g2p_bulk_callback",
-            request_id=f"callback:{batch.request_id}:{batch.batch_id}",
-            payload=callback_payload,
-            correlation_id=batch.correlation_id,
-            source_bb_id=batch.source_bb_id,
-        )
-        delivery, _ = PaymentLifecycleService.queue_callback(
-            attempt=callback_attempt,
-            callback_url=callback_url,
-            payload=callback_payload,
-        )
-        success, http_status, error_code = _post_callback(
-            url=callback_url,
-            payload=callback_payload,
-        )
-        PaymentLifecycleService.record_callback_result(
-            delivery,
-            http_status=http_status if success else None,
-            error_code=error_code,
-        )
+        if callback_url and callback_batch is not None:
+            callback_payload = {
+                "RequestID": callback_batch.request_id,
+                "BatchID": callback_batch.batch_id,
+                "Status": callback_status,
+            }
+            BatchLeaseService.assert_current_owner(lease_handle)
+            callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+                tenant_id="",
+                operation="g2p_bulk_callback",
+                request_id=f"callback:{callback_batch.request_id}:{callback_batch.batch_id}",
+                payload=callback_payload,
+                correlation_id=callback_batch.correlation_id,
+                source_bb_id=callback_batch.source_bb_id,
+            )
+            BatchLeaseService.assert_current_owner(lease_handle)
+            delivery, _ = PaymentLifecycleService.queue_callback(
+                attempt=callback_attempt,
+                callback_url=callback_url,
+                payload=callback_payload,
+            )
+            success, http_status, error_code = _post_callback(
+                url=callback_url,
+                payload=callback_payload,
+            )
+            BatchLeaseService.assert_current_owner(lease_handle)
+            PaymentLifecycleService.record_callback_result(
+                delivery,
+                http_status=http_status if success else None,
+                error_code=error_code,
+            )
+    except BatchLeaseOwnershipLost:
+        logger.info("process_bulk_payment_batch.stale_lease batch_pk=%s", batch_pk)
+        return
+    finally:
+        if lease_handle is not None:
+            try:
+                BatchLeaseService.release(lease_handle)
+            except BatchLeaseOwnershipLost:
+                logger.info("process_bulk_payment_batch.release_stale batch_pk=%s", batch_pk)
 
 
 # ---------------------------------------------------------------------------
