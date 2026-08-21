@@ -891,6 +891,7 @@ class GovStackPaymentAuditEntry(TimestampedModel):
     ACTION_CALLBACK_DEAD_LETTERED = "callback_dead_lettered"
     ACTION_RECONCILIATION_RECORDED = "reconciliation_recorded"
     ACTION_PAYMENT_REVIEW_REQUIRED = "payment_review_required"
+    ACTION_BATCH_DECISION_RECORDED = "batch_decision_recorded"
 
     ACTION_CHOICES = [
         (ACTION_BENEFICIARY_REGISTERED, _("Beneficiary Registered")),
@@ -919,6 +920,7 @@ class GovStackPaymentAuditEntry(TimestampedModel):
         (ACTION_CALLBACK_DEAD_LETTERED, _("Callback Dead-Lettered")),
         (ACTION_RECONCILIATION_RECORDED, _("Reconciliation Recorded")),
         (ACTION_PAYMENT_REVIEW_REQUIRED, _("Payment Review Required")),
+        (ACTION_BATCH_DECISION_RECORDED, _("Batch Decision Recorded")),
     ]
 
     id = models.UUIDField(
@@ -1652,6 +1654,67 @@ class IdempotencyLedger(TimestampedModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["tenant_id", "method", "path", "key"], name="gs_idem_tenant_method_path_key")]
         indexes = [models.Index(fields=["tenant_id", "created_at"], name="gs_idem_tenant_created_idx")]
+
+
+class GovStackBatchDecision(TimestampedModel):
+    """Immutable, fenced policy decision for one logical bulk-batch outcome."""
+
+    ACTION_EMPTY = "empty"
+    ACTION_PAUSE = "pause"
+    ACTION_RETRY = "retry"
+    ACTION_REVIEW = "review"
+    ACTION_TERMINAL = "terminal"
+    ACTION_RETURN_FUNDS = "return_funds"
+    ACTION_CHOICES = [
+        (ACTION_EMPTY, "Empty"),
+        (ACTION_PAUSE, "Pause"),
+        (ACTION_RETRY, "Retry"),
+        (ACTION_REVIEW, "Review"),
+        (ACTION_TERMINAL, "Terminal"),
+        (ACTION_RETURN_FUNDS, "Return funds"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch = models.ForeignKey(
+        BulkPaymentBatch,
+        on_delete=models.PROTECT,
+        related_name="decisions",
+    )
+    # The canonical ordered child/policy input; uniqueness makes task delivery
+    # idempotent even when a later valid lease generation replays it.
+    fingerprint = models.CharField(max_length=64)
+    lease_owner_token = models.CharField(max_length=128)
+    lease_generation = models.PositiveIntegerField()
+    policy_state = models.CharField(max_length=20)
+    outcome_action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    total_count = models.PositiveIntegerField(default=0)
+    settled_count = models.PositiveIntegerField(default=0)
+    rejected_count = models.PositiveIntegerField(default=0)
+    non_final_count = models.PositiveIntegerField(default=0)
+    reason = models.CharField(max_length=100)
+    details = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "fingerprint"],
+                name="gs_batch_decision_fingerprint_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["batch", "lease_generation"],
+                name="gs_batch_decision_gen_idx",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("GovStackBatchDecision records are append-only")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("GovStackBatchDecision records are append-only")
 
 
 class BatchLease(TimestampedModel):

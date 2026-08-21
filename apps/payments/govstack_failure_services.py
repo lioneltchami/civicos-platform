@@ -74,6 +74,7 @@ class PaymentLifecycleService:
         operation: str,
         request_id: str,
         payload: Mapping[str, Any],
+        audit_created: bool = True,
         **defaults: Any,
     ) -> tuple[PaymentAttempt, bool]:
         """Create one scoped attempt or replay the canonical existing attempt.
@@ -110,11 +111,12 @@ class PaymentLifecycleService:
                         "idempotency key was reused with a different payload"
                     )
                 return attempt, False
-            cls.audit(
-                attempt,
-                GovStackPaymentAuditEntry.ACTION_PAYMENT_ATTEMPT_CREATED,
-                {"operation": attempt.operation},
-            )
+            if audit_created:
+                cls.audit(
+                    attempt,
+                    GovStackPaymentAuditEntry.ACTION_PAYMENT_ATTEMPT_CREATED,
+                    {"operation": attempt.operation},
+                )
             return attempt, True
 
     @staticmethod
@@ -214,6 +216,7 @@ class PaymentLifecycleService:
                 payload_hash=digest,
                 defaults={
                     "callback_url": callback_url[:500],
+                    "payload": dict(payload),
                     "status": CallbackDelivery.STATUS_PENDING,
                     "next_attempt_at": now,
                 },

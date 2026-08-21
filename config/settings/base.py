@@ -924,3 +924,12 @@ GOVSTACK_VOUCHER_REQUIRE_JWT = env.bool("GOVSTACK_VOUCHER_REQUIRE_JWT", default=
 GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB = env.bool(
     "GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB", default=False
 )
+
+# RB-02.3: controls only the persisted batch-decision action for an all-final
+# rejected/partial batch. The worker never executes a refund in this increment.
+GOVSTACK_BULK_RETURN_FUNDS_ENABLED = env.bool(
+    "GOVSTACK_BULK_RETURN_FUNDS_ENABLED", default=False
+)
+GOVSTACK_BULK_FAILURE_THRESHOLD = env.float(
+    "GOVSTACK_BULK_FAILURE_THRESHOLD", default=0.25
+)

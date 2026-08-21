@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.payments.govstack_batch_lease import (
@@ -23,9 +23,11 @@ from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CallbackDelivery,
     CreditInstruction,
+    GovStackBatchDecision,
     GovStackBeneficiary,
     GovStackPaymentAuditEntry,
     PaymentAttempt,
+    PaymentOutcome,
 )
 from apps.payments.govstack_tasks import process_bulk_payment_batch
 
@@ -57,6 +59,27 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
             is_active=True,
         )
         return batch
+
+    def _make_empty_batch(self, *, suffix: str, callback_url: str = "") -> BulkPaymentBatch:
+        return BulkPaymentBatch.objects.create(
+            request_id=f"EmptyReq{suffix}",
+            source_bb_id="LeaseSourceBB",
+            batch_id=f"EmptyBatch{suffix}",
+            status=BulkPaymentBatch.STATUS_RECEIVED,
+            callback_url=callback_url,
+            total_amount=Decimal("0.00"),
+        )
+
+    def _set_nonfinal_status(self, attempt: PaymentAttempt, status: str) -> None:
+        PaymentLifecycleService.apply_outcome(
+            attempt,
+            PaymentOutcome(
+                status,
+                code=f"RB023_{status.upper()}",
+                category="rb02_3_test",
+                retryable=status == "retryable",
+            ),
+        )
 
     def _run_live_task(self, batch: BulkPaymentBatch, *, task_id: str | None = None) -> None:
         process_bulk_payment_batch.apply(args=[str(batch.pk)], task_id=task_id)
@@ -302,3 +325,189 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
         self.assertEqual(instruction.payment_attempt_id, attempt.pk)
         self.assertEqual(instruction.status, CreditInstruction.STATUS_COMPLETED)
         self.assertEqual(attempt.attempt_count, attempt_count_before)
+
+    def test_threshold_pause_persists_one_idempotent_decision(self):
+        batch = self._make_batch(suffix="pause")
+        settled_instruction = CreditInstruction.objects.get(batch=batch)
+        paused_instruction = CreditInstruction.objects.create(
+            batch=batch,
+            instruction_id="LeaseInstructionPauseTwo",
+            payee_functional_id="LeasePayeePauseTwo",
+            amount=Decimal("50.00"),
+            currency="USD",
+            narration="RB-02.3 threshold pause",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        batch.total_amount = Decimal("150.00")
+        batch.save(update_fields=["total_amount"])
+        self._bind_final_attempt(
+            batch=batch,
+            instruction=settled_instruction,
+            outcome="settled",
+            observation_id="rb023-pause-settled",
+        )
+        paused_attempt = self._bind_nonfinal_attempt(
+            batch=batch,
+            instruction=paused_instruction,
+        )
+        self._set_nonfinal_status(paused_attempt, "uncertain")
+
+        with override_settings(GOVSTACK_BULK_FAILURE_THRESHOLD=0.4):
+            self._run_live_task(batch)
+            self._run_live_task(batch)
+
+        batch.refresh_from_db()
+        decisions = GovStackBatchDecision.objects.filter(batch=batch)
+        self.assertEqual(decisions.count(), 1)
+        decision = decisions.get()
+        self.assertEqual(decision.policy_state, "paused")
+        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_PAUSE)
+        self.assertEqual(decision.non_final_count, 1)
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
+        self.assertEqual(
+            GovStackPaymentAuditEntry.objects.filter(
+                object_type="batch_decision", object_pk=str(decision.pk)
+            ).count(),
+            1,
+        )
+
+    def test_retry_decision_is_durable_and_idempotent(self):
+        batch = self._make_batch(suffix="retry")
+        settled_instruction = CreditInstruction.objects.get(batch=batch)
+        retry_instruction = CreditInstruction.objects.create(
+            batch=batch,
+            instruction_id="LeaseInstructionRetryTwo",
+            payee_functional_id="LeasePayeeRetryTwo",
+            amount=Decimal("50.00"),
+            currency="USD",
+            narration="RB-02.3 retry",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        batch.total_amount = Decimal("150.00")
+        batch.save(update_fields=["total_amount"])
+        self._bind_final_attempt(
+            batch=batch,
+            instruction=settled_instruction,
+            outcome="settled",
+            observation_id="rb023-retry-settled",
+        )
+        retry_attempt = self._bind_nonfinal_attempt(batch=batch, instruction=retry_instruction)
+        self._set_nonfinal_status(retry_attempt, "retryable")
+
+        with override_settings(GOVSTACK_BULK_FAILURE_THRESHOLD=1.0):
+            self._run_live_task(batch)
+            self._run_live_task(batch)
+
+        batch.refresh_from_db()
+        decision = GovStackBatchDecision.objects.get(batch=batch)
+        self.assertEqual(decision.policy_state, "retryable")
+        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_RETRY)
+        self.assertEqual(decision.non_final_count, 1)
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
+        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
+
+    def test_review_decision_is_durable_and_idempotent(self):
+        batch = self._make_batch(suffix="review")
+        settled_instruction = CreditInstruction.objects.get(batch=batch)
+        review_instruction = CreditInstruction.objects.create(
+            batch=batch,
+            instruction_id="LeaseInstructionReviewTwo",
+            payee_functional_id="LeasePayeeReviewTwo",
+            amount=Decimal("50.00"),
+            currency="USD",
+            narration="RB-02.3 review",
+            status=CreditInstruction.STATUS_PENDING,
+        )
+        batch.total_amount = Decimal("150.00")
+        batch.save(update_fields=["total_amount"])
+        self._bind_final_attempt(
+            batch=batch,
+            instruction=settled_instruction,
+            outcome="settled",
+            observation_id="rb023-review-settled",
+        )
+        review_attempt = self._bind_nonfinal_attempt(batch=batch, instruction=review_instruction)
+        self._set_nonfinal_status(review_attempt, "review")
+
+        with override_settings(GOVSTACK_BULK_FAILURE_THRESHOLD=1.0):
+            self._run_live_task(batch)
+            self._run_live_task(batch)
+
+        batch.refresh_from_db()
+        decision = GovStackBatchDecision.objects.get(batch=batch)
+        self.assertEqual(decision.policy_state, "review")
+        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_REVIEW)
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
+        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
+
+    @override_settings(GOVSTACK_BULK_RETURN_FUNDS_ENABLED=True)
+    def test_configured_return_funds_is_explicit_and_idempotent(self):
+        batch = self._make_batch(suffix="return")
+        instruction = CreditInstruction.objects.get(batch=batch)
+        self._bind_final_attempt(
+            batch=batch,
+            instruction=instruction,
+            outcome="rejected",
+            observation_id="rb023-return-rejected",
+        )
+
+        self._run_live_task(batch)
+        self._run_live_task(batch)
+
+        batch.refresh_from_db()
+        decision = GovStackBatchDecision.objects.get(batch=batch)
+        self.assertEqual(decision.policy_state, "partial")
+        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_RETURN_FUNDS)
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_FAILED)
+        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
+        self.assertFalse(PaymentAttempt.objects.filter(operation="g2p_return_funds").exists())
+
+    def test_empty_batch_has_one_durable_outcome(self):
+        batch = self._make_empty_batch(suffix="empty")
+
+        self._run_live_task(batch)
+        self._run_live_task(batch)
+
+        batch.refresh_from_db()
+        decision = GovStackBatchDecision.objects.get(batch=batch)
+        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_EMPTY)
+        self.assertEqual(decision.total_count, 0)
+        self.assertEqual(decision.non_final_count, 0)
+        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
+        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
+        self.assertEqual(
+            GovStackPaymentAuditEntry.objects.filter(
+                object_type="batch_decision", object_pk=str(decision.pk)
+            ).count(),
+            1,
+        )
+
+    def test_duplicate_finalization_creates_one_decision_audit_and_callback(self):
+        batch = self._make_batch(
+            suffix="duplicate",
+            callback_url="https://example.com/callback",
+        )
+        instruction = CreditInstruction.objects.get(batch=batch)
+        self._bind_final_attempt(
+            batch=batch,
+            instruction=instruction,
+            outcome="settled",
+            observation_id="rb023-duplicate-settled",
+        )
+
+        self._run_live_task(batch)
+        self._run_live_task(batch)
+
+        decision = GovStackBatchDecision.objects.get(batch=batch)
+        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
+        self.assertEqual(
+            GovStackPaymentAuditEntry.objects.filter(
+                object_type="batch_decision", object_pk=str(decision.pk)
+            ).count(),
+            1,
+        )
+        callback_attempt = PaymentAttempt.objects.get(
+            operation="g2p_bulk_callback",
+            request_id=f"callback:{batch.request_id}:{batch.batch_id}",
+        )
+        self.assertEqual(CallbackDelivery.objects.filter(attempt=callback_attempt).count(), 1)

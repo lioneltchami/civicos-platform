@@ -66,6 +66,10 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from apps.payments.govstack_batch_decision import (
+    BatchDecisionConflict,
+    BatchDecisionService,
+)
 from apps.payments.govstack_batch_lease import (
     BatchLeaseHandle,
     BatchLeaseOwnershipLost,
@@ -77,6 +81,7 @@ from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CallbackDelivery,
     CreditInstruction,
+    GovStackBatchDecision,
     GovStackBeneficiary,
     GovStackPaymentAuditEntry,
     PaymentOutcome,
@@ -190,16 +195,13 @@ _IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
     soft_time_limit=120,
 )
 def process_bulk_payment_batch(self, batch_pk: str) -> None:
-    """Materialize authoritative bulk-child finality under a durable lease.
+    """Materialize child finality, then persist one fenced live policy decision.
 
-    RB-02.2 preserves mapper eligibility as a local processing gate only.  A
-    child and batch become financially terminal only through the bound attempt's
-    verified and reconciled provider evidence.
+    RB-02.3 leaves RB-02.1 lease ownership and RB-02.2 evidence materialization
+    intact.  It persists policy, audit, and outbox side effects atomically; no
+    callback transport or return-funds transfer is executed in this task.
     """
     lease_handle: BatchLeaseHandle | None = None
-    callback_url = ""
-    callback_status = ""
-    callback_batch: BulkPaymentBatch | None = None
     owner_token = str(getattr(self.request, "id", None) or uuid4())
 
     try:
@@ -227,11 +229,9 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                 return
             BatchLeaseService.heartbeat(lease_handle)
 
-            settled_count = 0
-            rejected_count = 0
-            non_final_count = 0
             settled_amount = Decimal("0.00")
             rejected_amount = Decimal("0.00")
+            child_items: list[dict[str, str]] = []
 
             for instr in (
                 CreditInstruction.objects.filter(batch=batch)
@@ -246,10 +246,12 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                     and instr.status
                     in {CreditInstruction.STATUS_COMPLETED, CreditInstruction.STATUS_FAILED}
                 ):
-                    # Historic terminal-looking rows without the new durable
-                    # binding are intentionally not replayed. They remain
-                    # non-final until an authorised binding/evidence path exists.
-                    non_final_count += 1
+                    # A historic terminal-looking row without the RB-02.2
+                    # binding remains non-final and cannot produce a terminal
+                    # policy projection.
+                    child_items.append(
+                        {"id": str(instr.pk), "status": "review", "amount": str(instr.amount)}
+                    )
                     continue
 
                 if instr.payment_attempt_id is None:
@@ -268,7 +270,9 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
 
                 finality = PaymentLifecycleService.materialize_credit_instruction_finality(instr)
                 if finality.final and finality.status == "settled":
-                    settled_count += 1
+                    child_items.append(
+                        {"id": str(instr.pk), "status": "settled", "amount": str(instr.amount)}
+                    )
                     settled_amount += instr.amount
                     if instr.status != CreditInstruction.STATUS_COMPLETED:
                         instr.status = CreditInstruction.STATUS_COMPLETED
@@ -276,7 +280,9 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                         BatchLeaseService.assert_current_owner(lease_handle)
                         instr.save(update_fields=["status", "failure_reason"])
                 elif finality.final and finality.status == "rejected":
-                    rejected_count += 1
+                    child_items.append(
+                        {"id": str(instr.pk), "status": "rejected", "amount": str(instr.amount)}
+                    )
                     rejected_amount += instr.amount
                     if instr.status != CreditInstruction.STATUS_FAILED:
                         instr.status = CreditInstruction.STATUS_FAILED
@@ -284,42 +290,57 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                         BatchLeaseService.assert_current_owner(lease_handle)
                         instr.save(update_fields=["status", "failure_reason"])
                 else:
-                    non_final_count += 1
+                    non_final_status = "review"
+                    if instr.payment_attempt_id:
+                        attempt_status = instr.payment_attempt.status
+                        if attempt_status in {"retryable", "uncertain", "review"}:
+                            non_final_status = attempt_status
+                    child_items.append(
+                        {
+                            "id": str(instr.pk),
+                            "status": non_final_status,
+                            "amount": str(instr.amount),
+                        }
+                    )
                     if instr.status == CreditInstruction.STATUS_PENDING:
                         instr.status = CreditInstruction.STATUS_VALIDATED
                         instr.failure_reason = ""
                         BatchLeaseService.assert_current_owner(lease_handle)
                         instr.save(update_fields=["status", "failure_reason"])
 
-            if non_final_count:
-                batch.status = BulkPaymentBatch.STATUS_PROCESSING
-                batch.completed_amount = settled_amount
-                batch.failed_amount = rejected_amount
-                batch.result_generated_at = None
-                BatchLeaseService.assert_current_owner(lease_handle)
-                batch.save(
-                    update_fields=[
-                        "status",
-                        "completed_amount",
-                        "failed_amount",
-                        "result_generated_at",
-                    ]
-                )
-                return
+            BatchLeaseService.assert_current_owner(lease_handle)
+            result = BatchDecisionService.decide(
+                batch=batch,
+                lease_handle=lease_handle,
+                items=child_items,
+                failure_threshold=float(
+                    getattr(settings, "GOVSTACK_BULK_FAILURE_THRESHOLD", 0.25)
+                ),
+                return_funds_enabled=bool(
+                    getattr(settings, "GOVSTACK_BULK_RETURN_FUNDS_ENABLED", False)
+                ),
+            )
+            decision = result.decision
 
-            if rejected_count == 0:
-                batch.status = BulkPaymentBatch.STATUS_COMPLETED
-                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_COMPLETED
-            elif settled_count == 0:
-                batch.status = BulkPaymentBatch.STATUS_FAILED
-                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_FAILED
+            if decision.outcome_action in {
+                GovStackBatchDecision.ACTION_TERMINAL,
+                GovStackBatchDecision.ACTION_RETURN_FUNDS,
+            }:
+                if decision.non_final_count:
+                    raise BatchDecisionConflict("terminal projection with non-final child is forbidden")
+                if decision.rejected_count == 0:
+                    batch.status = BulkPaymentBatch.STATUS_COMPLETED
+                elif decision.settled_count == 0:
+                    batch.status = BulkPaymentBatch.STATUS_FAILED
+                else:
+                    batch.status = BulkPaymentBatch.STATUS_PARTIAL
+                batch.result_generated_at = timezone.now()
             else:
-                batch.status = BulkPaymentBatch.STATUS_PARTIAL
-                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_PARTIAL
+                batch.status = BulkPaymentBatch.STATUS_PROCESSING
+                batch.result_generated_at = None
 
             batch.completed_amount = settled_amount
             batch.failed_amount = rejected_amount
-            batch.result_generated_at = timezone.now()
             BatchLeaseService.assert_current_owner(lease_handle)
             batch.save(
                 update_fields=[
@@ -329,57 +350,57 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
                     "result_generated_at",
                 ]
             )
-            BatchLeaseService.assert_current_owner(lease_handle)
-            GovStackPaymentAuditEntry.objects.create(
-                action=batch_audit_action,
-                actor_bb_id=batch.source_bb_id,
-                object_type="batch",
-                object_pk=str(batch.pk),
-                request_id=batch.request_id,
-                details={
-                    "batch_id": batch.batch_id,
-                    "source_bb_id": batch.source_bb_id,
-                    "settled_count": settled_count,
-                    "rejected_count": rejected_count,
-                },
-            )
-            callback_url = batch.callback_url
-            callback_status = batch.status.upper()
-            callback_batch = batch
 
-        if callback_url and callback_batch is not None:
-            callback_payload = {
-                "RequestID": callback_batch.request_id,
-                "BatchID": callback_batch.batch_id,
-                "Status": callback_status,
-            }
-            BatchLeaseService.assert_current_owner(lease_handle)
-            callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
-                tenant_id="",
-                operation="g2p_bulk_callback",
-                request_id=f"callback:{callback_batch.request_id}:{callback_batch.batch_id}",
-                payload=callback_payload,
-                correlation_id=callback_batch.correlation_id,
-                source_bb_id=callback_batch.source_bb_id,
-            )
-            BatchLeaseService.assert_current_owner(lease_handle)
-            delivery, _ = PaymentLifecycleService.queue_callback(
-                attempt=callback_attempt,
-                callback_url=callback_url,
-                payload=callback_payload,
-            )
-            success, http_status, error_code = _post_callback(
-                url=callback_url,
-                payload=callback_payload,
-            )
-            BatchLeaseService.assert_current_owner(lease_handle)
-            PaymentLifecycleService.record_callback_result(
-                delivery,
-                http_status=http_status if success else None,
-                error_code=error_code,
-            )
-    except BatchLeaseOwnershipLost:
-        logger.info("process_bulk_payment_batch.stale_lease batch_pk=%s", batch_pk)
+            if result.created:
+                BatchLeaseService.assert_current_owner(lease_handle)
+                GovStackPaymentAuditEntry.objects.create(
+                    action=GovStackPaymentAuditEntry.ACTION_BATCH_DECISION_RECORDED,
+                    actor_bb_id=batch.source_bb_id,
+                    object_type="batch_decision",
+                    object_pk=str(decision.pk),
+                    request_id=batch.request_id,
+                    details={
+                        "outcome_action": decision.outcome_action,
+                        "policy_state": decision.policy_state,
+                        "fingerprint": decision.fingerprint,
+                        "reason": decision.reason,
+                        "total_count": decision.total_count,
+                        "settled_count": decision.settled_count,
+                        "rejected_count": decision.rejected_count,
+                        "non_final_count": decision.non_final_count,
+                        "lease_generation": decision.lease_generation,
+                    },
+                )
+                if batch.callback_url:
+                    # Preserve the established external callback contract;
+                    # the durable decision/audit rows retain decision identity.
+                    callback_payload = {
+                        "RequestID": batch.request_id,
+                        "BatchID": batch.batch_id,
+                        "Status": decision.outcome_action.upper(),
+                    }
+                    BatchLeaseService.assert_current_owner(lease_handle)
+                    callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+                        tenant_id="",
+                        operation="g2p_bulk_callback",
+                        request_id=f"callback:{batch.request_id}:{batch.batch_id}",
+                        # This is the canonical callback-attempt identity. The
+                        # decision-specific status remains in CallbackDelivery's
+                        # payload hash, allowing later distinct decisions to
+                        # enqueue one delivery without idempotency conflict.
+                        payload={"RequestID": batch.request_id, "BatchID": batch.batch_id},
+                        audit_created=False,
+                        correlation_id=batch.correlation_id,
+                        source_bb_id=batch.source_bb_id,
+                    )
+                    BatchLeaseService.assert_current_owner(lease_handle)
+                    PaymentLifecycleService.queue_callback(
+                        attempt=callback_attempt,
+                        callback_url=batch.callback_url,
+                        payload=callback_payload,
+                    )
+    except (BatchLeaseOwnershipLost, BatchDecisionConflict):
+        logger.info("process_bulk_payment_batch.decision_not_written batch_pk=%s", batch_pk)
         return
     finally:
         if lease_handle is not None:
