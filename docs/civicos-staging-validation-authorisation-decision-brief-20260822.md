@@ -2,7 +2,7 @@
 
 ## Decision status
 
-**Pending human decision.** The attached candidate `Civicos-Payments-RB02-OptionB-ScopePure` is presented for review only. Attaching the candidate does **not** authorise staging, deployment, secret access, official tests, release, submission, production access, payment processing, or any other execution.
+**Human-owner decision recorded: Defer.** The attached candidate `Civicos-Payments-RB02-OptionB-ScopePure` remains available for future review but is not rejected. Operational preconditions remain pending and not evidenced. Attaching the candidate and recording this Defer do **not** authorise staging, deployment, secret access, official tests, release, submission, production access, payment processing, or any other execution.
 
 ## Required conditions before a later bounded staging review can be authorised
 
@@ -11,7 +11,7 @@
 | Isolated environment | Named non-production target, connectivity/isolation boundary, approved baseline, and validation window. | Pending; not asserted. |
 | Operators and least privilege | Named operators/approver/observers, time-bounded scoped roles, expiry/revocation, and audit route. | Pending; not asserted. |
 | Secret mechanism | Approved human-controlled secret mechanism, owner, rotation/revocation design; **no secret values in this brief or evidence**. | Pending; not asserted. |
-| Data and retention | Syn| Data and retecitly approved data, prohibited data classes, retention/deletion plan, and owner. | Pending; not asserted. |
+| Data and retention | Synthetic or explicitly approved test data, prohibited data classes, retention/deletion plan, and owner. This Defer record authorises no new data processing, transfer, retention extension, deletion, or retention-policy change. | Pending; not asserted. |
 | Bounded window and scope | Start/end UTC, permitted actions, hard action limits, excluded actions, and expiry. | Pending; not asserted. |
 | Rollback/recovery | Reversible baseline, rollback owner/triggers, validation and abort criteria. | Pending; not asserted. |
 | Observability | Logs, metrics, traces, alerts, correlation IDs, timestamp convention, monitoring owner, and sensitive-data controls. | Pending; not asserted. |
@@ -21,7 +21,7 @@
 ## Decision options
 
 - [ ] **Authorize later bounded staging review.** This may be selected only after every required condition is independently evidenced, a named human approver records a separate time-bounded authorisation, and scope remains limited to the attached candidate.
-- [ ] **Defer.** Missing, ambiguous, unverifiable, or disputed evidence remains. No staging activity is authorised.
+- [x] **Defer.** Selected by the human owner because required evidence remains incomplete. No staging activity is authorised.
 - [ ] **Reject candidate.** The candidate or control package is unsuitable. No staging activity is authorised.
 
 **Default while evidence is incomplete: Defer.** Absence of a recorded decision is not authorisation.

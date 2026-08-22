@@ -18,7 +18,7 @@
 
 ## 3. Proposed candidate selection
 
-The accepted immutable component artifact `Civicos-Payments-RB02-OptionB-ScopePure` is attached as the proposed first candidate for **human review only**. The status is **PROPOSED STAGING CANDIDATE ATTACHED — HUMAN AUTHORISATION PENDING / STAGING NOT AUTHORISED**. The exact identity is bound at `docs/civicos-staging-validation-candidate-attachment-20260822.md`, with component identity, review, assembly manifest, artifact payload, and independent reconstruction evidence retained in the controlling records.
+The accepted immutable component artifact `Civicos-Payments-RB02-OptionB-ScopePure` remains attached as the proposed first candidate for **human review only**. The human owner selected **Defer**. The status is **STAGING AUTHORISATION DEFERRED — CANDIDATE ATTACHED / STAGING NOT AUTHORISED**. The candidate is not rejected. The exact identity is bound at `docs/civicos-staging-validation-candidate-attachment-20260822.md`, with component identity, review, assembly manifest, artifact payload, and independent reconstruction evidence retained in the controlling records.
 
 The mixed source anchor remains provenance-only and is not a candidate identity, artifact digest, or release identity. The candidate attachment does not establish environment, access, secrets, rollback, observability, data, change-window, or evidence preconditions as satisfied. SCH-02.2 and File Management remain explicitly excluded. This package grants no staging, deployment, release, official-test, or submission authorization.
 
@@ -92,12 +92,12 @@ Each signer attests that: internal closures remain scope-limited; SCH-02.2 remai
 
 > **HUMAN REVIEW ONLY — NO EXECUTION AUTHORITY.** Human review or sign-off acknowledges the control design and the document’s limitations only. It does not authorise access, deployment, testing, release, submission, promotion, rollback execution, or any external side effect.
 
-The immutable Payments RB-02 component artifact is attached for human review only. The status is **PROPOSED STAGING CANDIDATE ATTACHED — HUMAN AUTHORISATION PENDING / STAGING NOT AUTHORISED**. The accountable human owner and authority source for any future staging authorization must be recorded separately from this package. The attached identity does not satisfy any operational precondition. Permitted review outcomes are **authorize later bounded staging review**, **defer**, or **reject candidate**; none begins a run without a distinct time-bounded authorisation.
+The immutable Payments RB-02 component artifact remains attached for human review only. The human owner selected **Defer**. The status is **STAGING AUTHORISATION DEFERRED — CANDIDATE ATTACHED / STAGING NOT AUTHORISED**. The candidate is not rejected. The accountable human owner and authority source for any future staging authorization must be recorded separately from this package. The attached identity does not satisfy any operational precondition. Permitted review outcomes are **authorize later bounded staging review**, **defer**, or **reject candidate**; none begins a run without a distinct time-bounded authorisation.
 
 Evidence artifacts must be labeled `planned`, `unavailable`, `failed`, or `completed`, and must not be represented as production, release, official-validation, or submission evidence unless a separate process proves that status. Any future stop condition requires a separate human decision to resume; satisfying a readiness gate never creates permission to execute.
 
 ## 11. Option B construction-planning status
 
-**PROPOSED STAGING CANDIDATE ATTACHED — HUMAN AUTHORISATION PENDING / STAGING NOT AUTHORISED**
+**STAGING AUTHORISATION DEFERRED — CANDIDATE ATTACHED / STAGING NOT AUTHORISED**
 
-The local non-release scope-pure component artifact is attached for human review. No environment, operator, access, secret mechanism, test data, time window, rollback, observability, stop authority, or evidence-capture prerequisite is marked satisfied by this attachment. The mixed anchor `49e69fb8a3051de6c1cf7adff8e16c928cf84412` remains provenance only, never a candidate digest or operational identity. SCH-02.2 and File Management remain excluded. Any staging activity requires a later distinct explicit human authorization.
+The local non-release scope-pure component artifact remains attached for human review after the human-owner Defer decision. No environment, operator, access, secret mechanism, test data, time window, rollback, observability, stop authority, or evidence-capture prerequisite is marked satisfied by this attachment. The mixed anchor `49e69fb8a3051de6c1cf7adff8e16c928cf84412` remains provenance only, never a candidate digest or operational identity. SCH-02.2 and File Management remain excluded. Any staging activity requires a later distinct explicit human authorization.
