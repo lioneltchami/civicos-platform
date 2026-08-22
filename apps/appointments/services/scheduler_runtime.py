@@ -14,7 +14,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.appointments.models import SchedulerOutbox, SchedulerRecipientDelivery
+from apps.appointments.models import GovStackAlertSchedule, SchedulerOutbox, SchedulerRecipientDelivery
 
 
 TERMINAL = frozenset(
@@ -33,6 +33,127 @@ def recipient_idempotency_key(*, schedule_id, generation: int, recipient_kind: s
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _materialize_locked(
+    *,
+    schedule: GovStackAlertSchedule,
+    generation: int,
+    recipient_kind: str,
+    recipient_ref: str,
+    owner_key: str,
+    correlation_id: str,
+    payload: dict,
+    max_attempts: int,
+):
+    """Converge one row pair beneath an already-locked admission authority.
+
+    This private helper neither establishes schedule authority nor accepts an
+    external generation decision.  It is only called from
+    :func:`admit_schedule_generation` after the schedule lock and generation
+    comparison have succeeded.
+    """
+    now = timezone.now()
+    key = recipient_idempotency_key(
+        schedule_id=schedule.pk,
+        generation=generation,
+        recipient_kind=recipient_kind,
+        recipient_ref=recipient_ref,
+    )
+    delivery, created = SchedulerRecipientDelivery.objects.get_or_create(
+        schedule=schedule,
+        dispatch_generation=generation,
+        recipient_kind=recipient_kind,
+        recipient_ref=recipient_ref,
+        defaults={
+            "idempotency_key": key,
+            "owner_key": owner_key[:180],
+            "correlation_id": correlation_id[:180],
+            "payload": dict(payload),
+            "max_attempts": max_attempts,
+            "next_attempt_at": now,
+        },
+    )
+    if created:
+        SchedulerOutbox.objects.create(delivery=delivery, available_at=now)
+    return delivery, created
+
+
+def admit_schedule_generation(
+    *,
+    schedule_id,
+    expected_generation: int,
+    recipients: list[tuple[str, str]],
+    owner_key: str | None = None,
+    correlation_id: str | None = None,
+    payload: dict | None = None,
+    max_attempts: int = 3,
+) -> dict:
+    """Admit only the locked current schedule generation without external I/O."""
+    payload = dict(payload or {})
+    with transaction.atomic():
+        schedule = GovStackAlertSchedule.objects.select_for_update().get(pk=schedule_id)
+        if expected_generation != schedule.delivery_generation:
+            return {
+                "outcome": GovStackAlertSchedule.ADMISSION_STALE_GENERATION,
+                "generation": schedule.delivery_generation,
+                "created": 0,
+                "deliveries": [],
+            }
+
+        generation = schedule.delivery_generation
+        canonical_recipients = sorted({(str(kind), str(reference)) for kind, reference in recipients})
+        if not canonical_recipients:
+            if schedule.admitted_generation == generation:
+                return {
+                    "outcome": GovStackAlertSchedule.ADMISSION_DUPLICATE,
+                    "generation": generation,
+                    "created": 0,
+                    "deliveries": [],
+                }
+            schedule.admitted_generation = generation
+            schedule.admission_outcome = GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS
+            schedule.save(update_fields=["admitted_generation", "admission_outcome", "updated_at"])
+            return {
+                "outcome": GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS,
+                "generation": generation,
+                "created": 0,
+                "deliveries": [],
+            }
+
+        created_count = 0
+        deliveries = []
+        for recipient_kind, recipient_ref in canonical_recipients:
+            delivery, created = _materialize_locked(
+                schedule=schedule,
+                generation=generation,
+                recipient_kind=recipient_kind,
+                recipient_ref=recipient_ref,
+                owner_key=owner_key or f"schedule:{schedule.pk}",
+                correlation_id=correlation_id or f"scheduler:{schedule.pk}:{generation}",
+                payload=payload,
+                max_attempts=max_attempts,
+            )
+            deliveries.append(delivery)
+            created_count += int(created)
+
+        if schedule.admitted_generation == generation and not created_count:
+            return {
+                "outcome": GovStackAlertSchedule.ADMISSION_DUPLICATE,
+                "generation": generation,
+                "created": 0,
+                "deliveries": deliveries,
+            }
+
+        schedule.admitted_generation = generation
+        schedule.admission_outcome = GovStackAlertSchedule.ADMISSION_CREATED
+        schedule.save(update_fields=["admitted_generation", "admission_outcome", "updated_at"])
+        return {
+            "outcome": GovStackAlertSchedule.ADMISSION_CREATED,
+            "generation": generation,
+            "created": created_count,
+            "deliveries": deliveries,
+        }
+
+
 def materialize(
     *,
     schedule,
@@ -44,32 +165,18 @@ def materialize(
     generation: int = 1,
     max_attempts: int = 3,
 ):
-    """Create one recipient work row and its outbox event in one transaction."""
-    now = timezone.now()
-    key = recipient_idempotency_key(
+    """Compatibility wrapper; all durable creation flows through locked admission."""
+    result = admit_schedule_generation(
         schedule_id=schedule.pk,
-        generation=generation,
-        recipient_kind=recipient_kind,
-        recipient_ref=recipient_ref,
+        expected_generation=generation,
+        recipients=[(recipient_kind, recipient_ref)],
+        owner_key=owner_key,
+        correlation_id=correlation_id,
+        payload=payload,
+        max_attempts=max_attempts,
     )
-    with transaction.atomic():
-        delivery, created = SchedulerRecipientDelivery.objects.get_or_create(
-            schedule=schedule,
-            dispatch_generation=generation,
-            recipient_kind=recipient_kind,
-            recipient_ref=recipient_ref,
-            defaults={
-                "idempotency_key": key,
-                "owner_key": owner_key[:180],
-                "correlation_id": correlation_id[:180],
-                "payload": dict(payload),
-                "max_attempts": max_attempts,
-                "next_attempt_at": now,
-            },
-        )
-        if created:
-            SchedulerOutbox.objects.create(delivery=delivery, available_at=now)
-        return delivery, created
+    deliveries = result["deliveries"]
+    return (deliveries[0] if deliveries else None), bool(result["created"])
 
 
 def claim(*, idempotency_key: str, lease_seconds: int = 300, now=None) -> str | None:
