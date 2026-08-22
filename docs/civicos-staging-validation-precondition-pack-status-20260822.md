@@ -10,7 +10,8 @@ The operational-precondition pack and its severity-ordered gap register are comp
 |---|---|
 | Candidate identity | Preserved exactly; candidate remains attached and not rejected. |
 | Candidate digests/path | Unchanged: canonical SHA-256, manifest SHA-256, and `artifacts/payments-rb02-option-b-scope-pure/`. |
-| Remote preconditions | Pending/not evidenced; no gap is waived by the drafted pack. |
+| Documentation controls | SCOPE-01, RB-01, OBS-01, and EVD-01 are **DRAFTED / PENDING HUMAN APPROVAL** only; none is operational evidence. |
+| Remote preconditions | Pending/not evidenced; no gap is waived by the drafted pack. ENV-01, OPS-01, SEC-01, and DATA-01 remain **BLOCKED**. |
 | Human decision | Defer remains controlling. |
 | Staging | Not authorised. |
 | SCH-02.2 / File Management | Excluded. |

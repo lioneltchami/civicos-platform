@@ -41,3 +41,16 @@ The candidate continuity record is exact:
 ## Source and safety rules
 
 No secret values, tokens, keys, connection strings, production/customer/payment data, or inferred remote facts are included. SCH-02.2 and File Management remain excluded. Completing this pack does not authorise staging; it prepares human gap-closure work only.
+
+## Documentation-derivable control drafts
+
+The following documents are repository-grounded planning controls. None is operational evidence or an authorisation.
+
+| Control | Document | Classification | Remaining boundary |
+|---|---|---|---|
+| SCOPE-01 | `docs/civicos-staging-validation-rb02-scope-sheet-20260822.md` | **DRAFTED / PENDING HUMAN APPROVAL** | No future target, window, operator, provider, or live-money action is approved. |
+| RB-01 | `docs/civicos-staging-validation-rb02-rollback-runbook-draft-20260822.md` | **DRAFTED / PENDING HUMAN APPROVAL** | Rollback rehearsal remains **BLOCKED** pending target, access, authority, baseline, observability, and evidence. |
+| OBS-01 | `docs/civicos-staging-validation-rb02-observability-map-draft-20260822.md` | **DRAFTED / PENDING HUMAN APPROVAL** | Alert routing, thresholds, named stop authority, target signals, and operational validation remain **BLOCKED**. |
+| EVD-01 | `docs/civicos-staging-validation-evidence-control-templates-20260822.md` | **DRAFTED / PENDING HUMAN APPROVAL** | Evidence sink, custodian, retention, access model, redaction reviewer, and failure owner remain **BLOCKED**. |
+
+ENV-01, OPS-01, SEC-01, and DATA-01 remain **UNAVAILABLE / BLOCKED**. The controlling status remains deferred and staging remains not authorised.
