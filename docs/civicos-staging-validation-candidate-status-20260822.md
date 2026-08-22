@@ -17,3 +17,7 @@ The human owner selected **Defer** because operational preconditions remain pend
 | Staging | Not authorised. |
 
 SCH-02.2 and File Management remain excluded. The mixed `49e69fb8a3051de6c1cf7adff8e16c928cf84412` anchor remains provenance only. This Defer record authorises no new data processing, transfer, retention extension, deletion, retention-policy change, staging, deployment, release, official test, submission, production use, or external distribution.
+
+## Campaign closeout supersession
+
+The later controlling external-campaign disposition is `GOVSTACK/STAGING CAMPAIGN CLOSED OUT — NO EXTERNAL CLAIM / PROD PATH SEPARATE`, recorded in `docs/civicos-campaign-closeout-status-20260822.md` and `docs/civicos-govstack-campaign-closeout-record-20260822.md`. The candidate remains retained as non-release local provenance only; this note does not alter its canonical SHA-256, manifest SHA-256, prior evidence, or exclusions. The original Defer state remains historical evidence of the unfulfilled staging preconditions, while the current campaign posture is parked and staging remains not authorised.
