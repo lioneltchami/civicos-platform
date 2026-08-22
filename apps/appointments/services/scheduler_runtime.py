@@ -10,6 +10,7 @@ import hashlib
 import uuid
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -265,6 +266,8 @@ def _fence_locked_schedule_child_work(*, schedule: GovStackAlertSchedule, now) -
         cancelled_at__isnull=True,
     ).update(
         cancelled_at=now,
+        publisher_state=SchedulerOutbox.CANCELLED,
+        publisher_state_changed_at=now,
         publisher_token=None,
         publisher_owner="",
         publisher_lease_expires_at=None,
@@ -398,46 +401,128 @@ def reap_expired(*, now=None) -> int:
     return count
 
 
+def _publisher_policy():
+    return (
+        int(getattr(settings, "GOVSTACK_SCHEDULER_PUBLISH_MAX_ATTEMPTS", 3)),
+        int(getattr(settings, "GOVSTACK_SCHEDULER_PUBLISH_RETRY_BASE_SECONDS", 30)),
+        int(getattr(settings, "GOVSTACK_SCHEDULER_PUBLISH_RETRY_MAX_SECONDS", 900)),
+    )
+
+
+def _publisher_backoff(*, attempt: int) -> timedelta:
+    _, base_seconds, max_seconds = _publisher_policy()
+    return timedelta(seconds=min(max_seconds, base_seconds * (2 ** max(0, attempt - 1))))
+
+
+def _clear_publisher_lease(row: SchedulerOutbox):
+    row.publisher_token = None
+    row.publisher_owner = ""
+    row.publisher_lease_expires_at = None
+
+
 def claim_outbox(*, lease_seconds: int = 60, owner: str = "scheduler-publisher", now=None):
-    """Claim one due outbox row in a short transaction; never performs broker I/O."""
+    """Claim one due publisher intent in a short transaction; never performs broker I/O."""
     now = now or timezone.now()
     token = uuid.uuid4().hex
+    claimable = Q(publisher_state__in=[SchedulerOutbox.PENDING, SchedulerOutbox.LOCAL_FAILURE, SchedulerOutbox.UNKNOWN_HANDOFF])
+    expired_claim = Q(publisher_state=SchedulerOutbox.CLAIMED, publisher_lease_expires_at__lt=now)
     with transaction.atomic():
         row = (SchedulerOutbox.objects.select_for_update()
                .filter(published_at__isnull=True, cancelled_at__isnull=True, available_at__lte=now)
+               .filter(claimable | expired_claim)
                .filter(Q(publisher_lease_expires_at__isnull=True) | Q(publisher_lease_expires_at__lt=now))
                .order_by("id").first())
         if row is None:
+            return None
+        max_attempts, _, _ = _publisher_policy()
+        if row.publish_attempts >= max_attempts:
+            row.publisher_state = SchedulerOutbox.EXHAUSTED
+            row.exhausted_at = now
+            row.publisher_state_changed_at = now
+            _clear_publisher_lease(row)
+            row.save(update_fields=["publisher_state", "exhausted_at", "publisher_state_changed_at", "publisher_token", "publisher_owner", "publisher_lease_expires_at", "updated_at"])
             return None
         row.publisher_generation += 1
         row.publisher_token = token
         row.publisher_owner = owner[:120]
         row.publisher_lease_expires_at = now + timedelta(seconds=lease_seconds)
         row.publish_attempts += 1
-        row.save(update_fields=["publisher_generation", "publisher_token", "publisher_owner", "publisher_lease_expires_at", "publish_attempts", "updated_at"])
+        row.publisher_state = SchedulerOutbox.CLAIMED
+        row.publisher_state_changed_at = now
+        row.save(update_fields=["publisher_generation", "publisher_token", "publisher_owner", "publisher_lease_expires_at", "publish_attempts", "publisher_state", "publisher_state_changed_at", "updated_at"])
         return row.pk, row.delivery.idempotency_key, token, row.publisher_generation
 
 
 def mark_outbox_published(*, outbox_id, token: str, generation: int, now=None) -> bool:
     now = now or timezone.now()
     with transaction.atomic():
-        updated = SchedulerOutbox.objects.filter(pk=outbox_id, published_at__isnull=True, cancelled_at__isnull=True,
-            publisher_token=token, publisher_generation=generation).update(
-                published_at=now, publisher_token=None, publisher_owner="", publisher_lease_expires_at=None,
-                last_error="", updated_at=now)
+        updated = SchedulerOutbox.objects.filter(
+            pk=outbox_id, published_at__isnull=True, cancelled_at__isnull=True,
+            publisher_state=SchedulerOutbox.CLAIMED, publisher_token=token, publisher_generation=generation,
+        ).update(
+            published_at=now, publisher_state=SchedulerOutbox.PUBLISHED,
+            publisher_state_changed_at=now, publisher_failure_class="", exhausted_at=None,
+            publisher_token=None, publisher_owner="", publisher_lease_expires_at=None,
+            last_error="", updated_at=now,
+        )
         return bool(updated)
 
 
-def mark_outbox_failed(*, outbox_id, token: str, generation: int, error_class: str, now=None) -> bool:
+def mark_outbox_failed(*, outbox_id, token: str, generation: int, error_class: str, now=None, unknown_handoff: bool = False) -> bool:
+    """Record a fenced publisher failure with finite backoff or terminal exhaustion."""
     now = now or timezone.now()
     with transaction.atomic():
-        updated = SchedulerOutbox.objects.filter(pk=outbox_id, published_at__isnull=True, cancelled_at__isnull=True,
-            publisher_token=token, publisher_generation=generation).update(
-                publisher_token=None, publisher_owner="", publisher_lease_expires_at=None,
-                available_at=now, last_error=error_class[:240], updated_at=now)
-        return bool(updated)
+        row = (SchedulerOutbox.objects.select_for_update().filter(
+            pk=outbox_id, published_at__isnull=True, cancelled_at__isnull=True,
+            publisher_state=SchedulerOutbox.CLAIMED, publisher_token=token, publisher_generation=generation,
+        ).first())
+        if row is None:
+            return False
+        max_attempts, _, _ = _publisher_policy()
+        row.publisher_failure_class = error_class[:32]
+        row.last_error = error_class[:240]
+        row.publisher_state_changed_at = now
+        _clear_publisher_lease(row)
+        if row.publish_attempts >= max_attempts:
+            row.publisher_state = SchedulerOutbox.EXHAUSTED
+            row.exhausted_at = now
+            row.available_at = now
+        else:
+            row.publisher_state = SchedulerOutbox.UNKNOWN_HANDOFF if unknown_handoff else SchedulerOutbox.LOCAL_FAILURE
+            row.available_at = now + _publisher_backoff(attempt=row.publish_attempts)
+        row.save(update_fields=["publisher_state", "publisher_failure_class", "publisher_state_changed_at", "publisher_token", "publisher_owner", "publisher_lease_expires_at", "available_at", "exhausted_at", "last_error", "updated_at"])
+        return True
+
+
+def mark_outbox_unknown_handoff(*, outbox_id, token: str, generation: int, error_class: str, now=None) -> bool:
+    return mark_outbox_failed(outbox_id=outbox_id, token=token, generation=generation, error_class=error_class, now=now, unknown_handoff=True)
+
+
+def replay_outbox(*, outbox_id, now=None) -> bool:
+    """Deliberately reopen an eligible exhausted publisher intent without losing correlation."""
+    now = now or timezone.now()
+    with transaction.atomic():
+        row = (SchedulerOutbox.objects.select_for_update().filter(
+            pk=outbox_id, publisher_state=SchedulerOutbox.EXHAUSTED,
+            published_at__isnull=True, cancelled_at__isnull=True,
+        ).first())
+        if row is None:
+            return False
+        row.publisher_state = SchedulerOutbox.PENDING
+        row.publisher_failure_class = ""
+        row.publisher_state_changed_at = now
+        row.exhausted_at = None
+        row.publish_attempts = 0
+        row.available_at = now
+        _clear_publisher_lease(row)
+        row.save(update_fields=["publisher_state", "publisher_failure_class", "publisher_state_changed_at", "exhausted_at", "publish_attempts", "available_at", "publisher_token", "publisher_owner", "publisher_lease_expires_at", "updated_at"])
+        return True
 
 
 def due_outbox(*, now=None):
     now = now or timezone.now()
-    return SchedulerOutbox.objects.filter(published_at__isnull=True, cancelled_at__isnull=True, available_at__lte=now).select_related("delivery")
+    return SchedulerOutbox.objects.filter(
+        published_at__isnull=True, cancelled_at__isnull=True,
+        publisher_state__in=[SchedulerOutbox.PENDING, SchedulerOutbox.LOCAL_FAILURE, SchedulerOutbox.UNKNOWN_HANDOFF],
+        available_at__lte=now,
+    ).select_related("delivery")

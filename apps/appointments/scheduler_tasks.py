@@ -110,9 +110,17 @@ def publish_scheduler_outbox() -> dict:
         outbox_id, idempotency_key, token, generation = claim
         try:
             deliver_scheduler_recipient.delay(idempotency_key)
+        except TimeoutError as exc:
+            runtime.mark_outbox_unknown_handoff(
+                outbox_id=outbox_id, token=token, generation=generation,
+                error_class=type(exc).__name__,
+            )
+            continue
         except Exception as exc:
-            runtime.mark_outbox_failed(outbox_id=outbox_id, token=token, generation=generation,
-                                       error_class=type(exc).__name__)
+            runtime.mark_outbox_failed(
+                outbox_id=outbox_id, token=token, generation=generation,
+                error_class=type(exc).__name__,
+            )
             continue
         if runtime.mark_outbox_published(outbox_id=outbox_id, token=token, generation=generation):
             published += 1

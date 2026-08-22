@@ -2920,16 +2920,34 @@ class SchedulerRecipientDelivery(TimestampedModel):
 
 
 class SchedulerOutbox(TimestampedModel):
+    """Durable publisher intent with finite, fenced recovery state."""
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    LOCAL_FAILURE = "local_failure"
+    UNKNOWN_HANDOFF = "unknown_handoff"
+    PUBLISHED = "published"
+    EXHAUSTED = "exhausted"
+    CANCELLED = "cancelled"
+    PUBLISHER_STATE_CHOICES = [
+        (state, state.replace("_", " ").title())
+        for state in (PENDING, CLAIMED, LOCAL_FAILURE, UNKNOWN_HANDOFF, PUBLISHED, EXHAUSTED, CANCELLED)
+    ]
+
     delivery = models.OneToOneField(SchedulerRecipientDelivery, on_delete=models.CASCADE, related_name="outbox")
     published_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
     available_at = models.DateTimeField(db_index=True)
     publish_attempts = models.PositiveIntegerField(default=0)
+    publisher_state = models.CharField(max_length=32, choices=PUBLISHER_STATE_CHOICES, default=PENDING, db_index=True)
+    publisher_failure_class = models.CharField(max_length=32, blank=True, default="")
+    publisher_state_changed_at = models.DateTimeField(null=True, blank=True)
+    exhausted_at = models.DateTimeField(null=True, blank=True)
     publisher_generation = models.PositiveIntegerField(default=0)
     publisher_token = models.CharField(max_length=64, null=True, blank=True)
     publisher_owner = models.CharField(max_length=120, blank=True, default="")
     publisher_lease_expires_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=240, blank=True, default="")
+
     class Meta:
         indexes = [
             models.Index(fields=["published_at", "available_at"], name="appt_sched_outbox_idx"),
@@ -2937,4 +2955,5 @@ class SchedulerOutbox(TimestampedModel):
                 fields=["published_at", "publisher_lease_expires_at"],
                 name="appt_sched_pub_lease_idx",
             ),
+            models.Index(fields=["publisher_state", "available_at"], name="appt_sched_pub_state_due_idx"),
         ]

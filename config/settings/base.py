@@ -266,6 +266,16 @@ GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE = env(
     "GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE", default="single-government"
 )
 
+GOVSTACK_SCHEDULER_PUBLISH_MAX_ATTEMPTS = env.int(
+    "GOVSTACK_SCHEDULER_PUBLISH_MAX_ATTEMPTS", default=3
+)
+GOVSTACK_SCHEDULER_PUBLISH_RETRY_BASE_SECONDS = env.int(
+    "GOVSTACK_SCHEDULER_PUBLISH_RETRY_BASE_SECONDS", default=30
+)
+GOVSTACK_SCHEDULER_PUBLISH_RETRY_MAX_SECONDS = env.int(
+    "GOVSTACK_SCHEDULER_PUBLISH_RETRY_MAX_SECONDS", default=900
+)
+
 # ---------------------------------------------------------------------------
 # Internationalisation
 # ---------------------------------------------------------------------------
