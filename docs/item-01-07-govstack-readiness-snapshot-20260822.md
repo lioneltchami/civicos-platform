@@ -34,3 +34,7 @@ The detailed record names are listed in the companion review. Principal sources 
 ## Independent review conclusion
 
 Two fresh reviews confirmed that this snapshot is materially accurate only with a strict scope limitation: every internal closure or preparation statement is bounded by its named evidence. **None** establishes certification, staging validation, official-suite success, release approval, or submission readiness. The companion review records the item-specific cautions and its self-contained-evidence limitation.
+
+## Recommended next move
+
+The highest-leverage next work is an **authorisation and evidence-readiness package for one controlled staging validation**, not execution of staging itself. It should name a governance owner and pre-register scope, evidence, rollback, observability, redaction, and exit criteria. **SCH-02.2 remains deferred** until this cross-cutting evidence path is ready or a complete, separately controlled PostgreSQL implementation plan can meet its all-or-discard rule.
