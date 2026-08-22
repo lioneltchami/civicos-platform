@@ -487,226 +487,79 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
     time_limit=120,
 )
 def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
-    """
-    Deliver a GovStackAlertSchedule's push notification to its resolved
-    participants. Scheduled with a Celery ETA equal to
-    GovStackAlertSchedule.alert_datetime by the view layer (see
-    govstack_views.AlertScheduleNewView / AlertScheduleModificationsView).
+    """Durably admit one alert generation before any wake-up or transport I/O.
 
-    Idempotency
-    ───────────
-    select_for_update() inside transaction.atomic() on the GovStackAlertSchedule
-    row; if dispatched=True already, this is a no-op exit under the row lock —
-    identical pattern to apps.payments.govstack_tasks.process_bulk_payment_batch.
-
-    Crash-safety tradeoff — dispatched=True is set BEFORE any outbound calls
-    ───────────────────────────────────────────────────────────────────────
-    ``dispatched`` is flipped to True inside the SAME locked transaction as
-    the idempotency check above, BEFORE any recipient is resolved or any
-    HTTP call is attempted — deliberately, not an oversight. The task runs
-    with acks_late=True + reject_on_worker_lost=True + a fixed time_limit=120
-    budget; with a 10s-per-recipient timeout, an event with roughly 9-12+
-    slow/timing-out recipients can exhaust that budget mid-loop. If
-    ``dispatched=True`` were instead written only AFTER all outbound calls
-    complete (as an earlier version of this task did), a worker crash/kill/
-    time-limit-exceeded AFTER some alerts were already sent but BEFORE that
-    final write commits would cause Celery to redeliver the whole task, which
-    would re-read dispatched=False and RE-SEND every alert to every
-    recipient a second time — citizens would receive duplicate reminders.
-    Marking dispatched=True up front instead changes the failure mode to
-    UNDER-delivery on a crash (some or all recipients for that one alert
-    never get a copy) rather than OVER-delivery (every recipient gets 2+
-    copies). For a best-effort reminder system, under-delivery on the rare
-    crash-mid-dispatch path is the acceptable tradeoff — duplicate citizen-
-    facing notifications are not.
-
-    Participant resolution
-    ───────────────────────
-    Subscribers (target_category in ("", "subscriber")): every Booking on
-    alert_schedule.slot with status in _ALERT_ELIGIBLE_BOOKING_STATUSES
-    ("pending", "confirmed") is a candidate. For each, GovStackSubscriberProfile
-    is looked up via the citizen's govstack_subscriber_profile reverse
-    relation; a candidate is only alerted if profile.alert_preference == "push"
-    and profile.alert_url is non-blank. Other preference values ("poll",
-    "email", "sms", "none") are OUT OF SCOPE for this wave — this codebase has
-    no email/SMS channel yet — and are silently skipped; this is a deliberate,
-    documented deferral, not a bug.
-
-    Resources (target_category in ("", "resource")): TWO possible recipients
-    per Slot, both attempted if eligible:
-      - Slot.staff (StaffProfile) — alerted if gs_alert_preference == "push"
-        and gs_alert_url is non-blank.
-      - Slot.resource (the optional physical-resource FK), if set — alerted
-        if alert_preference == "push" and alert_url is non-blank. (Scope
-        note: the spec-drafting notes for this wave assumed only staff had
-        comparable alert fields; on inspection, apps.appointments.models.Resource
-        ALSO has alert_url/alert_preference/status_poll_url fields — reused
-        here rather than left unimplemented, since the fields already exist
-        and are otherwise dead.)
-
-    Locking discipline — no DB row lock held across outbound HTTP calls
-    ─────────────────────────────────────────────────────────────────────
-    The idempotency check (select_for_update) AND the "mark dispatched" write
-    both happen inside the SAME short initial transaction (see "Crash-safety
-    tradeoff" above) — but that transaction is closed, and its row lock
-    released, BEFORE any recipient is resolved or any outbound HTTP call is
-    made. All outbound HTTP calls happen afterwards, OUTSIDE any transaction.
-    A slow or blocked network peer must never hold a DB row lock — this
-    mirrors the identical outside-the-transaction callback-POST discipline
-    already used by apps.payments.govstack_tasks.process_bulk_payment_batch /
-    validate_prepayment_async ("POST callback OUTSIDE the transaction").
-
-    Delivery is best-effort per recipient — one recipient's failure (unsafe
-    URL or a failed HTTP call) never blocks delivery to the others, and never
-    fails the task as a whole (see _attempt_alert_delivery).
-
-    Security: the outbound payload never includes citizen PII (name, email) —
-    only alert_schedule_id, the message's category/message_body (caller-
-    authored template text), and alert_datetime. message_body is NEVER
-    logged, only ever POSTed. Log lines use PKs only (citizen_pk, staff_pk,
-    resource_pk), never combined with delivery outcome in a way that differs
-    from the existing accepted logging pattern elsewhere in this codebase.
-
-    Args:
-        alert_schedule_pk: str(alert_schedule.pk) — PK of the
-                            GovStackAlertSchedule to dispatch.
-
-    Returns:
-        {"attempted": N, "skipped_unsafe": M} — N is the number of recipients
-        an HTTP POST was actually attempted for (delivery success/failure is
-        logged but not reflected here — this is a best-effort fire count, not
-        a confirmed-delivery count); M is the number of would-be recipients
-        skipped because their configured URL failed the SSRF safety check.
-        {"already_dispatched": True} if this was a no-op idempotent re-run.
+    ``delivery_generation``, ``delivery_admittable`` and the durable admission
+    markers are the sole admission authority.  Legacy ``dispatched`` and
+    ``celery_task_id`` fields are compatibility projections only.
     """
     from apps.appointments.models import Booking, GovStackAlertSchedule
+    from apps.appointments.scheduler_tasks import publish_scheduler_outbox
+    from apps.appointments.services import scheduler_runtime
 
-    # Durable materialization is authoritative; the legacy Boolean is projection-only.
-    durable_runtime_enabled = True
+    wakeup_registered = False
 
-    with transaction.atomic():
+    def wake_outbox_after_commit() -> None:
         try:
-            alert_schedule = (
+            publish_scheduler_outbox.delay()
+        except Exception as exc:  # durable admission has already committed
+            logger.warning(
+                "dispatch_alert_schedule.outbox_wakeup_failed alert_schedule_pk=%s exc_type=%s",
+                alert_schedule_pk,
+                type(exc).__name__,
+            )
+
+    try:
+        with transaction.atomic():
+            schedule = (
                 GovStackAlertSchedule.objects.select_for_update()
                 .select_related("slot", "slot__staff", "slot__resource", "message")
                 .get(pk=alert_schedule_pk)
             )
-        except GovStackAlertSchedule.DoesNotExist:
-            logger.error(
-                "dispatch_alert_schedule.not_found alert_schedule_pk=%s", alert_schedule_pk
+            recipients: list[tuple[str, str]] = []
+            if schedule.target_category in ("", "subscriber"):
+                bookings = Booking.objects.filter(
+                    slot=schedule.slot,
+                    status__in=_ALERT_ELIGIBLE_BOOKING_STATUSES,
+                ).select_related("citizen__govstack_subscriber_profile")
+                for booking in bookings:
+                    profile = getattr(booking.citizen, "govstack_subscriber_profile", None)
+                    if profile is not None and profile.alert_preference == "push" and profile.alert_url:
+                        recipients.append(("subscriber", str(profile.pk)))
+            if schedule.target_category in ("", "resource"):
+                staff = schedule.slot.staff
+                if staff is not None and staff.gs_alert_preference == "push" and staff.gs_alert_url:
+                    recipients.append(("staff", str(staff.pk)))
+                resource = schedule.slot.resource
+                if resource is not None and resource.alert_preference == "push" and resource.alert_url:
+                    recipients.append(("resource", str(resource.pk)))
+
+            admission = scheduler_runtime.admit_schedule_generation(
+                schedule_id=schedule.pk,
+                expected_generation=schedule.delivery_generation,
+                recipients=recipients,
+                owner_key=f"schedule:{schedule.pk}",
+                correlation_id=f"scheduler:{schedule.pk}:{schedule.delivery_generation}",
+                payload={},
             )
-            return {"attempted": 0, "skipped_unsafe": 0}
+            if admission["outcome"] == GovStackAlertSchedule.ADMISSION_CREATED and admission["created"]:
+                transaction.on_commit(wake_outbox_after_commit)
+                wakeup_registered = True
+    except GovStackAlertSchedule.DoesNotExist:
+        logger.error("dispatch_alert_schedule.not_found alert_schedule_pk=%s", alert_schedule_pk)
+        return {"attempted": 0, "skipped_unsafe": 0, "outcome": "not_found", "materialized": 0}
 
-
-        # Snapshot everything needed for delivery BEFORE releasing the lock.
-        slot = alert_schedule.slot
-        message = alert_schedule.message
-        target_category = alert_schedule.target_category
-        alert_datetime_iso = alert_schedule.alert_datetime.isoformat()
-
-    payload = {
-        "alert_schedule_id": str(alert_schedule_pk),
-        "category": message.category,
-        "message_body": message.message_body,
-        "alert_datetime": alert_datetime_iso,
-    }
-
-    # Materialize opaque recipient work/outbox rows and let a separate task
-    # perform transport; no network call happens in this task.
-    if durable_runtime_enabled:
-        from apps.appointments.services import scheduler_runtime
-        from apps.appointments.scheduler_tasks import publish_scheduler_outbox
-
-        recipients: list[tuple[str, str]] = []
-        if target_category in ("", "subscriber"):
-            bookings = Booking.objects.filter(
-                slot=slot, status__in=_ALERT_ELIGIBLE_BOOKING_STATUSES
-            ).select_related("citizen__govstack_subscriber_profile")
-            for booking in bookings:
-                profile = getattr(booking.citizen, "govstack_subscriber_profile", None)
-                if profile is not None and profile.alert_preference == "push" and profile.alert_url:
-                    recipients.append(("subscriber", str(profile.pk)))
-        if target_category in ("", "resource"):
-            staff = slot.staff
-            if staff is not None and staff.gs_alert_preference == "push" and staff.gs_alert_url:
-                recipients.append(("staff", str(staff.pk)))
-            resource = slot.resource
-            if resource is not None and resource.alert_preference == "push" and resource.alert_url:
-                recipients.append(("resource", str(resource.pk)))
-
-        with transaction.atomic():
-            # Lock again only for the generation snapshot and all durable row
-            # creation.  Transport and broker publication occur after commit.
-            locked_schedule = GovStackAlertSchedule.objects.select_for_update().get(pk=alert_schedule.pk)
-            materialized = 0
-            for recipient_kind, recipient_ref in recipients:
-                _, created = scheduler_runtime.materialize(
-                    schedule=locked_schedule,
-                    owner_key=f"schedule:{locked_schedule.pk}",
-                    correlation_id=f"scheduler:{locked_schedule.pk}:{locked_schedule.delivery_generation}",
-                    recipient_kind=recipient_kind,
-                    recipient_ref=recipient_ref,
-                    payload={},
-                    generation=locked_schedule.delivery_generation,
-                )
-                materialized += int(created)
-            if not locked_schedule.dispatched:
-                locked_schedule.dispatched = True
-                locked_schedule.save(update_fields=["dispatched"])
-            transaction.on_commit(lambda: publish_scheduler_outbox.delay())
-        logger.info(
-            "dispatch_alert_schedule.materialized alert_schedule_pk=%s recipients=%d",
-            alert_schedule_pk,
-            materialized,
-        )
-        return {"attempted": 0, "skipped_unsafe": 0, "materialized": materialized}
-
-    attempted = 0
-    skipped_unsafe = 0
-
-    if target_category in ("", "subscriber"):
-        bookings = Booking.objects.filter(
-            slot=slot, status__in=_ALERT_ELIGIBLE_BOOKING_STATUSES
-        ).select_related("citizen__govstack_subscriber_profile")
-
-        for booking in bookings:
-            # Reverse OneToOneField descriptor: raises a DoesNotExist subclass
-            # (which is ALSO an AttributeError, by Django's own design) when no
-            # profile exists — getattr's default safely handles both "no
-            # profile row" and "no such attribute" in one line.
-            profile = getattr(booking.citizen, "govstack_subscriber_profile", None)
-            if profile is None or profile.alert_preference != "push" or not profile.alert_url:
-                continue
-
-            if _attempt_alert_delivery(
-                profile.alert_url, payload, f"citizen_pk={booking.citizen_id}"
-            ):
-                attempted += 1
-            else:
-                skipped_unsafe += 1
-
-    if target_category in ("", "resource"):
-        staff = slot.staff
-        if staff is not None and staff.gs_alert_preference == "push" and staff.gs_alert_url:
-            if _attempt_alert_delivery(staff.gs_alert_url, payload, f"staff_pk={staff.pk}"):
-                attempted += 1
-            else:
-                skipped_unsafe += 1
-
-        resource = slot.resource
-        if resource is not None and resource.alert_preference == "push" and resource.alert_url:
-            if _attempt_alert_delivery(
-                resource.alert_url, payload, f"resource_pk={resource.pk}"
-            ):
-                attempted += 1
-            else:
-                skipped_unsafe += 1
-
-    # dispatched=True was already committed in the initial locked transaction
-    # above, BEFORE these outbound HTTP calls were attempted — see docstring
-    # "Crash-safety tradeoff". No second write is needed here.
     logger.info(
-        "dispatch_alert_schedule.completed alert_schedule_pk=%s attempted=%d skipped_unsafe=%d",
-        alert_schedule_pk, attempted, skipped_unsafe,
+        "dispatch_alert_schedule.admitted alert_schedule_pk=%s outcome=%s created=%s",
+        alert_schedule_pk,
+        admission["outcome"],
+        admission["created"],
     )
-    return {"attempted": attempted, "skipped_unsafe": skipped_unsafe}
+    return {
+        "attempted": 0,
+        "skipped_unsafe": 0,
+        "outcome": admission["outcome"],
+        "generation": admission["generation"],
+        "materialized": admission["created"],
+        "wakeup_registered": wakeup_registered,
+    }

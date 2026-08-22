@@ -10,6 +10,7 @@ from django.test import TransactionTestCase
 from apps.appointments.models import GovStackAlertSchedule, SchedulerOutbox, SchedulerRecipientDelivery
 from apps.appointments.services import scheduler_runtime
 from apps.appointments.services.govstack_alert_schedule import alert_schedule_create
+from apps.appointments.tasks import dispatch_alert_schedule
 from apps.appointments.tests.test_govstack_alert_schedule import _create_full_slot, _create_message
 
 
@@ -143,3 +144,94 @@ class SchedulerAdmissionTransactionTests(TransactionTestCase):
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.admitted_generation, self.schedule.delivery_generation)
         self.assertEqual(self.schedule.admission_outcome, GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS)
+
+
+    @mock.patch("apps.appointments.scheduler_tasks.publish_scheduler_outbox.delay")
+    def test_legacy_dispatched_and_celery_state_never_authorize_admission(self, publish_delay):
+        self.schedule.dispatched = True
+        self.schedule.celery_task_id = "legacy-task-id"
+        self.schedule.save(update_fields=["dispatched", "celery_task_id", "updated_at"])
+
+        first = dispatch_alert_schedule.run(str(self.schedule.pk))
+        self.assertEqual(first["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
+        self.assertEqual(first["materialized"], 1)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1)
+        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1)
+        publish_delay.assert_called_once()
+
+        self.schedule.dispatched = False
+        self.schedule.celery_task_id = ""
+        self.schedule.save(update_fields=["dispatched", "celery_task_id", "updated_at"])
+        duplicate = dispatch_alert_schedule.run(str(self.schedule.pk))
+        self.assertEqual(duplicate["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
+        self.assertEqual(duplicate["materialized"], 0)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1)
+        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1)
+        publish_delay.assert_called_once()
+
+    @mock.patch("apps.appointments.tasks._attempt_alert_delivery")
+    @mock.patch("apps.appointments.tasks.requests.post")
+    @mock.patch("apps.appointments.scheduler_tasks.publish_scheduler_outbox.delay")
+    def test_no_transport_io_before_admission_commit(self, publish_delay, requests_post, attempt_delivery):
+        from django.db import connection
+
+        observed = []
+
+        def wakeup_observer():
+            observed.append(connection.in_atomic_block)
+            schedule = GovStackAlertSchedule.objects.get(pk=self.schedule.pk)
+            self.assertEqual(schedule.admitted_generation, schedule.delivery_generation)
+            self.assertTrue(SchedulerRecipientDelivery.objects.filter(schedule=schedule).exists())
+            self.assertTrue(SchedulerOutbox.objects.filter(delivery__schedule=schedule).exists())
+
+        publish_delay.side_effect = wakeup_observer
+        result = dispatch_alert_schedule.run(str(self.schedule.pk))
+
+        self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
+        self.assertEqual(observed, [False])
+        publish_delay.assert_called_once()
+        requests_post.assert_not_called()
+        attempt_delivery.assert_not_called()
+
+    @mock.patch("apps.appointments.tasks._attempt_alert_delivery")
+    @mock.patch("apps.appointments.tasks.requests.post")
+    @mock.patch("apps.appointments.scheduler_tasks.publish_scheduler_outbox.delay")
+    def test_rolled_back_admission_does_not_publish_or_schedule_transport(self, publish_delay, requests_post, attempt_delivery):
+        real_materialize = scheduler_runtime._materialize_locked
+
+        def fail_after_materialization(**kwargs):
+            real_materialize(**kwargs)
+            raise RuntimeError("injected-live-task-admission-failure")
+
+        with mock.patch.object(
+            scheduler_runtime,
+            "_materialize_locked",
+            side_effect=fail_after_materialization,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "injected-live-task-admission-failure"):
+                dispatch_alert_schedule.run(str(self.schedule.pk))
+
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 0)
+        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 0)
+        self.schedule.refresh_from_db()
+        self.assertIsNone(self.schedule.admitted_generation)
+        self.assertEqual(self.schedule.admission_outcome, "")
+        self.assertFalse(self.schedule.dispatched)
+        publish_delay.assert_not_called()
+        requests_post.assert_not_called()
+        attempt_delivery.assert_not_called()
+
+    @mock.patch("apps.appointments.scheduler_tasks.publish_scheduler_outbox.delay")
+    def test_post_commit_wakeup_failure_preserves_durable_admission(self, publish_delay):
+        publish_delay.side_effect = RuntimeError("injected-wakeup-failure")
+
+        result = dispatch_alert_schedule.run(str(self.schedule.pk))
+
+        self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
+        self.assertTrue(result["wakeup_registered"])
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.admitted_generation, self.schedule.delivery_generation)
+        self.assertEqual(self.schedule.admission_outcome, GovStackAlertSchedule.ADMISSION_CREATED)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=self.schedule).count(), 1)
+        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=self.schedule).count(), 1)
+        publish_delay.assert_called_once()

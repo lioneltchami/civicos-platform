@@ -49,6 +49,8 @@ from apps.appointments.models import (
     ServiceType,
     Slot,
     StaffProfile,
+    SchedulerOutbox,
+    SchedulerRecipientDelivery,
 )
 from apps.appointments.services.govstack_alert_schedule import alert_schedule_create
 from apps.appointments.services.govstack_event import event_create
@@ -792,7 +794,7 @@ class SafeOutboundUrlTests(TestCase):
 # ===========================================================================
 
 class DispatchAlertScheduleTaskTests(TestCase):
-    """DISP1-DISP8: apps.appointments.tasks.dispatch_alert_schedule"""
+    """Compatibility tests for durable live task admission; no direct transport."""
 
     def _make_alert_schedule(self, target_category="", **slot_kwargs):
         slot, staff, resource, org = _create_full_slot(**slot_kwargs)
@@ -803,55 +805,53 @@ class DispatchAlertScheduleTaskTests(TestCase):
         )
         return alert_schedule, slot, staff, resource
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=True)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp1_delivers_to_subscriber_with_push_preference(self, mock_post, mock_safe):
-        mock_post.return_value = mock.Mock(status_code=200, raise_for_status=mock.Mock())
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(target_category="subscriber")
+    def test_disp1_delivers_to_subscriber_with_push_preference(self, mock_post):
+        alert_schedule, slot, _, _ = self._make_alert_schedule(target_category="subscriber")
         citizen = _create_citizen()
         _create_subscriber_profile(citizen, alert_preference="push", alert_url="https://citizen.example.com/hook")
         _create_booking(slot, citizen)
 
         result = dispatch_alert_schedule(str(alert_schedule.pk))
 
-        mock_post.assert_called_once()
-        call_args, call_kwargs = mock_post.call_args
-        self.assertEqual(call_args[0], "https://citizen.example.com/hook")
-        self.assertEqual(call_kwargs["json"]["alert_schedule_id"], str(alert_schedule.pk))
-        self.assertEqual(call_kwargs["json"]["message_body"], "Your appt is soon.")
-        self.assertEqual(result["attempted"], 1)
+        self.assertEqual(result["materialized"], 1)
+        self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule).count(), 1)
+        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=alert_schedule).count(), 1)
+        mock_post.assert_not_called()
         alert_schedule.refresh_from_db()
-        self.assertTrue(alert_schedule.dispatched)
+        self.assertFalse(alert_schedule.dispatched)
 
     @mock.patch("apps.appointments.tasks.requests.post")
     def test_disp2_skips_subscriber_with_non_push_preference(self, mock_post):
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(target_category="subscriber")
+        alert_schedule, slot, _, _ = self._make_alert_schedule(target_category="subscriber")
         citizen = _create_citizen()
         _create_subscriber_profile(citizen, alert_preference="poll", alert_url="https://citizen.example.com/hook")
         _create_booking(slot, citizen)
 
-        dispatch_alert_schedule(str(alert_schedule.pk))
+        result = dispatch_alert_schedule(str(alert_schedule.pk))
 
+        self.assertEqual(result["materialized"], 0)
+        self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS)
+        self.assertFalse(SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule).exists())
         mock_post.assert_not_called()
-        alert_schedule.refresh_from_db()
-        self.assertTrue(alert_schedule.dispatched)
 
     @mock.patch("apps.appointments.tasks.requests.post")
     def test_disp3_skips_cancelled_booking(self, mock_post):
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(target_category="subscriber")
+        alert_schedule, slot, _, _ = self._make_alert_schedule(target_category="subscriber")
         citizen = _create_citizen()
         _create_subscriber_profile(citizen, alert_preference="push", alert_url="https://citizen.example.com/hook")
         _create_booking(slot, citizen, status=Booking.STATUS_CANCELLED)
 
-        dispatch_alert_schedule(str(alert_schedule.pk))
+        result = dispatch_alert_schedule(str(alert_schedule.pk))
 
+        self.assertEqual(result["materialized"], 0)
+        self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS)
         mock_post.assert_not_called()
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=True)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp4_delivers_to_staff_resource(self, mock_post, mock_safe):
-        mock_post.return_value = mock.Mock(status_code=200, raise_for_status=mock.Mock())
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(
+    def test_disp4_delivers_to_staff_resource(self, mock_post):
+        alert_schedule, _, _, _ = self._make_alert_schedule(
             target_category="resource",
             gs_alert_preference="push",
             gs_alert_url="https://staff.example.com/hook",
@@ -859,15 +859,13 @@ class DispatchAlertScheduleTaskTests(TestCase):
 
         result = dispatch_alert_schedule(str(alert_schedule.pk))
 
-        mock_post.assert_called_once()
-        self.assertEqual(mock_post.call_args[0][0], "https://staff.example.com/hook")
-        self.assertEqual(result["attempted"], 1)
+        self.assertEqual(result["materialized"], 1)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule, recipient_kind="staff").count(), 1)
+        mock_post.assert_not_called()
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=True)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp5_delivers_to_physical_resource(self, mock_post, mock_safe):
-        mock_post.return_value = mock.Mock(status_code=200, raise_for_status=mock.Mock())
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(
+    def test_disp5_delivers_to_physical_resource(self, mock_post):
+        alert_schedule, _, _, _ = self._make_alert_schedule(
             target_category="resource",
             with_resource=True,
             resource_alert_preference="push",
@@ -876,14 +874,13 @@ class DispatchAlertScheduleTaskTests(TestCase):
 
         result = dispatch_alert_schedule(str(alert_schedule.pk))
 
-        mock_post.assert_called_once()
-        self.assertEqual(mock_post.call_args[0][0], "https://room.example.com/hook")
-        self.assertEqual(result["attempted"], 1)
+        self.assertEqual(result["materialized"], 1)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule, recipient_kind="resource").count(), 1)
+        mock_post.assert_not_called()
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=False)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp6_unsafe_url_is_skipped_not_posted(self, mock_post, mock_safe):
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(
+    def test_disp6_unsafe_url_is_skipped_not_posted(self, mock_post):
+        alert_schedule, _, _, _ = self._make_alert_schedule(
             target_category="resource",
             gs_alert_preference="push",
             gs_alert_url="https://169-254-169-254.example.com/hook",
@@ -891,32 +888,33 @@ class DispatchAlertScheduleTaskTests(TestCase):
 
         result = dispatch_alert_schedule(str(alert_schedule.pk))
 
+        self.assertEqual(result["materialized"], 1)
+        self.assertEqual(result["skipped_unsafe"], 0)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule).count(), 1)
         mock_post.assert_not_called()
-        self.assertEqual(result["skipped_unsafe"], 1)
-        self.assertEqual(result["attempted"], 0)
-        alert_schedule.refresh_from_db()
-        self.assertTrue(alert_schedule.dispatched)  # still marked dispatched — best-effort
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=True)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp7_idempotent_noop_on_second_run(self, mock_post, mock_safe):
-        mock_post.return_value = mock.Mock(status_code=200, raise_for_status=mock.Mock())
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(
+    def test_disp7_idempotent_noop_on_second_run(self, mock_post):
+        alert_schedule, _, _, _ = self._make_alert_schedule(
             target_category="resource",
             gs_alert_preference="push",
             gs_alert_url="https://staff.example.com/hook",
         )
 
         first = dispatch_alert_schedule(str(alert_schedule.pk))
-        self.assertEqual(first["attempted"], 1)
-        mock_post.reset_mock()
-
         second = dispatch_alert_schedule(str(alert_schedule.pk))
-        self.assertEqual(second.get("already_dispatched"), True)
+
+        self.assertEqual(first["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
+        self.assertEqual(first["materialized"], 1)
+        self.assertEqual(second["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
+        self.assertEqual(second["materialized"], 0)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule).count(), 1)
         mock_post.assert_not_called()
 
     @mock.patch("apps.appointments.tasks.requests.post")
     def test_disp8_nonexistent_alert_schedule_pk_is_a_safe_noop(self, mock_post):
         result = dispatch_alert_schedule("999999")
-        self.assertEqual(result, {"attempted": 0, "skipped_unsafe": 0})
+        self.assertEqual(result["outcome"], "not_found")
+        self.assertEqual(result["attempted"], 0)
+        self.assertEqual(result["skipped_unsafe"], 0)
         mock_post.assert_not_called()
