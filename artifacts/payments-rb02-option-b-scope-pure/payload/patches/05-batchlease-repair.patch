@@ -1,0 +1,30 @@
+diff --git a/apps/payments/govstack_models.py b/apps/payments/govstack_models.py
+index 61f9bea..5c1b6cc 100644
+--- a/apps/payments/govstack_models.py
++++ b/apps/payments/govstack_models.py
+@@ -1719,6 +1719,9 @@ class GovStackBatchDecision(TimestampedModel):
+ 
+ class BatchLease(TimestampedModel):
+     """Durable ownership token for batch workers; stale owners cannot renew or commit."""
++    # Matches the UUID primary key established by migration 0032. Keeping this
++    # explicit prevents DEFAULT_AUTO_FIELD from reintroducing schema drift.
++    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+     batch = models.OneToOneField(BulkPaymentBatch, on_delete=models.PROTECT, related_name="runtime_lease")
+     owner_token = models.CharField(max_length=128)
+     generation = models.PositiveIntegerField(default=1)
+diff --git a/apps/payments/migrations/0033_alter_batchlease_created_at_alter_batchlease_id_and_more.py b/apps/payments/migrations/0033_alter_batchlease_created_at_alter_batchlease_id_and_more.py
+index 5cdd43f..b979ffa 100644
+--- a/apps/payments/migrations/0033_alter_batchlease_created_at_alter_batchlease_id_and_more.py
++++ b/apps/payments/migrations/0033_alter_batchlease_created_at_alter_batchlease_id_and_more.py
+@@ -15,11 +15,6 @@ class Migration(migrations.Migration):
+             name='created_at',
+             field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+         ),
+-        migrations.AlterField(
+-            model_name='batchlease',
+-            name='id',
+-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
+-        ),
+         migrations.AlterField(
+             model_name='batchlease',
+             name='updated_at',

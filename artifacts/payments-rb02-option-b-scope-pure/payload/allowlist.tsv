@@ -1,0 +1,11 @@
+path	rationale
+apps/payments/govstack_batch_lease.py	RB-02.1 atomic batch lease and fencing
+apps/payments/govstack_batch_decision.py	RB-02.3 batch decision policy
+apps/payments/govstack_failure_services.py	RB-02.2/RB-02.3 failure/finality handling
+apps/payments/govstack_models.py	RB-02 persistence and minimal BatchLease repair model content
+apps/payments/govstack_tasks.py	RB-02.1–RB-02.4 live task path
+apps/payments/tests/test_item02_rb02_batch_lease_live.py	Focused RB-02 real-database verification surface
+apps/payments/migrations/0044_item02_rb022_credit_instruction_payment_attempt_binding.py	RB-02.2 binding schema
+apps/payments/migrations/0045_item02_rb023_govstack_batch_decision.py	RB-02.3 decision schema
+apps/payments/migrations/0033_alter_batchlease_created_at_alter_batchlease_id_and_more.py	Necessary BatchLease PostgreSQL repair
+config/settings/base.py [excerpt only]	Two RB-02.3 policy settings only

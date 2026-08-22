@@ -1,0 +1,14 @@
+diff --git a/config/settings/base.py b/config/settings/base.py
+index d4632e4..efa9d6d 100644
+--- a/config/settings/base.py
++++ b/config/settings/base.py
+@@ -926,0 +927,9 @@ GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB = env.bool(
++
++# RB-02.3: controls only the persisted batch-decision action for an all-final
++# rejected/partial batch. The worker never executes a refund in this increment.
++GOVSTACK_BULK_RETURN_FUNDS_ENABLED = env.bool(
++    "GOVSTACK_BULK_RETURN_FUNDS_ENABLED", default=False
++)
++GOVSTACK_BULK_FAILURE_THRESHOLD = env.float(
++    "GOVSTACK_BULK_FAILURE_THRESHOLD", default=0.25
++)
