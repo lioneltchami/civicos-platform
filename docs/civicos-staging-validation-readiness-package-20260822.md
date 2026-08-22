@@ -95,3 +95,9 @@ Each signer attests that: internal closures remain scope-limited; SCH-02.2 remai
 The immutable Payments RB-02 component identity is recorded as provenance and the human owner selected Option B. The status is **SCOPE-ISOLATION DECISION: OPTION B SELECTED — SCOPE-PURE ARTIFACT SPEC PENDING / NOT BUILT**. The accountable human owner and authority source for any future construction authorization must be recorded separately from this package. First staging candidacy remains blocked until a future scope-pure immutable Payments RB-02 artifact exists and is independently reviewed. Permitted review outcomes are **accepted for further controlled preparation**, **returned for correction**, or **not accepted**; none is authorization.
 
 Evidence artifacts must be labeled `planned`, `unavailable`, `failed`, or `completed`, and must not be represented as production, release, official-validation, or submission evidence unless a separate process proves that status. Any future stop condition requires a separate human decision to resume; satisfying a readiness gate never creates permission to execute.
+
+## 11. Option B construction-planning status
+
+**OPTION B — CONSTRUCTION PLAN COMPLETE / ARTIFACT NOT BUILT / STAGING NOT AUTHORISED**
+
+The Option B path allowlist and future construction plan are complete as documentation only. The future artifact does not exist: no branch, worktree, export, digest, tag, artifact bytes, staging object, release, official test result, or submission has been created. The mixed anchor `49e69fb8a3051de6c1cf7adff8e16c928cf84412` remains provenance only, never a build, candidate, release, or digest identity. SCH-02.2 and File Management remain excluded. Any future construction requires separate explicit human authorization.
