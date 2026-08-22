@@ -293,14 +293,11 @@ def alert_schedule_modify(
                 delivery_content_changed = True
 
         if delivery_content_changed:
-            # Durable recipient work is fenced by generation.  Existing
-            # non-terminal rows become cancelled; late worker outcomes are
-            # rejected by their claim token/status checks.
+            # Supersede old durable work without permanently cancelling the
+            # schedule: the new authoritative generation remains admittable.
             from apps.appointments.services import scheduler_runtime
 
-            scheduler_runtime.cancel_schedule(schedule_id=alert_schedule.pk)
-            alert_schedule.delivery_generation += 1
-            update_fields.append("delivery_generation")
+            scheduler_runtime.fence_schedule_for_modify(schedule=alert_schedule)
 
         reschedule_needed = False
         if alert_schedule.dispatched:
