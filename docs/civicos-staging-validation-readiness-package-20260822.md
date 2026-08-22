@@ -85,3 +85,11 @@ No circulation, checklist completion, review comment, signature, or disposition 
 | Independent reviewer |  | Consistency reviewed / Not confirmed |  |  |  |
 
 Each signer attests that: internal closures remain scope-limited; SCH-02.2 remains deferred; File Management remains blocked; staging remains `NOT_RUN/BLOCKED`; submissions remain `NOT_READY/NON_RELEASE_COMMIT/NOT_SUBMITTED`; no secrets or sensitive data were used in the review; and this sign-off is not operational authorization.
+
+## 10. Review-only presentation controls
+
+> **HUMAN REVIEW ONLY — NO EXECUTION AUTHORITY.** Human review or sign-off acknowledges the control design and the document’s limitations only. It does not authorise access, deployment, testing, release, submission, promotion, rollback execution, or any external side effect.
+
+Before any review disposition can be recorded, the package owner must populate the immutable proposed-candidate reference and obtain independent confirmation of it. Until then, the candidate remains **PENDING IDENTIFICATION**. The accountable human owner and authority source for any future authorization must be recorded separately from this package. Permitted review outcomes are **accepted for further controlled preparation**, **returned for correction**, or **not accepted**; none is authorization.
+
+Evidence artifacts must be labeled `planned`, `unavailable`, `failed`, or `completed`, and must not be represented as production, release, official-validation, or submission evidence unless a separate process proves that status. Any future stop condition requires a separate human decision to resume; satisfying a readiness gate never creates permission to execute.
