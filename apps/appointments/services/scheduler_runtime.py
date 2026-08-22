@@ -91,6 +91,13 @@ def admit_schedule_generation(
     payload = dict(payload or {})
     with transaction.atomic():
         schedule = GovStackAlertSchedule.objects.select_for_update().get(pk=schedule_id)
+        if not schedule.delivery_admittable:
+            return {
+                "outcome": "not_admittable",
+                "generation": schedule.delivery_generation,
+                "created": 0,
+                "deliveries": [],
+            }
         if expected_generation != schedule.delivery_generation:
             return {
                 "outcome": GovStackAlertSchedule.ADMISSION_STALE_GENERATION,
@@ -241,17 +248,35 @@ def fail(*, idempotency_key: str, lease_token: str, error_class: str, now=None) 
 
 
 def cancel_schedule(*, schedule_id) -> int:
-    """Fence all non-terminal work before a delete or superseding re-arm."""
+    """Durably cancel one schedule and fence all unpublished delivery work."""
     now = timezone.now()
     with transaction.atomic():
+        schedule = GovStackAlertSchedule.objects.select_for_update().get(pk=schedule_id)
+        schedule.delivery_admittable = False
+        schedule.admitted_generation = None
+        schedule.admission_outcome = ""
+        schedule.save(update_fields=["delivery_admittable", "admitted_generation", "admission_outcome", "updated_at"])
+
         rows = SchedulerRecipientDelivery.objects.select_for_update().filter(schedule_id=schedule_id).exclude(status__in=TERMINAL)
-        return rows.update(
+        cancelled_count = rows.update(
             status=SchedulerRecipientDelivery.CANCELLED,
             cancelled_at=now,
             lease_token=None,
             lease_expires_at=None,
             updated_at=now,
         )
+        SchedulerOutbox.objects.select_for_update().filter(
+            delivery__schedule_id=schedule_id,
+            published_at__isnull=True,
+            cancelled_at__isnull=True,
+        ).update(
+            cancelled_at=now,
+            publisher_token=None,
+            publisher_owner="",
+            publisher_lease_expires_at=None,
+            updated_at=now,
+        )
+        return cancelled_count
 
 
 def acknowledge(*, idempotency_key: str) -> bool:
@@ -307,7 +332,7 @@ def claim_outbox(*, lease_seconds: int = 60, owner: str = "scheduler-publisher",
     token = uuid.uuid4().hex
     with transaction.atomic():
         row = (SchedulerOutbox.objects.select_for_update()
-               .filter(published_at__isnull=True, available_at__lte=now)
+               .filter(published_at__isnull=True, cancelled_at__isnull=True, available_at__lte=now)
                .filter(Q(publisher_lease_expires_at__isnull=True) | Q(publisher_lease_expires_at__lt=now))
                .order_by("id").first())
         if row is None:
@@ -324,7 +349,7 @@ def claim_outbox(*, lease_seconds: int = 60, owner: str = "scheduler-publisher",
 def mark_outbox_published(*, outbox_id, token: str, generation: int, now=None) -> bool:
     now = now or timezone.now()
     with transaction.atomic():
-        updated = SchedulerOutbox.objects.filter(pk=outbox_id, published_at__isnull=True,
+        updated = SchedulerOutbox.objects.filter(pk=outbox_id, published_at__isnull=True, cancelled_at__isnull=True,
             publisher_token=token, publisher_generation=generation).update(
                 published_at=now, publisher_token=None, publisher_owner="", publisher_lease_expires_at=None,
                 last_error="", updated_at=now)
@@ -334,7 +359,7 @@ def mark_outbox_published(*, outbox_id, token: str, generation: int, now=None) -
 def mark_outbox_failed(*, outbox_id, token: str, generation: int, error_class: str, now=None) -> bool:
     now = now or timezone.now()
     with transaction.atomic():
-        updated = SchedulerOutbox.objects.filter(pk=outbox_id, published_at__isnull=True,
+        updated = SchedulerOutbox.objects.filter(pk=outbox_id, published_at__isnull=True, cancelled_at__isnull=True,
             publisher_token=token, publisher_generation=generation).update(
                 publisher_token=None, publisher_owner="", publisher_lease_expires_at=None,
                 available_at=now, last_error=error_class[:240], updated_at=now)
@@ -343,4 +368,4 @@ def mark_outbox_failed(*, outbox_id, token: str, generation: int, error_class: s
 
 def due_outbox(*, now=None):
     now = now or timezone.now()
-    return SchedulerOutbox.objects.filter(published_at__isnull=True, available_at__lte=now).select_related("delivery")
+    return SchedulerOutbox.objects.filter(published_at__isnull=True, cancelled_at__isnull=True, available_at__lte=now).select_related("delivery")

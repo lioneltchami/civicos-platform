@@ -2695,6 +2695,11 @@ class GovStackAlertSchedule(TimestampedModel):
         verbose_name=_("Delivery generation"),
         help_text=_("Incremented when an alert is re-armed or superseded to fence stale work."),
     )
+    delivery_admittable = models.BooleanField(
+        default=True,
+        verbose_name=_("Delivery admittable"),
+        help_text=_("False after durable cancellation; blocks new recipient/outbox admission."),
+    )
     ADMISSION_CREATED = "created"
     ADMISSION_DUPLICATE = "duplicate"
     ADMISSION_STALE_GENERATION = "stale_generation"
@@ -2917,6 +2922,7 @@ class SchedulerRecipientDelivery(TimestampedModel):
 class SchedulerOutbox(TimestampedModel):
     delivery = models.OneToOneField(SchedulerRecipientDelivery, on_delete=models.CASCADE, related_name="outbox")
     published_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
     available_at = models.DateTimeField(db_index=True)
     publish_attempts = models.PositiveIntegerField(default=0)
     publisher_generation = models.PositiveIntegerField(default=0)
