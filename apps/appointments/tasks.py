@@ -512,7 +512,7 @@ def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
     try:
         with transaction.atomic():
             schedule = (
-                GovStackAlertSchedule.objects.select_for_update()
+                GovStackAlertSchedule.objects.select_for_update(of=("self",))
                 .select_related("slot", "slot__staff", "slot__resource", "message")
                 .get(pk=alert_schedule_pk)
             )

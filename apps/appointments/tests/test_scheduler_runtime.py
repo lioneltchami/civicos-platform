@@ -86,6 +86,9 @@ class SchedulerRuntimeTests(TestCase):
     @override_settings(GOVSTACK_SCHEDULER_DURABLE_RUNTIME_ENABLED=True)
     @mock.patch("apps.appointments.scheduler_tasks.publish_scheduler_outbox.delay")
     def test_live_dispatch_materializes_durable_work_without_http(self, publish_delay):
+        # Exercise PostgreSQL's nullable joined relation under the schedule-only lock.
+        self.slot.resource_id = None
+        self.slot.save(update_fields=["resource"])
         with self.captureOnCommitCallbacks(execute=True):
             result = dispatch_alert_schedule.run(str(self.schedule.pk))
 
