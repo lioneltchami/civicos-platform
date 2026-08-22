@@ -2,7 +2,7 @@
 
 ## Status
 
-**OPTION B — SCOPE-PURE ARTIFACT BUILT / INDEPENDENT REVIEW PENDING / STAGING NOT AUTHORISED**
+**OPTION B — SCOPE-PURE ARTIFACT ACCEPTED / STAGING NOT AUTHORISED**
 
 | Identity field | Recorded value |
 |---|---|
@@ -29,4 +29,4 @@
 | RB-02.4 implementation | `a7ee3345ccb351e5b38fd2526a151765dd562160` |
 | RB-02.4 verification | `74de74a29f189002ecbf49d80987e024b315eefb` |
 
-The artifact remains subject to independent reconstruction/re-hash review. It is not authorised for staging, release, deployment, official-suite execution, submission, production use, or external distribution.
+Independent reconstruction/re-hash review accepted the artifact as a local scope-pure non-release component artifact. This acceptance grants no staging eligibility or authorisation. The artifact remains prohibited from staging, release, deployment, official-suite execution, submission, production use, and external distribution.
