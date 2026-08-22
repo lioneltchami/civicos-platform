@@ -1719,6 +1719,9 @@ class GovStackBatchDecision(TimestampedModel):
 
 class BatchLease(TimestampedModel):
     """Durable ownership token for batch workers; stale owners cannot renew or commit."""
+    # Matches the UUID primary key established by migration 0032. Keeping this
+    # explicit prevents DEFAULT_AUTO_FIELD from reintroducing schema drift.
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     batch = models.OneToOneField(BulkPaymentBatch, on_delete=models.PROTECT, related_name="runtime_lease")
     owner_token = models.CharField(max_length=128)
     generation = models.PositiveIntegerField(default=1)
