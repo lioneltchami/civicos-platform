@@ -18,7 +18,9 @@
 
 ## 3. Proposed candidate selection
 
-The **sole proposed first candidate** is an immutable release artifact that contains only the internally closed **Payments RB-02** scope and explicitly excludes Scheduler SCH-02.2 and File Management. Its exact commit/artifact digest, build timestamp, lockfile, non-secret configuration profile, dependencies, and exclusions must be completed by the human owner before any later authorization review.
+The proposed first candidate has status **COMPONENT IDENTITY RECORDED — SCOPE-ISOLATION DECISION PENDING**. It is a **Payments RB-02 component manifest only**, not an immutable scope-pure release artifact. The recorded identity, review, and direct Git evidence are retained at `docs/civicos-payments-rb02-candidate-identity-20260822.md`, `docs/civicos-payments-rb02-candidate-identity-review-20260822.md`, and `docs/evidence/civicos-payments-rb02-candidate-identity-git-evidence-20260822.log`.
+
+The source anchor is mixed scope and includes Scheduler SCH-01 changes. SCH-02.2 and File Management remain explicitly excluded. Before any staging candidacy can be considered, the human owner must either require a future scope-pure immutable Payments RB-02 build/artifact or explicitly redefine and govern the first scope to address the Scheduler content. This package grants no staging, release, official-test, or submission authorization.
 
 | Workstream | Current treatment |
 |---|---|
@@ -90,6 +92,6 @@ Each signer attests that: internal closures remain scope-limited; SCH-02.2 remai
 
 > **HUMAN REVIEW ONLY — NO EXECUTION AUTHORITY.** Human review or sign-off acknowledges the control design and the document’s limitations only. It does not authorise access, deployment, testing, release, submission, promotion, rollback execution, or any external side effect.
 
-Before any review disposition can be recorded, the package owner must populate the immutable proposed-candidate reference and obtain independent confirmation of it. Until then, the candidate remains **PENDING IDENTIFICATION**. The accountable human owner and authority source for any future authorization must be recorded separately from this package. Permitted review outcomes are **accepted for further controlled preparation**, **returned for correction**, or **not accepted**; none is authorization.
+The immutable Payments RB-02 component identity is recorded and independently reviewed; the candidate status is **COMPONENT IDENTITY RECORDED — SCOPE-ISOLATION DECISION PENDING**. The accountable human owner and authority source for any future authorization must be recorded separately from this package. The unresolved scope-isolation decision must result in either a future scope-pure immutable Payments RB-02 build/artifact or an explicit human scope-redefinition decision before any staging candidacy. Permitted review outcomes are **accepted for further controlled preparation**, **returned for correction**, or **not accepted**; none is authorization.
 
 Evidence artifacts must be labeled `planned`, `unavailable`, `failed`, or `completed`, and must not be represented as production, release, official-validation, or submission evidence unless a separate process proves that status. Any future stop condition requires a separate human decision to resume; satisfying a readiness gate never creates permission to execute.
