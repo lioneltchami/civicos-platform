@@ -247,14 +247,8 @@ def fail(*, idempotency_key: str, lease_token: str, error_class: str, now=None) 
         return True
 
 
-def fence_schedule_for_modify(*, schedule: GovStackAlertSchedule) -> int:
-    """Fence superseded child work while keeping a locked schedule admittable.
-
-    The caller must hold ``select_for_update()`` on ``schedule``.  A genuine
-    delivery-content modification uses this once to invalidate old work and
-    advance the authoritative generation before new admission can occur.
-    """
-    now = timezone.now()
+def _fence_locked_schedule_child_work(*, schedule: GovStackAlertSchedule, now) -> int:
+    """Fence current non-terminal child work beneath an already-locked schedule."""
     rows = SchedulerRecipientDelivery.objects.select_for_update().filter(
         schedule_id=schedule.pk
     ).exclude(status__in=TERMINAL)
@@ -276,6 +270,18 @@ def fence_schedule_for_modify(*, schedule: GovStackAlertSchedule) -> int:
         publisher_lease_expires_at=None,
         updated_at=now,
     )
+    return fenced_count
+
+
+def fence_schedule_for_modify(*, schedule: GovStackAlertSchedule) -> int:
+    """Fence superseded child work while keeping a locked schedule admittable.
+
+    The caller must hold ``select_for_update()`` on ``schedule``.  A genuine
+    delivery-content modification uses this once to invalidate old work and
+    advance the authoritative generation before new admission can occur.
+    """
+    now = timezone.now()
+    fenced_count = _fence_locked_schedule_child_work(schedule=schedule, now=now)
     schedule.delivery_generation += 1
     schedule.delivery_admittable = True
     schedule.admitted_generation = None
@@ -297,26 +303,52 @@ def cancel_schedule(*, schedule_id) -> int:
         schedule.admission_outcome = ""
         schedule.save(update_fields=["delivery_admittable", "admitted_generation", "admission_outcome", "updated_at"])
 
-        rows = SchedulerRecipientDelivery.objects.select_for_update().filter(schedule_id=schedule_id).exclude(status__in=TERMINAL)
-        cancelled_count = rows.update(
-            status=SchedulerRecipientDelivery.CANCELLED,
-            cancelled_at=now,
-            lease_token=None,
-            lease_expires_at=None,
-            updated_at=now,
-        )
-        SchedulerOutbox.objects.select_for_update().filter(
-            delivery__schedule_id=schedule_id,
-            published_at__isnull=True,
-            cancelled_at__isnull=True,
-        ).update(
-            cancelled_at=now,
-            publisher_token=None,
-            publisher_owner="",
-            publisher_lease_expires_at=None,
-            updated_at=now,
-        )
-        return cancelled_count
+        return _fence_locked_schedule_child_work(schedule=schedule, now=now)
+
+
+def delete_schedule(*, schedule_id) -> int:
+    """Fence durable child work before the parent hard-delete/cascade boundary.
+
+    The model-level broker revoke remains best-effort cleanup.  Correctness is
+    established by the locked parent fence and deletion of the schedule row.
+    """
+    now = timezone.now()
+    with transaction.atomic():
+        schedule = GovStackAlertSchedule.objects.select_for_update().get(pk=schedule_id)
+        fenced_count = _fence_locked_schedule_child_work(schedule=schedule, now=now)
+        schedule.delete()
+        return fenced_count
+
+
+def rearm_schedule(*, schedule_id) -> dict:
+    """Restore one durably-cancelled schedule for exactly one new generation.
+
+    Re-arm is idempotent: an already-admittable schedule is unchanged and
+    returns a duplicate outcome rather than advancing generation again.
+    """
+    now = timezone.now()
+    with transaction.atomic():
+        schedule = GovStackAlertSchedule.objects.select_for_update().get(pk=schedule_id)
+        if schedule.delivery_admittable:
+            return {
+                "outcome": GovStackAlertSchedule.ADMISSION_DUPLICATE,
+                "generation": schedule.delivery_generation,
+                "fenced": 0,
+            }
+        fenced_count = _fence_locked_schedule_child_work(schedule=schedule, now=now)
+        schedule.delivery_generation += 1
+        schedule.delivery_admittable = True
+        schedule.admitted_generation = None
+        schedule.admission_outcome = ""
+        schedule.save(update_fields=[
+            "delivery_generation", "delivery_admittable", "admitted_generation",
+            "admission_outcome", "updated_at",
+        ])
+        return {
+            "outcome": "rearmed",
+            "generation": schedule.delivery_generation,
+            "fenced": fenced_count,
+        }
 
 
 def acknowledge(*, idempotency_key: str) -> bool:

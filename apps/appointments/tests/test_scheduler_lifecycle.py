@@ -6,6 +6,7 @@ from apps.appointments.models import GovStackAlertSchedule, SchedulerOutbox, Sch
 from apps.appointments.services import scheduler_runtime
 from apps.appointments.services.govstack_alert_schedule import (
     alert_schedule_create,
+    alert_schedule_delete,
     alert_schedule_modify,
 )
 from apps.appointments.tests.test_govstack_alert_schedule import _create_full_slot, _create_message
@@ -141,3 +142,120 @@ class SchedulerLifecycleTransactionTests(TransactionTestCase):
         modified.refresh_from_db()
         self.assertEqual(modified.delivery_generation, old_generation + 1)
         self.assertEqual(modified.admitted_generation, old_generation + 1)
+
+
+    def test_delete_schedule_cannot_leave_recreatable_admission_work(self):
+        slot, staff, _, org = _create_full_slot(
+            gs_alert_preference="push",
+            gs_alert_url="https://example.com/delete-only",
+        )
+        message = _create_message(entity_id=org.pk)
+        schedule = alert_schedule_create(
+            event_id=str(slot.pk),
+            message_id=message.pk,
+            target_category="resource",
+            alert_datetime="2027-06-03T09:00:00Z",
+        )
+        schedule_id = schedule.pk
+        generation = schedule.delivery_generation
+        recipients = [("staff", str(staff.pk))]
+        admitted = scheduler_runtime.admit_schedule_generation(
+            schedule_id=schedule_id,
+            expected_generation=generation,
+            recipients=recipients,
+        )
+        delivery = admitted["deliveries"][0]
+        self.assertIsNotNone(scheduler_runtime.claim(idempotency_key=delivery.idempotency_key))
+        outbox = SchedulerOutbox.objects.get(delivery=delivery)
+        self.assertIsNotNone(scheduler_runtime.claim_outbox())
+
+        alert_schedule_delete(schedule_id)
+        self.assertFalse(GovStackAlertSchedule.objects.filter(pk=schedule_id).exists())
+        self.assertFalse(SchedulerRecipientDelivery.objects.filter(schedule_id=schedule_id).exists())
+        self.assertFalse(SchedulerOutbox.objects.filter(delivery_id=delivery.pk).exists())
+
+        with self.assertRaises(GovStackAlertSchedule.DoesNotExist):
+            scheduler_runtime.admit_schedule_generation(
+                schedule_id=schedule_id,
+                expected_generation=generation,
+                recipients=recipients,
+            )
+        self.assertFalse(SchedulerRecipientDelivery.objects.filter(schedule_id=schedule_id).exists())
+        self.assertFalse(SchedulerOutbox.objects.filter(delivery_id=delivery.pk).exists())
+
+    def test_rearm_advances_generation_and_admits_exactly_once(self):
+        slot, staff, _, org = _create_full_slot(
+            gs_alert_preference="push",
+            gs_alert_url="https://example.com/rearm-only",
+        )
+        message = _create_message(entity_id=org.pk)
+        schedule = alert_schedule_create(
+            event_id=str(slot.pk),
+            message_id=message.pk,
+            target_category="resource",
+            alert_datetime="2027-06-04T09:00:00Z",
+        )
+        recipients = [("staff", str(staff.pk))]
+        old_generation = schedule.delivery_generation
+        admitted = scheduler_runtime.admit_schedule_generation(
+            schedule_id=schedule.pk,
+            expected_generation=old_generation,
+            recipients=recipients,
+        )
+        old_delivery = admitted["deliveries"][0]
+        self.assertIsNotNone(scheduler_runtime.claim(idempotency_key=old_delivery.idempotency_key))
+        old_outbox = SchedulerOutbox.objects.get(delivery=old_delivery)
+        self.assertIsNotNone(scheduler_runtime.claim_outbox())
+
+        # Seed the durable cancelled/non-admittable precondition while leaving
+        # active child work for the distinct Re-arm fence to invalidate.
+        schedule.delivery_admittable = False
+        schedule.admitted_generation = None
+        schedule.admission_outcome = ""
+        schedule.save(update_fields=["delivery_admittable", "admitted_generation", "admission_outcome", "updated_at"])
+
+        rearmed = scheduler_runtime.rearm_schedule(schedule_id=schedule.pk)
+        schedule.refresh_from_db()
+        old_delivery.refresh_from_db()
+        old_outbox.refresh_from_db()
+        self.assertEqual(rearmed["outcome"], "rearmed")
+        self.assertEqual(rearmed["generation"], old_generation + 1)
+        self.assertEqual(schedule.delivery_generation, old_generation + 1)
+        self.assertTrue(schedule.delivery_admittable)
+        self.assertIsNone(schedule.admitted_generation)
+        self.assertEqual(schedule.admission_outcome, "")
+        self.assertEqual(old_delivery.status, SchedulerRecipientDelivery.CANCELLED)
+        self.assertIsNone(old_delivery.lease_token)
+        self.assertIsNotNone(old_outbox.cancelled_at)
+        self.assertIsNone(old_outbox.publisher_token)
+
+        stale = scheduler_runtime.admit_schedule_generation(
+            schedule_id=schedule.pk,
+            expected_generation=old_generation,
+            recipients=recipients,
+        )
+        self.assertEqual(stale["outcome"], GovStackAlertSchedule.ADMISSION_STALE_GENERATION)
+        self.assertEqual(stale["created"], 0)
+        self.assertEqual(stale["deliveries"], [])
+
+        new_admission = scheduler_runtime.admit_schedule_generation(
+            schedule_id=schedule.pk,
+            expected_generation=old_generation + 1,
+            recipients=recipients,
+        )
+        self.assertEqual(new_admission["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
+        delivery_count = SchedulerRecipientDelivery.objects.filter(schedule=schedule).count()
+        outbox_count = SchedulerOutbox.objects.filter(delivery__schedule=schedule).count()
+        duplicate_admission = scheduler_runtime.admit_schedule_generation(
+            schedule_id=schedule.pk,
+            expected_generation=old_generation + 1,
+            recipients=recipients,
+        )
+        self.assertEqual(duplicate_admission["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
+        self.assertEqual(SchedulerRecipientDelivery.objects.filter(schedule=schedule).count(), delivery_count)
+        self.assertEqual(SchedulerOutbox.objects.filter(delivery__schedule=schedule).count(), outbox_count)
+
+        repeated_rearm = scheduler_runtime.rearm_schedule(schedule_id=schedule.pk)
+        schedule.refresh_from_db()
+        self.assertEqual(repeated_rearm["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
+        self.assertEqual(schedule.delivery_generation, old_generation + 1)

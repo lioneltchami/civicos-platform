@@ -340,9 +340,17 @@ def alert_schedule_delete(alert_schedule_id: str | int) -> None:
 
     Raises GovStackAlertSchedule.DoesNotExist if no row with alert_schedule_id exists.
     """
-    alert_schedule = GovStackAlertSchedule.objects.get(pk=alert_schedule_id)
-    alert_schedule.delete()
+    from apps.appointments.services import scheduler_runtime
+
+    scheduler_runtime.delete_schedule(schedule_id=alert_schedule_id)
     logger.debug("alert_schedule_delete: hard-deleted alert_schedule pk=%s", alert_schedule_id)
+
+
+def alert_schedule_rearm(alert_schedule_id: str | int) -> dict:
+    """Distinct durable Re-arm transition for a previously non-admittable schedule."""
+    from apps.appointments.services import scheduler_runtime
+
+    return scheduler_runtime.rearm_schedule(schedule_id=alert_schedule_id)
 
 
 def alert_schedule_list(
