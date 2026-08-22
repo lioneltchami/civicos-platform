@@ -1,0 +1,69 @@
+repository_remote=https://github.com/lioneltchami/civicos-platform.git
+git_version=git version 2.52.0
+checked_at=2026-08-22T19:58:20Z
+anchor=49e69fb8a3051de6c1cf7adff8e16c928cf84412
+anchor_commit=49e69fb8a3051de6c1cf7adff8e16c928cf84412
+anchor_tree=61019af851ceca1327ac7500167f7969cea217e6
+anchor_parent=f562c6c6e3bf4c3c23d04925e36ff2157ad4e36d
+anchor_subject=Item 03 – fix Payments PostgreSQL BatchLease migration
+final_verification=74de74a29f189002ecbf49d80987e024b315eefb
+verification_commit=74de74a29f189002ecbf49d80987e024b315eefb
+verification_tree=1950558bf0c7e5bba0b4bc1e4ea07493856e7768
+verification_parent=a7ee3345ccb351e5b38fd2526a151765dd562160
+verification_subject=Item 02 – RB-02.4 independent competing worker verification
+ancestor_check=5ed08441dfd536738eed6bd8442b3cf76041f716:pass
+ancestor_check=330f19f6a22591d06d45d6f41e4e9d08462549ec:pass
+ancestor_check=2fb03f830bd2dd2c50445420c4c9aa0c3aaf965e:pass
+ancestor_check=d1a3cd275cad0969a91d601b6f8eadfb3c948315:pass
+ancestor_check=698716908f65d90d84aed607dacb8b8b3815ed5:pass
+ancestor_check=54a64bc7df027960ccd2c76724afab5c968f77a2:pass
+ancestor_check=a7ee3345ccb351e5b38fd2526a151765dd56216:pass
+ancestor_check=74de74a29f189002ecbf49d80987e024b315eefb:pass
+anchor_changed_paths_vs_final_verification:
+A	apps/appointments/migrations/0021_sch01_1_core_admission.py
+A	apps/appointments/migrations/0022_sch01_2a_cancel_only.py
+M	apps/appointments/models.py
+M	apps/appointments/services/govstack_alert_schedule.py
+M	apps/appointments/services/scheduler_runtime.py
+M	apps/appointments/tasks.py
+M	apps/appointments/tests/test_govstack_alert_schedule.py
+A	apps/appointments/tests/test_scheduler_admission.py
+A	apps/appointments/tests/test_scheduler_lifecycle.py
+M	apps/payments/govstack_models.py
+M	apps/payments/migrations/0033_alter_batchlease_created_at_alter_batchlease_id_and_more.py
+A	docs/item-03-payments-migration-blocker-diagnosis-20260821.md
+A	docs/item-03-payments-migration-blocker-fix-plan-20260821.md
+A	docs/item-03-payments-migration-blocker-implementation-20260821.md
+A	docs/item-03-scheduler-gap-analysis-20260820.md
+A	docs/item-03-scheduler-gap-analysis-review-20260820.md
+A	docs/item-03-scheduler-increment-1-plan-20260820.md
+A	docs/item-03-scheduler-sch01-1-change-list-20260820.md
+A	docs/item-03-scheduler-sch01-1-retry-change-list-20260821.md
+A	docs/item-03-scheduler-sch01-1-retry-scope-confirmation-20260821.md
+A	docs/item-03-scheduler-sch01-1-scope-confirmation-20260820.md
+A	docs/item-03-scheduler-sch01-1-verification-20260820.md
+A	docs/item-03-scheduler-sch01-1-verification-20260821.md
+A	docs/item-03-scheduler-sch01-2-change-list-20260821.md
+A	docs/item-03-scheduler-sch01-2-implementation-attempt-20260821.md
+A	docs/item-03-scheduler-sch01-2-scope-confirmation-20260821.md
+A	docs/item-03-scheduler-sch01-2a-change-list-20260821.md
+A	docs/item-03-scheduler-sch01-2a-scope-confirmation-20260821.md
+A	docs/item-03-scheduler-sch01-2a-verification-20260821.md
+A	docs/item-03-scheduler-sch01-2b-change-list-20260821.md
+A	docs/item-03-scheduler-sch01-2b-scope-confirmation-20260821.md
+A	docs/item-03-scheduler-sch01-2b-verification-20260821.md
+A	docs/item-03-scheduler-sch01-2c-change-list-20260821.md
+A	docs/item-03-scheduler-sch01-2c-scope-confirmation-20260821.md
+A	docs/item-03-scheduler-sch01-2c-verification-20260821.md
+A	docs/item-03-scheduler-sch01-3-change-list-20260821.md
+A	docs/item-03-scheduler-sch01-3-scope-confirmation-20260821.md
+A	docs/item-03-scheduler-sch01-3-verification-20260821.md
+A	docs/item-03-scheduler-sch01-change-list-20260820.md
+A	docs/item-03-scheduler-sch01-implementation-attempt-20260820.md
+A	docs/item-03-scheduler-sch01-scope-confirmation-20260820.md
+A	docs/item-03-scheduler-sch02-1-change-list-20260821.md
+A	docs/item-03-scheduler-sch02-1-implementation-attempt-20260821.md
+A	docs/item-03-scheduler-sch02-1-scope-confirmation-20260821.md
+A	docs/item-03-scheduler-sch02-gap-analysis-20260821.md
+A	docs/item-03-scheduler-sch02-gap-analysis-review-20260821.md
+A	docs/item-03-scheduler-sch02-increment-1-plan-20260821.md

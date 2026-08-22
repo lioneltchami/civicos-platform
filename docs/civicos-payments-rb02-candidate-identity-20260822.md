@@ -64,3 +64,9 @@ This manifest preserves recorded internal verification provenance only. It does 
 > **No deployment, staging access, secret access, official-suite execution, release, submission, or external communication is requested, granted, performed, or implied by this component manifest.**
 
 An immutable, scope-pure build/artifact and separate human/governance decisions would be required before any future operational candidate could be considered.
+
+## 6. Direct repository evidence retained with this record
+
+The direct repository checks described above were executed against the authoritative local project checkout. The retained log records the repository remote identity, Git version, checked timestamp, full object/parent/tree identities, successful object/ancestry checks for all eight RB-02 commits plus final verification, and the changed-path scope from final RB-02 verification to the mixed-scope source anchor. See `docs/evidence/civicos-payments-rb02-candidate-identity-git-evidence-20260822.log`.
+
+This evidence resolves the object/ancestry identity for human review. It **does not** change the scope-isolation limitation or make the source anchor a scope-pure release artifact.
