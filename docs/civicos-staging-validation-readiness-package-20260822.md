@@ -18,9 +18,9 @@
 
 ## 3. Proposed candidate selection
 
-The human owner selected Option B. The current status is **SCOPE-ISOLATION DECISION: OPTION B SELECTED — SCOPE-PURE ARTIFACT SPEC PENDING / NOT BUILT**. The Payments RB-02 component identity remains provenance only, through `docs/civicos-payments-rb02-candidate-identity-20260822.md`, `docs/civicos-payments-rb02-candidate-identity-review-20260822.md`, and `docs/evidence/civicos-payments-rb02-candidate-identity-git-evidence-20260822.log`. The future construction requirements are specified at `docs/civicos-payments-rb02-scope-pure-artifact-spec-20260822.md`.
+The accepted immutable component artifact `Civicos-Payments-RB02-OptionB-ScopePure` is attached as the proposed first candidate for **human review only**. The status is **PROPOSED STAGING CANDIDATE ATTACHED — HUMAN AUTHORISATION PENDING / STAGING NOT AUTHORISED**. The exact identity is bound at `docs/civicos-staging-validation-candidate-attachment-20260822.md`, with component identity, review, assembly manifest, artifact payload, and independent reconstruction evidence retained in the controlling records.
 
-The mixed source anchor includes Scheduler SCH-01 changes and is not a staging candidate, artifact digest, or release identity. First staging candidacy remains blocked until a future scope-pure Payments RB-02 artifact exists and has been independently reviewed. SCH-02.2 and File Management remain explicitly excluded. This package grants no build, staging, release, official-test, or submission authorization.
+The mixed source anchor remains provenance-only and is not a candidate identity, artifact digest, or release identity. The candidate attachment does not establish environment, access, secrets, rollback, observability, data, change-window, or evidence preconditions as satisfied. SCH-02.2 and File Management remain explicitly excluded. This package grants no staging, deployment, release, official-test, or submission authorization.
 
 | Workstream | Current treatment |
 |---|---|
@@ -92,12 +92,12 @@ Each signer attests that: internal closures remain scope-limited; SCH-02.2 remai
 
 > **HUMAN REVIEW ONLY — NO EXECUTION AUTHORITY.** Human review or sign-off acknowledges the control design and the document’s limitations only. It does not authorise access, deployment, testing, release, submission, promotion, rollback execution, or any external side effect.
 
-The immutable Payments RB-02 component identity is recorded as provenance and the human owner selected Option B. The status is **SCOPE-ISOLATION DECISION: OPTION B SELECTED — SCOPE-PURE ARTIFACT SPEC PENDING / NOT BUILT**. The accountable human owner and authority source for any future construction authorization must be recorded separately from this package. First staging candidacy remains blocked until a future scope-pure immutable Payments RB-02 artifact exists and is independently reviewed. Permitted review outcomes are **accepted for further controlled preparation**, **returned for correction**, or **not accepted**; none is authorization.
+The immutable Payments RB-02 component artifact is attached for human review only. The status is **PROPOSED STAGING CANDIDATE ATTACHED — HUMAN AUTHORISATION PENDING / STAGING NOT AUTHORISED**. The accountable human owner and authority source for any future staging authorization must be recorded separately from this package. The attached identity does not satisfy any operational precondition. Permitted review outcomes are **authorize later bounded staging review**, **defer**, or **reject candidate**; none begins a run without a distinct time-bounded authorisation.
 
 Evidence artifacts must be labeled `planned`, `unavailable`, `failed`, or `completed`, and must not be represented as production, release, official-validation, or submission evidence unless a separate process proves that status. Any future stop condition requires a separate human decision to resume; satisfying a readiness gate never creates permission to execute.
 
 ## 11. Option B construction-planning status
 
-**OPTION B — CONSTRUCTION PLAN COMPLETE / ARTIFACT NOT BUILT / STAGING NOT AUTHORISED**
+**PROPOSED STAGING CANDIDATE ATTACHED — HUMAN AUTHORISATION PENDING / STAGING NOT AUTHORISED**
 
-The Option B path allowlist and future construction plan are complete as documentation only. The future artifact does not exist: no branch, worktree, export, digest, tag, artifact bytes, staging object, release, official test result, or submission has been created. The mixed anchor `49e69fb8a3051de6c1cf7adff8e16c928cf84412` remains provenance only, never a build, candidate, release, or digest identity. SCH-02.2 and File Management remain excluded. Any future construction requires separate explicit human authorization.
+The local non-release scope-pure component artifact is attached for human review. No environment, operator, access, secret mechanism, test data, time window, rollback, observability, stop authority, or evidence-capture prerequisite is marked satisfied by this attachment. The mixed anchor `49e69fb8a3051de6c1cf7adff8e16c928cf84412` remains provenance only, never a candidate digest or operational identity. SCH-02.2 and File Management remain excluded. Any staging activity requires a later distinct explicit human authorization.
