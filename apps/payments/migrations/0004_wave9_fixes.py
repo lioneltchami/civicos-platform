@@ -9,8 +9,10 @@ Changes:
 NOTE: Existing plaintext webhook_endpoint_secret values will fail decryption after
 deploy. Re-enter all webhook_endpoint_secret values in Django admin after migrating.
 """
-import apps.payments.models
+
 from django.db import migrations, models
+
+import apps.payments.models
 
 # C1 FIX: varchar→bytea cannot be cast automatically on PostgreSQL.
 # SeparateDatabaseAndState runs custom SQL with USING ''::bytea to safely
@@ -21,7 +23,7 @@ from django.db import migrations, models
 # SQLite in CI/test environments — SQLite does not support ALTER COLUMN TYPE.
 
 
-def _alter_webhook_secret_to_bytea(apps, schema_editor):
+def _alter_webhook_secret_to_bytea(apps, schema_editor) -> None:  # noqa: ANN001
     """
     Alter webhook_endpoint_secret from varchar to bytea on PostgreSQL only.
     Clears existing values because they are plaintext and cannot be
@@ -39,7 +41,7 @@ def _alter_webhook_secret_to_bytea(apps, schema_editor):
     )
 
 
-def _revert_webhook_secret_to_varchar(apps, schema_editor):
+def _revert_webhook_secret_to_varchar(apps, schema_editor) -> None:  # noqa: ANN001
     """Reverse: bytea → varchar(255) on PostgreSQL."""
     if schema_editor.connection.vendor != "postgresql":
         return
@@ -53,31 +55,30 @@ def _revert_webhook_secret_to_varchar(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0003_add_receipt_unique_issued_per_donation'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0003_add_receipt_unique_issued_per_donation"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='officialdonationreceipt',
-            name='email_sent',
+            model_name="officialdonationreceipt",
+            name="email_sent",
             field=models.BooleanField(
                 default=False,
                 help_text=(
-                    'Set to True once the CRA receipt email has been delivered. '
-                    'Guards against duplicate delivery on Celery retry races.'
+                    "Set to True once the CRA receipt email has been delivered. "
+                    "Guards against duplicate delivery on Celery retry races."
                 ),
             ),
         ),
         migrations.AlterField(
-            model_name='paymentintent',
-            name='reference',
+            model_name="paymentintent",
+            name="reference",
             field=models.CharField(
                 db_index=True,
                 default=apps.payments.models._generate_payment_reference,
                 editable=False,
-                help_text='Unique payment reference (16-char hex). Collision-safe: 2^64 address space.',
+                help_text="Unique payment reference (16-char hex). Collision-safe: 2^64 address space.",
                 max_length=20,
                 unique=True,
             ),
@@ -85,18 +86,18 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AlterField(
-                    model_name='tenantpaymentconfig',
-                    name='webhook_endpoint_secret',
+                    model_name="tenantpaymentconfig",
+                    name="webhook_endpoint_secret",
                     field=apps.payments.models.EncryptedCharField(
                         blank=True,
                         editable=True,
                         help_text=(
-                            'Stripe webhook signing secret (whsec_...). '
-                            'Stored encrypted at rest (Fernet/AES-128-CBC). '
-                            'Changing this requires rotating the Stripe webhook signing secret and redeploying.'
+                            "Stripe webhook signing secret (whsec_...). "
+                            "Stored encrypted at rest (Fernet/AES-128-CBC). "
+                            "Changing this requires rotating the Stripe webhook signing secret and redeploying."
                         ),
                         max_length=255,
-                        verbose_name='Webhook Endpoint Secret',
+                        verbose_name="Webhook Endpoint Secret",
                     ),
                 ),
             ],

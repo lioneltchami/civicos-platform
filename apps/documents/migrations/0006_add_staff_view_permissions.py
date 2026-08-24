@@ -4,14 +4,28 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('documents', '0005_wave4_fixes'),
+    dependencies = [  # noqa: RUF012
+        ("documents", "0005_wave4_fixes"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterModelOptions(
-            name='document',
-            options={'ordering': ['-created_at'], 'permissions': [('upload_document', 'Can upload documents'), ('upload_staff_document', 'Can upload documents to staff-only categories'), ('manage_legal_hold', 'Can apply and release legal holds'), ('coordinator_view_document', 'Can view and download any document (staff coordinator)'), ('view_all_documents', 'Can view all documents in the staff list'), ('view_quarantined', 'Can view quarantined documents')], 'verbose_name': 'Document', 'verbose_name_plural': 'Documents'},
+            name="document",
+            options={
+                "ordering": ["-created_at"],
+                "permissions": [
+                    ("upload_document", "Can upload documents"),
+                    ("upload_staff_document", "Can upload documents to staff-only categories"),
+                    ("manage_legal_hold", "Can apply and release legal holds"),
+                    (
+                        "coordinator_view_document",
+                        "Can view and download any document (staff coordinator)",
+                    ),
+                    ("view_all_documents", "Can view all documents in the staff list"),
+                    ("view_quarantined", "Can view quarantined documents"),
+                ],
+                "verbose_name": "Document",
+                "verbose_name_plural": "Documents",
+            },
         ),
     ]

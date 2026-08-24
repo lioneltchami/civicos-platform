@@ -5,36 +5,43 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('contenttypes', '0002_remove_content_type_name'),
-        ('workflows', '0002_workitemcomment_alter_workitemhistory_options_and_more'),
+    dependencies = [  # noqa: RUF012
+        ("contenttypes", "0002_remove_content_type_name"),
+        ("workflows", "0002_workitemcomment_alter_workitemhistory_options_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='workitem',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="workitem",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='workitem',
-            name='sla_breached_at',
-            field=models.DateTimeField(blank=True, db_index=True, help_text='Set by periodic task when due_at passes without completion.', null=True, verbose_name='SLA breached at'),
+            model_name="workitem",
+            name="sla_breached_at",
+            field=models.DateTimeField(
+                blank=True,
+                db_index=True,
+                help_text="Set by periodic task when due_at passes without completion.",
+                null=True,
+                verbose_name="SLA breached at",
+            ),
         ),
         migrations.AlterField(
-            model_name='workitemcomment',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="workitemcomment",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='workitemhistory',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="workitemhistory",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AddIndex(
-            model_name='workitem',
-            index=models.Index(fields=['sla_breached_at', 'status'], name='workitem_sla_status_idx'),
+            model_name="workitem",
+            index=models.Index(
+                fields=["sla_breached_at", "status"], name="workitem_sla_status_idx"
+            ),
         ),
     ]

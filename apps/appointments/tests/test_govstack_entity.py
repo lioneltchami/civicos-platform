@@ -20,6 +20,7 @@ entity_new_qry schema — Entity was NOT one of the 3 groups affected by
 FIX 1's wrong-wrapper-key bug; that bug was specific to Resource, Subscriber,
 and Affiliation). E1 below pins this correct, pre-existing contract.
 """
+
 from __future__ import annotations
 
 import json
@@ -47,6 +48,7 @@ _AUTH = {"requestor_id": "test-bb", "request_token": "test-token"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _qs(**extra):
     params = {**_AUTH, **extra}
     return "?" + urlencode(params)
@@ -64,6 +66,7 @@ def _create_entity(name="Test Entity", category="health", phone="", email="", we
 # ===========================================================================
 # Base test case
 # ===========================================================================
+
 
 class EntityBaseTestCase(TestCase):
     """Shared HTTP helpers for all entity endpoint tests."""
@@ -89,6 +92,7 @@ class EntityBaseTestCase(TestCase):
 # E1-E7: POST /entity/new
 # ===========================================================================
 
+
 class EntityNewTests(EntityBaseTestCase):
     """E1-E7: POST /entity/new"""
 
@@ -97,11 +101,15 @@ class EntityNewTests(EntityBaseTestCase):
         `qry` query PARAMETER's JSON value, single-nested) — succeeds. The
         double-nested {"qry": {"details": {...}}} shape used before was this
         codebase's own bug, now fixed."""
-        qry = {"details": {
-            "name": "Ministry of Health", "category": "health",
-            "phone": "+15005550001", "email": "moh@example.gov",
-            "website": "https://moh.example.gov",
-        }}
+        qry = {
+            "details": {
+                "name": "Ministry of Health",
+                "category": "health",
+                "phone": "+15005550001",
+                "email": "moh@example.gov",
+                "website": "https://moh.example.gov",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -173,6 +181,7 @@ class EntityNewTests(EntityBaseTestCase):
 # E8-E14: PUT /entity/modifications
 # ===========================================================================
 
+
 class EntityModificationsTests(EntityBaseTestCase):
     """E8-E14: PUT /entity/modifications"""
 
@@ -187,7 +196,13 @@ class EntityModificationsTests(EntityBaseTestCase):
     def test_e9_updates_phone_email_website(self):
         org = _create_entity()
         resp = self._put(
-            {"details": {"phone": "+15005559999", "email": "new@example.gov", "website": "https://new.example.gov"}},
+            {
+                "details": {
+                    "phone": "+15005559999",
+                    "email": "new@example.gov",
+                    "website": "https://new.example.gov",
+                }
+            },
             entity_id=org.pk,
         )
         self.assertEqual(resp.status_code, 200)
@@ -228,6 +243,7 @@ class EntityModificationsTests(EntityBaseTestCase):
 # E15-E20: DELETE /entity
 # ===========================================================================
 
+
 class EntityDeleteTests(EntityBaseTestCase):
     """E15-E20: DELETE /entity"""
 
@@ -267,6 +283,7 @@ class EntityDeleteTests(EntityBaseTestCase):
 # ===========================================================================
 # E21-E28: GET /entity/list_details
 # ===========================================================================
+
 
 class EntityListDetailsTests(EntityBaseTestCase):
     """E21-E28: GET /entity/list_details"""
@@ -353,10 +370,12 @@ class EntityListDetailsTests(EntityBaseTestCase):
 
     def test_e26_phone_included_when_required_flag_true(self):
         org = _create_entity(phone="+15005550042")
-        resp = self._get({
-            "entity_filter": {"entity_id": str(org.pk)},
-            "entity_details_required": {"phone": True},
-        })
+        resp = self._get(
+            {
+                "entity_filter": {"entity_id": str(org.pk)},
+                "entity_details_required": {"phone": True},
+            }
+        )
         item = resp.json()[0]
         self.assertEqual(item["phone"], "+15005550042")
 
@@ -373,6 +392,7 @@ class EntityListDetailsTests(EntityBaseTestCase):
 # ===========================================================================
 # E29-E36: Auth / role enforcement
 # ===========================================================================
+
 
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class EntityRoleEnforcementTests(EntityBaseTestCase):
@@ -392,7 +412,9 @@ class EntityRoleEnforcementTests(EntityBaseTestCase):
         correct plaintext secret. Finding #1 fix: request_token must never equal
         bb_id — it must verify against a separate hashed secret.
         """
-        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id=_AUTH["requestor_id"], is_active=True, role=role
+        )
         token = GovStackBBCredential.generate_plaintext_token()
         credential = GovStackBBCredential(bb=bb)
         credential.set_token(token)

@@ -6,10 +6,11 @@ Tasks are idempotent — safe to retry on failure.
 
 import logging
 
-from celery import shared_task
-from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.contrib.auth import get_user_model
+
+from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -21,14 +22,12 @@ User = get_user_model()
     retry_kwargs={"max_retries": 3},
     name="notifications.send_form_submission_confirmation",
 )
-def send_form_submission_confirmation(*, user_id: str, form_title: str, submission_id: str):
+def send_form_submission_confirmation(*, user_id: str, form_title: str, submission_id: str) -> None:
     """Send a submission confirmation email to the form submitter."""
     try:
         user = User.objects.get(pk=user_id)
     except SoftTimeLimitExceeded:
-        logger.warning(
-            "send_form_submission_confirmation: soft time limit exceeded — not retrying"
-        )
+        logger.warning("send_form_submission_confirmation: soft time limit exceeded — not retrying")
         return
     except User.DoesNotExist:
         logger.warning("Cannot send confirmation — user %s not found", user_id)
@@ -36,6 +35,7 @@ def send_form_submission_confirmation(*, user_id: str, form_title: str, submissi
 
     try:
         from .services import send_email_notification
+
         send_email_notification(
             recipient=user,
             subject_key="form_submission_confirmation",
@@ -54,14 +54,14 @@ def send_form_submission_confirmation(*, user_id: str, form_title: str, submissi
     retry_kwargs={"max_retries": 3},
     name="notifications.send_status_update_notification",
 )
-def send_status_update_notification(*, citizen_id: str, request_reference: str, new_status: str):
+def send_status_update_notification(
+    *, citizen_id: str, request_reference: str, new_status: str
+) -> None:
     """Notify a citizen that their service request status has changed."""
     try:
         user = User.objects.get(pk=citizen_id)
     except SoftTimeLimitExceeded:
-        logger.warning(
-            "send_status_update_notification: soft time limit exceeded — not retrying"
-        )
+        logger.warning("send_status_update_notification: soft time limit exceeded — not retrying")
         return
     except User.DoesNotExist:
         logger.warning("Cannot send status update — user %s not found", citizen_id)
@@ -69,6 +69,7 @@ def send_status_update_notification(*, citizen_id: str, request_reference: str, 
 
     try:
         from .services import send_email_notification
+
         site_url = getattr(settings, "SITE_URL", "http://localhost:8000")
         portal_link = f"{site_url}/portal/"
         send_email_notification(

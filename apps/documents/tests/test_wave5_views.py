@@ -37,6 +37,7 @@ them on the fly in the ``auth_permission`` table using the existing
 ``documents | document`` ContentType so the Permission objects exist for tests
 without requiring a migration.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -50,7 +51,7 @@ from django.http import Http404
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from apps.documents.models import Document, DocumentAccessToken, DocumentCategory
+from apps.documents.models import Document, DocumentCategory
 
 User = get_user_model()
 
@@ -73,16 +74,16 @@ def _email(prefix: str = "user") -> str:
 
 
 def make_category(**kwargs) -> DocumentCategory:
-    defaults = dict(
-        name_en="Test Category",
-        name_fr="Catégorie test",
-        slug=f"test-cat-{uuid.uuid4().hex[:8]}",
-        allowed_mime_types=["application/pdf"],
-        max_size_bytes=0,
-        min_retention_days=730,
-        max_retention_days=2555,
-        staff_only=False,
-    )
+    defaults = {
+        "name_en": "Test Category",
+        "name_fr": "Catégorie test",
+        "slug": f"test-cat-{uuid.uuid4().hex[:8]}",
+        "allowed_mime_types": ["application/pdf"],
+        "max_size_bytes": 0,
+        "min_retention_days": 730,
+        "max_retention_days": 2555,
+        "staff_only": False,
+    }
     defaults.update(kwargs)
     return DocumentCategory.objects.create(**defaults)
 
@@ -97,15 +98,15 @@ def make_user(**kwargs):
 
 
 def make_document(user, category: DocumentCategory, **kwargs) -> Document:
-    defaults = dict(
-        category=category,
-        uploaded_by=user,
-        original_filename="test.pdf",
-        _storage_key=f"quarantine/documents/{uuid.uuid4()}.bin",
-        mime_type="application/pdf",
-        size_bytes=1024,
-        scan_status=Document.ScanStatus.ACTIVE,
-    )
+    defaults = {
+        "category": category,
+        "uploaded_by": user,
+        "original_filename": "test.pdf",
+        "_storage_key": f"quarantine/documents/{uuid.uuid4()}.bin",
+        "mime_type": "application/pdf",
+        "size_bytes": 1024,
+        "scan_status": Document.ScanStatus.ACTIVE,
+    }
     defaults.update(kwargs)
     return Document.objects.create(**defaults)
 
@@ -153,9 +154,7 @@ class CitizenAuthTests(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_detail_requires_login(self) -> None:
-        response = self.client.get(
-            reverse("documents:detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 302)
 
     def test_upload_init_requires_login(self) -> None:
@@ -163,9 +162,7 @@ class CitizenAuthTests(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_download_requires_login(self) -> None:
-        response = self.client.get(
-            reverse("documents:download", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:download", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 302)
 
 
@@ -205,9 +202,8 @@ class CitizenDocumentListTests(TestCase):
 
     def test_list_excludes_soft_deleted(self) -> None:
         from django.utils import timezone
-        deleted = make_document(
-            self.user, self.category, deleted_at=timezone.now()
-        )
+
+        deleted = make_document(self.user, self.category, deleted_at=timezone.now())
         response = self.client.get(self.url)
         pks = [str(d.pk) for d in response.context["documents"]]
         self.assertNotIn(str(deleted.pk), pks)
@@ -215,13 +211,15 @@ class CitizenDocumentListTests(TestCase):
     def test_list_shows_latest_versions_only(self) -> None:
         # v1 — not latest
         v1 = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             version_number=1,
             is_latest_version=False,
         )
         # v2 — latest, same document chain
         v2 = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             version_number=2,
             is_latest_version=True,
             root_document=v1,
@@ -249,17 +247,13 @@ class CitizenDocumentDetailTests(TestCase):
         self.client.force_login(self.user)
 
     def test_detail_own_doc_200(self) -> None:
-        response = self.client.get(
-            reverse("documents:detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 200)
 
     def test_detail_other_user_doc_404(self) -> None:
         """IDOR: other user's document PK must return 404, not 403."""
         other_doc = make_document(self.other, self.category)
-        response = self.client.get(
-            reverse("documents:detail", args=[other_doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[other_doc.pk]))
         self.assertEqual(response.status_code, 404)
 
     def test_detail_other_user_doc_writes_access_denied_audit_event(self) -> None:
@@ -270,9 +264,7 @@ class CitizenDocumentDetailTests(TestCase):
         from apps.audit.models import AuditEventType, AuditLogEntry
 
         other_doc = make_document(self.other, self.category)
-        response = self.client.get(
-            reverse("documents:detail", args=[other_doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[other_doc.pk]))
         self.assertEqual(response.status_code, 404)
 
         event = AuditLogEntry.objects.filter(
@@ -284,17 +276,13 @@ class CitizenDocumentDetailTests(TestCase):
         self.assertEqual(event.event_detail["requesting_user_pk"], str(self.user.pk))
 
     def test_detail_404_for_nonexistent(self) -> None:
-        response = self.client.get(
-            reverse("documents:detail", args=[uuid.uuid4()])
-        )
+        response = self.client.get(reverse("documents:detail", args=[uuid.uuid4()]))
         self.assertEqual(response.status_code, 404)
 
     def test_detail_does_not_expose_storage_key(self) -> None:
         """The raw storage_key value must not appear in the response body."""
         storage_key = self.doc._storage_key  # e.g. "quarantine/documents/<uuid>.bin"
-        response = self.client.get(
-            reverse("documents:detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[self.doc.pk]))
         content = response.content.decode()
         self.assertNotIn(storage_key, content)
         self.assertNotIn("quarantine/", content)
@@ -302,12 +290,11 @@ class CitizenDocumentDetailTests(TestCase):
     def test_detail_shows_filename_escaped(self) -> None:
         """original_filename containing HTML special chars must be auto-escaped."""
         xss_doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             original_filename="<script>alert(1)</script>.pdf",
         )
-        response = self.client.get(
-            reverse("documents:detail", args=[xss_doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[xss_doc.pk]))
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         # The raw unescaped XSS payload must not appear in the rendered output.
@@ -325,9 +312,7 @@ class CitizenDocumentDetailTests(TestCase):
         self.doc.scan_status = Document.ScanStatus.ACTIVE
         self.doc.save(update_fields=["scan_status"])
         self.client.force_login(self.user)
-        response = self.client.get(
-            reverse("documents:detail", kwargs={"pk": self.doc.pk})
-        )
+        response = self.client.get(reverse("documents:detail", kwargs={"pk": self.doc.pk}))
         self.assertEqual(response.status_code, 200)
         self.assertIs(response.context["can_download"], True)
 
@@ -336,9 +321,7 @@ class CitizenDocumentDetailTests(TestCase):
         self.doc.scan_status = Document.ScanStatus.SCANNING
         self.doc.save(update_fields=["scan_status"])
         self.client.force_login(self.user)
-        response = self.client.get(
-            reverse("documents:detail", kwargs={"pk": self.doc.pk})
-        )
+        response = self.client.get(reverse("documents:detail", kwargs={"pk": self.doc.pk}))
         self.assertEqual(response.status_code, 200)
         self.assertIs(response.context["can_download"], False)
 
@@ -347,20 +330,17 @@ class CitizenDocumentDetailTests(TestCase):
         self.doc.scan_status = Document.ScanStatus.QUARANTINED
         self.doc.save(update_fields=["scan_status"])
         self.client.force_login(self.user)
-        response = self.client.get(
-            reverse("documents:detail", kwargs={"pk": self.doc.pk})
-        )
+        response = self.client.get(reverse("documents:detail", kwargs={"pk": self.doc.pk}))
         self.assertEqual(response.status_code, 200)
         self.assertIs(response.context["can_download"], False)
 
     def test_detail_soft_deleted_doc_returns_404(self):
         """Citizen's own soft-deleted document returns 404 (not 200)."""
         from django.utils import timezone
+
         Document.objects.filter(pk=self.doc.pk).update(deleted_at=timezone.now())
         self.client.force_login(self.user)
-        response = self.client.get(
-            reverse("documents:detail", kwargs={"pk": self.doc.pk})
-        )
+        response = self.client.get(reverse("documents:detail", kwargs={"pk": self.doc.pk}))
         self.assertEqual(response.status_code, 404)
 
 
@@ -420,6 +400,7 @@ class CitizenUploadInitTests(TestCase):
 
     def test_post_validation_error_shows_form(self) -> None:
         from django.core.exceptions import ValidationError
+
         with patch(
             "apps.documents.views.citizen.validate_upload_request",
             side_effect=ValidationError("File type not allowed."),
@@ -431,6 +412,7 @@ class CitizenUploadInitTests(TestCase):
 
     def test_post_permission_denied_shows_error(self) -> None:
         from django.core.exceptions import PermissionDenied
+
         with patch(
             "apps.documents.views.citizen.validate_upload_request",
             side_effect=PermissionDenied("No access."),
@@ -482,7 +464,8 @@ class CitizenUploadConfirmTests(TestCase):
         self.other = make_user(email=_email("other"))
         self.category = make_category()
         self.doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
         )
         self.client.force_login(self.user)
@@ -496,9 +479,7 @@ class CitizenUploadConfirmTests(TestCase):
             return_value=self.doc,
         ) as mock_confirm:
             self.client.post(self._url())
-        mock_confirm.assert_called_once_with(
-            user=self.user, doc_id=str(self.doc.pk)
-        )
+        mock_confirm.assert_called_once_with(user=self.user, doc_id=str(self.doc.pk))
 
     def test_post_redirects_to_list(self) -> None:
         with patch(
@@ -506,12 +487,11 @@ class CitizenUploadConfirmTests(TestCase):
             return_value=self.doc,
         ):
             response = self.client.post(self._url())
-        self.assertRedirects(
-            response, reverse("documents:list"), fetch_redirect_response=False
-        )
+        self.assertRedirects(response, reverse("documents:list"), fetch_redirect_response=False)
 
     def test_post_validation_error_shows_error(self) -> None:
         from django.core.exceptions import ValidationError
+
         with patch(
             "apps.documents.views.citizen.confirm_upload",
             side_effect=ValidationError("File not found in quarantine."),
@@ -535,7 +515,8 @@ class CitizenUploadConfirmTests(TestCase):
     def test_post_wrong_user_404(self) -> None:
         """IDOR: confirming another user's document must return 404."""
         other_doc = make_document(
-            self.other, self.category,
+            self.other,
+            self.category,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
         )
         with patch(
@@ -582,7 +563,8 @@ class CitizenDownloadTests(TestCase):
     def test_download_non_active_doc_404(self) -> None:
         """A SCANNING doc is not downloadable → 404."""
         scanning_doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.SCANNING,
         )
         response = self.client.get(self._url(pk=scanning_doc.pk))
@@ -602,9 +584,7 @@ class CitizenDownloadTests(TestCase):
         from apps.audit.models import AuditEventType, AuditLogEntry
         from apps.documents.models import Document
 
-        other_doc = make_document(
-            self.other, self.category, scan_status=Document.ScanStatus.ACTIVE
-        )
+        other_doc = make_document(self.other, self.category, scan_status=Document.ScanStatus.ACTIVE)
         response = self.client.get(self._url(pk=other_doc.pk))
         self.assertEqual(response.status_code, 404)
 
@@ -709,7 +689,7 @@ class CitizenTokenRedeemTests(TestCase):
         self.assertNotIn("quarantine/", header_values)
 
     def test_redeem_valid_token_large_file_redirects(self) -> None:
-        """Large files (> proxy threshold) redirect to presigned URL — storage_key not in headers."""
+        """Large files (> proxy threshold) redirect to presigned URL — storage_key not in headers."""  # noqa: E501
         # The proxy threshold is read from settings.CIVICOS['DOCUMENT_PROXY_MAX_BYTES']
         # by the view's _proxy_threshold() helper. Read the same setting here so that
         # any @override_settings usage in outer scopes stays in sync with the view.
@@ -717,9 +697,7 @@ class CitizenTokenRedeemTests(TestCase):
 
         proxy_threshold = django_settings.CIVICOS.get("DOCUMENT_PROXY_MAX_BYTES", 1 * 1024 * 1024)
 
-        large_doc = make_document(
-            self.user, self.category, size_bytes=proxy_threshold + 1
-        )
+        large_doc = make_document(self.user, self.category, size_bytes=proxy_threshold + 1)
         presigned_url = "https://s3.example.com/bucket/key?X-Amz-Signature=abc123"
 
         with (
@@ -727,9 +705,7 @@ class CitizenTokenRedeemTests(TestCase):
                 "apps.documents.views.citizen.consume_access_token",
                 return_value=large_doc,
             ) as mock_consume,
-            patch(
-                "apps.documents.views.citizen.default_storage"
-            ) as mock_storage,
+            patch("apps.documents.views.citizen.default_storage") as mock_storage,
         ):
             mock_storage.url.return_value = presigned_url
             response = self.client.get(self._url("f" * 64))
@@ -762,15 +738,11 @@ class StaffAuthTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_staff_detail_requires_permission(self) -> None:
-        response = self.client.get(
-            reverse("documents:staff-detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:staff-detail", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 403)
 
     def test_legal_hold_requires_permission(self) -> None:
-        response = self.client.get(
-            reverse("documents:legal-hold", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:legal-hold", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 403)
 
     def test_quarantine_requires_permission(self) -> None:
@@ -778,9 +750,7 @@ class StaffAuthTests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_audit_log_requires_permission(self) -> None:
-        response = self.client.get(
-            reverse("documents:audit-log", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:audit-log", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 403)
 
 
@@ -820,22 +790,16 @@ class AnonymousStaffViewRedirectTests(TestCase):
         self._assert_denied(reverse("documents:staff-list"))
 
     def test_anonymous_cannot_access_staff_detail(self) -> None:
-        self._assert_denied(
-            reverse("documents:staff-detail", kwargs={"pk": self.doc.pk})
-        )
+        self._assert_denied(reverse("documents:staff-detail", kwargs={"pk": self.doc.pk}))
 
     def test_anonymous_cannot_access_legal_hold(self) -> None:
-        self._assert_denied(
-            reverse("documents:legal-hold", kwargs={"pk": self.doc.pk})
-        )
+        self._assert_denied(reverse("documents:legal-hold", kwargs={"pk": self.doc.pk}))
 
     def test_anonymous_cannot_access_quarantine_list(self) -> None:
         self._assert_denied(reverse("documents:quarantine-list"))
 
     def test_anonymous_cannot_access_audit_log(self) -> None:
-        self._assert_denied(
-            reverse("documents:audit-log", kwargs={"pk": self.doc.pk})
-        )
+        self._assert_denied(reverse("documents:audit-log", kwargs={"pk": self.doc.pk}))
 
 
 # ---------------------------------------------------------------------------
@@ -872,16 +836,16 @@ class StaffDocumentListTests(TestCase):
 
     def test_staff_list_filter_by_scan_status(self) -> None:
         active_doc = make_document(
-            self.user1, self.category,
+            self.user1,
+            self.category,
             scan_status=Document.ScanStatus.ACTIVE,
         )
         quarantined_doc = make_document(
-            self.user1, self.category,
+            self.user1,
+            self.category,
             scan_status=Document.ScanStatus.QUARANTINED,
         )
-        response = self.client.get(
-            self.url, {"scan_status": Document.ScanStatus.QUARANTINED}
-        )
+        response = self.client.get(self.url, {"scan_status": Document.ScanStatus.QUARANTINED})
         self.assertEqual(response.status_code, 200)
         pks = [str(d.pk) for d in response.context["documents"]]
         self.assertIn(str(quarantined_doc.pk), pks)
@@ -920,7 +884,8 @@ class StaffDocumentDetailTests(TestCase):
         self.staff = make_user(email=_email("staff"), is_staff=True)
         self.category = make_category()
         self.doc = make_document(
-            self.owner, self.category,
+            self.owner,
+            self.category,
             scan_status=Document.ScanStatus.QUARANTINED,
             scan_engine_result="Eicar-Test-Signature",
         )
@@ -928,17 +893,13 @@ class StaffDocumentDetailTests(TestCase):
         self.client.force_login(self.staff)
 
     def test_staff_detail_200(self) -> None:
-        response = self.client.get(
-            reverse("documents:staff-detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:staff-detail", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 200)
 
     def test_staff_detail_no_storage_key(self) -> None:
         """storage_key must not appear in the response body."""
         storage_key = self.doc._storage_key
-        response = self.client.get(
-            reverse("documents:staff-detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:staff-detail", args=[self.doc.pk]))
         content = response.content.decode()
         self.assertNotIn(storage_key, content)
         # The "quarantine/documents/" prefix (with UUID segment) must not appear
@@ -959,9 +920,7 @@ class StaffDocumentDetailTests(TestCase):
            Until that view update lands, we assert the response is still 200.
         """
         # Step 1 — without view_quarantined
-        response = self.client.get(
-            reverse("documents:staff-detail", args=[self.doc.pk])
-        )
+        response = self.client.get(reverse("documents:staff-detail", args=[self.doc.pk]))
         self.assertEqual(response.status_code, 200)
         # Template guard is falsy → scan result hidden
         self.assertNotIn("Eicar-Test-Signature", response.content.decode())
@@ -970,9 +929,7 @@ class StaffDocumentDetailTests(TestCase):
         # details card containing the raw scan_engine_result string.
         self.staff = _grant_perm(self.staff, "view_quarantined")
         self.client.force_login(self.staff)
-        response2 = self.client.get(
-            reverse("documents:staff-detail", args=[self.doc.pk])
-        )
+        response2 = self.client.get(reverse("documents:staff-detail", args=[self.doc.pk]))
         self.assertEqual(response2.status_code, 200)
         # Template renders scan_engine_result inside the quarantine card when
         # can_view_quarantine_details is True. Verify the actual result text appears.
@@ -1006,9 +963,7 @@ class LegalHoldViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_apply_hold(self) -> None:
-        with patch(
-            "apps.documents.views.staff.apply_legal_hold"
-        ) as mock_apply:
+        with patch("apps.documents.views.staff.apply_legal_hold") as mock_apply:
             response = self.client.post(
                 self._url(),
                 data={
@@ -1031,9 +986,7 @@ class LegalHoldViewTests(TestCase):
     def test_release_hold(self) -> None:
         self.doc.legal_hold = True
         self.doc.save()
-        with patch(
-            "apps.documents.views.staff.release_legal_hold"
-        ) as mock_release:
+        with patch("apps.documents.views.staff.release_legal_hold") as mock_release:
             response = self.client.post(
                 self._url(),
                 data={
@@ -1073,6 +1026,7 @@ class LegalHoldViewTests(TestCase):
     def test_permission_denied_from_service(self) -> None:
         """Service raises PermissionDenied → 403 rendered without crashing."""
         from django.core.exceptions import PermissionDenied
+
         with patch(
             "apps.documents.views.staff.apply_legal_hold",
             side_effect=PermissionDenied("Double-check failed."),
@@ -1111,11 +1065,13 @@ class QuarantineListTests(TestCase):
 
     def test_quarantine_list_shows_only_quarantined(self) -> None:
         active_doc = make_document(
-            self.owner, self.category,
+            self.owner,
+            self.category,
             scan_status=Document.ScanStatus.ACTIVE,
         )
         quarantined_doc = make_document(
-            self.owner, self.category,
+            self.owner,
+            self.category,
             scan_status=Document.ScanStatus.QUARANTINED,
             scan_engine_result="Win.Test.EICAR_HDB-1",
         )
@@ -1128,7 +1084,8 @@ class QuarantineListTests(TestCase):
     def test_quarantine_list_no_scan_engine_result(self) -> None:
         """scan_engine_result must not be rendered in the quarantine list HTML."""
         make_document(
-            self.owner, self.category,
+            self.owner,
+            self.category,
             scan_status=Document.ScanStatus.QUARANTINED,
             scan_engine_result="Win.Malware.Detected-1234",
         )
@@ -1201,13 +1158,12 @@ class PIPEDAInvariantTests(TestCase):
         self.client = Client()
         self.citizen = make_user(email="citizen_pipeda@example.com")
         self.other = make_user(email="other_pipeda@example.com")
-        self.staff_user = make_user(
-            email="staff_pipeda@example.com", is_staff=True
-        )
+        self.staff_user = make_user(email="staff_pipeda@example.com", is_staff=True)
         self.category = make_category()
         # Document with a known storage key owned by citizen
         self.own_doc = make_document(
-            self.citizen, self.category,
+            self.citizen,
+            self.category,
             _storage_key="quarantine/documents/pipeda-invariant-test.bin",
             scan_status=Document.ScanStatus.ACTIVE,
         )
@@ -1236,9 +1192,7 @@ class PIPEDAInvariantTests(TestCase):
     def test_idor_404_not_403_for_citizen(self) -> None:
         """Citizen viewing another citizen's doc must get 404, not 403 or 200."""
         self.client.force_login(self.citizen)
-        response = self.client.get(
-            reverse("documents:detail", args=[self.other_doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[self.other_doc.pk]))
         self.assertEqual(response.status_code, 404)
         self.assertNotEqual(response.status_code, 403)
 
@@ -1262,14 +1216,13 @@ class PIPEDAInvariantTests(TestCase):
         200 response that contains the scan result.
         """
         quarantined_doc = make_document(
-            self.citizen, self.category,
+            self.citizen,
+            self.category,
             scan_status=Document.ScanStatus.QUARANTINED,
             scan_engine_result="Trojan.Dropper.XYZ-2026",
         )
         self.client.force_login(self.citizen)
-        response = self.client.get(
-            reverse("documents:detail", args=[quarantined_doc.pk])
-        )
+        response = self.client.get(reverse("documents:detail", args=[quarantined_doc.pk]))
         if response.status_code == 200:
             self.assertNotIn(
                 "Trojan.Dropper.XYZ-2026",

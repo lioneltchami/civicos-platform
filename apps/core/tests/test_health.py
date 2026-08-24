@@ -15,17 +15,17 @@ Rules:
 We also smoke-test the _check_stripe helper directly for precise error-path coverage.
 """
 
-import stripe
 from unittest.mock import patch
 
+import stripe
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.core.urls.health import _check_stripe
 
-
 # ---------------------------------------------------------------------------
 # Unit tests for _check_stripe helper
 # ---------------------------------------------------------------------------
+
 
 class CheckStripeHelperTest(SimpleTestCase):
     """_check_stripe() returns True/False based on Stripe SDK responses."""
@@ -55,6 +55,7 @@ class CheckStripeHelperTest(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # Integration tests for the readiness view
 # ---------------------------------------------------------------------------
+
 
 @override_settings(STRIPE_SECRET_KEY="sk_test_fake")
 class HealthCheckStripeOkTest(TestCase):

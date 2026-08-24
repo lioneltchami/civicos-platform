@@ -9,12 +9,28 @@ Namespace: ``backoffice``
 
 from django.urls import path
 
+from apps.backoffice.views.audit import AuditLogListView
+from apps.backoffice.views.citizens import (
+    CitizenDeactivateView,
+    CitizenDetailView,
+    CitizenListView,
+)
+from apps.backoffice.views.consent import (
+    CitizenConsentHistoryView,
+    ConsentDataRequestDetailView,
+    ConsentDataRequestListView,
+)
 from apps.backoffice.views.dashboard import DashboardView
+from apps.backoffice.views.reports import ReportsView
 from apps.backoffice.views.service_requests import (
     ServiceRequestDetailView,
     ServiceRequestListView,
     ServiceRequestNotesView,
     ServiceRequestStatusView,
+)
+from apps.backoffice.views.staff_notifications import (
+    StaffNotificationListView,
+    StaffNotificationSendView,
 )
 from apps.backoffice.views.work_items import (
     WorkItemAssignView,
@@ -24,22 +40,6 @@ from apps.backoffice.views.work_items import (
     WorkItemListView,
     WorkItemStatusView,
 )
-from apps.backoffice.views.citizens import (
-    CitizenDeactivateView,
-    CitizenDetailView,
-    CitizenListView,
-)
-from apps.backoffice.views.audit import AuditLogListView
-from apps.backoffice.views.reports import ReportsView
-from apps.backoffice.views.staff_notifications import (
-    StaffNotificationListView,
-    StaffNotificationSendView,
-)
-from apps.backoffice.views.consent import (
-    ConsentDataRequestListView,
-    ConsentDataRequestDetailView,
-    CitizenConsentHistoryView,
-)
 
 app_name = "backoffice"
 
@@ -48,7 +48,6 @@ urlpatterns = [
     # Dashboard
     # ------------------------------------------------------------------
     path("", DashboardView.as_view(), name="dashboard"),
-
     # ------------------------------------------------------------------
     # Service requests
     # ------------------------------------------------------------------
@@ -68,7 +67,6 @@ urlpatterns = [
         ServiceRequestNotesView.as_view(),
         name="sr-notes",
     ),
-
     # ------------------------------------------------------------------
     # Work items
     # ------------------------------------------------------------------
@@ -94,7 +92,6 @@ urlpatterns = [
         WorkItemCommentView.as_view(),
         name="wi-comment",
     ),
-
     # ------------------------------------------------------------------
     # Citizens
     # ------------------------------------------------------------------
@@ -105,7 +102,6 @@ urlpatterns = [
         CitizenDeactivateView.as_view(),
         name="citizen-deactivate",
     ),
-
     # ------------------------------------------------------------------
     # Consent & Privacy (PIPEDA)
     # ------------------------------------------------------------------
@@ -120,17 +116,14 @@ urlpatterns = [
         CitizenConsentHistoryView.as_view(),
         name="citizen-consent-history",
     ),
-
     # ------------------------------------------------------------------
     # Audit log
     # ------------------------------------------------------------------
     path("audit/", AuditLogListView.as_view(), name="audit-list"),
-
     # ------------------------------------------------------------------
     # Reports
     # ------------------------------------------------------------------
     path("reports/", ReportsView.as_view(), name="reports"),
-
     # ------------------------------------------------------------------
     # Staff notifications
     # ------------------------------------------------------------------

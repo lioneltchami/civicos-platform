@@ -24,15 +24,15 @@ Django test conventions used:
   - reverse() for all URL lookups.
   - assertRedirects(), assertContains(), assertNotContains() for HTTP assertions.
 """
+
 from __future__ import annotations
 
-from django.conf import settings
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.test import Client, TestCase
 from django.urls import NoReverseMatch, reverse
-
-from decimal import Decimal
 
 from apps.volunteers.models import (
     HoursLog,
@@ -53,6 +53,7 @@ _counter = [0]
 # Shared factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(email=None, **kwargs):
     _counter[0] += 1
     email = email or f"cviewtest{_counter[0]}@example.gc.ca"
@@ -71,15 +72,15 @@ def _make_program(slug=None):
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     _counter[0] += 1
-    defaults = dict(
-        title_en="Event Setup Volunteer",
-        title_fr="Bénévole pour installation",
-        slug=slug or f"copp-{_counter[0]}",
-        description_en="Help set up community events.",
-        description_fr="Aidez à installer les événements.",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": "Event Setup Volunteer",
+        "title_fr": "Bénévole pour installation",
+        "slug": slug or f"copp-{_counter[0]}",
+        "description_en": "Help set up community events.",
+        "description_fr": "Aidez à installer les événements.",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -130,6 +131,7 @@ def _url(name, **kwargs):
 # Base test case
 # ---------------------------------------------------------------------------
 
+
 class BaseCoordinatorTestCase(TestCase):
     """
     Shared fixture for coordinator view tests.
@@ -169,6 +171,7 @@ class BaseCoordinatorTestCase(TestCase):
 # ===========================================================================
 # CoordinatorDashboardView tests
 # ===========================================================================
+
 
 class CoordinatorDashboardViewTests(BaseCoordinatorTestCase):
     """Tests for CoordinatorDashboardView."""
@@ -232,7 +235,7 @@ class CoordinatorDashboardViewTests(BaseCoordinatorTestCase):
         self.login_as_coordinator()
 
         # Create 3 pending applications across different volunteers.
-        for i in range(3):
+        for _i in range(3):
             u = _make_user()
             p = _make_profile(u)
             opp = _make_opportunity(self.program, status="published")
@@ -328,6 +331,7 @@ class CoordinatorDashboardViewTests(BaseCoordinatorTestCase):
 # ===========================================================================
 # ApplicationReviewView GET tests
 # ===========================================================================
+
 
 class ApplicationReviewViewGetTests(BaseCoordinatorTestCase):
     """Tests for ApplicationReviewView — GET method."""
@@ -488,6 +492,7 @@ class ApplicationReviewViewGetTests(BaseCoordinatorTestCase):
 # ===========================================================================
 # ApplicationReviewView POST tests
 # ===========================================================================
+
 
 class ApplicationReviewViewPostTests(BaseCoordinatorTestCase):
     """Tests for ApplicationReviewView — POST method."""
@@ -670,6 +675,7 @@ class ApplicationReviewViewPostTests(BaseCoordinatorTestCase):
 # CoordinatorApplicationListView tests
 # ===========================================================================
 
+
 class CoordinatorApplicationListViewTests(BaseCoordinatorTestCase):
     """Tests for CoordinatorApplicationListView."""
 
@@ -741,9 +747,7 @@ class CoordinatorApplicationListViewTests(BaseCoordinatorTestCase):
         opp2 = _make_opportunity(self.program, slug="cview-list-opp2")
         vol2 = _make_user("vol2list@cviews.gc.ca")
         prof2 = _make_profile(vol2)
-        approved_app = _make_application(
-            prof2, opp2, status=VolunteerApplication.STATUS_APPROVED
-        )
+        approved_app = _make_application(prof2, opp2, status=VolunteerApplication.STATUS_APPROVED)
 
         self.login_as_coordinator()
         response = self.client.get(url)
@@ -762,9 +766,7 @@ class CoordinatorApplicationListViewTests(BaseCoordinatorTestCase):
         opp2 = _make_opportunity(self.program, slug="cview-filter-opp2")
         vol2 = _make_user("vol2filter@cviews.gc.ca")
         prof2 = _make_profile(vol2)
-        approved_app = _make_application(
-            prof2, opp2, status=VolunteerApplication.STATUS_APPROVED
-        )
+        approved_app = _make_application(prof2, opp2, status=VolunteerApplication.STATUS_APPROVED)
 
         self.login_as_coordinator()
         response = self.client.get(url)
@@ -783,9 +785,7 @@ class CoordinatorApplicationListViewTests(BaseCoordinatorTestCase):
         opp2 = _make_opportunity(self.program, slug="cview-approved-opp2")
         vol2 = _make_user("vol2approved@cviews.gc.ca")
         prof2 = _make_profile(vol2)
-        approved_app = _make_application(
-            prof2, opp2, status=VolunteerApplication.STATUS_APPROVED
-        )
+        approved_app = _make_application(prof2, opp2, status=VolunteerApplication.STATUS_APPROVED)
 
         self.login_as_coordinator()
         response = self.client.get(url)
@@ -871,8 +871,9 @@ class CoordinatorApplicationListViewTests(BaseCoordinatorTestCase):
 # Wave 3 — Shared helpers
 # ===========================================================================
 
-import datetime as dt
-from django.utils import timezone as tz
+import datetime as dt  # noqa: E402
+
+from django.utils import timezone as tz  # noqa: E402
 
 
 def _grant_perm(user, app_label, codename):
@@ -893,12 +894,12 @@ def _make_shift(opportunity, *, minutes_from_now=60, **kwargs):
     _counter[0] += 1
     start = tz.now() + dt.timedelta(minutes=minutes_from_now)
     end = start + dt.timedelta(hours=2)
-    defaults = dict(
-        opportunity=opportunity,
-        start_datetime=start,
-        end_datetime=end,
-        capacity=10,
-    )
+    defaults = {
+        "opportunity": opportunity,
+        "start_datetime": start,
+        "end_datetime": end,
+        "capacity": 10,
+    }
     defaults.update(kwargs)
     return Shift.objects.create(**defaults)
 
@@ -906,13 +907,13 @@ def _make_shift(opportunity, *, minutes_from_now=60, **kwargs):
 def _make_hours_log(volunteer_profile, opportunity, *, hours=Decimal("3"), status=None, **kwargs):
     """Create a HoursLog for volunteer_profile against opportunity."""
     _counter[0] += 1
-    defaults = dict(
-        volunteer=volunteer_profile,
-        opportunity=opportunity,
-        hours=hours,
-        date=dt.date.today(),
-        status=status or HoursLog.STATUS_PENDING,
-    )
+    defaults = {
+        "volunteer": volunteer_profile,
+        "opportunity": opportunity,
+        "hours": hours,
+        "date": dt.date.today(),
+        "status": status or HoursLog.STATUS_PENDING,
+    }
     defaults.update(kwargs)
     return HoursLog.objects.create(**defaults)
 
@@ -920,6 +921,7 @@ def _make_hours_log(volunteer_profile, opportunity, *, hours=Decimal("3"), statu
 # ===========================================================================
 # Wave 3 — ShiftListViewTests
 # ===========================================================================
+
 
 class ShiftListViewTests(TestCase):
     """
@@ -1028,6 +1030,7 @@ class ShiftListViewTests(TestCase):
 # ===========================================================================
 # Wave 3 — ShiftDetailViewTests
 # ===========================================================================
+
 
 class ShiftDetailViewTests(TestCase):
     """
@@ -1151,6 +1154,7 @@ class ShiftDetailViewTests(TestCase):
 # Wave 3 — ShiftCancelViewTests
 # ===========================================================================
 
+
 class ShiftCancelViewTests(TestCase):
     """
     Tests for ShiftCancelView — POST volunteers:shift_cancel <pk>.
@@ -1257,6 +1261,7 @@ class ShiftCancelViewTests(TestCase):
 # ===========================================================================
 # Wave 3 — HoursApprovalListViewTests
 # ===========================================================================
+
 
 class HoursApprovalListViewTests(TestCase):
     """
@@ -1371,6 +1376,7 @@ class HoursApprovalListViewTests(TestCase):
 # Wave 3 — HoursApproveViewTests
 # ===========================================================================
 
+
 class HoursApproveViewTests(TestCase):
     """
     Tests for HoursApproveView — POST volunteers:hours_approve <pk>.
@@ -1461,6 +1467,7 @@ class HoursApproveViewTests(TestCase):
 # ===========================================================================
 # Wave 3 — HoursRejectViewTests
 # ===========================================================================
+
 
 class HoursRejectViewTests(TestCase):
     """
@@ -1578,6 +1585,7 @@ class HoursRejectViewTests(TestCase):
 # ===========================================================================
 # T5 — ImpactReportView: coordinator for Program A cannot see Program B data
 # ===========================================================================
+
 
 class ImpactReportScopeIsolationTests(TestCase):
     """
@@ -1708,6 +1716,7 @@ class ImpactReportScopeIsolationTests(TestCase):
 #       does NOT see sin_last4 or accommodation_notes
 # ===========================================================================
 
+
 class VolunteerDetailSensitiveFieldGateTests(TestCase):
     """
     T6: Coordinator without volunteers.view_accommodation_notes must have
@@ -1740,6 +1749,7 @@ class VolunteerDetailSensitiveFieldGateTests(TestCase):
         self.profile = _make_profile(self.vol_user)
         # Populate sensitive fields directly on the model
         from apps.volunteers.models import VolunteerProfile
+
         VolunteerProfile.objects.filter(pk=self.profile.pk).update(
             sin_last4="1234",
             accommodation_notes="Requires wheelchair access",
@@ -1799,7 +1809,7 @@ class VolunteerDetailSensitiveFieldGateTests(TestCase):
             response,
             "Requires wheelchair access",
             msg_prefix="T6: accommodation_notes content must not appear in response "
-                        "for coordinator without view_accommodation_notes.",
+            "for coordinator without view_accommodation_notes.",
         )
 
     def test_coordinator_without_perm_does_not_see_sin_last4_in_response(self):
@@ -1820,7 +1830,7 @@ class VolunteerDetailSensitiveFieldGateTests(TestCase):
             response,
             "1234",
             msg_prefix="T6: sin_last4 value must not appear in response "
-                        "for coordinator without view_accommodation_notes.",
+            "for coordinator without view_accommodation_notes.",
         )
 
     def test_coordinator_with_perm_sees_sensitive_fields(self):

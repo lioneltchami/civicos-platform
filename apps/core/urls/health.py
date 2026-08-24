@@ -13,10 +13,9 @@ continue routing; alerting on the "degraded" field should be configured separate
 import stripe
 from django.conf import settings
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.http import JsonResponse
 from django.urls import path
-from django.db import transaction
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
@@ -42,7 +41,7 @@ def _check_stripe(api_key: str) -> bool:
 
 @never_cache
 @require_GET
-def liveness(request):
+def liveness(request):  # noqa: ANN001, ANN201
     """Kubernetes liveness probe — just confirms the process is alive."""
     return JsonResponse({"status": "ok"})
 
@@ -50,7 +49,7 @@ def liveness(request):
 @never_cache
 @require_GET
 @transaction.non_atomic_requests
-def readiness(request):
+def readiness(request):  # noqa: ANN001, ANN201
     """
     Kubernetes readiness probe — confirms all dependencies are reachable.
     Returns 503 if DB or cache is unavailable so the load balancer stops
@@ -89,7 +88,9 @@ def readiness(request):
     else:
         checks["stripe"] = "unconfigured"
 
-    return JsonResponse({"status": "ok" if status_code == 200 else "degraded", "checks": checks}, status=status_code)
+    return JsonResponse(
+        {"status": "ok" if status_code == 200 else "degraded", "checks": checks}, status=status_code
+    )
 
 
 urlpatterns = [

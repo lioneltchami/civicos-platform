@@ -38,8 +38,8 @@ from apps.workflows.models import (
     TERMINAL_STATUSES,
     VALID_TRANSITIONS,
     WorkItem,
-    WorkItemHistory,
     WorkItemComment,
+    WorkItemHistory,
     WorkItemPriority,
     WorkItemStatus,
 )
@@ -72,7 +72,7 @@ class WorkItemListView(StaffRequiredMixin, ListView):
     context_object_name = "work_items"
     paginate_by = 25
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         user = self.request.user
         params = self.request.GET
 
@@ -96,7 +96,7 @@ class WorkItemListView(StaffRequiredMixin, ListView):
         )
         return qs.select_related("assigned_to")
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
 
         # Count badges
@@ -132,10 +132,10 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
     context_object_name = "work_item"
     model = WorkItem
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return WorkItem.objects.select_related("assigned_to")
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         obj = self.object
 
@@ -149,16 +149,12 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
             .select_related("author")
             .order_by("created_at")
         )
-        ctx["staff_users"] = (
-            User.objects.filter(is_staff=True, is_active=True).order_by("email")
-        )
+        ctx["staff_users"] = User.objects.filter(is_staff=True, is_active=True).order_by("email")
 
         valid_transitions = VALID_TRANSITIONS.get(obj.status, set())
         ctx["valid_transitions"] = valid_transitions
         ctx["status_choices"] = [
-            (s, label)
-            for s, label in WorkItemStatus.choices
-            if s in valid_transitions
+            (s, label) for s, label in WorkItemStatus.choices if s in valid_transitions
         ]
         ctx["is_terminal"] = obj.status in TERMINAL_STATUSES
 
@@ -168,7 +164,7 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
             sr_ct = ContentType.objects.get_for_model(ServiceRequest)
             if obj.content_type_id == sr_ct.pk:
                 linked_sr = ServiceRequest.objects.filter(pk=obj.object_id).first()
-        except Exception:
+        except Exception:  # noqa: S110
             pass
         ctx["linked_service_request"] = linked_sr
 
@@ -183,9 +179,9 @@ class WorkItemDetailView(StaffRequiredMixin, DetailView):
 class WorkItemClaimView(StaffRequiredMixin, View):
     """Claim an unassigned work item for the current staff user."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, pk):
+    def post(self, request, pk):  # noqa: ANN001, ANN201
         work_item = get_object_or_404(WorkItem, pk=pk)
         try:
             with transaction.atomic():
@@ -199,9 +195,9 @@ class WorkItemClaimView(StaffRequiredMixin, View):
 class WorkItemAssignView(StaffRequiredMixin, View):
     """Assign a work item to a specified staff user."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, pk):
+    def post(self, request, pk):  # noqa: ANN001, ANN201
         work_item = get_object_or_404(WorkItem, pk=pk)
         assignee_id = request.POST.get("assignee_id")
         if not assignee_id:
@@ -224,9 +220,9 @@ class WorkItemAssignView(StaffRequiredMixin, View):
 class WorkItemStatusView(StaffRequiredMixin, View):
     """Advance the status of a work item via a validated state-machine transition."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, pk):
+    def post(self, request, pk):  # noqa: ANN001, ANN201
         work_item = get_object_or_404(WorkItem, pk=pk)
         new_status = request.POST.get("new_status", "").strip()
         notes = request.POST.get("notes", "").strip()
@@ -255,9 +251,9 @@ class WorkItemStatusView(StaffRequiredMixin, View):
 class WorkItemCommentView(StaffRequiredMixin, View):
     """Add an internal staff comment to a work item."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, pk):
+    def post(self, request, pk):  # noqa: ANN001, ANN201
         work_item = get_object_or_404(WorkItem, pk=pk)
         body = request.POST.get("body", "").strip()
 

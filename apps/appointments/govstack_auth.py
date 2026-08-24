@@ -88,6 +88,7 @@ Resolved caller identity:
   attribute only describes the MINIMUM role required to reach that view, it
   is never treated as evidence of who the caller actually is.
 """
+
 from __future__ import annotations
 
 import logging
@@ -163,7 +164,20 @@ class GovStackSchedulerAuth(BaseAuthentication):
       - Token is present but fails whitelist validation (production mode only)
     """
 
-    def authenticate(self, request: Request):
+    def authenticate(self, request: Request):  # noqa: ANN201
+        deployment_scope = getattr(
+            settings, "GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE", "single-government"
+        )
+        if deployment_scope != "single-government":
+            logger.error(
+                "govstack_scheduler_auth: unsupported deployment scope=%r; "
+                "multi-government role isolation is not implemented",
+                deployment_scope,
+            )
+            raise AuthenticationFailed(
+                "GovStack Scheduler is limited to the single-government deployment scope."
+            )
+
         requestor_id: str = request.query_params.get("requestor_id", "").strip()
         request_token: str = request.query_params.get("request_token", "").strip()
 
@@ -201,8 +215,8 @@ class GovStackSchedulerAuth(BaseAuthentication):
             # the Finding #1 fix: bb_id itself is NEVER accepted as a bearer credential.
             # Lazy imports avoid circular import issues at module load time and keep
             # this file importable before the app registry is fully initialised.
-            from apps.appointments.models import GovStackBBCredential  # noqa: PLC0415
-            from apps.payments.govstack_models import GovStackRegisteredBB  # noqa: PLC0415
+            from apps.appointments.models import GovStackBBCredential
+            from apps.payments.govstack_models import GovStackRegisteredBB
 
             bb = GovStackRegisteredBB.objects.filter(
                 bb_id=requestor_id,
@@ -239,19 +253,15 @@ class GovStackSchedulerAuth(BaseAuthentication):
                     requestor_id,
                     request.path,
                 )
-                raise AuthenticationFailed(
-                    "request_token is invalid for the given requestor_id."
-                )
+                raise AuthenticationFailed("request_token is invalid for the given requestor_id.")
 
             # Best-effort last_used_at bookkeeping — never let a logging/audit write
             # fail the authentication path itself.
             try:
-                from django.utils import timezone as _tz  # noqa: PLC0415
+                from django.utils import timezone as _tz
 
-                GovStackBBCredential.objects.filter(pk=credential.pk).update(
-                    last_used_at=_tz.now()
-                )
-            except Exception:  # noqa: BLE001
+                GovStackBBCredential.objects.filter(pk=credential.pk).update(last_used_at=_tz.now())
+            except Exception:
                 logger.debug(
                     "govstack_scheduler_auth: failed to update last_used_at for "
                     "credential pk=%s (non-fatal)",
@@ -326,7 +336,7 @@ class GovStackCitizenAuth(BaseAuthentication):
     GovStackSchedulerAuth.
     """
 
-    def authenticate(self, request: Request):
+    def authenticate(self, request: Request):  # noqa: ANN201
         bb_auth = GovStackSchedulerAuth()
         bb_result = bb_auth.authenticate(request)
         if bb_result is None:
@@ -337,7 +347,7 @@ class GovStackCitizenAuth(BaseAuthentication):
             # BB-only path — identical outcome to GovStackSchedulerAuth.
             return bb_result
 
-        from rest_framework_simplejwt.authentication import JWTAuthentication  # noqa: PLC0415
+        from rest_framework_simplejwt.authentication import JWTAuthentication
 
         jwt_result = JWTAuthentication().authenticate(request)
         if jwt_result is None:
@@ -354,7 +364,7 @@ class GovStackCitizenAuth(BaseAuthentication):
         return (user, "govstack_scheduler_subscriber")
 
     def authenticate_header(self, request: Request) -> str:
-        return 'GovStackScheduler realm="requestor_id+request_token query params, optional citizen Bearer JWT"'
+        return 'GovStackScheduler realm="requestor_id+request_token query params, optional citizen Bearer JWT"'  # noqa: E501
 
 
 class GovStackSchedulerPermission(BasePermission):
@@ -377,7 +387,7 @@ class GovStackSchedulerPermission(BasePermission):
       Wave A stub views use the @api_view decorator with no permission_classes,
       so the stubs return 501 to both authenticated and unauthenticated callers.
       Concrete Wave B–G views must set this permission class explicitly.
-    """
+    """  # noqa: RUF002
 
     message = "GovStack Scheduler authentication required (requestor_id + request_token)."
 

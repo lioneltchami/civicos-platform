@@ -11,7 +11,6 @@ from django.urls import reverse
 
 from apps.workflows.models import (
     WorkItem,
-    WorkItemComment,
     WorkItemHistory,
     WorkItemPriority,
     WorkItemStatus,
@@ -21,7 +20,7 @@ User = get_user_model()
 VALID_PASSWORD = "SecureTestPass123!"
 
 
-def _make_staff(email: str) -> "User":
+def _make_staff(email: str) -> User:
     return User.objects.create_user(
         email=email,
         password=VALID_PASSWORD,
@@ -29,7 +28,7 @@ def _make_staff(email: str) -> "User":
     )
 
 
-def _make_citizen(email: str) -> "User":
+def _make_citizen(email: str) -> User:
     return User.objects.create_user(
         email=email,
         password=VALID_PASSWORD,
@@ -72,7 +71,9 @@ class WorkItemListTests(TestCase):
     def test_requires_staff(self):
         """Unauthenticated users are redirected to login."""
         resp = self.client.get(self._url())
-        self.assertRedirects(resp, f"/account/login/?next={self._url()}", fetch_redirect_response=False)
+        self.assertRedirects(
+            resp, f"/account/login/?next={self._url()}", fetch_redirect_response=False
+        )
 
     def test_requires_staff_authenticated_citizen_gets_403(self):
         """Authenticated non-staff users get 403."""
@@ -156,6 +157,7 @@ class WorkItemDetailTests(TestCase):
     def test_nonexistent_404(self):
         """Non-existent UUID returns 404."""
         import uuid
+
         self.client.force_login(self.staff)
         resp = self.client.get(self._url(uuid.uuid4()))
         self.assertEqual(resp.status_code, 404)

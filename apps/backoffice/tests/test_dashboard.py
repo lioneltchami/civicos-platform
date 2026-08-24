@@ -8,13 +8,13 @@ All test users are created with is_staff=False (citizen) or is_staff=True
 (staff) and are disposed of after each test by Django's TestCase rollback.
 """
 
-from django.test import TestCase
-from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.test import TestCase
+from django.urls import reverse
 
 from apps.portal.models import ServiceRequest, ServiceRequestStatus
-from apps.workflows.models import WorkItem, WorkItemStatus, WorkItemPriority
+from apps.workflows.models import WorkItem, WorkItemPriority, WorkItemStatus
 
 User = get_user_model()
 
@@ -71,9 +71,7 @@ class DashboardAccessTests(TestCase):
         An authenticated citizen (is_staff=False) must receive HTTP 403.
         They should never see back-office content.
         """
-        logged_in = self.client.login(
-            email="citizen@example.com", password="SecurePass123!"
-        )
+        logged_in = self.client.login(email="citizen@example.com", password="SecurePass123!")
         self.assertTrue(logged_in, "Citizen login failed — check auth backend config.")
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 403)
@@ -87,9 +85,7 @@ class DashboardAccessTests(TestCase):
         A staff user (is_staff=True) must receive HTTP 200 and see the
         word 'Dashboard' somewhere in the rendered HTML.
         """
-        logged_in = self.client.login(
-            email="staff@example.com", password="SecurePass123!"
-        )
+        logged_in = self.client.login(email="staff@example.com", password="SecurePass123!")
         self.assertTrue(logged_in, "Staff login failed — check auth backend config.")
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)

@@ -1,0 +1,280 @@
+COMMAND: /home/ubuntu/civicos-pr1-candidate-venv/bin/python -m pytest apps/documents/tests/test_admin.py apps/documents/tests/test_api.py apps/documents/tests/test_audit.py apps/documents/tests/test_integration.py apps/documents/tests/test_pipeda.py apps/documents/tests/test_presign_kms_and_clamav_settings.py apps/documents/tests/test_scan_audit_and_promotion.py apps/documents/tests/test_upload_content_gating.py apps/documents/tests/test_wave3_clamav.py apps/documents/tests/test_wave3_download.py apps/documents/tests/test_wave4_retention.py apps/documents/tests/test_wave6_integration.py --color=no --junitxml /home/ubuntu/pr1-ruff-file-management-rerun-20260824/integration/junit-integration.xml --cov=apps.documents --cov-report=xml:/home/ubuntu/pr1-ruff-file-management-rerun-20260824/integration/coverage-integration.xml --cov-report=term-missing --cov-fail-under=0
+LAYER: integration
+COLLECTED: 637
+
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.3, pluggy-1.6.0
+django: version: 5.2.17, settings: config.settings.test (from env)
+rootdir: <workspace>
+configfile: pyproject.toml
+plugins: anyio-4.14.2, time-machine-2.16.0, Faker-33.0.0, xdist-3.6.1, django-4.9.0, cov-6.0.0
+collected 637 items
+
+apps/documents/tests/test_admin.py ................................      [  5%]
+apps/documents/tests/test_api.py ....................................... [ 11%]
+........................................................................ [ 22%]
+..                                                                       [ 22%]
+apps/documents/tests/test_audit.py .................................     [ 27%]
+apps/documents/tests/test_integration.py ............................... [ 32%]
+.......                                                                  [ 33%]
+apps/documents/tests/test_pipeda.py .................................... [ 39%]
+.............                                                            [ 41%]
+apps/documents/tests/test_presign_kms_and_clamav_settings.py ........    [ 42%]
+apps/documents/tests/test_scan_audit_and_promotion.py .................. [ 45%]
+..........                                                               [ 47%]
+apps/documents/tests/test_upload_content_gating.py ...............       [ 49%]
+apps/documents/tests/test_wave3_clamav.py .............................. [ 54%]
+..........................                                               [ 58%]
+apps/documents/tests/test_wave3_download.py ............................ [ 62%]
+.............................................................            [ 72%]
+apps/documents/tests/test_wave4_retention.py ........................... [ 76%]
+........................................................................ [ 87%]
+.                                                                        [ 88%]
+apps/documents/tests/test_wave6_integration.py ......................... [ 91%]
+........................................                                 [ 98%]
+apps/documents/tests/test_integration.py ...........                     [100%]
+
+=============================== warnings summary ===============================
+apps/payments/models.py:195
+  <workspace>/apps/payments/models.py:195: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:199
+  <workspace>/apps/payments/models.py:199: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:352
+  <workspace>/apps/payments/models.py:352: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:356
+  <workspace>/apps/payments/models.py:356: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:360
+  <workspace>/apps/payments/models.py:360: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:364
+  <workspace>/apps/payments/models.py:364: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:500
+  <workspace>/apps/payments/models.py:500: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:700
+  <workspace>/apps/payments/models.py:700: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1013
+  <workspace>/apps/payments/models.py:1013: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1017
+  <workspace>/apps/payments/models.py:1017: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1205
+  <workspace>/apps/payments/models.py:1205: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1209
+  <workspace>/apps/payments/models.py:1209: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1591
+  <workspace>/apps/payments/models.py:1591: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1595
+  <workspace>/apps/payments/models.py:1595: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1599
+  <workspace>/apps/payments/models.py:1599: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1603
+  <workspace>/apps/payments/models.py:1603: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1607
+  <workspace>/apps/payments/models.py:1607: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1847
+  <workspace>/apps/payments/models.py:1847: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1851
+  <workspace>/apps/payments/models.py:1851: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1860
+  <workspace>/apps/payments/models.py:1860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:547
+  <workspace>/apps/volunteers/models.py:547: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:860
+  <workspace>/apps/volunteers/models.py:860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1084
+  <workspace>/apps/volunteers/models.py:1084: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1588
+  <workspace>/apps/volunteers/models.py:1588: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1796
+  <workspace>/apps/volunteers/models.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1136
+  <workspace>/apps/payments/govstack_models.py:1136: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1281
+  <workspace>/apps/payments/govstack_models.py:1281: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    return form_class(**defaults)
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/consent/migrations/0007_govstack_alignment.py:377: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:24: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:31: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0020_govstack_p2g_models.py:148: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0020_govstack_p2g_models.py:296: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1030: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1638: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1645: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1656: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1663: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1684: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1736: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1743: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1750: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1757: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1764: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1789: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0001_initial.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/payments/migrations/0005_add_receipt_amount_constraints.py:27: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/volunteers/migrations/0001_initial.py:648: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/volunteers/migrations/0001_initial.py:863: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/volunteers/migrations/0001_initial.py:1152: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/volunteers/migrations/0002_wave1_fixes.py:95: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_admin.py::DocumentAdminStorageKeyTests::test_storage_key_not_in_any_fieldset
+  <workspace>/apps/volunteers/migrations/0002_wave1_fixes.py:121: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_api.py: 112 warnings
+apps/documents/tests/test_pipeda.py: 3 warnings
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/core/handlers/base.py:61: UserWarning: No directory at: <workspace>/staticfiles/
+    mw_instance = middleware(adapted_handler)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ubuntu/pr1-ruff-file-management-rerun-20260824/integration/junit-integration.xml -
+
+---------- coverage: platform linux, python 3.12.3-final-0 -----------
+Name                                                           Stmts   Miss  Cover   Missing
+--------------------------------------------------------------------------------------------
+apps/documents/admin.py                                           71      6    92%   278, 282-291, 380
+apps/documents/apps.py                                            38     14    63%   68-92
+apps/documents/forms.py                                           73     33    55%   113-142, 147-151, 154-161, 164-171, 234-239, 342-347
+apps/documents/management/commands/manage_legal_hold.py           53     53     0%   35-172
+apps/documents/management/commands/migrate_existing_files.py     191     95    50%   148, 152-159, 171-173, 188-287, 299-301, 320-418, 430-432, 451-550, 602-610
+apps/documents/models.py                                         143     20    86%   52, 63, 275, 278-279, 606, 627, 630-656, 748, 829
+apps/documents/receivers.py                                       14      0   100%
+apps/documents/services/download.py                              116      9    92%   149-150, 384, 412-416, 454-456, 501-502
+apps/documents/services/retention.py                             238     24    90%   197, 251, 348-352, 372-377, 381, 385, 387, 404-405, 458-463, 496, 610, 616, 621, 670-677, 805, 883, 922
+apps/documents/services/upload.py                                336    108    68%   64-65, 72-73, 217, 221, 225, 227, 232, 242, 258, 264, 324-333, 401-402, 412-414, 430, 435, 441-442, 457, 551-559, 613, 642, 645, 650, 654, 658, 702, 800, 903-904, 921-922, 933-939, 981, 993-1011, 1028, 1032, 1051, 1058-1075, 1088, 1092-1098, 1122, 1129-1142, 1155, 1215, 1224-1239, 1243-1245, 1250-1255, 1292-1304, 1310, 1334
+apps/documents/services/versioning.py                            123    104    15%   102-441, 500, 506
+apps/documents/signals.py                                          9      0   100%
+apps/documents/tasks.py                                          416    114    73%   174-206, 222-227, 249-250, 295, 339-340, 458, 465-476, 586-596, 600-606, 711, 999-1079, 1137-1193, 1273-1274, 1381-1382, 1389-1394, 1503-1511, 1721-1722, 1724-1725, 1729-1730, 1732
+apps/documents/urls.py                                             6      0   100%
+apps/documents/views/citizen.py                                  146    103    29%   80-95, 111, 116-117, 146-156, 180, 192-196, 217-235, 271-272, 275-335, 355-389, 417-457, 496-565
+apps/documents/views/staff.py                                    122     71    42%   85-115, 118-126, 150-159, 198, 204-211, 218-301, 332-352, 389, 397-400
+--------------------------------------------------------------------------------------------
+TOTAL                                                           2095    754    64%
+Coverage XML written to file /home/ubuntu/pr1-ruff-file-management-rerun-20260824/integration/coverage-integration.xml
+
+================ 637 passed, 168 warnings in 111.04s (0:01:51) =================
+
+EXIT_CODE: 0

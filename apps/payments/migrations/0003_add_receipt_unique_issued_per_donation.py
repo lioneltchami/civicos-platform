@@ -4,14 +4,17 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0002_add_gateway_intent_id_index_and_event_type_index'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0002_add_gateway_intent_id_index_and_event_type_index"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddConstraint(
-            model_name='officialdonationreceipt',
-            constraint=models.UniqueConstraint(condition=models.Q(('status', 'issued')), fields=('donation',), name='payments_receipt_unique_issued_per_donation'),
+            model_name="officialdonationreceipt",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("status", "issued")),
+                fields=("donation",),
+                name="payments_receipt_unique_issued_per_donation",
+            ),
         ),
     ]

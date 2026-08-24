@@ -8,8 +8,9 @@ The ready() method imports weasyprint and logs a WARNING if:
 Strategy: Call PaymentsConfig.ready() directly on a new instance, patching out
 the signals import and the weasyprint import so we can exercise the error branches.
 """
+
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -18,6 +19,7 @@ def _make_config():
     """Return a fresh PaymentsConfig instance (not the live app registry copy)."""
     import apps.payments as payments_module
     from apps.payments.apps import PaymentsConfig
+
     return PaymentsConfig("payments", payments_module)
 
 
@@ -32,6 +34,7 @@ class WeasyPrintCheckOSErrorTest(SimpleTestCase):
         saved = sys.modules.pop("weasyprint", None)
         try:
             import builtins as _builtins
+
             original_import = _builtins.__import__
 
             def fake_import(name, *args, **kwargs):
@@ -42,8 +45,7 @@ class WeasyPrintCheckOSErrorTest(SimpleTestCase):
                 return original_import(name, *args, **kwargs)
 
             with patch("builtins.__import__", side_effect=fake_import):
-                with patch("apps.payments.apps.PaymentsConfig.ready",
-                           wraps=lambda s=None: None):
+                with patch("apps.payments.apps.PaymentsConfig.ready", wraps=lambda s=None: None):
                     # Directly call the try/except block by invoking ready()
                     # but patching signal connection to be a no-op
                     pass
@@ -64,6 +66,7 @@ class WeasyPrintCheckOSErrorTest(SimpleTestCase):
         saved = sys.modules.pop("weasyprint", None)
         try:
             import builtins as _builtins
+
             original_import = _builtins.__import__
 
             def fake_import(name, *args, **kwargs):
@@ -72,8 +75,7 @@ class WeasyPrintCheckOSErrorTest(SimpleTestCase):
                 return original_import(name, *args, **kwargs)
 
             # Patch signal connectors and the import, then call ready()
-            with patch("apps.payments.apps.PaymentsConfig.ready.__wrapped__",
-                       create=True):
+            with patch("apps.payments.apps.PaymentsConfig.ready.__wrapped__", create=True):
                 pass
 
             # Cleanest approach: call the actual ready() but mock signals
@@ -84,10 +86,13 @@ class WeasyPrintCheckOSErrorTest(SimpleTestCase):
             fake_receivers_module.on_donation_completed = MagicMock()
             fake_receivers_module.on_receipt_issued = MagicMock()
 
-            with patch.dict("sys.modules", {
-                "apps.payments.signals": fake_signals_module,
-                "apps.payments.receivers": fake_receivers_module,
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "apps.payments.signals": fake_signals_module,
+                    "apps.payments.receivers": fake_receivers_module,
+                },
+            ):
                 with patch("builtins.__import__", side_effect=fake_import):
                     with self.assertLogs("apps.payments.apps", level="WARNING") as log_ctx:
                         config.ready()
@@ -106,6 +111,7 @@ class WeasyPrintCheckOSErrorTest(SimpleTestCase):
         saved = sys.modules.pop("weasyprint", None)
         try:
             import builtins as _builtins
+
             original_import = _builtins.__import__
 
             def fake_import(name, *args, **kwargs):
@@ -120,10 +126,13 @@ class WeasyPrintCheckOSErrorTest(SimpleTestCase):
             fake_receivers_module.on_donation_completed = MagicMock()
             fake_receivers_module.on_receipt_issued = MagicMock()
 
-            with patch.dict("sys.modules", {
-                "apps.payments.signals": fake_signals_module,
-                "apps.payments.receivers": fake_receivers_module,
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "apps.payments.signals": fake_signals_module,
+                    "apps.payments.receivers": fake_receivers_module,
+                },
+            ):
                 with patch("builtins.__import__", side_effect=fake_import):
                     with self.assertLogs("apps.payments.apps", level="WARNING") as log_ctx:
                         config.ready()
@@ -153,6 +162,7 @@ class WeasyPrintCheckImportErrorTest(SimpleTestCase):
         saved = sys.modules.pop("weasyprint", None)
         try:
             import builtins as _builtins
+
             original_import = _builtins.__import__
 
             def fake_import(name, *args, **kwargs):
@@ -161,10 +171,13 @@ class WeasyPrintCheckImportErrorTest(SimpleTestCase):
                 return original_import(name, *args, **kwargs)
 
             fake_sig, fake_recv = self._make_fake_signal_modules()
-            with patch.dict("sys.modules", {
-                "apps.payments.signals": fake_sig,
-                "apps.payments.receivers": fake_recv,
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "apps.payments.signals": fake_sig,
+                    "apps.payments.receivers": fake_recv,
+                },
+            ):
                 with patch("builtins.__import__", side_effect=fake_import):
                     with self.assertLogs("apps.payments.apps", level="WARNING") as log_ctx:
                         config.ready()
@@ -182,6 +195,7 @@ class WeasyPrintCheckImportErrorTest(SimpleTestCase):
         saved = sys.modules.pop("weasyprint", None)
         try:
             import builtins as _builtins
+
             original_import = _builtins.__import__
 
             def fake_import(name, *args, **kwargs):
@@ -190,10 +204,13 @@ class WeasyPrintCheckImportErrorTest(SimpleTestCase):
                 return original_import(name, *args, **kwargs)
 
             fake_sig, fake_recv = self._make_fake_signal_modules()
-            with patch.dict("sys.modules", {
-                "apps.payments.signals": fake_sig,
-                "apps.payments.receivers": fake_recv,
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "apps.payments.signals": fake_sig,
+                    "apps.payments.receivers": fake_recv,
+                },
+            ):
                 with patch("builtins.__import__", side_effect=fake_import):
                     with self.assertLogs("apps.payments.apps", level="WARNING") as log_ctx:
                         config.ready()
@@ -210,16 +227,19 @@ class PaymentsAppConfigMetaTest(SimpleTestCase):
 
     def test_app_label(self):
         from django.apps import apps
+
         config = apps.get_app_config("payments")
         self.assertEqual(config.label, "payments")
 
     def test_app_name(self):
         from django.apps import apps
+
         config = apps.get_app_config("payments")
         self.assertEqual(config.name, "apps.payments")
 
     def test_verbose_name(self):
         from django.apps import apps
+
         config = apps.get_app_config("payments")
         self.assertEqual(config.verbose_name, "Payments")
 
@@ -227,6 +247,7 @@ class PaymentsAppConfigMetaTest(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # L2: debug_task must not exist in config.celery (production safety)
 # ---------------------------------------------------------------------------
+
 
 class CeleryDebugTaskRemovedTest(SimpleTestCase):
     """
@@ -240,6 +261,7 @@ class CeleryDebugTaskRemovedTest(SimpleTestCase):
     def test_debug_task_not_in_celery_module(self):
         """config.celery must not define debug_task."""
         import config.celery as celery_module
+
         self.assertFalse(
             hasattr(celery_module, "debug_task"),
             "debug_task must be removed from config/celery.py — "
@@ -249,6 +271,7 @@ class CeleryDebugTaskRemovedTest(SimpleTestCase):
     def test_celery_app_exists(self):
         """config.celery.app must still exist after debug_task removal."""
         import config.celery as celery_module
+
         self.assertTrue(hasattr(celery_module, "app"))
 
 
@@ -256,6 +279,7 @@ class CeleryDebugTaskRemovedTest(SimpleTestCase):
 # Payments BB certifiability fix pass (2026-07-27), Finding 2 — real-server
 # async-dispatch gap. Regression coverage for config/__init__.py.
 # ---------------------------------------------------------------------------
+
 
 class CeleryAppBootstrapTest(TestCase):
     """
@@ -295,6 +319,7 @@ class CeleryAppBootstrapTest(TestCase):
     def test_config_package_exposes_celery_app(self):
         """The config package's own __init__ must expose the configured app."""
         import config
+
         self.assertTrue(
             hasattr(config, "celery_app"),
             "config/__init__.py must import the Celery app as `celery_app` — "

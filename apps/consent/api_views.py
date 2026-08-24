@@ -14,6 +14,7 @@ Security invariants:
 - ValueError from service layer -> 400 via ValidationError.
 - No PII written to logs — only PKs.
 """
+
 import logging
 
 from rest_framework import status
@@ -44,12 +45,12 @@ class ConsentCategoryListView(ListAPIView):
     """GET /api/v1/consent/categories/ -- list all active consent categories."""
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
     serializer_class = ConsentCategorySerializer
     # No pagination -- citizens see a small, complete list of categories
     pagination_class = None
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return ConsentService.get_active_categories()
 
 
@@ -57,12 +58,12 @@ class ConsentRecordListView(ListAPIView):
     """GET /api/v1/consent/records/ -- list citizen's consent records."""
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
     serializer_class = ConsentRecordSerializer
     # No pagination -- citizens see their own small set of records
     pagination_class = None
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return ConsentService.get_citizen_consents(self.request.user)
 
 
@@ -70,9 +71,9 @@ class ConsentRecordUpdateView(APIView):
     """PATCH /api/v1/consent/records/<category_slug>/ -- grant or withdraw."""
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
-    def patch(self, request, category_slug):
+    def patch(self, request, category_slug):  # noqa: ANN001, ANN201
         serializer = ConsentUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -85,9 +86,12 @@ class ConsentRecordUpdateView(APIView):
         except ValueError as exc:
             logger.info(
                 "Consent %s rejected for user_id=%s category=%s: %s",
-                action, request.user.pk, category_slug, exc,
+                action,
+                request.user.pk,
+                category_slug,
+                exc,
             )
-            raise ValidationError(str(exc))
+            raise ValidationError(str(exc))  # noqa: B904
 
         return Response(ConsentRecordSerializer(record).data)
 
@@ -96,21 +100,22 @@ class DataExportRequestListCreateView(APIView):
     """GET/POST /api/v1/consent/export-requests/"""
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         qs = ConsentService.get_citizen_exports(request.user)
         return Response(DataExportRequestSerializer(qs, many=True).data)
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         try:
             export_req = ConsentService.request_export(request.user, request=request)
         except ValueError as exc:
             logger.info(
                 "Export request rejected for user_id=%s: %s",
-                request.user.pk, exc,
+                request.user.pk,
+                exc,
             )
-            raise ValidationError(str(exc))
+            raise ValidationError(str(exc))  # noqa: B904
         return Response(
             DataExportRequestSerializer(export_req).data,
             status=status.HTTP_201_CREATED,
@@ -121,9 +126,9 @@ class DataExportRequestDetailView(RetrieveAPIView):
     """GET /api/v1/consent/export-requests/<pk>/"""
 
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
     serializer_class = DataExportRequestSerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         # Scope to the authenticated citizen -- IDOR protection.
         return DataExportRequest.objects.filter(citizen=self.request.user)

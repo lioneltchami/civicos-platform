@@ -19,6 +19,7 @@ Conventions:
     because signals use send_robust().
   - PIPEDA: log assertions contain PKs only; no volunteer PII in task log output.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -41,8 +42,8 @@ from apps.volunteers.models import (
 from apps.volunteers.tasks import (
     check_expiring_certifications,
     check_expiring_screenings,
-    send_shift_reminders_24h,
     send_shift_reminders_2h,
+    send_shift_reminders_24h,
 )
 
 User = get_user_model()
@@ -67,27 +68,27 @@ def _make_user(email=None, **kwargs):
 
 def _make_program(**kwargs):
     n = _uid()
-    defaults = dict(
-        name_en=f"Program {n}",
-        name_fr=f"Programme {n}",
-        slug=f"tprog-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"Program {n}",
+        "name_fr": f"Programme {n}",
+        "slug": f"tprog-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     n = _uid()
-    defaults = dict(
-        title_en=f"Opportunity {n}",
-        title_fr=f"Opportunité {n}",
-        slug=slug or f"topp-{n}",
-        description_en="Desc",
-        description_fr="Desc FR",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": f"Opportunity {n}",
+        "title_fr": f"Opportunité {n}",
+        "slug": slug or f"topp-{n}",
+        "description_en": "Desc",
+        "description_fr": "Desc FR",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -110,8 +111,14 @@ def _make_shift(opportunity, *, start_offset_hours, duration_hours=2, **kwargs):
     )
 
 
-def _make_booking(shift, volunteer_profile, *, status=ShiftBooking.STATUS_CONFIRMED,
-                  reminder_24h_sent=False, reminder_2h_sent=False):
+def _make_booking(
+    shift,
+    volunteer_profile,
+    *,
+    status=ShiftBooking.STATUS_CONFIRMED,
+    reminder_24h_sent=False,
+    reminder_2h_sent=False,
+):
     return ShiftBooking.objects.create(
         shift=shift,
         volunteer=volunteer_profile,
@@ -124,6 +131,7 @@ def _make_booking(shift, volunteer_profile, *, status=ShiftBooking.STATUS_CONFIR
 # ---------------------------------------------------------------------------
 # Base setup shared by reminder task tests
 # ---------------------------------------------------------------------------
+
 
 class ReminderTaskBaseTestCase(TestCase):
     """
@@ -150,12 +158,13 @@ class ReminderTaskBaseTestCase(TestCase):
 # send_shift_reminders_24h task tests
 # ===========================================================================
 
+
 class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
     """Tests for send_shift_reminders_24h Celery task."""
 
     def setUp(self):
         super().setUp()
-        # Shift starting ~24h from now (inside the 23h–25h window).
+        # Shift starting ~24h from now (inside the 23h–25h window).  # noqa: RUF003
         self.shift = _make_shift(self.opportunity, start_offset_hours=24)
         self.booking = _make_booking(
             self.shift,
@@ -202,7 +211,7 @@ class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
         m.assert_not_called()
 
     def test_send_shift_reminders_24h_skips_outside_window(self):
-        """Task ignores bookings for shifts outside the 23h–25h window."""
+        """Task ignores bookings for shifts outside the 23h–25h window."""  # noqa: RUF002
         # Shift starting in 48h — outside the 24h window.
         far_shift = _make_shift(self.opportunity, start_offset_hours=48)
         _make_booking(far_shift, self.volunteer_profile, reminder_24h_sent=False)
@@ -268,12 +277,13 @@ class ShiftReminderTask24hTests(ReminderTaskBaseTestCase):
 # send_shift_reminders_2h task tests
 # ===========================================================================
 
+
 class ShiftReminderTask2hTests(ReminderTaskBaseTestCase):
     """Tests for send_shift_reminders_2h Celery task."""
 
     def setUp(self):
         super().setUp()
-        # Shift starting ~2h from now (inside the 1h–3h window).
+        # Shift starting ~2h from now (inside the 1h–3h window).  # noqa: RUF003
         self.shift = _make_shift(self.opportunity, start_offset_hours=2)
         self.booking = _make_booking(
             self.shift,
@@ -306,7 +316,7 @@ class ShiftReminderTask2hTests(ReminderTaskBaseTestCase):
         m.assert_not_called()
 
     def test_send_shift_reminders_2h_skips_outside_window(self):
-        """Task ignores shifts outside the 1h–3h window (e.g., 24h away)."""
+        """Task ignores shifts outside the 1h–3h window (e.g., 24h away)."""  # noqa: RUF002
         far_shift = _make_shift(self.opportunity, start_offset_hours=24)
         far_user = _make_user()
         far_profile = _make_profile(far_user)
@@ -365,6 +375,7 @@ class ShiftReminderTask2hTests(ReminderTaskBaseTestCase):
 # check_expiring_screenings task tests
 # ===========================================================================
 
+
 class ExpiringScreeningTaskTests(TestCase):
     """Tests for check_expiring_screenings Celery task."""
 
@@ -373,7 +384,9 @@ class ExpiringScreeningTaskTests(TestCase):
         self.volunteer_user = _make_user("screen_vol@example.gc.ca")
         self.volunteer_profile = _make_profile(self.volunteer_user)
 
-    def _make_screening_record(self, expires_days_from_now, check_type=ScreeningRecord.CHECK_TYPE_VSC):
+    def _make_screening_record(
+        self, expires_days_from_now, check_type=ScreeningRecord.CHECK_TYPE_VSC
+    ):
         """Create a verified-clear ScreeningRecord expiring in `expires_days_from_now` days."""
         today = timezone.localtime(timezone.now()).date()
         return ScreeningRecord.objects.create(
@@ -390,9 +403,7 @@ class ExpiringScreeningTaskTests(TestCase):
         """Task fires screening_expiring signal for records expiring within 30 days."""
         self._make_screening_record(expires_days_from_now=15)
 
-        with mock.patch(
-            "apps.volunteers.signals.screening_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.screening_expiring.send_robust") as m:
             m.return_value = []  # No receivers registered in this test.
             check_expiring_screenings()
 
@@ -411,9 +422,7 @@ class ExpiringScreeningTaskTests(TestCase):
             verified_at=timezone.now(),
         )
 
-        with mock.patch(
-            "apps.volunteers.signals.screening_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.screening_expiring.send_robust") as m:
             check_expiring_screenings()
 
         m.assert_not_called()
@@ -422,9 +431,7 @@ class ExpiringScreeningTaskTests(TestCase):
         """Task ignores records expiring more than 30 days from now."""
         self._make_screening_record(expires_days_from_now=45)
 
-        with mock.patch(
-            "apps.volunteers.signals.screening_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.screening_expiring.send_robust") as m:
             check_expiring_screenings()
 
         m.assert_not_called()
@@ -511,14 +518,15 @@ class ExpiringScreeningTaskTests(TestCase):
             verified_at=timezone.now(),
         )
 
-        with mock.patch(
-            "apps.volunteers.signals.screening_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.screening_expiring.send_robust") as m:
             result = check_expiring_screenings()
 
         m.assert_not_called()
-        self.assertEqual(result["fired"], 0,
-                         "Non-VSC record near expiry must not trigger check_expiring_screenings.")
+        self.assertEqual(
+            result["fired"],
+            0,
+            "Non-VSC record near expiry must not trigger check_expiring_screenings.",
+        )
 
     def test_expiring_screenings_ignores_pending_vsc_records(self):
         """
@@ -539,14 +547,13 @@ class ExpiringScreeningTaskTests(TestCase):
             verified_at=timezone.now(),
         )
 
-        with mock.patch(
-            "apps.volunteers.signals.screening_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.screening_expiring.send_robust") as m:
             result = check_expiring_screenings()
 
         m.assert_not_called()
-        self.assertEqual(result["fired"], 0,
-                         "Pending (verified_clear=None) VSC record must not trigger alert.")
+        self.assertEqual(
+            result["fired"], 0, "Pending (verified_clear=None) VSC record must not trigger alert."
+        )
 
     def test_expiring_screenings_ignores_failed_vsc_records(self):
         """
@@ -566,14 +573,13 @@ class ExpiringScreeningTaskTests(TestCase):
             verified_at=timezone.now(),
         )
 
-        with mock.patch(
-            "apps.volunteers.signals.screening_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.screening_expiring.send_robust") as m:
             result = check_expiring_screenings()
 
         m.assert_not_called()
-        self.assertEqual(result["fired"], 0,
-                         "Failed (verified_clear=False) VSC record must not trigger alert.")
+        self.assertEqual(
+            result["fired"], 0, "Failed (verified_clear=False) VSC record must not trigger alert."
+        )
 
     def test_expiring_screenings_vsc_cleared_is_alerted(self):
         """
@@ -606,6 +612,7 @@ class ExpiringScreeningTaskTests(TestCase):
 # check_expiring_certifications task tests
 # ===========================================================================
 
+
 class ExpiringCertificationsTaskTests(TestCase):
     """Tests for check_expiring_certifications Celery task."""
 
@@ -614,8 +621,9 @@ class ExpiringCertificationsTaskTests(TestCase):
         self.volunteer_user = _make_user("cert_vol@example.gc.ca")
         self.volunteer_profile = _make_profile(self.volunteer_user)
 
-    def _make_certification(self, expires_days_from_now,
-                            cert_type=Certification.CERT_TYPE_FIRST_AID):
+    def _make_certification(
+        self, expires_days_from_now, cert_type=Certification.CERT_TYPE_FIRST_AID
+    ):
         today = timezone.localtime(timezone.now()).date()
         return Certification.objects.create(
             volunteer=self.volunteer_profile,
@@ -628,9 +636,7 @@ class ExpiringCertificationsTaskTests(TestCase):
         """Task fires certification_expiring signal for certs expiring within 30 days."""
         self._make_certification(expires_days_from_now=10)
 
-        with mock.patch(
-            "apps.volunteers.signals.certification_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.certification_expiring.send_robust") as m:
             m.return_value = []
             check_expiring_certifications()
 
@@ -646,9 +652,7 @@ class ExpiringCertificationsTaskTests(TestCase):
             expires_date=today - datetime.timedelta(days=1),
         )
 
-        with mock.patch(
-            "apps.volunteers.signals.certification_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.certification_expiring.send_robust") as m:
             check_expiring_certifications()
 
         m.assert_not_called()
@@ -657,9 +661,7 @@ class ExpiringCertificationsTaskTests(TestCase):
         """Task ignores certs expiring more than 30 days from now."""
         self._make_certification(expires_days_from_now=60)
 
-        with mock.patch(
-            "apps.volunteers.signals.certification_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.certification_expiring.send_robust") as m:
             check_expiring_certifications()
 
         m.assert_not_called()
@@ -688,9 +690,7 @@ class ExpiringCertificationsTaskTests(TestCase):
             expires_date=None,  # no expiry
         )
 
-        with mock.patch(
-            "apps.volunteers.signals.certification_expiring.send_robust"
-        ) as m:
+        with mock.patch("apps.volunteers.signals.certification_expiring.send_robust") as m:
             check_expiring_certifications()
 
         m.assert_not_called()
@@ -700,13 +700,15 @@ class ExpiringCertificationsTaskTests(TestCase):
 # create_beat_schedule() helper tests
 # ===========================================================================
 
+
 class CreateBeatScheduleTests(TestCase):
     """Tests for the create_beat_schedule() data-migration helper."""
 
     def test_creates_four_periodic_tasks(self):
         """create_beat_schedule() registers exactly 6 periodic tasks."""
-        from apps.volunteers.tasks import create_beat_schedule
         from django_celery_beat.models import PeriodicTask
+
+        from apps.volunteers.tasks import create_beat_schedule
 
         initial_count = PeriodicTask.objects.count()
         create_beat_schedule()
@@ -716,8 +718,9 @@ class CreateBeatScheduleTests(TestCase):
 
     def test_idempotent_second_call_does_not_duplicate(self):
         """Calling create_beat_schedule() twice does not duplicate PeriodicTask rows."""
-        from apps.volunteers.tasks import create_beat_schedule
         from django_celery_beat.models import PeriodicTask
+
+        from apps.volunteers.tasks import create_beat_schedule
 
         create_beat_schedule()
         count_after_first = PeriodicTask.objects.count()
@@ -729,16 +732,18 @@ class CreateBeatScheduleTests(TestCase):
     def test_second_call_clears_args_field(self):
         """create_beat_schedule() clears any stale args on existing tasks."""
         import json
-        from apps.volunteers.tasks import create_beat_schedule
+
         from django_celery_beat.models import PeriodicTask
+
+        from apps.volunteers.tasks import create_beat_schedule
 
         # First call to create tasks
         create_beat_schedule()
 
         # Manually corrupt the args field on all volunteer tasks
-        PeriodicTask.objects.filter(
-            task__startswith="apps.volunteers.tasks."
-        ).update(args=json.dumps(["stale_arg"]))
+        PeriodicTask.objects.filter(task__startswith="apps.volunteers.tasks.").update(
+            args=json.dumps(["stale_arg"])
+        )
 
         # Second call should clear them
         create_beat_schedule()
@@ -748,8 +753,9 @@ class CreateBeatScheduleTests(TestCase):
 
     def test_task_names_are_correct(self):
         """create_beat_schedule() registers the four expected task names."""
-        from apps.volunteers.tasks import create_beat_schedule
         from django_celery_beat.models import PeriodicTask
+
+        from apps.volunteers.tasks import create_beat_schedule
 
         create_beat_schedule()
 
@@ -760,16 +766,17 @@ class CreateBeatScheduleTests(TestCase):
             "apps.volunteers.tasks.check_expiring_certifications",
         }
         registered = set(
-            PeriodicTask.objects.filter(
-                task__startswith="apps.volunteers.tasks."
-            ).values_list("task", flat=True)
+            PeriodicTask.objects.filter(task__startswith="apps.volunteers.tasks.").values_list(
+                "task", flat=True
+            )
         )
         self.assertEqual(registered, expected_tasks)
 
     def test_periodic_task_display_names_are_correct(self):
         """create_beat_schedule() sets the expected human-readable PeriodicTask names."""
-        from apps.volunteers.tasks import create_beat_schedule
         from django_celery_beat.models import PeriodicTask
+
+        from apps.volunteers.tasks import create_beat_schedule
 
         create_beat_schedule()
 
@@ -780,16 +787,17 @@ class CreateBeatScheduleTests(TestCase):
             "volunteers: check expiring certifications (daily 08:00 ET)",
         }
         registered_names = set(
-            PeriodicTask.objects.filter(
-                task__startswith="apps.volunteers.tasks."
-            ).values_list("name", flat=True)
+            PeriodicTask.objects.filter(task__startswith="apps.volunteers.tasks.").values_list(
+                "name", flat=True
+            )
         )
         self.assertEqual(registered_names, expected_names)
 
     def test_all_tasks_enabled_after_create(self):
         """All registered periodic tasks have enabled=True after create_beat_schedule()."""
-        from apps.volunteers.tasks import create_beat_schedule
         from django_celery_beat.models import PeriodicTask
+
+        from apps.volunteers.tasks import create_beat_schedule
 
         create_beat_schedule()
 

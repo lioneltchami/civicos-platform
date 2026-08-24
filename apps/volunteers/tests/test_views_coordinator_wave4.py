@@ -22,6 +22,7 @@ Django test conventions used:
   - reverse() for all URL lookups.
   - _skip_if_url_missing() pattern from test_views_coordinator.py.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -52,6 +53,7 @@ _counter = [0]
 # Shared factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(email=None, **kwargs):
     _counter[0] += 1
     email = email or f"w4view{_counter[0]}@example.gc.ca"
@@ -70,15 +72,15 @@ def _make_program(slug=None):
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     _counter[0] += 1
-    defaults = dict(
-        title_en="Wave 4 Opportunity",
-        title_fr="Opportunité Wave 4",
-        slug=slug or f"w4opp-{_counter[0]}",
-        description_en="Description",
-        description_fr="Description FR",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": "Wave 4 Opportunity",
+        "title_fr": "Opportunité Wave 4",
+        "slug": slug or f"w4opp-{_counter[0]}",
+        "description_en": "Description",
+        "description_fr": "Description FR",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -138,6 +140,7 @@ def _url(name, **kwargs):
 # Base test case
 # ---------------------------------------------------------------------------
 
+
 class Wave4BaseTestCase(TestCase):
     """
     Shared fixtures for Wave 4 coordinator view tests.
@@ -183,8 +186,8 @@ class Wave4BaseTestCase(TestCase):
 # VolunteerRosterView — GET /coordinator/volunteers/
 # ===========================================================================
 
-class VolunteerRosterViewTests(Wave4BaseTestCase):
 
+class VolunteerRosterViewTests(Wave4BaseTestCase):
     def _url(self):
         return _url("volunteer_roster")
 
@@ -258,7 +261,7 @@ class VolunteerRosterViewTests(Wave4BaseTestCase):
         self.assertNotIn(other_profile.pk, profile_pks)
 
     def test_does_not_show_other_program_volunteers(self):
-        """Roster must not include volunteers whose applications are only in other coordinators' programs."""
+        """Roster must not include volunteers whose applications are only in other coordinators' programs."""  # noqa: E501
         url = self._url()
         self._skip_if_url_missing(url, "volunteer_roster")
 
@@ -282,8 +285,8 @@ class VolunteerRosterViewTests(Wave4BaseTestCase):
 # VolunteerDetailView — GET /coordinator/volunteers/<pk>/
 # ===========================================================================
 
-class VolunteerDetailViewTests(Wave4BaseTestCase):
 
+class VolunteerDetailViewTests(Wave4BaseTestCase):
     def _url(self, pk=None):
         return _url("volunteer_detail", pk=pk or self.profile.pk)
 
@@ -347,7 +350,7 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         self.assertContains(response, "Low-vision screen reader required")
 
     def test_all_sensitive_fields_hidden_without_permission(self):
-        """All five PIPEDA-sensitive fields must be absent from response when coordinator lacks permission."""
+        """All five PIPEDA-sensitive fields must be absent from response when coordinator lacks permission."""  # noqa: E501
         url = self._url()
         self._skip_if_url_missing(url, "volunteer_detail")
 
@@ -356,10 +359,15 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         self.profile.emergency_contact_phone = "613-555-0100"
         self.profile.emergency_contact_relationship = "Spouse"
         self.profile.sin_last4 = "1234"
-        self.profile.save(update_fields=[
-            "accommodation_notes", "emergency_contact_name",
-            "emergency_contact_phone", "emergency_contact_relationship", "sin_last4",
-        ])
+        self.profile.save(
+            update_fields=[
+                "accommodation_notes",
+                "emergency_contact_name",
+                "emergency_contact_phone",
+                "emergency_contact_relationship",
+                "sin_last4",
+            ]
+        )
 
         self.login_as_coordinator()  # does NOT have view_accommodation_notes
         response = self.client.get(url)
@@ -372,7 +380,7 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         self.assertNotIn("1234", content)
 
     def test_all_sensitive_fields_visible_with_permission(self):
-        """All five PIPEDA-sensitive fields must be visible when coordinator has view_accommodation_notes."""
+        """All five PIPEDA-sensitive fields must be visible when coordinator has view_accommodation_notes."""  # noqa: E501
         url = self._url()
         self._skip_if_url_missing(url, "volunteer_detail")
 
@@ -381,10 +389,15 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         self.profile.emergency_contact_phone = "613-555-0100"
         self.profile.emergency_contact_relationship = "Spouse"
         self.profile.sin_last4 = "5678"
-        self.profile.save(update_fields=[
-            "accommodation_notes", "emergency_contact_name",
-            "emergency_contact_phone", "emergency_contact_relationship", "sin_last4",
-        ])
+        self.profile.save(
+            update_fields=[
+                "accommodation_notes",
+                "emergency_contact_name",
+                "emergency_contact_phone",
+                "emergency_contact_relationship",
+                "sin_last4",
+            ]
+        )
 
         coordinator_with_perm = _grant_perm(self.coordinator, "view_accommodation_notes")
         self.client.force_login(coordinator_with_perm)
@@ -398,7 +411,7 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
         self.assertIn("5678", content)
 
     def test_idor_other_program_volunteer_returns_404(self):
-        """Coordinator cannot view detail for a volunteer belonging to another coordinator's program."""
+        """Coordinator cannot view detail for a volunteer belonging to another coordinator's program."""  # noqa: E501
         url = self._url()
         self._skip_if_url_missing(url, "volunteer_detail")
 
@@ -422,8 +435,8 @@ class VolunteerDetailViewTests(Wave4BaseTestCase):
 # VolunteerStatusChangeView — POST /coordinator/volunteers/<pk>/status/
 # ===========================================================================
 
-class VolunteerStatusChangeViewTests(Wave4BaseTestCase):
 
+class VolunteerStatusChangeViewTests(Wave4BaseTestCase):
     def setUp(self):
         super().setUp()
         # Grant volunteers.change_volunteerprofile (required by the view)
@@ -507,8 +520,8 @@ class VolunteerStatusChangeViewTests(Wave4BaseTestCase):
 # AddVolunteerNoteView — POST /coordinator/volunteers/<pk>/note/
 # ===========================================================================
 
-class AddVolunteerNoteViewTests(Wave4BaseTestCase):
 
+class AddVolunteerNoteViewTests(Wave4BaseTestCase):
     def setUp(self):
         super().setUp()
         # Grant volunteers.change_volunteerprofile (required by the view)
@@ -556,9 +569,7 @@ class AddVolunteerNoteViewTests(Wave4BaseTestCase):
         self.login_as_coordinator()
         response = self.client.post(idor_url, {"body": "IDOR note"})
         self.assertEqual(response.status_code, 404)
-        self.assertFalse(
-            VolunteerNote.objects.filter(volunteer=profile_b).exists()
-        )
+        self.assertFalse(VolunteerNote.objects.filter(volunteer=profile_b).exists())
 
     def test_add_note_get_not_allowed(self):
         """GET on the add-note URL returns 405."""
@@ -573,8 +584,8 @@ class AddVolunteerNoteViewTests(Wave4BaseTestCase):
 # RecordScreeningView — GET+POST /coordinator/volunteers/<pk>/screening/new/
 # ===========================================================================
 
-class RecordScreeningViewTests(Wave4BaseTestCase):
 
+class RecordScreeningViewTests(Wave4BaseTestCase):
     def setUp(self):
         super().setUp()
         # Grant volunteers.add_screeningrecord (required by the view)
@@ -597,10 +608,13 @@ class RecordScreeningViewTests(Wave4BaseTestCase):
         url = self._url()
         self._skip_if_url_missing(url, "record_screening")
         self.login_as_coordinator()
-        response = self.client.post(url, {
-            "check_type": ScreeningRecord.CHECK_TYPE_PRC,
-            "completed_date": "2026-01-15",
-        })
+        response = self.client.post(
+            url,
+            {
+                "check_type": ScreeningRecord.CHECK_TYPE_PRC,
+                "completed_date": "2026-01-15",
+            },
+        )
         # On success the view redirects to volunteer_detail
         self.assertEqual(response.status_code, 302)
         record = ScreeningRecord.objects.filter(
@@ -627,22 +641,23 @@ class RecordScreeningViewTests(Wave4BaseTestCase):
 
         idor_url = _url("record_screening", pk=profile_b.pk)
         self.login_as_coordinator()
-        response = self.client.post(idor_url, {
-            "check_type": ScreeningRecord.CHECK_TYPE_PRC,
-            "completed_date": "2026-01-15",
-        })
-        self.assertEqual(response.status_code, 404)
-        self.assertFalse(
-            ScreeningRecord.objects.filter(volunteer=profile_b).exists()
+        response = self.client.post(
+            idor_url,
+            {
+                "check_type": ScreeningRecord.CHECK_TYPE_PRC,
+                "completed_date": "2026-01-15",
+            },
         )
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(ScreeningRecord.objects.filter(volunteer=profile_b).exists())
 
 
 # ===========================================================================
 # CompleteScreeningView — POST /coordinator/screening/<pk>/complete/
 # ===========================================================================
 
-class CompleteScreeningViewTests(Wave4BaseTestCase):
 
+class CompleteScreeningViewTests(Wave4BaseTestCase):
     def setUp(self):
         super().setUp()
         # Grant both add and change permissions
@@ -704,7 +719,7 @@ class CompleteScreeningViewTests(Wave4BaseTestCase):
 # HonorariumCreateView — GET+POST /coordinator/volunteers/<pk>/honorarium/new/
 # ===========================================================================
 
-from django.test import override_settings
+from django.test import override_settings  # noqa: E402
 
 
 @override_settings(
@@ -713,7 +728,6 @@ from django.test import override_settings
     VOLUNTEER_CRA_HARD_BLOCK=1000,
 )
 class HonorariumCreateViewTests(Wave4BaseTestCase):
-
     def setUp(self):
         super().setUp()
         # Grant volunteers.add_honorarium (required by the view)
@@ -737,19 +751,22 @@ class HonorariumCreateViewTests(Wave4BaseTestCase):
         url = self._url()
         self._skip_if_url_missing(url, "honorarium_create")
         self.login_as_coordinator()
-        response = self.client.post(url, {
-            "payment_type": Honorarium.PAYMENT_TYPE_HONORARIUM,
-            "amount": "100.00",
-            "description": "Wave 4 test honorarium",
-            "payment_date": "2026-06-01",
-        })
+        response = self.client.post(
+            url,
+            {
+                "payment_type": Honorarium.PAYMENT_TYPE_HONORARIUM,
+                "amount": "100.00",
+                "description": "Wave 4 test honorarium",
+                "payment_date": "2026-06-01",
+            },
+        )
         self.assertEqual(response.status_code, 302)
         h = Honorarium.objects.filter(volunteer=self.profile).first()
         self.assertIsNotNone(h)
         self.assertEqual(h.amount, Decimal("100.00"))
 
     def test_idor_other_program_volunteer_returns_404(self):
-        """Coordinator cannot create an honorarium for a volunteer belonging to another coordinator's program."""
+        """Coordinator cannot create an honorarium for a volunteer belonging to another coordinator's program."""  # noqa: E501
         url = self._url()
         self._skip_if_url_missing(url, "honorarium_create")
 
@@ -779,12 +796,15 @@ class HonorariumCreateViewTests(Wave4BaseTestCase):
         _make_honorarium(self.profile, "1000.00", created_by=self.coordinator)
 
         self.login_as_coordinator()
-        response = self.client.post(url, {
-            "payment_type": Honorarium.PAYMENT_TYPE_HONORARIUM,
-            "amount": "0.01",
-            "description": "Should be blocked",
-            "payment_date": "2026-06-01",
-        })
+        response = self.client.post(
+            url,
+            {
+                "payment_type": Honorarium.PAYMENT_TYPE_HONORARIUM,
+                "amount": "0.01",
+                "description": "Should be blocked",
+                "payment_date": "2026-06-01",
+            },
+        )
         # View re-renders form with error (200) — not a redirect
         self.assertEqual(response.status_code, 200)
         # No new honorarium should have been created beyond the setup row
@@ -798,6 +818,7 @@ class HonorariumCreateViewTests(Wave4BaseTestCase):
 # ===========================================================================
 # Security invariants — batch login check
 # ===========================================================================
+
 
 class Wave4SecurityInvariantsTests(Wave4BaseTestCase):
     """
@@ -850,8 +871,11 @@ class Wave4SecurityInvariantsTests(Wave4BaseTestCase):
                 )
                 # For 302s: must redirect to login
                 if response.status_code == 302:
-                    self.assertIn("login", response["Location"].lower(),
-                                  f"Redirect from {url} does not go to login")
+                    self.assertIn(
+                        "login",
+                        response["Location"].lower(),
+                        f"Redirect from {url} does not go to login",
+                    )
 
     def test_anonymous_post_to_status_change_redirects_to_login(self):
         """Anonymous POST to volunteer_status_change must redirect to login, not 405."""

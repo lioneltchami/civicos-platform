@@ -1,5 +1,7 @@
 """URL patterns for the Forms building block staff views."""
+
 from django.urls import path
+
 from . import views
 
 app_name = "forms"

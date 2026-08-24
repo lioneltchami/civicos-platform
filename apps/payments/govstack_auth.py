@@ -80,6 +80,7 @@ Not in this file — X-Platform-TenantId (tenant scoping):
   view for two different questions. See that method's docstring for the full
   design rationale and live-spec citations.
 """
+
 from __future__ import annotations
 
 import logging
@@ -189,8 +190,7 @@ class _HeaderWhitelistBBPermission(BasePermission):
                 # AllowAnyBB-equivalent behaviour — mirroring how
                 # HasVoucherJWT falls back when its own flag is False.
                 logger.debug(
-                    "govstack_auth.%s: no header present, harness mode — "
-                    "allowing path=%s",
+                    "govstack_auth.%s: no header present, harness mode — " "allowing path=%s",
                     type(self).__name__,
                     request.path,
                 )
@@ -229,7 +229,7 @@ class _HeaderWhitelistBBPermission(BasePermission):
         # GovStackRegisteredBB whitelist. Lazy import avoids circular import
         # issues at module load time and keeps this file importable before
         # the app registry is fully initialised.
-        from apps.payments.govstack_models import GovStackRegisteredBB  # noqa: PLC0415
+        from apps.payments.govstack_models import GovStackRegisteredBB
 
         granted = GovStackRegisteredBB.objects.filter(
             bb_id=caller_id,
@@ -366,8 +366,7 @@ class RequirePayerFI(IsTrustedPayerFI):
 
     require_header_always = True
     message = (
-        "Missing or invalid X-PayerFI-Id header. This endpoint requires "
-        "caller identification."
+        "Missing or invalid X-PayerFI-Id header. This endpoint requires " "caller identification."
     )
 
 
@@ -400,7 +399,7 @@ class IsTrustedBiller(_HeaderWhitelistBBPermission):
     """
 
     header_names = ("X-billerId", "X-BillerId", "X-billerID")
-    settings_flag = "GOVSTACK_REQUIRE_REGISTERED_PAYER_FI"  # reuse the existing P2G-wide flag rather than inventing a new one for a single endpoint
+    settings_flag = "GOVSTACK_REQUIRE_REGISTERED_PAYER_FI"  # reuse the existing P2G-wide flag rather than inventing a new one for a single endpoint  # noqa: E501
     message = "Missing or invalid X-billerId header."
 
 

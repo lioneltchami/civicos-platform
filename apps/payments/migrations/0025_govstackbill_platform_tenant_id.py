@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0024_alter_bulkpaymentbatch_request_id_and_more'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0024_alter_bulkpaymentbatch_request_id_and_more"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='govstackbill',
-            name='platform_tenant_id',
-            field=models.CharField(blank=True, help_text='X-Platform-TenantId header value recorded when this bill was created/imported by government staff. Empty string means the bill predates tenant scoping or was created without a declared tenant (tolerated — see GovStackP2GService for how this is used to scope reads/writes only when a caller-supplied tenant id is present).', max_length=100, verbose_name='Platform Tenant ID'),
+            model_name="govstackbill",
+            name="platform_tenant_id",
+            field=models.CharField(
+                blank=True,
+                help_text="X-Platform-TenantId header value recorded when this bill was created/imported by government staff. Empty string means the bill predates tenant scoping or was created without a declared tenant (tolerated — see GovStackP2GService for how this is used to scope reads/writes only when a caller-supplied tenant id is present).",
+                max_length=100,
+                verbose_name="Platform Tenant ID",
+            ),
         ),
     ]

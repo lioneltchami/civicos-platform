@@ -4,6 +4,7 @@ Reports BB — custom template filters.
 Provides locale-aware number formatting for CRA financial figures that
 works correctly in both en-CA and fr-CA.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
@@ -15,7 +16,7 @@ register = template.Library()
 
 
 @register.filter(is_safe=True)
-def cad_money(value, decimal_pos: int = 2) -> str:
+def cad_money(value, decimal_pos: int = 2) -> str:  # noqa: ANN001
     """
     Format a Decimal (or numeric value) as a locale-aware monetary amount
     with exactly ``decimal_pos`` decimal places and locale-appropriate
@@ -45,7 +46,7 @@ def cad_money(value, decimal_pos: int = 2) -> str:
     Returns:
         A locale-formatted string, e.g. ``"1,234.56"`` (en) or
         ``"1 234,56"`` (fr).  Returns ``"0.00"`` on error.
-    """
+    """  # noqa: RUF002
     try:
         decimal_pos = int(decimal_pos)
     except (TypeError, ValueError):
@@ -53,7 +54,9 @@ def cad_money(value, decimal_pos: int = 2) -> str:
 
     # H3: Route None through number_format so fr-CA gets "0,00" not "0.00".
     if value is None:
-        return number_format(Decimal("0"), decimal_pos=decimal_pos, use_l10n=True, force_grouping=True)
+        return number_format(
+            Decimal("0"), decimal_pos=decimal_pos, use_l10n=True, force_grouping=True
+        )
 
     try:
         # Coerce to Decimal via str() to avoid float precision loss.
@@ -68,4 +71,6 @@ def cad_money(value, decimal_pos: int = 2) -> str:
         )
     except (InvalidOperation, TypeError, ValueError):
         # H3: Same locale-aware zero for invalid/NaN/Infinity — fr-CA needs "0,00".
-        return number_format(Decimal("0"), decimal_pos=decimal_pos, use_l10n=True, force_grouping=True)
+        return number_format(
+            Decimal("0"), decimal_pos=decimal_pos, use_l10n=True, force_grouping=True
+        )

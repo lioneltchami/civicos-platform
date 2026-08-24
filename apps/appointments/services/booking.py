@@ -29,15 +29,17 @@ Security invariants:
   - Suspension check before slot lock in create_booking().
   - video_join_url_citizen NEVER set here — only inside authenticated session (Wave 7).
 """
+
 from __future__ import annotations
 
 import datetime
 import logging
 from typing import TYPE_CHECKING
 
-from celery import current_app
 from django.db import transaction
 from django.utils import timezone
+
+from celery import current_app
 
 if TYPE_CHECKING:
     pass
@@ -48,6 +50,7 @@ logger = logging.getLogger("civicos.appointments.services.booking")
 # ---------------------------------------------------------------------------
 # Custom exceptions
 # ---------------------------------------------------------------------------
+
 
 class BookingError(Exception):
     """Base class for all booking service errors."""
@@ -85,7 +88,8 @@ class InvalidStatusTransitionError(BookingError):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _resolve_policy(appointment_type, location=None):
+
+def _resolve_policy(appointment_type, location=None):  # noqa: ANN001, ANN202
     """
     Three-level policy fallback:
       1. AppointmentType.scheduling_policy (most specific)
@@ -93,20 +97,22 @@ def _resolve_policy(appointment_type, location=None):
       3. settings.CIVICOS['APPOINTMENTS'] defaults (global fallback)
     """
     from apps.appointments.services.availability import _resolve_policy as _avail_resolve
+
     return _avail_resolve(appointment_type, location=location)
 
 
-def _get_or_create_no_show_record(citizen):
+def _get_or_create_no_show_record(citizen):  # noqa: ANN001, ANN202
     """Return (record, created) for the citizen's ClientNoShowRecord."""
     from apps.appointments.models import ClientNoShowRecord
+
     return ClientNoShowRecord.objects.get_or_create(citizen=citizen)
 
 
 def _write_audit_log(
     *,
-    booking,
+    booking,  # noqa: ANN001
     action: str,
-    actor=None,
+    actor=None,  # noqa: ANN001
     previous_status: str = "",
     new_status: str = "",
     detail: dict | None = None,
@@ -120,6 +126,7 @@ def _write_audit_log(
     actor_id is stored as str(actor.pk) or "system" — NOT the User object.
     """
     from apps.appointments.models import BookingAuditLog
+
     if actor is None:
         _actor_role = "system"
     elif actor.is_staff:
@@ -138,7 +145,7 @@ def _write_audit_log(
     )
 
 
-def _revoke_reminder_tasks(booking) -> None:
+def _revoke_reminder_tasks(booking) -> None:  # noqa: ANN001
     """
     Revoke pending Celery reminder tasks for a booking.
     Called on cancel or reschedule. Best-effort — never raises.
@@ -150,16 +157,20 @@ def _revoke_reminder_tasks(booking) -> None:
                 current_app.control.revoke(task_id, terminate=False)
                 logger.debug(
                     "_revoke_reminder_tasks: revoked %s=%s for booking_id=%s",
-                    field_name, task_id, booking.pk,
+                    field_name,
+                    task_id,
+                    booking.pk,
                 )
             except Exception:
                 logger.warning(
                     "_revoke_reminder_tasks: failed to revoke %s=%s for booking_id=%s",
-                    field_name, task_id, booking.pk,
+                    field_name,
+                    task_id,
+                    booking.pk,
                 )
 
 
-def _update_slot_status(slot) -> None:
+def _update_slot_status(slot) -> None:  # noqa: ANN001
     """
     Recalculate and save slot status based on spaces_used vs capacity.
     Must be called with slot already locked via select_for_update() inside atomic().
@@ -174,7 +185,7 @@ def _update_slot_status(slot) -> None:
     slot.save(update_fields=["spaces_used", "status", "updated_at"])
 
 
-def _extract_ip(request) -> str | None:
+def _extract_ip(request) -> str | None:  # noqa: ANN001
     """
     Extract and normalize the client IP from a Django request object.
     Returns None if request is None.
@@ -198,21 +209,22 @@ def _extract_ip(request) -> str | None:
 # create_booking
 # ---------------------------------------------------------------------------
 
-def create_booking(
+
+def create_booking(  # noqa: ANN201
     *,
-    slot,
-    citizen,
+    slot,  # noqa: ANN001
+    citizen,  # noqa: ANN001
     appointment_mode: str,
     form_responses: dict,
-    actor,
+    actor,  # noqa: ANN001
     booking_channel: str = "online",
     interpreter_needed: bool = False,
     interpreter_language: str = "",
     accessibility_needs: str = "",
     language: str = "en",
-    consent_recorded_at=None,
+    consent_recorded_at=None,  # noqa: ANN001
     consent_version: str = "",
-    request=None,
+    request=None,  # noqa: ANN001
 ):
     """
     Reserve a slot for a citizen.
@@ -258,12 +270,13 @@ def create_booking(
     with transaction.atomic():
         # Step 2: Lock the slot row (TOCTOU prevention)
         from apps.appointments.models import Slot as SlotModel
+
         slot = SlotModel.objects.select_for_update().get(pk=slot.pk)
 
         # Step 3: Capacity check
         if slot.status not in ("available", "partial") or slot.spaces_used >= slot.capacity:
             raise SlotFullError(
-                f"Slot {slot.pk} is full (spaces_used={slot.spaces_used}, capacity={slot.capacity}). "
+                f"Slot {slot.pk} is full (spaces_used={slot.spaces_used}, capacity={slot.capacity}). "  # noqa: E501
                 "Offer waitlist instead."
             )
 
@@ -299,7 +312,9 @@ def create_booking(
 
         # Step 6: Determine initial status
         requires_confirmation = getattr(appointment_type, "requires_staff_confirmation", False)
-        initial_status = Booking.STATUS_PENDING if requires_confirmation else Booking.STATUS_CONFIRMED
+        initial_status = (
+            Booking.STATUS_PENDING if requires_confirmation else Booking.STATUS_CONFIRMED
+        )
 
         # Step 7: Create booking
         actor_ip = _extract_ip(request)
@@ -352,7 +367,7 @@ def create_booking(
         slot_id_str = str(slot.pk)
         citizen_id_str = str(citizen.pk)
 
-        def _dispatch_created():
+        def _dispatch_created() -> None:
             results = appt_booking_created.send_robust(
                 sender=Booking,
                 booking_id=booking_id_str,
@@ -364,13 +379,15 @@ def create_booking(
                 if isinstance(exc, Exception):
                     logger.error(
                         "create_booking: appt_booking_created receiver %s raised %s",
-                        receiver, type(exc).__name__,
+                        receiver,
+                        type(exc).__name__,
                     )
 
         transaction.on_commit(_dispatch_created)
 
         if initial_status == Booking.STATUS_CONFIRMED:
-            def _dispatch_confirmed():
+
+            def _dispatch_confirmed() -> None:
                 results = appt_booking_confirmed.send_robust(
                     sender=Booking,
                     booking_id=booking_id_str,
@@ -379,14 +396,19 @@ def create_booking(
                 for receiver, exc in results:
                     if isinstance(exc, Exception):
                         logger.error(
-                            "create_booking (auto-confirm): appt_booking_confirmed receiver %s raised %s",
-                            receiver, type(exc).__name__,
+                            "create_booking (auto-confirm): appt_booking_confirmed receiver %s raised %s",  # noqa: E501
+                            receiver,
+                            type(exc).__name__,
                         )
+
             transaction.on_commit(_dispatch_confirmed)
 
     logger.info(
         "create_booking: booking_id=%s status=%s citizen_id=%s slot_id=%s",
-        booking.pk, initial_status, citizen.pk, slot.pk,
+        booking.pk,
+        initial_status,
+        citizen.pk,
+        slot.pk,
     )
     return booking
 
@@ -395,7 +417,8 @@ def create_booking(
 # confirm_booking
 # ---------------------------------------------------------------------------
 
-def confirm_booking(*, booking, actor, actor_ip: str | None = None):
+
+def confirm_booking(*, booking, actor, actor_ip: str | None = None):  # noqa: ANN001, ANN201
     """
     Staff confirms a pending booking. Transitions: PENDING → CONFIRMED.
 
@@ -430,7 +453,7 @@ def confirm_booking(*, booking, actor, actor_ip: str | None = None):
         booking_id_str = str(booking.pk)
         slot_id_str = str(booking.slot_id)
 
-        def _dispatch():
+        def _dispatch() -> None:
             results = appt_booking_confirmed.send_robust(
                 sender=Booking,
                 booking_id=booking_id_str,
@@ -440,13 +463,16 @@ def confirm_booking(*, booking, actor, actor_ip: str | None = None):
                 if isinstance(exc, Exception):
                     logger.error(
                         "confirm_booking: appt_booking_confirmed receiver %s raised %s",
-                        receiver, type(exc).__name__,
+                        receiver,
+                        type(exc).__name__,
                     )
+
         transaction.on_commit(_dispatch)
 
     logger.info(
         "confirm_booking: booking_id=%s confirmed by actor_id=%s",
-        booking.pk, actor.pk,
+        booking.pk,
+        actor.pk,
     )
     return booking
 
@@ -455,10 +481,11 @@ def confirm_booking(*, booking, actor, actor_ip: str | None = None):
 # cancel_booking
 # ---------------------------------------------------------------------------
 
-def cancel_booking(
+
+def cancel_booking(  # noqa: ANN201
     *,
-    booking,
-    actor,
+    booking,  # noqa: ANN001
+    actor,  # noqa: ANN001
     reason: str = "",
     actor_ip: str | None = None,
 ):
@@ -488,10 +515,12 @@ def cancel_booking(
         booking = Booking.objects.select_for_update().get(pk=booking.pk)
 
         if booking.status in (
-            Booking.STATUS_CANCELLED, Booking.STATUS_COMPLETED, Booking.STATUS_REJECTED
+            Booking.STATUS_CANCELLED,
+            Booking.STATUS_COMPLETED,
+            Booking.STATUS_REJECTED,
         ):
             raise InvalidStatusTransitionError(
-                f"Cannot cancel booking {booking.pk}: already in terminal status '{booking.status}'."
+                f"Cannot cancel booking {booking.pk}: already in terminal status '{booking.status}'."  # noqa: E501
             )
 
         was_confirmed = booking.status == Booking.STATUS_CONFIRMED
@@ -518,10 +547,16 @@ def cancel_booking(
         booking.cancelled_by = actor
         booking.cancellation_reason = reason
         booking.late_cancellation = is_late
-        booking.save(update_fields=[
-            "status", "cancelled_at", "cancelled_by", "cancellation_reason",
-            "late_cancellation", "updated_at",
-        ])
+        booking.save(
+            update_fields=[
+                "status",
+                "cancelled_at",
+                "cancelled_by",
+                "cancellation_reason",
+                "late_cancellation",
+                "updated_at",
+            ]
+        )
 
         # Revoke reminder tasks (best-effort)
         _revoke_reminder_tasks(booking)
@@ -529,6 +564,7 @@ def cancel_booking(
         # Decrement slot spaces_used only if booking was confirmed or pending
         # (we increment on create regardless of status)
         from apps.appointments.models import Slot as SlotModel
+
         slot = SlotModel.objects.select_for_update().get(pk=booking.slot_id)
         slot.spaces_used = max(0, slot.spaces_used - 1)
         _update_slot_status(slot)
@@ -557,7 +593,7 @@ def cancel_booking(
         slot_id_str = str(booking.slot_id)
         actor_id_str = str(actor.pk) if actor else "system"
 
-        def _dispatch():
+        def _dispatch() -> None:
             results = appt_booking_cancelled.send_robust(
                 sender=Booking,
                 booking_id=booking_id_str,
@@ -569,13 +605,17 @@ def cancel_booking(
                 if isinstance(exc, Exception):
                     logger.error(
                         "cancel_booking: appt_booking_cancelled receiver %s raised %s",
-                        receiver, type(exc).__name__,
+                        receiver,
+                        type(exc).__name__,
                     )
+
         transaction.on_commit(_dispatch)
 
     logger.info(
         "cancel_booking: booking_id=%s cancelled actor_id=%s late=%s",
-        booking.pk, actor_id_str, is_late,
+        booking.pk,
+        actor_id_str,
+        is_late,
     )
     return booking
 
@@ -584,11 +624,12 @@ def cancel_booking(
 # reschedule_booking
 # ---------------------------------------------------------------------------
 
-def reschedule_booking(
+
+def reschedule_booking(  # noqa: ANN201
     *,
-    booking,
-    new_slot,
-    actor,
+    booking,  # noqa: ANN001
+    new_slot,  # noqa: ANN001
+    actor,  # noqa: ANN001
     reason: str = "",
     actor_ip: str | None = None,
 ):
@@ -607,7 +648,8 @@ def reschedule_booking(
         RescheduleWindowError: Too close to appointment start.
         SlotFullError: New slot has no available space.
     """
-    from apps.appointments.models import Booking, BookingAuditLog, Slot as SlotModel
+    from apps.appointments.models import Booking, BookingAuditLog
+    from apps.appointments.models import Slot as SlotModel
     from apps.appointments.signals import appt_booking_rescheduled
 
     now_utc = timezone.now()
@@ -643,19 +685,21 @@ def reschedule_booking(
         # Dual-slot lock — consistent order (min pk string first) prevents deadlock
         old_slot_pk = booking.slot_id
         new_slot_pk = new_slot.pk
-        slots_qs = SlotModel.objects.select_for_update().filter(
-            pk__in=[old_slot_pk, new_slot_pk]
-        ).order_by("pk")
+        slots_qs = (
+            SlotModel.objects.select_for_update()
+            .filter(pk__in=[old_slot_pk, new_slot_pk])
+            .order_by("pk")
+        )
         slots = {str(s.pk): s for s in slots_qs}
         old_slot = slots[str(old_slot_pk)]
         new_slot_locked = slots[str(new_slot_pk)]
 
         # Check new slot capacity
-        if new_slot_locked.status not in ("available", "partial") or \
-                new_slot_locked.spaces_used >= new_slot_locked.capacity:
-            raise SlotFullError(
-                f"New slot {new_slot_locked.pk} is full — cannot reschedule."
-            )
+        if (
+            new_slot_locked.status not in ("available", "partial")
+            or new_slot_locked.spaces_used >= new_slot_locked.capacity
+        ):
+            raise SlotFullError(f"New slot {new_slot_locked.pk} is full — cannot reschedule.")
 
         old_booking_id_str = str(booking.pk)
         previous_status = booking.status
@@ -666,10 +710,16 @@ def reschedule_booking(
         booking.cancelled_at = now_utc
         booking.cancelled_by = actor
         booking.cancellation_reason = reason or "Rescheduled by citizen/staff."
-        booking.save(update_fields=[
-            "status", "rescheduled", "cancelled_at", "cancelled_by",
-            "cancellation_reason", "updated_at",
-        ])
+        booking.save(
+            update_fields=[
+                "status",
+                "rescheduled",
+                "cancelled_at",
+                "cancelled_by",
+                "cancellation_reason",
+                "updated_at",
+            ]
+        )
 
         # Revoke old reminder tasks
         _revoke_reminder_tasks(booking)
@@ -730,7 +780,7 @@ def reschedule_booking(
         new_booking_id_str = str(new_booking.pk)
         new_slot_id_str = str(new_slot_locked.pk)
 
-        def _dispatch():
+        def _dispatch() -> None:
             results = appt_booking_rescheduled.send_robust(
                 sender=Booking,
                 old_booking_id=old_booking_id_str,
@@ -741,13 +791,17 @@ def reschedule_booking(
                 if isinstance(exc, Exception):
                     logger.error(
                         "reschedule_booking: appt_booking_rescheduled receiver %s raised %s",
-                        receiver, type(exc).__name__,
+                        receiver,
+                        type(exc).__name__,
                     )
+
         transaction.on_commit(_dispatch)
 
     logger.info(
         "reschedule_booking: old_booking_id=%s → new_booking_id=%s actor_id=%s",
-        old_booking_id_str, new_booking.pk, actor.pk,
+        old_booking_id_str,
+        new_booking.pk,
+        actor.pk,
     )
     return new_booking
 
@@ -756,7 +810,8 @@ def reschedule_booking(
 # mark_no_show
 # ---------------------------------------------------------------------------
 
-def mark_no_show(*, booking, actor, actor_ip: str | None = None):
+
+def mark_no_show(*, booking, actor, actor_ip: str | None = None):  # noqa: ANN001, ANN201
     """
     Staff marks a confirmed booking as a no-show.
 
@@ -812,10 +867,18 @@ def mark_no_show(*, booking, actor, actor_ip: str | None = None):
             record.flagged_at = timezone.now()
             record.flagged_by = actor
 
-        record.save(update_fields=[
-            "no_show_count", "total_appointments", "last_no_show_at",
-            "is_flagged", "flagged_at", "flagged_by", "is_suspended", "updated_at",
-        ])
+        record.save(
+            update_fields=[
+                "no_show_count",
+                "total_appointments",
+                "last_no_show_at",
+                "is_flagged",
+                "flagged_at",
+                "flagged_by",
+                "is_suspended",
+                "updated_at",
+            ]
+        )
 
         _write_audit_log(
             booking=booking,
@@ -835,7 +898,7 @@ def mark_no_show(*, booking, actor, actor_ip: str | None = None):
         citizen_id_str = str(booking.citizen_id)
         booking_id_str = str(booking.pk)
 
-        def _dispatch():
+        def _dispatch() -> None:
             results = appt_no_show_marked.send_robust(
                 sender=Booking,
                 booking_id=booking_id_str,
@@ -846,13 +909,17 @@ def mark_no_show(*, booking, actor, actor_ip: str | None = None):
                 if isinstance(exc, Exception):
                     logger.error(
                         "mark_no_show: appt_no_show_marked receiver %s raised %s",
-                        receiver, type(exc).__name__,
+                        receiver,
+                        type(exc).__name__,
                     )
+
         transaction.on_commit(_dispatch)
 
     logger.info(
         "mark_no_show: booking_id=%s actor_id=%s no_show_count=%d",
-        booking.pk, actor.pk, no_show_count,
+        booking.pk,
+        actor.pk,
+        no_show_count,
     )
     return booking
 
@@ -861,7 +928,8 @@ def mark_no_show(*, booking, actor, actor_ip: str | None = None):
 # complete_booking
 # ---------------------------------------------------------------------------
 
-def complete_booking(*, booking, actor=None, actor_ip: str | None = None):
+
+def complete_booking(*, booking, actor=None, actor_ip: str | None = None):  # noqa: ANN001, ANN201
     """
     Mark a confirmed booking as completed.
 
@@ -904,7 +972,7 @@ def complete_booking(*, booking, actor=None, actor_ip: str | None = None):
 
         booking_id_str = str(booking.pk)
 
-        def _dispatch():
+        def _dispatch() -> None:
             results = appt_booking_completed.send_robust(
                 sender=Booking,
                 booking_id=booking_id_str,
@@ -913,13 +981,16 @@ def complete_booking(*, booking, actor=None, actor_ip: str | None = None):
                 if isinstance(exc, Exception):
                     logger.error(
                         "complete_booking: appt_booking_completed receiver %s raised %s",
-                        receiver, type(exc).__name__,
+                        receiver,
+                        type(exc).__name__,
                     )
+
         transaction.on_commit(_dispatch)
 
     logger.info(
         "complete_booking: booking_id=%s actor_id=%s",
-        booking.pk, str(actor.pk) if actor else "system",
+        booking.pk,
+        str(actor.pk) if actor else "system",
     )
     return booking
 
@@ -928,7 +999,8 @@ def complete_booking(*, booking, actor=None, actor_ip: str | None = None):
 # reject_booking
 # ---------------------------------------------------------------------------
 
-def reject_booking(*, booking, actor, reason: str = "", actor_ip: str | None = None):
+
+def reject_booking(*, booking, actor, reason: str = "", actor_ip: str | None = None):  # noqa: ANN001, ANN201
     """
     Staff rejects a pending booking. Transitions: PENDING → REJECTED.
 
@@ -937,7 +1009,8 @@ def reject_booking(*, booking, actor, reason: str = "", actor_ip: str | None = N
     Raises:
         InvalidStatusTransitionError: Booking not in PENDING status.
     """
-    from apps.appointments.models import Booking, BookingAuditLog, Slot as SlotModel
+    from apps.appointments.models import Booking, BookingAuditLog
+    from apps.appointments.models import Slot as SlotModel
     from apps.appointments.signals import appt_booking_rejected
 
     with transaction.atomic():
@@ -954,9 +1027,15 @@ def reject_booking(*, booking, actor, reason: str = "", actor_ip: str | None = N
         booking.cancelled_at = timezone.now()
         booking.cancelled_by = actor
         booking.cancellation_reason = reason
-        booking.save(update_fields=[
-            "status", "cancelled_at", "cancelled_by", "cancellation_reason", "updated_at",
-        ])
+        booking.save(
+            update_fields=[
+                "status",
+                "cancelled_at",
+                "cancelled_by",
+                "cancellation_reason",
+                "updated_at",
+            ]
+        )
 
         # Decrement slot (pending bookings DO hold a space)
         slot = SlotModel.objects.select_for_update().get(pk=booking.slot_id)
@@ -976,7 +1055,7 @@ def reject_booking(*, booking, actor, reason: str = "", actor_ip: str | None = N
         booking_id_str = str(booking.pk)
         slot_id_str = str(booking.slot_id)
 
-        def _dispatch():
+        def _dispatch() -> None:
             results = appt_booking_rejected.send_robust(
                 sender=Booking,
                 booking_id=booking_id_str,
@@ -986,12 +1065,15 @@ def reject_booking(*, booking, actor, reason: str = "", actor_ip: str | None = N
                 if isinstance(exc, Exception):
                     logger.error(
                         "reject_booking: appt_booking_rejected receiver %s raised %s",
-                        receiver, type(exc).__name__,
+                        receiver,
+                        type(exc).__name__,
                     )
+
         transaction.on_commit(_dispatch)
 
     logger.info(
         "reject_booking: booking_id=%s rejected by actor_id=%s",
-        booking.pk, actor.pk,
+        booking.pk,
+        actor.pk,
     )
     return booking

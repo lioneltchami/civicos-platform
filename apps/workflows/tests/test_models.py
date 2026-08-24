@@ -1,4 +1,5 @@
 """Tests for the workflows models."""
+
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -161,7 +162,5 @@ class WorkItemCommentTest(TestCase):
     def test_comment_body_stored(self):
         item = make_work_item()
         author = make_staff()
-        comment = WorkItemComment.objects.create(
-            work_item=item, author=author, body="Test body"
-        )
+        comment = WorkItemComment.objects.create(work_item=item, author=author, body="Test body")
         self.assertEqual(comment.body, "Test body")

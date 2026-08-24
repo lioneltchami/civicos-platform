@@ -31,6 +31,7 @@ Coordinator-facing endpoints (IsAuthenticated + IsCoordinator group):
 
 Total: 20 endpoints.
 """
+
 from django.urls import path
 
 from . import views
@@ -51,7 +52,6 @@ urlpatterns = [
         views.OpportunityDetailView.as_view(),
         name="opportunity-detail",
     ),
-
     # ------------------------------------------------------------------
     # Volunteer-facing — Applications
     # NOTE: hours/summary/ MUST come before hours/<id>/ to avoid the
@@ -73,7 +73,6 @@ urlpatterns = [
         views.WithdrawApplicationView.as_view(),
         name="application-withdraw",
     ),
-
     # ------------------------------------------------------------------
     # Volunteer-facing — Shifts & Bookings
     # ------------------------------------------------------------------
@@ -92,7 +91,6 @@ urlpatterns = [
         views.CancelBookingView.as_view(),
         name="shift-cancel-booking",
     ),
-
     # ------------------------------------------------------------------
     # Volunteer-facing — Hours
     # IMPORTANT: summary/ must appear BEFORE <int:pk>/ to prevent Django
@@ -108,7 +106,6 @@ urlpatterns = [
         views.HoursListCreateView.as_view(),
         name="hours-list-create",
     ),
-
     # ------------------------------------------------------------------
     # Volunteer-facing — Profile
     # ------------------------------------------------------------------
@@ -117,7 +114,6 @@ urlpatterns = [
         views.MyProfileView.as_view(),
         name="profile",
     ),
-
     # ------------------------------------------------------------------
     # Coordinator-facing — Applications
     # ------------------------------------------------------------------
@@ -136,7 +132,6 @@ urlpatterns = [
         views.RejectApplicationView.as_view(),
         name="admin-application-reject",
     ),
-
     # ------------------------------------------------------------------
     # Coordinator-facing — Hours
     # ------------------------------------------------------------------
@@ -155,7 +150,6 @@ urlpatterns = [
         views.RejectHoursView.as_view(),
         name="admin-hours-reject",
     ),
-
     # ------------------------------------------------------------------
     # Coordinator-facing — Reports
     # ------------------------------------------------------------------

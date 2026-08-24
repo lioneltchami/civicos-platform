@@ -25,7 +25,7 @@ User = get_user_model()
 
 def send_email_notification(
     *,
-    recipient,
+    recipient,  # noqa: ANN001
     subject_key: str,
     context: dict[str, Any],
     from_email: str | None = None,
@@ -89,6 +89,7 @@ def send_email_notification(
             fail_silently=False,
         )
         from django.utils import timezone
+
         notification.status = NotificationStatus.SENT
         notification.sent_at = timezone.now()
         notification.save(update_fields=["status", "sent_at"])
@@ -107,7 +108,7 @@ def send_email_notification(
 
 def send_ad_hoc_notification(
     *,
-    recipient,
+    recipient,  # noqa: ANN001
     subject: str,
     body: str,
     from_email: str | None = None,

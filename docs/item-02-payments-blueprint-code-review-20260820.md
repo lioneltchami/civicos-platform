@@ -1,0 +1,54 @@
+# Item 02 — Payments blueprint code review
+
+**Date:** 2026-08-20  
+**Stage:** 2 of 4 — two fresh code reviews of the Stage 1 plan and current code  
+**Input boundary:** Current codebase plus `docs/item-02-payments-blueprint-remediation-plan-20260820.md`.  
+**Conclusion:** **Reject closure. P02-01 through P02-09 remain open.** The current primitives must be retained but are not enforced architecture.
+
+## Review conclusion
+
+The two reviewers agreed that **P02-09 is the controlling defect**: until every resolver-discovered provider-executable route is forced through a single admission/command/outbox/runtime path, none of the individual runtime helpers can demonstrate strict closure. The implementation must therefore begin with route discovery and architecture enforcement, not further isolated provider or lifecycle helpers.
+
+> **Mandatory chain:** mounted mutation → trusted `PaymentScope` → immutable command/idempotency reservation → durable intent/attempt/outbox → post-commit worker → allowlisted durable provider factory → claim or authoritative status poll → append-only observation → lifecycle/reconciliation → authorised redacted status.
+
+## Required implementation changes
+
+| Locked order | Files/symbols to add or alter | Required behavior | P02 defects |
+|---:|---|---|---|
+| 1 | Add `apps/payments/resolver_inventory.py`, an in-code route classification registry, and `apps/payments/tests/test_payment_route_inventory.py`. Inspect `config/urls.py`, `apps/payments/urls.py`, and `apps/payments/govstack_urls.py` recursively. | Expand `URLResolver` include chains, namespaces, methods, and DRF actions for both `/payments/` and `/govstack/payments/`. Classify every endpoint as read-only, domain-only mutation, provider-executable mutation, or unsupported. Fail on an unclassified mutation or a provider-executable route without the canonical mutation boundary. | P02-06, P02-09 |
+| 2 | Add `apps/payments/payment_scope.py` with immutable `PaymentPrincipal` and `PaymentScope`; add one permission/mixin used by all Payments views. Replace `GovStackAPIView._validate_platform_tenant_id()` in `govstack_views.py` and raw-header filtering in `platform_scope.py`. | Derive authority from an authenticated registered caller plus tenant/resource authorization. Body/header tenant values may be compared with scope but cannot establish it. Persist scope identity in command/attempt/batch and recheck it in task/repository code. Test-only compatibility may be isolated; production may not silently fall back to header authority. | P02-02, P02-08, P02-09 |
+| 3 | Add migrations and models for an immutable `PaymentCommand` and `PaymentOutbox`/handoff record. Add `apps/payments/payment_command_service.py::PaymentCommandService.admit()`. Integrate/replace `provider_admission.admit_provider_attempt()`, `platform_scope.IdempotencyService`, view `on_commit` calls, and direct `enqueue_attempt()` use in `govstack_services.py`. | Atomically reserve canonical idempotency key/fingerprint, create a tenant-bound immutable command, link an attempt or batch, and emit exactly one post-commit worker handoff. Replays return stable result; changed payload conflicts; pending work returns stable in-progress semantics. No view/service may directly create provider work or invoke adapter/task dispatch outside this service. | P02-02, P02-03, P02-04, P02-05, P02-06, P02-09 |
+| 4 | Add `apps/payments/provider_registry.py`; extend `ProviderRegistration` via a migration after `0035_paymentattempt_runtime_claim_fields.py`; revise `provider_runtime.ProviderRuntime.configure()` and `.resolve()`. | Replace arbitrary dynamic `adapter_path` resolution with an allowlisted factory key, schema version, configuration digest/reference, tenant/resource/operation scope, activation window, and audit metadata. Resolve adapters only in workers. Reject unknown, malformed, inactive, overlapping/duplicate, wrong-scope, or factory-failing registrations before provider I/O. Include an explicit compatibility strategy for existing rows. | P02-01, P02-09 |
+| 5 | Add immutable `PaymentExecutionIntent` and either a claimed-execution model or conditional fields/service. Revise `provider_runtime.submit_or_poll()`, `.status_first_recovery()`, `provider_runtime_tasks.py`, and retry/replay/due/reconciliation paths in `govstack_tasks.py`. Add `RecoverPaymentAttemptCommand`. | Persist intent/correlation before I/O. Use owner token, generation, expiry, heartbeat/renewal, and conditional takeover/final write fencing. Every unresolved intent or provider correlation polls authoritative status before resubmit. Every retry/replay/timeout/due/reconciliation path must use one recovery command; direct lifecycle/provider submit paths are prohibited. | P02-04, P02-05, P02-09 |
+| 6 | Keep `PrepaymentValidationView` and validation service state-only. Add a tenant-authorised prepayment execution transition/service and rework `PrepaymentValidationResponseView` only if it represents approved execution. | Validation must create no provider attempt or settlement. An authorised approved execution creates exactly one `PaymentCommand`, attempt, outbox/task, observation, reconciliation result, and status projection through the canonical chain. | P02-03, P02-06, P02-09 |
+| 7 | Extend/replace `BatchLease` through an additive migration and add `BatchExecutionLease` service plus append-only batch policy/audit records. Rework the bulk worker/service path in `govstack_tasks.py` and `govstack_services.py`. | Acquire, heartbeat, revalidate, take over, cancel, and finalise conditionally by owner token plus generation. Each child has authoritative terminal observation or explicit review before finalization. Persist threshold/pause/retry/return-funds policy decisions; uncertain children never silently count as final. | P02-07, P02-09 |
+| 8 | Add tenant-scoped repository functions, a generic attempt-status view/serializer, and an authorised reconciliation view/serializer. Replace `platform_scope.ReconciliationReportView` header scope, offset pagination, and internal field exposure. Update `govstack_status_views.py` and `TransferRequestStatusView` as needed. | Read access derives `PaymentScope`, scopes every query by tenant/object, hides provider raw payloads/full account identifiers/secrets/internal errors, uses stable `(created_at, id)` cursor pagination, and creates no task/provider/outbox side effect. | P02-02, P02-08, P02-09 |
+| 9 | Add resolver-generated mounted matrix tests and static architecture tests, likely in `apps/payments/tests/test_item02_blueprint_routes.py`, `test_item02_blueprint_runtime.py`, and `test_item02_blueprint_security.py`. | Prove every provider-executable route uses command admission, no request-time provider I/O, exactly one post-commit handoff, safe replay/conflict/rollback, recovery, observation/reconciliation/status, and redacted side-effect-free reads. Fail when views/domain services import provider implementations, `ProviderRuntime.resolve()`, direct `.delay()`, direct `enqueue_attempt()`, or lifecycle submission outside the canonical service. | All P02 defects |
+
+## Mandatory route rewiring
+
+The current direct/legacy paths must be replaced rather than supplemented. At minimum, Stage 3 must rewire `BulkPaymentView`, the approved prepayment execution transition, `VoucherActivationView`, `VoucherRedemptionView`, `VoucherStatusCheckView.patch`, `MarkBillPaidView`, `BillTransferRequestView`, and all resolver-discovered internal `/payments/` provider-executable routes. Domain-only routes must receive scope/idempotency policy as classified but must not falsely create provider attempts. Read-only routes must not introduce provider/task side effects.
+
+## Required deterministic closure tests
+
+The tests below are mandatory; service-only tests are insufficient.
+
+| P02 defect | Required test evidence |
+|---|---|
+| P02-01 | Mounted request followed by a fresh-worker task resolution. Cover inactive, duplicate, malformed, unsupported, wrong-scope, factory-failure, and rotation configuration. Every rejection produces zero provider calls and one durable non-final observation. |
+| P02-02 | Resolver-discovered provider routes reject missing, blank, unknown, conflicting, forged, stale, and cross-tenant identities before command/attempt/task/provider/observation creation. Verify immutable scope propagation through command, worker, and report. |
+| P02-03 | Validation-only prepayment makes zero provider calls; approved execution covers settlement, rejection, timeout, duplicate response, rollback, callback failure, retry, absent registration, and cross-tenant denial. |
+| P02-04 | Barrier-controlled two-worker accepted-submit crash, duplicate delivery, delayed status, expiry takeover, stale completion, and correlation collision. Assert at most one external submit and one accepted observation. |
+| P02-05 | Every retry/replay/due/reconciliation entry calls `RecoverPaymentAttemptCommand`; unresolved intent polls before submit; terminal/review/final attempts never submit again. |
+| P02-06 | Resolver-generated all-route idempotency matrix: same-key replay, changed payload, concurrent first writers, in-progress retry, outer rollback, tenant separation, missing/malformed key, and duplicate task delivery. |
+| P02-07 | Competing batch workers, heartbeat, expiry/takeover, stale finalisation, mixed terminal/review children, threshold pause, retry, return-funds, empty batch, and duplicate finalisation. |
+| P02-08 | Mounted anonymous/unauthorised/conflicting/cross-tenant read denial, redaction allowlist, malformed/deterministic cursor pages, duplicate timestamps, and zero writes/task/provider calls on GET. |
+| P02-09 | Resolver-derived route matrix proves one admission/command/outbox handoff for every provider mutation, zero adapter calls before commit, one handoff after commit, no bypass import/call, and side-effect-free reads. |
+
+## Explicit rejections
+
+The review rejects the following as insufficient for any P02 closure: a helper that routes no mounted view; a new migration without an enforced runtime transition; direct unit tests that bypass Django URLs and task boundaries; a process-local provider registry; a header-only tenant filter; an idempotency ledger not reserved before all side effects; task wiring gated by optional runtime settings; claim fields without a two-worker crash/takeover proof; a batch lease without conditional owner-generation finalisation; or a status DTO without principal-based tenant authorization and no-side-effect tests.
+
+## Stage 2 decision
+
+Stage 3 must execute only the dependency order above. It must update `docs/item-02-payments-blueprint-remediation-plan-20260820.md` after each major locked step, commit changes by affected P02 defect, and stop short of an internal closure claim unless the final independent verification proves all ten blueprint closure criteria.

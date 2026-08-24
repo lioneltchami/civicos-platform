@@ -20,6 +20,7 @@ govstack_serializers.AffiliationFilterSerializer /
 AffiliationDetailsRequiredSerializer for the serializer-side fix and full
 rationale.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,12 +39,13 @@ logger = logging.getLogger("civicos.appointments.services.govstack_affiliation")
 # govstack_alert_schedule.py, govstack_message.py, and govstack_log.py.
 _LIST_PAGE_CAP = 500
 
+
 # Duplicated (rather than imported) from the near-identical helper in
 # services.govstack_event / services.govstack_log — matches this codebase's
 # established convention of keeping small private helpers local to each
 # service module (see services.govstack_log._parse_datetime_str's docstring
 # for the precedent/rationale).
-def _parse_datetime_str(value: str):
+def _parse_datetime_str(value: str):  # noqa: ANN202
     """
     Parse an ISO 8601 datetime string, requiring timezone awareness.
 
@@ -64,6 +66,7 @@ def _parse_datetime_str(value: str):
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
+
 
 def affiliation_create(
     resource_id: str | int,
@@ -111,8 +114,8 @@ def affiliation_create(
                 resource_id,
                 entity_id,
             )
-            raise ValueError(
-                f"An affiliation between resource_id={resource_id} and entity_id={entity_id} already exists."
+            raise ValueError(  # noqa: B904
+                f"An affiliation between resource_id={resource_id} and entity_id={entity_id} already exists."  # noqa: E501
             )
 
     logger.debug(

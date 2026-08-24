@@ -11,26 +11,26 @@ from django.db import migrations, models
 
 class ConditionalRunSQL(migrations.RunSQL):
     """RunSQL that only executes on PostgreSQL, skips on SQLite (for tests)."""
-    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:  # noqa: ANN001
         engine = schema_editor.connection.settings_dict.get("ENGINE", "")
         if "postgresql" in engine or "postgis" in engine:
             super().database_forwards(app_label, schema_editor, from_state, to_state)
 
-    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+    def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:  # noqa: ANN001
         engine = schema_editor.connection.settings_dict.get("ENGINE", "")
         if "postgresql" in engine or "postgis" in engine:
             super().database_backwards(app_label, schema_editor, from_state, to_state)
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ------------------------------------------------------------------
         # TenantPaymentConfig
         # ------------------------------------------------------------------
@@ -182,15 +182,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "authorized_signatory_name",
-                    models.CharField(
-                        max_length=255, verbose_name="Authorized Signatory Name"
-                    ),
+                    models.CharField(max_length=255, verbose_name="Authorized Signatory Name"),
                 ),
                 (
                     "authorized_signatory_title",
-                    models.CharField(
-                        max_length=255, verbose_name="Authorized Signatory Title"
-                    ),
+                    models.CharField(max_length=255, verbose_name="Authorized Signatory Title"),
                 ),
                 (
                     "is_active",
@@ -254,9 +250,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "amount",
-                    models.DecimalField(
-                        max_digits=10, decimal_places=2, verbose_name="Amount"
-                    ),
+                    models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Amount"),
                 ),
                 (
                     "is_taxable",
@@ -272,9 +266,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "description_en",
-                    models.CharField(
-                        max_length=255, verbose_name="Description (English)"
-                    ),
+                    models.CharField(max_length=255, verbose_name="Description (English)"),
                 ),
                 (
                     "description_fr",
@@ -370,9 +362,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "tax_name_fr",
-                    models.CharField(
-                        max_length=50, verbose_name="Tax Name (French)"
-                    ),
+                    models.CharField(max_length=50, verbose_name="Tax Name (French)"),
                 ),
                 ("effective_date", models.DateField(verbose_name="Effective Date")),
             ],
@@ -415,9 +405,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "name_fr",
-                    models.CharField(
-                        max_length=255, blank=True, verbose_name="Name (French)"
-                    ),
+                    models.CharField(max_length=255, blank=True, verbose_name="Name (French)"),
                 ),
                 (
                     "description_en",
@@ -532,9 +520,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "amount",
-                    models.DecimalField(
-                        max_digits=10, decimal_places=2, verbose_name="Amount"
-                    ),
+                    models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Amount"),
                 ),
                 (
                     "tax_amount",
@@ -547,9 +533,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "currency",
-                    models.CharField(
-                        max_length=3, default="CAD", verbose_name="Currency"
-                    ),
+                    models.CharField(max_length=3, default="CAD", verbose_name="Currency"),
                 ),
                 (
                     "purpose",
@@ -596,8 +580,7 @@ class Migration(migrations.Migration):
                         blank=True,
                         verbose_name="Gateway Intent ID",
                         help_text=(
-                            "ID returned by the payment gateway "
-                            "(e.g. Stripe PaymentIntent ID)."
+                            "ID returned by the payment gateway " "(e.g. Stripe PaymentIntent ID)."
                         ),
                     ),
                 ),
@@ -621,9 +604,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "failure_reason",
-                    models.CharField(
-                        max_length=500, blank=True, verbose_name="Failure Reason"
-                    ),
+                    models.CharField(max_length=500, blank=True, verbose_name="Failure Reason"),
                 ),
             ],
             options={
@@ -877,9 +858,7 @@ class Migration(migrations.Migration):
                         max_length=255,
                         unique=True,
                         verbose_name="Gateway Event ID",
-                        help_text=(
-                            "Idempotency key from gateway — prevents double-processing."
-                        ),
+                        help_text=("Idempotency key from gateway — prevents double-processing."),
                     ),
                 ),
                 (
@@ -902,15 +881,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "processed",
-                    models.BooleanField(
-                        default=False, db_index=True, verbose_name="Processed"
-                    ),
+                    models.BooleanField(default=False, db_index=True, verbose_name="Processed"),
                 ),
                 (
                     "processed_at",
-                    models.DateTimeField(
-                        null=True, blank=True, verbose_name="Processed At"
-                    ),
+                    models.DateTimeField(null=True, blank=True, verbose_name="Processed At"),
                 ),
                 (
                     "error",
@@ -1041,9 +1016,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "details",
-                    models.JSONField(
-                        default=dict, blank=True, verbose_name="Details"
-                    ),
+                    models.JSONField(default=dict, blank=True, verbose_name="Details"),
                 ),
             ],
             options={
@@ -1119,9 +1092,7 @@ class Migration(migrations.Migration):
                     "service_request_id",
                     models.UUIDField(
                         verbose_name="Service Request ID",
-                        help_text=(
-                            "Portal ServiceRequest PK — no FK to avoid cross-app coupling."
-                        ),
+                        help_text=("Portal ServiceRequest PK — no FK to avoid cross-app coupling."),
                     ),
                 ),
                 (
@@ -1282,9 +1253,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "cancelled_at",
-                    models.DateTimeField(
-                        null=True, blank=True, verbose_name="Cancelled At"
-                    ),
+                    models.DateTimeField(null=True, blank=True, verbose_name="Cancelled At"),
                 ),
                 (
                     "cancellation_reason",
@@ -1422,9 +1391,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "dedication_name",
-                    models.CharField(
-                        max_length=255, blank=True, verbose_name="Dedication Name"
-                    ),
+                    models.CharField(max_length=255, blank=True, verbose_name="Dedication Name"),
                 ),
                 (
                     "is_anonymous",
@@ -1553,9 +1520,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "donor_address_line1",
-                    models.CharField(
-                        max_length=255, verbose_name="Donor Address Line 1"
-                    ),
+                    models.CharField(max_length=255, verbose_name="Donor Address Line 1"),
                 ),
                 (
                     "donor_city",
@@ -1602,9 +1567,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "charity_registration_number",
-                    models.CharField(
-                        max_length=20, verbose_name="CRA Registration Number"
-                    ),
+                    models.CharField(max_length=20, verbose_name="CRA Registration Number"),
                 ),
                 (
                     "charity_address",
@@ -1616,15 +1579,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "authorized_signatory_name",
-                    models.CharField(
-                        max_length=255, verbose_name="Authorized Signatory Name"
-                    ),
+                    models.CharField(max_length=255, verbose_name="Authorized Signatory Name"),
                 ),
                 (
                     "authorized_signatory_title",
-                    models.CharField(
-                        max_length=255, verbose_name="Authorized Signatory Title"
-                    ),
+                    models.CharField(max_length=255, verbose_name="Authorized Signatory Title"),
                 ),
                 (
                     "pdf_path",
@@ -1684,7 +1643,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="feeschedule",
             constraint=models.CheckConstraint(
-                check=models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gt=models.F("effective_date")),
+                check=models.Q(expiry_date__isnull=True)
+                | models.Q(expiry_date__gt=models.F("effective_date")),
                 name="payments_feeschedule_dates_valid",
             ),
         ),
@@ -1764,7 +1724,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="recurringgiftplan",
-            index=models.Index(fields=["next_charge_date", "status"], name="payments_plan_charge_date_st"),
+            index=models.Index(
+                fields=["next_charge_date", "status"], name="payments_plan_charge_date_st"
+            ),
         ),
         # ------------------------------------------------------------------
         # Constraints — Donation (FIX 2, FIX 13)
@@ -1845,7 +1807,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="officialdonationreceipt",
-            index=models.Index(fields=["is_annual_consolidated", "receipt_date"], name="payments_receipt_annual_date"),
+            index=models.Index(
+                fields=["is_annual_consolidated", "receipt_date"],
+                name="payments_receipt_annual_date",
+            ),
         ),
         # ------------------------------------------------------------------
         # PostgreSQL sequence for receipt serial numbers.

@@ -1,7 +1,5 @@
 """Tests for backoffice audit log viewer."""
 
-from datetime import datetime, timezone as dt_timezone
-
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -84,9 +82,7 @@ class AuditLogListTests(TestCase):
         _make_entry(event_type=AuditEventType.LOGIN_SUCCESS)
         _make_entry(event_type=AuditEventType.LOGOUT)
         self.client.login(email="staff@example.com", password="testpass123")
-        response = self.client.get(
-            AUDIT_LIST_URL, {"event_type": AuditEventType.LOGOUT}
-        )
+        response = self.client.get(AUDIT_LIST_URL, {"event_type": AuditEventType.LOGOUT})
         self.assertEqual(response.status_code, 200)
         entries = response.context["entries"]
         for entry in entries:
@@ -122,7 +118,7 @@ class AuditLogListTests(TestCase):
         # transform produces.  The view filters with timestamp__date__gte which
         # converts stored UTC timestamps to TIME_ZONE (America/Toronto) before
         # extracting the date.  Using timezone.now().strftime() gives the UTC
-        # date, which diverges from the Toronto date between 00:00–05:00 UTC
+        # date, which diverges from the Toronto date between 00:00–05:00 UTC  # noqa: RUF003
         # and causes a spurious failure — a flaky test that only surfaces during
         # overnight CI runs.
         today_str = timezone.localtime(timezone.now()).strftime("%Y-%m-%d")
@@ -138,6 +134,7 @@ class AuditLogListTests(TestCase):
         """date_from set to tomorrow excludes today's entries."""
         _make_entry()
         import datetime as dt_mod
+
         tomorrow = (timezone.now() + dt_mod.timedelta(days=1)).strftime("%Y-%m-%d")
         self.client.login(email="staff@example.com", password="testpass123")
         response = self.client.get(AUDIT_LIST_URL, {"date_from": tomorrow})

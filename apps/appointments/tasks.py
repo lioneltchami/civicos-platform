@@ -37,6 +37,7 @@ Wave F additional invariant — SSRF:
   (TOCTOU), so re-validating at call time is mandatory. See
   _is_safe_outbound_url()'s docstring for the full threat model.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -46,10 +47,12 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 import requests
-from celery import shared_task
-from celery.exceptions import SoftTimeLimitExceeded
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+
+from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Wave 2: generate_slots_for_period
 # ---------------------------------------------------------------------------
+
 
 @shared_task(
     bind=True,
@@ -66,9 +70,9 @@ logger = logging.getLogger(__name__)
     acks_late=True,
     reject_on_worker_lost=True,
     soft_time_limit=3300,  # 55 min — catch overruns and log cleanly before hard kill
-    time_limit=3600,       # 60 min hard kill
+    time_limit=3600,  # 60 min hard kill
 )
-def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
+def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:  # noqa: ANN001
     """
     Generate Slot records for all active staff × active appointment_type
     combinations over the upcoming horizon window.
@@ -84,8 +88,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
 
     Returns:
         {"slots_created": N, "combinations_processed": M}
-    """
-    from django.conf import settings
+    """  # noqa: RUF002
 
     from apps.appointments.models import AppointmentType, StaffProfile
     from apps.appointments.services.slots import generate_slots_for_range
@@ -98,9 +101,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     date_to = today + timedelta(days=horizon_days)
 
     # Fetch active appointment types
-    active_appt_types = list(
-        AppointmentType.objects.filter(is_active=True)
-    )
+    active_appt_types = list(AppointmentType.objects.filter(is_active=True))
     active_appt_type_pks = {at.pk for at in active_appt_types}
     appt_type_by_pk = {at.pk: at for at in active_appt_types}
 
@@ -126,7 +127,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
             "generate_slots_for_period: failed to fetch staff queryset: %s",
             type(exc).__name__,
         )
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc)  # noqa: B904
 
     total_created = 0
     combinations = 0
@@ -135,9 +136,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     # the run or retry the whole task.
     try:
         for staff_member in staff_list:
-            staff_appt_type_pks = set(
-                staff_member.appointment_types.values_list("pk", flat=True)
-            )
+            staff_appt_type_pks = set(staff_member.appointment_types.values_list("pk", flat=True))
             eligible_pks = staff_appt_type_pks & active_appt_type_pks
 
             for appt_type_pk in eligible_pks:
@@ -170,7 +169,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
         # The next nightly run will cover any missed staff members.
 
     logger.info(
-        "generate_slots_for_period: %d slots created across %d staff×type combinations "
+        "generate_slots_for_period: %d slots created across %d staff×type combinations "  # noqa: RUF001
         "(horizon=%d days)",
         total_created,
         combinations,
@@ -183,6 +182,7 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
 # Wave 2: mark_past_slots_completed
 # ---------------------------------------------------------------------------
 
+
 @shared_task(
     bind=True,
     name="appointments.mark_past_slots_completed",
@@ -191,9 +191,9 @@ def generate_slots_for_period(self, horizon_days: int | None = None) -> dict:
     acks_late=True,
     reject_on_worker_lost=True,
     soft_time_limit=270,  # catch overruns before the hard kill
-    time_limit=300,       # hard kill — explicit, self-documenting
+    time_limit=300,  # hard kill — explicit, self-documenting
 )
-def mark_past_slots_completed(self) -> dict:
+def mark_past_slots_completed(self) -> dict:  # noqa: ANN001
     """
     Transition all past Slot records in non-terminal statuses to 'completed'.
 
@@ -233,12 +233,13 @@ def mark_past_slots_completed(self) -> dict:
             "mark_past_slots_completed: error — retrying. error_type=%s",
             type(exc).__name__,
         )
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc)  # noqa: B904
 
 
 # ---------------------------------------------------------------------------
 # Wave 3: cleanup_expired_pending_bookings
 # ---------------------------------------------------------------------------
+
 
 @shared_task(
     bind=True,
@@ -250,7 +251,7 @@ def mark_past_slots_completed(self) -> dict:
     soft_time_limit=270,
     time_limit=300,
 )
-def cleanup_expired_pending_bookings(self) -> dict:
+def cleanup_expired_pending_bookings(self) -> dict:  # noqa: ANN001
     """
     Cancel PENDING bookings that have exceeded the pending timeout window.
 
@@ -261,7 +262,6 @@ def cleanup_expired_pending_bookings(self) -> dict:
     Returns:
         {"bookings_cancelled": N}
     """
-    from django.conf import settings
 
     from apps.appointments.models import Booking
     from apps.appointments.services.booking import cancel_booking
@@ -291,12 +291,14 @@ def cleanup_expired_pending_bookings(self) -> dict:
             except Exception as exc:
                 logger.error(
                     "cleanup_expired_pending_bookings: error booking_id=%s: %s",
-                    pk, type(exc).__name__,
+                    pk,
+                    type(exc).__name__,
                 )
 
         logger.info(
             "cleanup_expired_pending_bookings: %d/%d expired pending bookings cancelled",
-            cancelled, len(expired_pks),
+            cancelled,
+            len(expired_pks),
         )
         return {"bookings_cancelled": cancelled}
 
@@ -305,7 +307,7 @@ def cleanup_expired_pending_bookings(self) -> dict:
             "cleanup_expired_pending_bookings: unhandled error — retrying. error_type=%s",
             type(exc).__name__,
         )
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc)  # noqa: B904
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +404,7 @@ def _is_safe_outbound_url(url: str) -> bool:
                 return False
 
         return True
-    except Exception:  # noqa: BLE001 — fail closed on ANY parse/DNS error.
+    except Exception:
         return False
 
 
@@ -440,9 +442,7 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
     logged, since it may describe appointment-specific details.
     """
     if not _is_safe_outbound_url(url):
-        logger.warning(
-            "dispatch_alert_schedule.unsafe_url_skipped url=%s %s", url, log_ctx
-        )
+        logger.warning("dispatch_alert_schedule.unsafe_url_skipped url=%s %s", url, log_ctx)
         return False
 
     try:
@@ -464,12 +464,16 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
         response.raise_for_status()
         logger.info(
             "dispatch_alert_schedule.delivered url=%s status=%s %s",
-            url, response.status_code, log_ctx,
+            url,
+            response.status_code,
+            log_ctx,
         )
-    except Exception as exc:  # noqa: BLE001 — non-fatal, matches _post_callback.
+    except Exception as exc:
         logger.warning(
             "dispatch_alert_schedule.delivery_failed url=%s exc_type=%s %s",
-            url, type(exc).__name__, log_ctx,
+            url,
+            type(exc).__name__,
+            log_ctx,
         )
 
     return True
@@ -485,189 +489,91 @@ def _attempt_alert_delivery(url: str, payload: dict, log_ctx: str) -> bool:
     soft_time_limit=90,
     time_limit=120,
 )
-def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:
-    """
-    Deliver a GovStackAlertSchedule's push notification to its resolved
-    participants. Scheduled with a Celery ETA equal to
-    GovStackAlertSchedule.alert_datetime by the view layer (see
-    govstack_views.AlertScheduleNewView / AlertScheduleModificationsView).
+def dispatch_alert_schedule(self, alert_schedule_pk: str) -> dict:  # noqa: ANN001
+    """Durably admit one alert generation before any wake-up or transport I/O.
 
-    Idempotency
-    ───────────
-    select_for_update() inside transaction.atomic() on the GovStackAlertSchedule
-    row; if dispatched=True already, this is a no-op exit under the row lock —
-    identical pattern to apps.payments.govstack_tasks.process_bulk_payment_batch.
-
-    Crash-safety tradeoff — dispatched=True is set BEFORE any outbound calls
-    ───────────────────────────────────────────────────────────────────────
-    ``dispatched`` is flipped to True inside the SAME locked transaction as
-    the idempotency check above, BEFORE any recipient is resolved or any
-    HTTP call is attempted — deliberately, not an oversight. The task runs
-    with acks_late=True + reject_on_worker_lost=True + a fixed time_limit=120
-    budget; with a 10s-per-recipient timeout, an event with roughly 9-12+
-    slow/timing-out recipients can exhaust that budget mid-loop. If
-    ``dispatched=True`` were instead written only AFTER all outbound calls
-    complete (as an earlier version of this task did), a worker crash/kill/
-    time-limit-exceeded AFTER some alerts were already sent but BEFORE that
-    final write commits would cause Celery to redeliver the whole task, which
-    would re-read dispatched=False and RE-SEND every alert to every
-    recipient a second time — citizens would receive duplicate reminders.
-    Marking dispatched=True up front instead changes the failure mode to
-    UNDER-delivery on a crash (some or all recipients for that one alert
-    never get a copy) rather than OVER-delivery (every recipient gets 2+
-    copies). For a best-effort reminder system, under-delivery on the rare
-    crash-mid-dispatch path is the acceptable tradeoff — duplicate citizen-
-    facing notifications are not.
-
-    Participant resolution
-    ───────────────────────
-    Subscribers (target_category in ("", "subscriber")): every Booking on
-    alert_schedule.slot with status in _ALERT_ELIGIBLE_BOOKING_STATUSES
-    ("pending", "confirmed") is a candidate. For each, GovStackSubscriberProfile
-    is looked up via the citizen's govstack_subscriber_profile reverse
-    relation; a candidate is only alerted if profile.alert_preference == "push"
-    and profile.alert_url is non-blank. Other preference values ("poll",
-    "email", "sms", "none") are OUT OF SCOPE for this wave — this codebase has
-    no email/SMS channel yet — and are silently skipped; this is a deliberate,
-    documented deferral, not a bug.
-
-    Resources (target_category in ("", "resource")): TWO possible recipients
-    per Slot, both attempted if eligible:
-      - Slot.staff (StaffProfile) — alerted if gs_alert_preference == "push"
-        and gs_alert_url is non-blank.
-      - Slot.resource (the optional physical-resource FK), if set — alerted
-        if alert_preference == "push" and alert_url is non-blank. (Scope
-        note: the spec-drafting notes for this wave assumed only staff had
-        comparable alert fields; on inspection, apps.appointments.models.Resource
-        ALSO has alert_url/alert_preference/status_poll_url fields — reused
-        here rather than left unimplemented, since the fields already exist
-        and are otherwise dead.)
-
-    Locking discipline — no DB row lock held across outbound HTTP calls
-    ─────────────────────────────────────────────────────────────────────
-    The idempotency check (select_for_update) AND the "mark dispatched" write
-    both happen inside the SAME short initial transaction (see "Crash-safety
-    tradeoff" above) — but that transaction is closed, and its row lock
-    released, BEFORE any recipient is resolved or any outbound HTTP call is
-    made. All outbound HTTP calls happen afterwards, OUTSIDE any transaction.
-    A slow or blocked network peer must never hold a DB row lock — this
-    mirrors the identical outside-the-transaction callback-POST discipline
-    already used by apps.payments.govstack_tasks.process_bulk_payment_batch /
-    validate_prepayment_async ("POST callback OUTSIDE the transaction").
-
-    Delivery is best-effort per recipient — one recipient's failure (unsafe
-    URL or a failed HTTP call) never blocks delivery to the others, and never
-    fails the task as a whole (see _attempt_alert_delivery).
-
-    Security: the outbound payload never includes citizen PII (name, email) —
-    only alert_schedule_id, the message's category/message_body (caller-
-    authored template text), and alert_datetime. message_body is NEVER
-    logged, only ever POSTed. Log lines use PKs only (citizen_pk, staff_pk,
-    resource_pk), never combined with delivery outcome in a way that differs
-    from the existing accepted logging pattern elsewhere in this codebase.
-
-    Args:
-        alert_schedule_pk: str(alert_schedule.pk) — PK of the
-                            GovStackAlertSchedule to dispatch.
-
-    Returns:
-        {"attempted": N, "skipped_unsafe": M} — N is the number of recipients
-        an HTTP POST was actually attempted for (delivery success/failure is
-        logged but not reflected here — this is a best-effort fire count, not
-        a confirmed-delivery count); M is the number of would-be recipients
-        skipped because their configured URL failed the SSRF safety check.
-        {"already_dispatched": True} if this was a no-op idempotent re-run.
+    ``delivery_generation``, ``delivery_admittable`` and the durable admission
+    markers are the sole admission authority.  Legacy ``dispatched`` and
+    ``celery_task_id`` fields are compatibility projections only.
     """
     from apps.appointments.models import Booking, GovStackAlertSchedule
+    from apps.appointments.scheduler_tasks import publish_scheduler_outbox
+    from apps.appointments.services import scheduler_runtime
 
-    with transaction.atomic():
+    wakeup_registered = False
+
+    def wake_outbox_after_commit() -> None:
         try:
-            alert_schedule = (
-                GovStackAlertSchedule.objects.select_for_update()
+            publish_scheduler_outbox.delay()
+        except Exception as exc:  # durable admission has already committed
+            logger.warning(
+                "dispatch_alert_schedule.outbox_wakeup_failed alert_schedule_pk=%s exc_type=%s",
+                alert_schedule_pk,
+                type(exc).__name__,
+            )
+
+    try:
+        with transaction.atomic():
+            schedule = (
+                GovStackAlertSchedule.objects.select_for_update(of=("self",))
                 .select_related("slot", "slot__staff", "slot__resource", "message")
                 .get(pk=alert_schedule_pk)
             )
-        except GovStackAlertSchedule.DoesNotExist:
-            logger.error(
-                "dispatch_alert_schedule.not_found alert_schedule_pk=%s", alert_schedule_pk
+            recipients: list[tuple[str, str]] = []
+            if schedule.target_category in ("", "subscriber"):
+                bookings = Booking.objects.filter(
+                    slot=schedule.slot,
+                    status__in=_ALERT_ELIGIBLE_BOOKING_STATUSES,
+                ).select_related("citizen__govstack_subscriber_profile")
+                for booking in bookings:
+                    profile = getattr(booking.citizen, "govstack_subscriber_profile", None)
+                    if (
+                        profile is not None
+                        and profile.alert_preference == "push"
+                        and profile.alert_url
+                    ):
+                        recipients.append(("subscriber", str(profile.pk)))
+            if schedule.target_category in ("", "resource"):
+                staff = schedule.slot.staff
+                if staff is not None and staff.gs_alert_preference == "push" and staff.gs_alert_url:
+                    recipients.append(("staff", str(staff.pk)))
+                resource = schedule.slot.resource
+                if (
+                    resource is not None
+                    and resource.alert_preference == "push"
+                    and resource.alert_url
+                ):
+                    recipients.append(("resource", str(resource.pk)))
+
+            admission = scheduler_runtime.admit_schedule_generation(
+                schedule_id=schedule.pk,
+                expected_generation=schedule.delivery_generation,
+                recipients=recipients,
+                owner_key=f"schedule:{schedule.pk}",
+                correlation_id=f"scheduler:{schedule.pk}:{schedule.delivery_generation}",
+                payload={},
             )
-            return {"attempted": 0, "skipped_unsafe": 0}
-
-        if alert_schedule.dispatched:
-            # Already processed — idempotent exit under the row lock.
-            logger.debug(
-                "dispatch_alert_schedule.already_dispatched alert_schedule_pk=%s",
-                alert_schedule_pk,
-            )
-            return {"attempted": 0, "skipped_unsafe": 0, "already_dispatched": True}
-
-        # Mark dispatched=True NOW, in the same locked transaction as the
-        # idempotency check above, BEFORE any outbound HTTP call is
-        # attempted — see docstring "Crash-safety tradeoff" for why this
-        # ordering (under-delivery-on-crash, never duplicate-delivery-on-
-        # crash) was deliberately chosen over marking dispatched at the end.
-        alert_schedule.dispatched = True
-        alert_schedule.save(update_fields=["dispatched"])
-
-        # Snapshot everything needed for delivery BEFORE releasing the lock.
-        slot = alert_schedule.slot
-        message = alert_schedule.message
-        target_category = alert_schedule.target_category
-        alert_datetime_iso = alert_schedule.alert_datetime.isoformat()
-
-    payload = {
-        "alert_schedule_id": str(alert_schedule_pk),
-        "category": message.category,
-        "message_body": message.message_body,
-        "alert_datetime": alert_datetime_iso,
-    }
-
-    attempted = 0
-    skipped_unsafe = 0
-
-    if target_category in ("", "subscriber"):
-        bookings = Booking.objects.filter(
-            slot=slot, status__in=_ALERT_ELIGIBLE_BOOKING_STATUSES
-        ).select_related("citizen__govstack_subscriber_profile")
-
-        for booking in bookings:
-            # Reverse OneToOneField descriptor: raises a DoesNotExist subclass
-            # (which is ALSO an AttributeError, by Django's own design) when no
-            # profile exists — getattr's default safely handles both "no
-            # profile row" and "no such attribute" in one line.
-            profile = getattr(booking.citizen, "govstack_subscriber_profile", None)
-            if profile is None or profile.alert_preference != "push" or not profile.alert_url:
-                continue
-
-            if _attempt_alert_delivery(
-                profile.alert_url, payload, f"citizen_pk={booking.citizen_id}"
+            if (
+                admission["outcome"] == GovStackAlertSchedule.ADMISSION_CREATED
+                and admission["created"]
             ):
-                attempted += 1
-            else:
-                skipped_unsafe += 1
+                transaction.on_commit(wake_outbox_after_commit)
+                wakeup_registered = True
+    except GovStackAlertSchedule.DoesNotExist:
+        logger.error("dispatch_alert_schedule.not_found alert_schedule_pk=%s", alert_schedule_pk)
+        return {"attempted": 0, "skipped_unsafe": 0, "outcome": "not_found", "materialized": 0}
 
-    if target_category in ("", "resource"):
-        staff = slot.staff
-        if staff is not None and staff.gs_alert_preference == "push" and staff.gs_alert_url:
-            if _attempt_alert_delivery(staff.gs_alert_url, payload, f"staff_pk={staff.pk}"):
-                attempted += 1
-            else:
-                skipped_unsafe += 1
-
-        resource = slot.resource
-        if resource is not None and resource.alert_preference == "push" and resource.alert_url:
-            if _attempt_alert_delivery(
-                resource.alert_url, payload, f"resource_pk={resource.pk}"
-            ):
-                attempted += 1
-            else:
-                skipped_unsafe += 1
-
-    # dispatched=True was already committed in the initial locked transaction
-    # above, BEFORE these outbound HTTP calls were attempted — see docstring
-    # "Crash-safety tradeoff". No second write is needed here.
     logger.info(
-        "dispatch_alert_schedule.completed alert_schedule_pk=%s attempted=%d skipped_unsafe=%d",
-        alert_schedule_pk, attempted, skipped_unsafe,
+        "dispatch_alert_schedule.admitted alert_schedule_pk=%s outcome=%s created=%s",
+        alert_schedule_pk,
+        admission["outcome"],
+        admission["created"],
     )
-    return {"attempted": attempted, "skipped_unsafe": skipped_unsafe}
+    return {
+        "attempted": 0,
+        "skipped_unsafe": 0,
+        "outcome": admission["outcome"],
+        "generation": admission["generation"],
+        "materialized": admission["created"],
+        "wakeup_registered": wakeup_registered,
+    }

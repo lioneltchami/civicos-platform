@@ -93,7 +93,6 @@ def _grant_perm(user, codename, model=Document):
 
 
 class IssueAccessTokenTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -178,50 +177,38 @@ class IssueAccessTokenTests(TestCase):
 
 
 class IssueAccessTokenIPMaskingTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
         self.doc = _make_document(self.user, self.cat)
 
     def test_ipv4_last_octet_zeroed(self):
-        token = issue_access_token(
-            user=self.user, document=self.doc, ip_address="192.168.1.100"
-        )
+        token = issue_access_token(user=self.user, document=self.doc, ip_address="192.168.1.100")
         self.assertEqual(token.ip_address, "192.168.1.0")
 
     def test_ipv4_127_0_0_1_masked(self):
-        token = issue_access_token(
-            user=self.user, document=self.doc, ip_address="127.0.0.1"
-        )
+        token = issue_access_token(user=self.user, document=self.doc, ip_address="127.0.0.1")
         self.assertEqual(token.ip_address, "127.0.0.0")
 
     def test_ipv6_masked_to_48_prefix(self):
         """IPv6 should retain only the /48 prefix (last 80 bits zeroed)."""
-        token = issue_access_token(
-            user=self.user, document=self.doc, ip_address="2001:db8::1"
-        )
+        token = issue_access_token(user=self.user, document=self.doc, ip_address="2001:db8::1")
         # The masked result should be the /48 network address
         self.assertIsNotNone(token.ip_address)
         # Should not be the original full address
         self.assertNotEqual(token.ip_address, "2001:db8::1")
 
     def test_none_ip_stored_as_none(self):
-        token = issue_access_token(
-            user=self.user, document=self.doc, ip_address=None
-        )
+        token = issue_access_token(user=self.user, document=self.doc, ip_address=None)
         self.assertIsNone(token.ip_address)
 
     def test_unparseable_ip_stored_as_none(self):
         """Unparseable IP must not crash the download."""
-        token = issue_access_token(
-            user=self.user, document=self.doc, ip_address="not-an-ip"
-        )
+        token = issue_access_token(user=self.user, document=self.doc, ip_address="not-an-ip")
         self.assertIsNone(token.ip_address)
 
 
 class IssueAccessTokenAuditTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -243,22 +230,30 @@ class IssueAccessTokenAuditTests(TestCase):
 
     def test_issue_token_audit_actor_is_user(self):
         issue_access_token(user=self.user, document=self.doc)
-        entry = AuditLogEntry.objects.filter(
-            resource_type="documents.Document",
-            resource_id=str(self.doc.pk),
-            event_type=AuditEventType.RECORD_VIEWED,
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_type="documents.Document",
+                resource_id=str(self.doc.pk),
+                event_type=AuditEventType.RECORD_VIEWED,
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         self.assertEqual(entry.actor_id, str(self.user.pk))
 
     def test_issue_token_audit_no_storage_key(self):
         """PIPEDA: storage_key must NEVER appear in audit event_detail."""
         issue_access_token(user=self.user, document=self.doc)
-        entry = AuditLogEntry.objects.filter(
-            resource_type="documents.Document",
-            resource_id=str(self.doc.pk),
-            event_type=AuditEventType.RECORD_VIEWED,
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_type="documents.Document",
+                resource_id=str(self.doc.pk),
+                event_type=AuditEventType.RECORD_VIEWED,
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         self.assertNotIn("storage_key", entry.event_detail)
         # Also check the actual key value isn't buried in any string value
@@ -268,17 +263,20 @@ class IssueAccessTokenAuditTests(TestCase):
     def test_issue_token_audit_no_original_filename(self):
         """PIPEDA: original_filename must NEVER appear in audit event_detail."""
         issue_access_token(user=self.user, document=self.doc)
-        entry = AuditLogEntry.objects.filter(
-            resource_type="documents.Document",
-            resource_id=str(self.doc.pk),
-            event_type=AuditEventType.RECORD_VIEWED,
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_type="documents.Document",
+                resource_id=str(self.doc.pk),
+                event_type=AuditEventType.RECORD_VIEWED,
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         self.assertNotIn("original_filename", entry.event_detail)
 
 
 class IssueAccessTokenTTLTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -313,7 +311,6 @@ class IssueAccessTokenTTLTests(TestCase):
 
 
 class ConsumeAccessTokenTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -411,7 +408,6 @@ class ConsumeAccessTokenTests(TestCase):
 
 
 class PurgeExpiredTokensTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -427,9 +423,7 @@ class PurgeExpiredTokensTests(TestCase):
         return DocumentAccessToken.objects.create(**defaults)
 
     def test_purge_deletes_expired_tokens(self):
-        expired = self._make_token(
-            expires_at=timezone.now() - timedelta(hours=1)
-        )
+        expired = self._make_token(expires_at=timezone.now() - timedelta(hours=1))
         purge_expired_tokens()
         with self.assertRaises(DocumentAccessToken.DoesNotExist):
             DocumentAccessToken.objects.get(pk=expired.pk)
@@ -446,9 +440,7 @@ class PurgeExpiredTokensTests(TestCase):
         valid_token = self._make_token()
         purge_expired_tokens()
         # Should still exist
-        self.assertTrue(
-            DocumentAccessToken.objects.filter(pk=valid_token.pk).exists()
-        )
+        self.assertTrue(DocumentAccessToken.objects.filter(pk=valid_token.pk).exists())
 
     def test_purge_returns_count_of_deleted(self):
         # 2 expired, 1 valid
@@ -459,14 +451,10 @@ class PurgeExpiredTokensTests(TestCase):
         self.assertGreaterEqual(count, 2)
 
     def test_purge_dry_run_does_not_delete(self):
-        expired = self._make_token(
-            expires_at=timezone.now() - timedelta(hours=1)
-        )
+        expired = self._make_token(expires_at=timezone.now() - timedelta(hours=1))
         purge_expired_tokens(dry_run=True)
         # Should still exist with dry_run=True
-        self.assertTrue(
-            DocumentAccessToken.objects.filter(pk=expired.pk).exists()
-        )
+        self.assertTrue(DocumentAccessToken.objects.filter(pk=expired.pk).exists())
 
     def test_purge_mixed_batch(self):
         """2 expired + 1 used + 2 valid → only 4 purged, 2 remain."""

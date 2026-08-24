@@ -8,6 +8,7 @@ Covers:
 - DataExportRequest creation, STATUS_* constants, download_token uniqueness
 - ConsentAuditEntry creation, immutability
 """
+
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -86,11 +87,19 @@ class ConsentCategoryModelTests(TestCase):
 
     def test_ordering_by_sort_order_then_slug(self):
         ConsentCategory.objects.create(
-            slug="b-cat", name_en="B", name_fr="B", purpose_en="p", purpose_fr="p",
+            slug="b-cat",
+            name_en="B",
+            name_fr="B",
+            purpose_en="p",
+            purpose_fr="p",
             sort_order=1,
         )
         ConsentCategory.objects.create(
-            slug="a-cat", name_en="A", name_fr="A", purpose_en="p", purpose_fr="p",
+            slug="a-cat",
+            name_en="A",
+            name_fr="A",
+            purpose_en="p",
+            purpose_fr="p",
             sort_order=0,
         )
         cats = list(ConsentCategory.objects.all())
@@ -154,9 +163,7 @@ class ConsentRecordModelTests(TestCase):
         )
         self.assertNotEqual(r1.pk, r2.pk)
         self.assertEqual(
-            ConsentRecord.objects.filter(
-                citizen=self.citizen, category=self.category
-            ).count(),
+            ConsentRecord.objects.filter(citizen=self.citizen, category=self.category).count(),
             2,
         )
 
@@ -196,19 +203,23 @@ class ConsentRecordModelTests(TestCase):
     def test_is_current_false_rows_do_not_collide(self):
         """Any number of is_current=False (historical) rows may coexist."""
         ConsentRecord.objects.create(
-            citizen=self.citizen, category=self.category, is_current=False,
+            citizen=self.citizen,
+            category=self.category,
+            is_current=False,
         )
         ConsentRecord.objects.create(
-            citizen=self.citizen, category=self.category, is_current=False,
+            citizen=self.citizen,
+            category=self.category,
+            is_current=False,
         )
         third = ConsentRecord.objects.create(
-            citizen=self.citizen, category=self.category, is_current=True,
+            citizen=self.citizen,
+            category=self.category,
+            is_current=True,
         )
         self.assertIsNotNone(third.pk)
         self.assertEqual(
-            ConsentRecord.objects.filter(
-                citizen=self.citizen, category=self.category
-            ).count(),
+            ConsentRecord.objects.filter(citizen=self.citizen, category=self.category).count(),
             3,
         )
 
@@ -315,7 +326,7 @@ class DataExportRequestModelTests(TestCase):
 
     def test_ordering_newest_first(self):
         # Use non-conflicting statuses to avoid unique_active_export_per_citizen constraint
-        export1 = DataExportRequest.objects.create(
+        DataExportRequest.objects.create(
             citizen=self.citizen, status=DataExportRequest.STATUS_DELIVERED
         )
         export2 = DataExportRequest.objects.create(
@@ -400,6 +411,7 @@ class ConsentAuditEntryModelTests(TestCase):
 # ===========================================================================
 # Bug 7 (RTBF/PIPEDA erasure gap) — ConsentRevision.redact_pii()
 # ===========================================================================
+
 
 def _make_consent_record_revision(citizen, category):
     """

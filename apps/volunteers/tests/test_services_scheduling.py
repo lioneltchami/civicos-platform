@@ -18,11 +18,11 @@ Conventions:
   - captureOnCommitCallbacks(execute=True) to trigger on_commit paths in TestCase.
   - PIPEDA: all log/signal assertions use PKs, not PII.
 """
+
 from __future__ import annotations
 
 import datetime
 import uuid
-from decimal import Decimal
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -35,11 +35,11 @@ from apps.volunteers.models import (
     HoursLog,
     Opportunity,
     Program,
+    Shift,
     ShiftBooking,
     VolunteerApplication,
     VolunteerProfile,
 )
-from apps.volunteers.models import Shift
 from apps.volunteers.services.scheduling import (
     book_shift,
     cancel_booking,
@@ -70,27 +70,27 @@ def _make_user(email=None, password="testpass!", **kwargs):
 
 def _make_program(**kwargs):
     n = _uid()
-    defaults = dict(
-        name_en=f"Program {n}",
-        name_fr=f"Programme {n}",
-        slug=f"prog-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"Program {n}",
+        "name_fr": f"Programme {n}",
+        "slug": f"prog-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     n = _uid()
-    defaults = dict(
-        title_en=f"Opportunity {n}",
-        title_fr=f"Opportunité {n}",
-        slug=slug or f"opp-{n}",
-        description_en="Description EN",
-        description_fr="Description FR",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": f"Opportunity {n}",
+        "title_fr": f"Opportunité {n}",
+        "slug": slug or f"opp-{n}",
+        "description_en": "Description EN",
+        "description_fr": "Description FR",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -99,8 +99,16 @@ def _make_profile(user):
     return VolunteerProfile.objects.create(user=user)
 
 
-def _make_shift(opportunity, *, hours_ahead=2, duration_hours=2, capacity=5,
-                waitlist_enabled=True, waitlist_cap=3, **kwargs):
+def _make_shift(
+    opportunity,
+    *,
+    hours_ahead=2,
+    duration_hours=2,
+    capacity=5,
+    waitlist_enabled=True,
+    waitlist_cap=3,
+    **kwargs,
+):
     """Create a shift starting `hours_ahead` hours from now."""
     now = timezone.now()
     start = now + datetime.timedelta(hours=hours_ahead)
@@ -156,6 +164,7 @@ def _grant_perm(user, codename):
 # Shared base setup
 # ---------------------------------------------------------------------------
 
+
 class SchedulingBaseTestCase(TestCase):
     """
     Shared fixtures for all scheduling service tests.
@@ -183,9 +192,7 @@ class SchedulingBaseTestCase(TestCase):
         self.program = _make_program(slug=f"base-sched-prog-{_slug_uid}")
         self.opportunity = _make_opportunity(self.program, slug=f"base-sched-opp-{_slug_uid}")
 
-        self.approved_application = _approve_application(
-            self.volunteer_profile, self.opportunity
-        )
+        self.approved_application = _approve_application(self.volunteer_profile, self.opportunity)
 
         self.shift = _make_shift(
             self.opportunity,
@@ -213,8 +220,8 @@ class SchedulingBaseTestCase(TestCase):
 # book_shift() tests
 # ===========================================================================
 
-class BookShiftTests(SchedulingBaseTestCase):
 
+class BookShiftTests(SchedulingBaseTestCase):
     def test_book_shift_creates_confirmed_booking(self):
         """Happy path: book_shift() returns a confirmed ShiftBooking."""
         booking = book_shift(
@@ -242,7 +249,7 @@ class BookShiftTests(SchedulingBaseTestCase):
     def test_book_shift_past_shift_raises(self):
         """book_shift() raises ValidationError when the shift has already started."""
         past_shift = _make_past_shift(self.opportunity)
-        # Volunteer already has an application from setUp (STATUS_APPROVED) — no need to create another.
+        # Volunteer already has an application from setUp (STATUS_APPROVED) — no need to create another.  # noqa: E501
         # Ensure it is approved (it is by default in base setUp via _approve_application).
         with self.assertRaises(ValidationError) as ctx:
             book_shift(
@@ -341,6 +348,7 @@ class BookShiftTests(SchedulingBaseTestCase):
     def test_book_shift_fires_signal_on_commit(self):
         """book_shift() fires shift_booked signal after the DB commit."""
         from apps.volunteers.signals import shift_booked
+
         received = []
 
         def handler(sender, **kwargs):
@@ -419,8 +427,8 @@ class BookShiftTests(SchedulingBaseTestCase):
 # cancel_booking() tests
 # ===========================================================================
 
-class CancelBookingTests(SchedulingBaseTestCase):
 
+class CancelBookingTests(SchedulingBaseTestCase):
     def _confirmed_booking(self):
         return book_shift(
             shift=self.shift,
@@ -539,6 +547,7 @@ class CancelBookingTests(SchedulingBaseTestCase):
     def test_cancel_sends_signal_on_commit(self):
         """cancel_booking() fires shift_booking_cancelled signal after commit."""
         from apps.volunteers.signals import shift_booking_cancelled
+
         booking = self._confirmed_booking()
         received = []
 
@@ -568,8 +577,8 @@ class CancelBookingTests(SchedulingBaseTestCase):
 # mark_no_show() tests
 # ===========================================================================
 
-class MarkNoShowTests(SchedulingBaseTestCase):
 
+class MarkNoShowTests(SchedulingBaseTestCase):
     def setUp(self):
         super().setUp()
         # Create a past shift for no-show tests (shift must have started).
@@ -634,8 +643,8 @@ class MarkNoShowTests(SchedulingBaseTestCase):
 # complete_booking() tests
 # ===========================================================================
 
-class CompleteBookingTests(SchedulingBaseTestCase):
 
+class CompleteBookingTests(SchedulingBaseTestCase):
     def setUp(self):
         super().setUp()
         # Create a shift whose end is in the past (complete_booking requires end < now).
@@ -749,8 +758,8 @@ class CompleteBookingTests(SchedulingBaseTestCase):
 # cancel_shift() tests
 # ===========================================================================
 
-class CancelShiftTests(SchedulingBaseTestCase):
 
+class CancelShiftTests(SchedulingBaseTestCase):
     def test_cancel_shift_sets_cancelled_fields(self):
         """cancel_shift() sets is_cancelled=True, cancelled_at, and cancellation_reason."""
         with self.captureOnCommitCallbacks(execute=True):
@@ -780,8 +789,11 @@ class CancelShiftTests(SchedulingBaseTestCase):
 
         for booking_pk in [confirmed_1.pk, confirmed_2.pk, waitlisted.pk]:
             b = ShiftBooking.objects.get(pk=booking_pk)
-            self.assertEqual(b.status, ShiftBooking.STATUS_CANCELLED,
-                             f"Booking #{booking_pk} should be cancelled")
+            self.assertEqual(
+                b.status,
+                ShiftBooking.STATUS_CANCELLED,
+                f"Booking #{booking_pk} should be cancelled",
+            )
 
     def test_cancel_shift_already_cancelled_raises(self):
         """cancel_shift() raises ValidationError when the shift is already cancelled."""
@@ -811,6 +823,7 @@ class CancelShiftTests(SchedulingBaseTestCase):
     def test_cancel_shift_fires_signal_on_commit(self):
         """cancel_shift() fires the shift_cancelled signal after the DB commit."""
         from apps.volunteers.signals import shift_cancelled as sig
+
         received = []
 
         def handler(sender, **kwargs):
@@ -855,6 +868,7 @@ class CancelShiftTests(SchedulingBaseTestCase):
 # ===========================================================================
 # Race condition tests  (TransactionTestCase)
 # ===========================================================================
+
 
 class ShiftRaceConditionTests(TransactionTestCase):
     """

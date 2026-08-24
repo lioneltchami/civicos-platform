@@ -4,15 +4,18 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('documents', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("documents", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='documentcategory',
-            name='staff_only',
-            field=models.BooleanField(default=False, help_text='If True, only users with the documents.upload_staff_document permission (or superusers) may upload to this category. Authenticated citizens are blocked even if they have documents.upload_document. Use for sensitive internal categories such as compliance reports or internal audit evidence.', verbose_name='Staff only'),
+            model_name="documentcategory",
+            name="staff_only",
+            field=models.BooleanField(
+                default=False,
+                help_text="If True, only users with the documents.upload_staff_document permission (or superusers) may upload to this category. Authenticated citizens are blocked even if they have documents.upload_document. Use for sensitive internal categories such as compliance reports or internal audit evidence.",
+                verbose_name="Staff only",
+            ),
         ),
     ]

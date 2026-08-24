@@ -21,13 +21,13 @@ class StandardPagination(PageNumberPagination):
             "previous": "<url or null>",
             "results": [...]
         }
-    """
+    """  # noqa: RUF002
 
     page_size = 20
     page_size_query_param = "page_size"
     max_page_size = 100
 
-    def get_paginated_response(self, data):
+    def get_paginated_response(self, data):  # noqa: ANN001, ANN201
         return Response(
             {
                 "count": self.page.paginator.count,
@@ -37,7 +37,7 @@ class StandardPagination(PageNumberPagination):
             }
         )
 
-    def get_paginated_response_schema(self, schema):
+    def get_paginated_response_schema(self, schema):  # noqa: ANN001, ANN201
         """OpenAPI schema for the paginated envelope (used by drf-spectacular)."""
         return {
             "type": "object",

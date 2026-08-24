@@ -8,11 +8,11 @@ After the fix: localtime(timezone.now()).year → 2024 (Eastern local year)
 The serial number year must match the local calendar year because it must agree
 with receipt_date (also derived from local time) for CRA audit compliance.
 """
+
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import patch
-
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -20,11 +20,11 @@ from django.test import TestCase
 from django.utils.timezone import make_aware
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
 
 User = get_user_model()
@@ -34,6 +34,7 @@ EASTERN = ZoneInfo("America/Toronto")
 # ---------------------------------------------------------------------------
 # Fixture helpers (mirrors test_immutable_fields.py pattern)
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -87,6 +88,7 @@ def make_donation(donor, payment_intent, **kwargs):
 # ---------------------------------------------------------------------------
 # Serial number year tests
 # ---------------------------------------------------------------------------
+
 
 class SerialNumberYearTest(TestCase):
     """
@@ -143,11 +145,12 @@ class SerialNumberYearTest(TestCase):
             # We need to supply a serial number ourselves since SQLite has no
             # payments_receipt_serial_seq, but we can test the year computation
             # directly by inspecting the save() branch logic via a subclass hook.
-            receipt = OfficialDonationReceipt(**self._build_receipt_kwargs())
+            OfficialDonationReceipt(**self._build_receipt_kwargs())
             # Manually replicate the year computation from models.py save():
             from django.utils import timezone
             from django.utils.timezone import localtime
-            year_utc = timezone.now().year          # would be 2025 (wrong)
+
+            year_utc = timezone.now().year  # would be 2025 (wrong)
             year_local = localtime(timezone.now()).year  # must be 2024 (correct)
 
         self.assertEqual(year_utc, 2025, "Sanity check: UTC year is 2025 at this moment")
@@ -166,6 +169,7 @@ class SerialNumberYearTest(TestCase):
 
         with patch("django.utils.timezone.now", return_value=utc_midnight_crossover):
             from django.utils.timezone import localtime
+
             year_for_serial = localtime(timezone.now()).year
 
         # receipt_date is 2024-12-31 → year is 2024; serial prefix must also be 2024
@@ -178,4 +182,4 @@ class SerialNumberYearTest(TestCase):
 
 
 # Keep import accessible for the second test method
-from django.utils import timezone
+from django.utils import timezone  # noqa: E402

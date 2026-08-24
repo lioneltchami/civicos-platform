@@ -1,0 +1,24 @@
+services:
+  web:
+    # Consent API preparation does not upload files, so ClamAV is intentionally
+    # excluded from this candidate. The reset prevents the root development
+    # Compose dependency from pulling a platform-incompatible image.
+    depends_on: !reset null
+    environment:
+      GOVSTACK_CANDIDATE_ID: civicos-consent-testing
+      GOVSTACK_CANDIDATE_BUILDING_BLOCK: consent
+      GOVSTACK_TEST_TARGET: ${GOVSTACK_TEST_TARGET:-local}
+      CLAMAV_HOST: ""
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,host.docker.internal"
+
+  consent-adapter:
+    image: caddy:2.8-alpine
+    restart: "no"
+    depends_on:
+      - web
+    ports:
+      - "127.0.0.1:${GOVSTACK_TEST_PORT:-8888}:8888"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./examples/civicos-consent/Caddyfile:/etc/caddy/Caddyfile:ro

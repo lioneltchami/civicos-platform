@@ -93,8 +93,7 @@ def _grant_manage_legal_hold(user):
 
 def _latest_audit(doc, event_type):
     return (
-        AuditLogEntry.objects
-        .filter(
+        AuditLogEntry.objects.filter(
             resource_type="documents.Document",
             resource_id=str(doc.pk),
             event_type=event_type,
@@ -110,7 +109,6 @@ def _latest_audit(doc, event_type):
 
 
 class SoftDeleteAuditTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -197,7 +195,6 @@ class SoftDeleteAuditTests(TestCase):
 
 
 class HardDeleteAuditTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -283,7 +280,6 @@ class HardDeleteAuditTests(TestCase):
 
 
 class ApplyLegalHoldAuditTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.user = _grant_manage_legal_hold(self.user)
@@ -338,7 +334,6 @@ class ApplyLegalHoldAuditTests(TestCase):
 
 
 class ReleaseLegalHoldAuditTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.user = _grant_manage_legal_hold(self.user)
@@ -387,7 +382,6 @@ class ReleaseLegalHoldAuditTests(TestCase):
 
 
 class AuditLogEntryImmutabilityTests(TestCase):
-
     def test_audit_entry_cannot_be_updated(self):
         """AuditLogEntry.save() on existing record raises ValueError."""
         user = _make_user()

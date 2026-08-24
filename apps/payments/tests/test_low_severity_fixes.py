@@ -5,18 +5,16 @@ L1 — charge.dispute.* Stripe events must not be silently dropped.
 L2 — FERNET_KEYS startup guard in PaymentsConfig.ready().
 L3 — Redundant receipt_locked.save() removed from tasks_receipts.generate_and_send_receipt.
 """
+
 import inspect
-import sys
-import uuid
-from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, TestCase, override_settings
-
+from django.test import SimpleTestCase, override_settings
 
 # ---------------------------------------------------------------------------
 # L1: charge.dispute.* handler registration and behaviour
 # ---------------------------------------------------------------------------
+
 
 class DisputeHandlerRegistrationTest(SimpleTestCase):
     """L1: dispute event types must be present in the _HANDLERS dispatch table."""
@@ -24,15 +22,17 @@ class DisputeHandlerRegistrationTest(SimpleTestCase):
     def test_dispute_created_in_handlers(self):
         """charge.dispute.created must be mapped to a handler."""
         from apps.payments import tasks as tasks_module
+
         self.assertIn(
             "charge.dispute.created",
             tasks_module._HANDLERS,
-            "charge.dispute.created is not mapped in _HANDLERS — dispute events will be silently dropped",
+            "charge.dispute.created is not mapped in _HANDLERS — dispute events will be silently dropped",  # noqa: E501
         )
 
     def test_dispute_updated_in_handlers(self):
         """charge.dispute.updated must be mapped to a handler."""
         from apps.payments import tasks as tasks_module
+
         self.assertIn(
             "charge.dispute.updated",
             tasks_module._HANDLERS,
@@ -42,6 +42,7 @@ class DisputeHandlerRegistrationTest(SimpleTestCase):
     def test_dispute_closed_in_handlers(self):
         """charge.dispute.closed must be mapped to a handler."""
         from apps.payments import tasks as tasks_module
+
         self.assertIn(
             "charge.dispute.closed",
             tasks_module._HANDLERS,
@@ -51,15 +52,25 @@ class DisputeHandlerRegistrationTest(SimpleTestCase):
     def test_dispute_handlers_are_callable(self):
         """All three dispute handler values must be callable."""
         from apps.payments import tasks as tasks_module
-        for event_type in ("charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"):
+
+        for event_type in (
+            "charge.dispute.created",
+            "charge.dispute.updated",
+            "charge.dispute.closed",
+        ):
             handler = tasks_module._HANDLERS[event_type]
             self.assertTrue(callable(handler), f"Handler for {event_type} is not callable")
 
     def test_dispute_event_types_in_source(self):
         """Source-level check: all three dispute event strings must appear in tasks.py."""
         from apps.payments import tasks as tasks_module
+
         source = inspect.getsource(tasks_module)
-        for event_type in ("charge.dispute.created", "charge.dispute.updated", "charge.dispute.closed"):
+        for event_type in (
+            "charge.dispute.created",
+            "charge.dispute.updated",
+            "charge.dispute.closed",
+        ):
             self.assertIn(
                 event_type,
                 source,
@@ -214,10 +225,12 @@ class DisputeClosedHandlerTest(SimpleTestCase):
 # L2: FERNET_KEYS startup guard in PaymentsConfig.ready()
 # ---------------------------------------------------------------------------
 
+
 def _make_payments_config():
     """Return a fresh PaymentsConfig instance (not the live app registry copy)."""
     import apps.payments as payments_module
     from apps.payments.apps import PaymentsConfig
+
     return PaymentsConfig("payments", payments_module)
 
 
@@ -241,22 +254,27 @@ class FernetKeysStartupGuardTest(SimpleTestCase):
         config = _make_payments_config()
         fake_sig, fake_recv = _make_fake_signal_modules()
 
-        with patch.dict("sys.modules", {
-            "apps.payments.signals": fake_sig,
-            "apps.payments.receivers": fake_recv,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "apps.payments.signals": fake_sig,
+                "apps.payments.receivers": fake_recv,
+            },
+        ):
             with override_settings(FERNET_KEYS=None, DEBUG=False, TESTING=False):
                 config.ready()
 
     def test_missing_fernet_keys_raises_improperly_configured(self):
         """ready() must raise ImproperlyConfigured when FERNET_KEYS is None."""
         from django.core.exceptions import ImproperlyConfigured
+
         with self.assertRaises(ImproperlyConfigured):
             self._ready_without_fernet()
 
     def test_missing_fernet_keys_error_message_is_actionable(self):
         """ImproperlyConfigured message must mention FERNET_KEYS so ops can fix it."""
         from django.core.exceptions import ImproperlyConfigured
+
         with self.assertRaises(ImproperlyConfigured) as ctx:
             self._ready_without_fernet()
         self.assertIn("FERNET_KEYS", str(ctx.exception))
@@ -264,14 +282,18 @@ class FernetKeysStartupGuardTest(SimpleTestCase):
     def test_fernet_keys_present_does_not_raise(self):
         """ready() must succeed when FERNET_KEYS is set."""
         from cryptography.fernet import Fernet
+
         config = _make_payments_config()
         fake_sig, fake_recv = _make_fake_signal_modules()
         test_key = Fernet.generate_key().decode()
 
-        with patch.dict("sys.modules", {
-            "apps.payments.signals": fake_sig,
-            "apps.payments.receivers": fake_recv,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "apps.payments.signals": fake_sig,
+                "apps.payments.receivers": fake_recv,
+            },
+        ):
             with override_settings(FERNET_KEYS=[test_key], DEBUG=False, TESTING=False):
                 try:
                     config.ready()
@@ -283,10 +305,13 @@ class FernetKeysStartupGuardTest(SimpleTestCase):
         config = _make_payments_config()
         fake_sig, fake_recv = _make_fake_signal_modules()
 
-        with patch.dict("sys.modules", {
-            "apps.payments.signals": fake_sig,
-            "apps.payments.receivers": fake_recv,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "apps.payments.signals": fake_sig,
+                "apps.payments.receivers": fake_recv,
+            },
+        ):
             with override_settings(FERNET_KEYS=None, DEBUG=True):
                 try:
                     config.ready()
@@ -298,10 +323,13 @@ class FernetKeysStartupGuardTest(SimpleTestCase):
         config = _make_payments_config()
         fake_sig, fake_recv = _make_fake_signal_modules()
 
-        with patch.dict("sys.modules", {
-            "apps.payments.signals": fake_sig,
-            "apps.payments.receivers": fake_recv,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "apps.payments.signals": fake_sig,
+                "apps.payments.receivers": fake_recv,
+            },
+        ):
             with override_settings(FERNET_KEYS=None, DEBUG=False, TESTING=True):
                 try:
                     config.ready()
@@ -312,6 +340,7 @@ class FernetKeysStartupGuardTest(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # L3: Redundant receipt_locked.save() removed from generate_and_send_receipt
 # ---------------------------------------------------------------------------
+
 
 class RedundantSaveRemovedTest(SimpleTestCase):
     """L3: save_receipt_pdf() already persists pdf_path via QuerySet.update().
@@ -328,6 +357,7 @@ class RedundantSaveRemovedTest(SimpleTestCase):
         confirms the fix.
         """
         from apps.payments import tasks_receipts
+
         source = inspect.getsource(tasks_receipts.generate_and_send_receipt)
 
         # The redundant pattern: receipt_locked.save() immediately after save_receipt_pdf()
@@ -347,6 +377,7 @@ class RedundantSaveRemovedTest(SimpleTestCase):
         pdf_path — so the caller does not need an extra save() call.
         """
         from apps.payments.services import receipt_pdf
+
         source = inspect.getsource(receipt_pdf.save_receipt_pdf)
         self.assertIn(
             "_base_manager",

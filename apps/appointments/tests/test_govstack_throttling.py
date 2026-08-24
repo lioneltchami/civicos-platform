@@ -44,6 +44,7 @@ Test approach:
   routing is needed since this is testing the throttle class directly, not
   view wiring.
 """
+
 from __future__ import annotations
 
 from django.core.cache import cache
@@ -87,6 +88,7 @@ def _make_request(
 # GT-1 / GT-2: get_cache_key() keys on BB identity, not IP
 # ---------------------------------------------------------------------------
 
+
 class GetCacheKeyIdentityTest(TestCase):
     def test_gt1_different_requestor_ids_same_ip_get_different_cache_keys(self):
         """Two different BBs behind the same NAT/gateway must not share a bucket."""
@@ -122,6 +124,7 @@ class GetCacheKeyIdentityTest(TestCase):
 # ---------------------------------------------------------------------------
 # GT-3: allow_request() records history under independent cache entries
 # ---------------------------------------------------------------------------
+
 
 class AllowRequestBucketIsolationTest(TestCase):
     def setUp(self):
@@ -164,6 +167,7 @@ class AllowRequestBucketIsolationTest(TestCase):
 # ---------------------------------------------------------------------------
 # GT-4 / GT-5: fallback to stock IP-based behaviour when no BB identity
 # ---------------------------------------------------------------------------
+
 
 class FallbackToIpBasedThrottlingTest(TestCase):
     def setUp(self):

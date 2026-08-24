@@ -52,6 +52,7 @@ pattern; it does not change ``CELERY_TASK_ROUTES``, ``CELERY_TASK_ALWAYS_EAGER``
 or any other setting — it only ensures the app those settings are meant to
 configure actually gets configured before any task is dispatched.
 """
+
 from .celery import app as celery_app
 
 __all__ = ("celery_app",)

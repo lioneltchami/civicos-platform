@@ -19,6 +19,7 @@ Permission model:
 Throttle: CitizenRateThrottle (300/hour) for volunteer endpoints,
           StaffRateThrottle (1000/hour) for coordinator endpoints.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,9 +31,9 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.generics import GenericAPIView
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
@@ -62,6 +63,7 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _raise_from_django_validation(exc: DjangoValidationError) -> None:
     """Convert Django ValidationError → DRF ValidationError (400)."""
     if hasattr(exc, "message_dict"):
@@ -69,7 +71,7 @@ def _raise_from_django_validation(exc: DjangoValidationError) -> None:
     raise DRFValidationError(detail=str(exc))
 
 
-def _stringify_decimals(obj):
+def _stringify_decimals(obj):  # noqa: ANN001, ANN202
     """Recursively convert Decimal instances to str for JSON serialization."""
     if isinstance(obj, dict):
         return {k: _stringify_decimals(v) for k, v in obj.items()}
@@ -84,6 +86,7 @@ def _stringify_decimals(obj):
 # Volunteer-facing views
 # ---------------------------------------------------------------------------
 
+
 class OpportunityListView(generics.ListAPIView):
     """
     GET /api/v1/volunteers/opportunities/
@@ -91,16 +94,16 @@ class OpportunityListView(generics.ListAPIView):
     Returns a paginated list of currently-open opportunities (status=published
     and within closes_at window). No PII, no coordinator info.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
     pagination_class = StandardPagination
     serializer_class = VolunteerOpportunitySerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return (
-            Opportunity.objects
-            .filter(status=Opportunity.STATUS_PUBLISHED)
+            Opportunity.objects.filter(status=Opportunity.STATUS_PUBLISHED)
             .select_related("program")
             .order_by("-published_at")
         )
@@ -112,17 +115,16 @@ class OpportunityDetailView(generics.RetrieveAPIView):
 
     Returns a single published opportunity. Returns 404 for draft/archived/closed.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
     serializer_class = VolunteerOpportunitySerializer
     lookup_field = "slug"
 
-    def get_queryset(self):
-        return (
-            Opportunity.objects
-            .filter(status=Opportunity.STATUS_PUBLISHED)
-            .select_related("program")
+    def get_queryset(self):  # noqa: ANN201
+        return Opportunity.objects.filter(status=Opportunity.STATUS_PUBLISHED).select_related(
+            "program"
         )
 
 
@@ -134,27 +136,30 @@ class ApplicationListCreateView(GenericAPIView):
     Both methods handled inline (no sub-dispatch via request._request) so that
     the DRF Request wrapper and authenticated user are preserved correctly.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
     pagination_class = StandardPagination
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """List own applications."""
         profile = get_object_or_404(VolunteerProfile, user=request.user)
-        qs = VolunteerApplication.objects.filter(
-            volunteer=profile
-        ).select_related(
-            "opportunity", "opportunity__program"
-        ).order_by("-created_at")
+        qs = (
+            VolunteerApplication.objects.filter(volunteer=profile)
+            .select_related("opportunity", "opportunity__program")
+            .order_by("-created_at")
+        )
         page = self.paginate_queryset(qs)
         if page is not None:
-            serializer = VolunteerApplicationSerializer(page, many=True, context={"request": request})
+            serializer = VolunteerApplicationSerializer(
+                page, many=True, context={"request": request}
+            )
             return self.get_paginated_response(serializer.data)
         serializer = VolunteerApplicationSerializer(qs, many=True, context={"request": request})
         return Response(serializer.data)
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """Submit a new application."""
         from apps.volunteers.services.applications import apply
 
@@ -184,7 +189,9 @@ class ApplicationListCreateView(GenericAPIView):
 
         logger.info(
             "Application submitted: application_id=%s user_id=%s opportunity=%s",
-            application.pk, request.user.pk, opportunity_slug,
+            application.pk,
+            request.user.pk,
+            opportunity_slug,
         )
         serializer = VolunteerApplicationSerializer(application, context={"request": request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -196,17 +203,16 @@ class ApplicationDetailView(generics.RetrieveAPIView):
 
     Returns a single application. Returns 404 if not owned by the requester (IDOR).
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
     serializer_class = VolunteerApplicationSerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         profile = get_object_or_404(VolunteerProfile, user=self.request.user)
-        return (
-            VolunteerApplication.objects
-            .filter(volunteer=profile)
-            .select_related("opportunity", "opportunity__program")
+        return VolunteerApplication.objects.filter(volunteer=profile).select_related(
+            "opportunity", "opportunity__program"
         )
 
 
@@ -217,17 +223,16 @@ class WithdrawApplicationView(APIView):
     Volunteer withdraws their own pending application.
     Returns 404 if not owned by the requester (IDOR).
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
 
-    def delete(self, request, pk):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
+
+    def delete(self, request, pk):  # noqa: ANN001, ANN201
         from apps.volunteers.services.applications import withdraw
 
         profile = get_object_or_404(VolunteerProfile, user=request.user)
-        application = get_object_or_404(
-            VolunteerApplication, pk=pk, volunteer=profile
-        )
+        application = get_object_or_404(VolunteerApplication, pk=pk, volunteer=profile)
 
         try:
             withdraw(application=application, actor=request.user)
@@ -238,7 +243,8 @@ class WithdrawApplicationView(APIView):
 
         logger.info(
             "Application withdrawn: application_id=%s user_id=%s",
-            pk, request.user.pk,
+            pk,
+            request.user.pk,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -249,20 +255,19 @@ class ShiftListView(generics.ListAPIView):
 
     Lists shifts, optionally filtered by opportunity slug.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
     pagination_class = StandardPagination
     serializer_class = ShiftSerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         opp_slug = self.request.query_params.get("opportunity", "")
         # Baseline: only shifts for published opportunities (prevents leaking
         # draft/archived/closed program data to volunteers).
-        qs = (
-            Shift.objects
-            .select_related("opportunity", "opportunity__program")
-            .filter(opportunity__status=Opportunity.STATUS_PUBLISHED)
+        qs = Shift.objects.select_related("opportunity", "opportunity__program").filter(
+            opportunity__status=Opportunity.STATUS_PUBLISHED
         )
         if opp_slug:
             qs = qs.filter(opportunity__slug=opp_slug)
@@ -275,11 +280,12 @@ class BookShiftView(APIView):
 
     Volunteer books (or waitlists) a shift.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
 
-    def post(self, request, pk):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
+
+    def post(self, request, pk):  # noqa: ANN001, ANN201
         from apps.volunteers.services.scheduling import book_shift
 
         shift = get_object_or_404(
@@ -302,7 +308,9 @@ class BookShiftView(APIView):
 
         logger.info(
             "Shift booked: booking_id=%s shift_id=%s user_id=%s",
-            booking.pk, pk, request.user.pk,
+            booking.pk,
+            pk,
+            request.user.pk,
         )
         return Response(
             {"booking_id": booking.pk, "status": booking.status},
@@ -317,11 +325,12 @@ class CancelBookingView(APIView):
     Volunteer cancels their booking for a shift.
     Returns 404 if booking doesn't exist or doesn't belong to this volunteer (IDOR).
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
 
-    def post(self, request, pk):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
+
+    def post(self, request, pk):  # noqa: ANN001, ANN201
         from apps.volunteers.services.scheduling import cancel_booking
 
         shift = get_object_or_404(Shift, pk=pk)
@@ -337,7 +346,9 @@ class CancelBookingView(APIView):
 
         logger.info(
             "Booking cancelled: booking_id=%s shift_id=%s user_id=%s",
-            booking.pk, pk, request.user.pk,
+            booking.pk,
+            pk,
+            request.user.pk,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -350,17 +361,20 @@ class HoursListCreateView(GenericAPIView):
     Both methods handled inline (no sub-dispatch via request._request) so that
     the DRF Request wrapper and authenticated user are preserved correctly.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
+
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
     pagination_class = StandardPagination
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """List own hours log."""
         profile = get_object_or_404(VolunteerProfile, user=request.user)
-        qs = HoursLog.objects.filter(
-            volunteer=profile
-        ).select_related("opportunity").order_by("-date")
+        qs = (
+            HoursLog.objects.filter(volunteer=profile)
+            .select_related("opportunity")
+            .order_by("-date")
+        )
         page = self.paginate_queryset(qs)
         if page is not None:
             serializer = HoursLogSerializer(page, many=True, context={"request": request})
@@ -368,9 +382,10 @@ class HoursListCreateView(GenericAPIView):
         serializer = HoursLogSerializer(qs, many=True, context={"request": request})
         return Response(serializer.data)
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         """Log hours against an opportunity."""
         from datetime import date as date_type
+
         from apps.volunteers.services.hours import log_hours
 
         profile = get_object_or_404(VolunteerProfile, user=request.user)
@@ -390,7 +405,7 @@ class HoursListCreateView(GenericAPIView):
         try:
             log_date = date_type.fromisoformat(log_date_str) if log_date_str else date_type.today()
         except (ValueError, TypeError):
-            raise DRFValidationError({"date": "Enter a valid date in YYYY-MM-DD format."})
+            raise DRFValidationError({"date": "Enter a valid date in YYYY-MM-DD format."})  # noqa: B904
 
         try:
             entry = log_hours(
@@ -408,7 +423,9 @@ class HoursListCreateView(GenericAPIView):
 
         logger.info(
             "Hours logged: hours_log_id=%s user_id=%s hours=%s",
-            entry.pk, request.user.pk, hours_raw,
+            entry.pk,
+            request.user.pk,
+            hours_raw,
         )
         serializer = HoursLogSerializer(entry, context={"request": request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -420,11 +437,12 @@ class MyHoursSummaryView(APIView):
 
     Returns total approved hours for the authenticated volunteer.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
 
-    def get(self, request):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         from django.db.models import Sum
 
         profile = get_object_or_404(VolunteerProfile, user=request.user)
@@ -434,10 +452,12 @@ class MyHoursSummaryView(APIView):
         ).aggregate(total=Sum("hours"))
 
         total = result["total"] or Decimal("0.00")
-        return Response({
-            "total_approved_hours": str(total),
-            "volunteer_pk": profile.pk,
-        })
+        return Response(
+            {
+                "total_approved_hours": str(total),
+                "volunteer_pk": profile.pk,
+            }
+        )
 
 
 class MyProfileView(generics.RetrieveUpdateAPIView):
@@ -448,16 +468,17 @@ class MyProfileView(generics.RetrieveUpdateAPIView):
     Sensitive fields are stripped by VolunteerProfileSerializer unless
     the user holds volunteers.view_accommodation_notes.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    throttle_classes = [CitizenRateThrottle]
-    serializer_class = VolunteerProfileSerializer
-    http_method_names = ["get", "patch", "head", "options"]
 
-    def get_object(self):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes = [CitizenRateThrottle]  # noqa: RUF012
+    serializer_class = VolunteerProfileSerializer
+    http_method_names = ["get", "patch", "head", "options"]  # noqa: RUF012
+
+    def get_object(self):  # noqa: ANN201
         return get_object_or_404(VolunteerProfile, user=self.request.user)
 
-    def get_serializer_context(self):
+    def get_serializer_context(self):  # noqa: ANN201
         ctx = super().get_serializer_context()
         ctx["request"] = self.request
         return ctx
@@ -467,22 +488,23 @@ class MyProfileView(generics.RetrieveUpdateAPIView):
 # Coordinator-facing views
 # ---------------------------------------------------------------------------
 
+
 class AllApplicationsView(generics.ListAPIView):
     """
     GET /api/v1/volunteers/admin/applications/
 
     Returns all applications scoped to opportunities this coordinator manages.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
-    throttle_classes = [StaffRateThrottle]
+
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, IsCoordinator]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
     pagination_class = StandardPagination
     serializer_class = VolunteerApplicationSerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return (
-            VolunteerApplication.objects
-            .filter(opportunity__program__coordinator=self.request.user)
+            VolunteerApplication.objects.filter(opportunity__program__coordinator=self.request.user)
             .select_related("volunteer", "volunteer__user", "opportunity", "opportunity__program")
             .order_by("-created_at")
         )
@@ -495,16 +517,15 @@ class ApproveApplicationView(APIView):
     Coordinator approves a pending/in-review/waitlisted application.
     Scoped to coordinator's own programs (IDOR: 404 if not in scope).
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
-    throttle_classes = [StaffRateThrottle]
 
-    def patch(self, request, pk):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, IsCoordinator]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
+
+    def patch(self, request, pk):  # noqa: ANN001, ANN201
         from apps.volunteers.services.applications import approve_application
 
-        qs = VolunteerApplication.objects.filter(
-            opportunity__program__coordinator=request.user
-        )
+        qs = VolunteerApplication.objects.filter(opportunity__program__coordinator=request.user)
         application = get_object_or_404(qs, pk=pk)
 
         try:
@@ -517,7 +538,8 @@ class ApproveApplicationView(APIView):
         application.refresh_from_db()
         logger.info(
             "Application approved: application_id=%s coordinator_id=%s",
-            pk, request.user.pk,
+            pk,
+            request.user.pk,
         )
         return Response({"status": application.status}, status=status.HTTP_200_OK)
 
@@ -529,16 +551,15 @@ class RejectApplicationView(APIView):
     Coordinator rejects a pending/in-review/waitlisted application.
     rejection_reason is stored internally; NEVER returned to volunteers.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
-    throttle_classes = [StaffRateThrottle]
 
-    def patch(self, request, pk):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, IsCoordinator]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
+
+    def patch(self, request, pk):  # noqa: ANN001, ANN201
         from apps.volunteers.services.applications import reject_application
 
-        qs = VolunteerApplication.objects.filter(
-            opportunity__program__coordinator=request.user
-        )
+        qs = VolunteerApplication.objects.filter(opportunity__program__coordinator=request.user)
         application = get_object_or_404(qs, pk=pk)
         rejection_reason = request.data.get("rejection_reason", "")
 
@@ -556,7 +577,8 @@ class RejectApplicationView(APIView):
         application.refresh_from_db()
         logger.info(
             "Application rejected: application_id=%s coordinator_id=%s",
-            pk, request.user.pk,
+            pk,
+            request.user.pk,
         )
         return Response({"status": application.status}, status=status.HTTP_200_OK)
 
@@ -567,16 +589,16 @@ class PendingHoursView(generics.ListAPIView):
 
     Lists pending hours logs for volunteers in this coordinator's programs.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
-    throttle_classes = [StaffRateThrottle]
+
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, IsCoordinator]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
     pagination_class = StandardPagination
     serializer_class = HoursLogSerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return (
-            HoursLog.objects
-            .filter(
+            HoursLog.objects.filter(
                 opportunity__program__coordinator=self.request.user,
                 status=HoursLog.STATUS_PENDING,
             )
@@ -592,11 +614,12 @@ class ApproveHoursView(APIView):
     Coordinator approves a pending hours log.
     Scoped to the coordinator's programs (IDOR: 404 if not in scope).
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
-    throttle_classes = [StaffRateThrottle]
 
-    def patch(self, request, pk):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, IsCoordinator]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
+
+    def patch(self, request, pk):  # noqa: ANN001, ANN201
         from apps.volunteers.services.hours import approve_hours
 
         qs = HoursLog.objects.filter(opportunity__program__coordinator=request.user)
@@ -612,7 +635,8 @@ class ApproveHoursView(APIView):
         hours_log.refresh_from_db()
         logger.info(
             "Hours approved: hours_log_id=%s coordinator_id=%s",
-            pk, request.user.pk,
+            pk,
+            request.user.pk,
         )
         return Response({"status": hours_log.status}, status=status.HTTP_200_OK)
 
@@ -624,11 +648,12 @@ class RejectHoursView(APIView):
     Coordinator rejects a pending hours log.
     rejection reason is stored internally — NEVER returned to volunteers.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
-    throttle_classes = [StaffRateThrottle]
 
-    def patch(self, request, pk):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, IsCoordinator]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
+
+    def patch(self, request, pk):  # noqa: ANN001, ANN201
         from apps.volunteers.services.hours import reject_hours
 
         qs = HoursLog.objects.filter(opportunity__program__coordinator=request.user)
@@ -650,7 +675,8 @@ class RejectHoursView(APIView):
         hours_log.refresh_from_db()
         logger.info(
             "Hours rejected: hours_log_id=%s coordinator_id=%s",
-            pk, request.user.pk,
+            pk,
+            request.user.pk,
         )
         return Response({"status": hours_log.status}, status=status.HTTP_200_OK)
 
@@ -664,11 +690,12 @@ class HoursReportView(APIView):
 
     Requires staff access — returns org-wide data not scoped to coordinator's programs.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
-    throttle_classes = [StaffRateThrottle]
 
-    def get(self, request):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, IsCoordinator]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         from apps.volunteers.services.reporting import hours_by_program
 
         current_year = timezone.now().year
@@ -676,7 +703,7 @@ class HoursReportView(APIView):
             year = int(request.query_params.get("year", current_year))
             year = max(2000, min(year, current_year + 1))
         except (ValueError, TypeError):
-            raise DRFValidationError({"year": "Enter a valid 4-digit year."})
+            raise DRFValidationError({"year": "Enter a valid 4-digit year."})  # noqa: B904
 
         month_str = request.query_params.get("month", "")
         month = None
@@ -686,7 +713,7 @@ class HoursReportView(APIView):
                 if not 1 <= month <= 12:
                     raise ValueError
             except (ValueError, TypeError):
-                raise DRFValidationError({"month": "Enter a valid month (1–12)."})
+                raise DRFValidationError({"month": "Enter a valid month (1–12)."})  # noqa: B904, RUF001
 
         data = hours_by_program(year, month)
 
@@ -702,11 +729,12 @@ class ImpactReportView(APIView):
 
     Requires staff access — returns org-wide T3010 data not scoped to coordinator's programs.
     """
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsCoordinator]
-    throttle_classes = [StaffRateThrottle]
 
-    def get(self, request):
+    authentication_classes = [JWTAuthentication]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, IsCoordinator]  # noqa: RUF012
+    throttle_classes = [StaffRateThrottle]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         from apps.volunteers.services.reporting import impact_value, t3010_volunteer_metrics
 
         current_year = timezone.now().year
@@ -714,13 +742,15 @@ class ImpactReportView(APIView):
             year = int(request.query_params.get("year", current_year))
             year = max(2000, min(year, current_year + 1))
         except (ValueError, TypeError):
-            raise DRFValidationError({"year": "Enter a valid 4-digit year."})
+            raise DRFValidationError({"year": "Enter a valid 4-digit year."})  # noqa: B904
 
         impact = impact_value(year)
         t3010 = t3010_volunteer_metrics(year)
 
-        return Response({
-            "year": year,
-            "impact": _stringify_decimals(impact),
-            "t3010": _stringify_decimals(t3010),
-        })
+        return Response(
+            {
+                "year": year,
+                "impact": _stringify_decimals(impact),
+                "t3010": _stringify_decimals(t3010),
+            }
+        )

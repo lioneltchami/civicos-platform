@@ -1,0 +1,5 @@
+{
+  "scope": "repository-only-deterministic",
+  "tests": ["apps/payments/tests/test_item02_stage3_b_primitives.py"],
+  "external_deferred": ["provider", "staging", "official_harness", "proxy", "tenant_deployment", "replay_approval"]
+}

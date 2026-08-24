@@ -149,9 +149,7 @@ class ServiceRequestListTests(TestCase):
         self.client.force_login(self.staff)
         response = self.client.get(self.list_url)
         self.assertIn("status_choices", response.context)
-        self.assertEqual(
-            response.context["status_choices"], ServiceRequestStatus.choices
-        )
+        self.assertEqual(response.context["status_choices"], ServiceRequestStatus.choices)
 
     def test_empty_state_shown_when_no_results(self):
         """When filters produce no results, an empty state message is shown."""
@@ -316,9 +314,7 @@ class ServiceRequestStatusTests(TestCase):
         """POSTing to a non-existent reference number returns 404."""
         self.client.force_login(self.staff)
         url = reverse("backoffice:sr-status", args=["GS-GHOST-0000"])
-        response = self.client.post(
-            url, {"new_status": ServiceRequestStatus.IN_REVIEW}
-        )
+        response = self.client.post(url, {"new_status": ServiceRequestStatus.IN_REVIEW})
         self.assertEqual(response.status_code, 404)
 
 

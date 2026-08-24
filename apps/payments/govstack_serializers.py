@@ -19,22 +19,13 @@ Security:
   - These are input serializers only for those fields; they must not be
     placed in response serializers.
 """
+
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
-from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
-
-from .govstack_models import (
-    BulkPaymentBatch,
-    CreditInstruction,
-    GovStackBeneficiary,
-    GovStackVoucher,
-    PrepaymentValidationRequest,
-)
-
 
 # ---------------------------------------------------------------------------
 # Shared validators
@@ -51,7 +42,7 @@ _BB_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,20}$")
 # prepayment-validation. Every RequestID literal in the harness's own .feature
 # files for these 4 endpoints is exactly 12 characters (e.g. "RequestID111",
 # "abcdef123456", "4a0425ef-008") and no scenario ever sends a non-12-char or
-# missing RequestID — so tightening 1–16 down to exactly 12 cannot break any
+# missing RequestID — so tightening 1–16 down to exactly 12 cannot break any  # noqa: RUF003
 # harness run; it only closes a real spec-fidelity gap.
 # NOTE: prepayment-validation-response uses a *different* schema
 # (prepaymentValidationResponseSchema) whose RequestID has no length constraint
@@ -89,20 +80,16 @@ _G2P_UUID_RE = re.compile(r"^[0-9a-f\-]{1,20}$")
 
 
 def _validate_bb_id(value: str) -> str:
-    """Validate SourceBBID / Gov_Stack_BB: 1–20 alphanumeric or hyphen chars."""
+    """Validate SourceBBID / Gov_Stack_BB: 1–20 alphanumeric or hyphen chars."""  # noqa: RUF002
     if not value or not _BB_ID_RE.match(value):
-        raise serializers.ValidationError(
-            "Must be 1–20 alphanumeric or hyphen characters."
-        )
+        raise serializers.ValidationError("Must be 1–20 alphanumeric or hyphen characters.")  # noqa: RUF001
     return value
 
 
 def _validate_payee_id(value: str) -> str:
-    """Validate PayeeFunctionalID: 1–20 alphanumeric or hyphen chars."""
+    """Validate PayeeFunctionalID: 1–20 alphanumeric or hyphen chars."""  # noqa: RUF002
     if not value or not _BB_ID_RE.match(value):
-        raise serializers.ValidationError(
-            "Must be 1–20 alphanumeric or hyphen characters."
-        )
+        raise serializers.ValidationError("Must be 1–20 alphanumeric or hyphen characters.")  # noqa: RUF001
     return value
 
 
@@ -121,7 +108,7 @@ def _validate_g2p_id(value: str, *, field_name: str = "field") -> str:
     """
     if not value or not _G2P_UUID_RE.match(value):
         raise serializers.ValidationError(
-            f"{field_name} must be 1–20 lowercase hex characters and hyphens "
+            f"{field_name} must be 1–20 lowercase hex characters and hyphens "  # noqa: RUF001
             "(e.g. '11668d2a-a8f'). The value provided is not a valid identifier."
         )
     return value
@@ -141,9 +128,7 @@ def _validate_request_id(value: str) -> str:
     omitted case is intentionally left as-is — see RequestID field comments).
     """
     if not value or not _REQUEST_ID_RE.match(value):
-        raise serializers.ValidationError(
-            "Must be exactly 12 alphanumeric or hyphen characters."
-        )
+        raise serializers.ValidationError("Must be exactly 12 alphanumeric or hyphen characters.")
     return value
 
 
@@ -160,11 +145,13 @@ def _validate_iso4217(value: str) -> str:
 # G2P — Beneficiary
 # ---------------------------------------------------------------------------
 
+
 class BeneficiaryItemSerializer(serializers.Serializer):
     """
     One entry in the Beneficiaries[] array.
     GovStack spec: RegisterBeneficiaryRequest.yml → Beneficiaries
     """
+
     PayeeFunctionalID = serializers.CharField(
         max_length=20,
         error_messages={
@@ -187,7 +174,7 @@ class BeneficiaryItemSerializer(serializers.Serializer):
         default="",
     )
 
-    def validate_PayeeFunctionalID(self, value: str) -> str:
+    def validate_PayeeFunctionalID(self, value: str) -> str:  # noqa: N802
         # G2P identifiers must be UUID-like (lowercase hex + hyphens).
         # The harness sends valid values like "2ba5ed20-0f42-4eff-8" and
         # invalid values like "invalid" (contains non-hex chars).
@@ -200,6 +187,7 @@ class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
     POST /govstack/payments/update-beneficiary-details
     GovStack spec: RegisterBeneficiaryRequest.yml / UpdateBeneficiaryRequest.yml
     """
+
     # RequestID is echoed back verbatim in all responses (success and error).
     # The harness always sends exactly 12-char RequestIDs (UUID prefix format).
     # Validated by _validate_request_id (exactly 12 alphanumeric/hyphen chars) —
@@ -212,7 +200,7 @@ class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         validators=[_validate_request_id],
-        help_text="RequestID. Exactly 12 alphanumeric or hyphen chars when present. Echoed back in response.",
+        help_text="RequestID. Exactly 12 alphanumeric or hyphen chars when present. Echoed back in response.",  # noqa: E501
     )
     SourceBBID = serializers.CharField(
         max_length=20,
@@ -235,7 +223,7 @@ class RegisterBeneficiaryRequestSerializer(serializers.Serializer):
         },
     )
 
-    def validate_SourceBBID(self, value: str) -> str:
+    def validate_SourceBBID(self, value: str) -> str:  # noqa: N802
         # G2P identifiers must be UUID-like (lowercase hex + hyphens).
         # The harness sends valid values like "11668d2a-a8f" (12 chars) and
         # invalid values like "invalid" (contains non-hex chars i, n, v, l).
@@ -256,6 +244,7 @@ class G2PResponseSerializer(serializers.Serializer):
     Standard G2P response envelope.
     GovStack spec: all G2P response bodies.
     """
+
     ResponseCode = serializers.CharField(read_only=True)
     RequestID = serializers.CharField(read_only=True)
     ResponseDescription = serializers.CharField(read_only=True)
@@ -265,21 +254,23 @@ class G2PResponseSerializer(serializers.Serializer):
 # G2P — Bulk Payment
 # ---------------------------------------------------------------------------
 
+
 class CreditInstructionSerializer(serializers.Serializer):
     """
     One entry in CreditInstructions[].
     GovStack spec: BulkPayment.yml → CreditInstructions
     """
+
     InstructionID = serializers.CharField(max_length=16)
     PayeeFunctionalID = serializers.CharField(max_length=20)
     Amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
     Currency = serializers.CharField(max_length=3)
     Narration = serializers.CharField(max_length=50, required=False, allow_blank=True, default="")
 
-    def validate_PayeeFunctionalID(self, value: str) -> str:
+    def validate_PayeeFunctionalID(self, value: str) -> str:  # noqa: N802
         return _validate_payee_id(value)
 
-    def validate_Currency(self, value: str) -> str:
+    def validate_Currency(self, value: str) -> str:  # noqa: N802
         return _validate_iso4217(value.upper() if value else value)
 
 
@@ -302,10 +293,14 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
       HTTP 400: missing SourceBBID, missing BatchID, empty CreditInstructions,
                "invalid" SourceBBID, "invalid" BatchID.
     """
+
     # RequestID: validated by _validate_request_id (exactly 12 alphanumeric/hyphen
     # chars) when present; an omitted key still defaults to "" unvalidated.
     RequestID = serializers.CharField(
-        max_length=16, required=False, allow_blank=True, default="",
+        max_length=16,
+        required=False,
+        allow_blank=True,
+        default="",
         validators=[_validate_request_id],
     )
     SourceBBID = serializers.CharField(max_length=20)
@@ -325,17 +320,17 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
         },
     )
 
-    def validate_SourceBBID(self, value: str) -> str:
+    def validate_SourceBBID(self, value: str) -> str:  # noqa: N802
         if not value or not _BULK_BB_ID_RE.match(value):
             raise serializers.ValidationError(
-                "SourceBBID must be 10–20 alphanumeric or hyphen characters."
+                "SourceBBID must be 10–20 alphanumeric or hyphen characters."  # noqa: RUF001
             )
         return value
 
-    def validate_BatchID(self, value: str) -> str:
+    def validate_BatchID(self, value: str) -> str:  # noqa: N802
         if not value or not _BULK_BB_ID_RE.match(value):
             raise serializers.ValidationError(
-                "BatchID must be 10–20 alphanumeric or hyphen characters."
+                "BatchID must be 10–20 alphanumeric or hyphen characters."  # noqa: RUF001
             )
         return value
 
@@ -343,6 +338,7 @@ class BulkPaymentRequestSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 # G2P — Prepayment Validation
 # ---------------------------------------------------------------------------
+
 
 class PrepaymentCreditInstructionSerializer(serializers.Serializer):
     """
@@ -355,6 +351,7 @@ class PrepaymentCreditInstructionSerializer(serializers.Serializer):
       2. InstructionID max_length=20 (model field size) vs 16 in CreditInstruction model.
          The harness sends 16-char IDs ("instructionID123") — both fit within 20.
     """
+
     InstructionID = serializers.CharField(max_length=20)
     PayeeFunctionalID = serializers.CharField(max_length=20)
     Amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
@@ -362,10 +359,10 @@ class PrepaymentCreditInstructionSerializer(serializers.Serializer):
     # Narration is REQUIRED here — unlike CreditInstructionSerializer where it is optional.
     Narration = serializers.CharField(max_length=200)
 
-    def validate_PayeeFunctionalID(self, value: str) -> str:
+    def validate_PayeeFunctionalID(self, value: str) -> str:  # noqa: N802
         return _validate_payee_id(value)
 
-    def validate_Currency(self, value: str) -> str:
+    def validate_Currency(self, value: str) -> str:  # noqa: N802
         return _validate_iso4217(value.upper() if value else value)
 
 
@@ -384,11 +381,15 @@ class PrepaymentValidationRequestSerializer(serializers.Serializer):
     The harness "invalid SourceBBID/BatchID" scenarios send a PARTIAL body
     (only that one field), so failure is triggered by MISSING required fields
     (BatchID, CreditInstructions), not by an invalid SourceBBID/BatchID value.
-    """
+    """  # noqa: RUF002
+
     # RequestID: validated by _validate_request_id (exactly 12 alphanumeric/hyphen
     # chars) when present; an omitted key still defaults to "" unvalidated.
     RequestID = serializers.CharField(
-        max_length=16, required=False, allow_blank=True, default="",
+        max_length=16,
+        required=False,
+        allow_blank=True,
+        default="",
         validators=[_validate_request_id],
     )
     SourceBBID = serializers.CharField(max_length=20)
@@ -402,10 +403,10 @@ class PrepaymentValidationRequestSerializer(serializers.Serializer):
         },
     )
 
-    def validate_SourceBBID(self, value: str) -> str:
+    def validate_SourceBBID(self, value: str) -> str:  # noqa: N802
         return _validate_bb_id(value)
 
-    def validate_BatchID(self, value: str) -> str:
+    def validate_BatchID(self, value: str) -> str:  # noqa: N802
         return _validate_bb_id(value)
 
 
@@ -436,6 +437,7 @@ class PrepaymentValidationResponseAckSerializer(serializers.Serializer):
     This endpoint is not in the harness error scenarios; we degrade gracefully
     for any body rather than returning 400.
     """
+
     RequestID = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -457,6 +459,7 @@ class PrepaymentValidationResponseAckSerializer(serializers.Serializer):
 # Voucher — Pre-activation
 # ---------------------------------------------------------------------------
 
+
 class VoucherPreactivationRequestSerializer(serializers.Serializer):
     """
     POST /govstack/payments/vouchers/voucher_preactivation
@@ -466,6 +469,7 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
     NOTE: Field names use snake_case as per the GovStack voucher spec
     (different convention from the G2P PascalCase spec).
     """
+
     voucher_amount = serializers.DecimalField(
         max_digits=14,
         decimal_places=2,
@@ -511,7 +515,7 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
         ),
     )
 
-    def validate_voucher_amount(self, value):
+    def validate_voucher_amount(self, value):  # noqa: ANN001, ANN201
         # Non-parseable input (e.g. "abc") is rejected by DecimalField → HTTP 400. Correct.
         # Non-positive values (0 or negative) MUST produce HTTP 452 (InvalidVoucherAmount),
         # not 400.  Pass them through here — the service raises InvalidVoucherAmount(452).
@@ -558,6 +562,7 @@ class VoucherPreactivationRequestSerializer(serializers.Serializer):
 # The view Response() dict is always the source of truth.
 # ---------------------------------------------------------------------------
 
+
 class VoucherPreactivationResponseSerializer(serializers.Serializer):
     """
     Response shape for POST /vouchers/voucher_preactivation → HTTP 200.
@@ -570,6 +575,7 @@ class VoucherPreactivationResponseSerializer(serializers.Serializer):
     naming convention that the actual certification harness does not
     validate against. All 3 fields below are required by the harness schema.
     """
+
     voucher_number = serializers.CharField(read_only=True)
     voucher_serial_number = serializers.CharField(read_only=True)
     expiry_date_time = serializers.DateTimeField(read_only=True)
@@ -579,6 +585,7 @@ class VoucherPreactivationResponseSerializer(serializers.Serializer):
 # Voucher — Activation
 # ---------------------------------------------------------------------------
 
+
 class VoucherActivationRequestSerializer(serializers.Serializer):
     """
     PATCH /govstack/payments/vouchers/voucher_activation
@@ -587,6 +594,7 @@ class VoucherActivationRequestSerializer(serializers.Serializer):
 
     NOTE: voucher_serial_number is sent as integer by the harness.
     """
+
     voucher_serial_number = serializers.CharField(
         max_length=100,
         help_text=(
@@ -614,7 +622,7 @@ class VoucherActivationRequestSerializer(serializers.Serializer):
         ),
     )
 
-    def validate_voucher_serial_number(self, value) -> str:
+    def validate_voucher_serial_number(self, value) -> str:  # noqa: ANN001
         """Accept int or string serial numbers (harness sends int)."""
         return str(value).strip()
 
@@ -629,12 +637,14 @@ class VoucherActivationResponseSerializer(serializers.Serializer):
     old camelCase {voucherNumber, voucherSerialNumber, voucherStatus,
     voucherGroup} shape.
     """
+
     result_status = serializers.CharField(read_only=True)
 
 
 # ---------------------------------------------------------------------------
 # Voucher — Redemption
 # ---------------------------------------------------------------------------
+
 
 class VoucherRedemptionRequestSerializer(serializers.Serializer):
     """
@@ -644,6 +654,7 @@ class VoucherRedemptionRequestSerializer(serializers.Serializer):
 
     NOTE: voucher_number is sent as integer by the harness.
     """
+
     voucher_number = serializers.CharField(
         max_length=20,
         help_text=(
@@ -659,9 +670,15 @@ class VoucherRedemptionRequestSerializer(serializers.Serializer):
             "Blank triggers GovStackBBNotFound (460) from the service."
         ),
     )
-    merchant_name = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
-    merchant_bank_details = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
-    merchant_voucher_group = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    merchant_name = serializers.CharField(
+        max_length=200, required=False, allow_blank=True, default=""
+    )
+    merchant_bank_details = serializers.CharField(
+        max_length=200, required=False, allow_blank=True, default=""
+    )
+    merchant_voucher_group = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=""
+    )
     override = serializers.BooleanField(required=False, default=False)
     agent_id = serializers.CharField(
         max_length=10,
@@ -674,7 +691,7 @@ class VoucherRedemptionRequestSerializer(serializers.Serializer):
         ),
     )
 
-    def validate_voucher_number(self, value) -> str:
+    def validate_voucher_number(self, value) -> str:  # noqa: ANN001
         return str(value).strip()
 
 
@@ -687,12 +704,14 @@ class VoucherRedemptionResponseSerializer(serializers.Serializer):
     enum) — not the old {status, message, serialNumber, value, timestamp,
     transactionId} shape.
     """
+
     result_status = serializers.CharField(read_only=True)
 
 
 # ---------------------------------------------------------------------------
 # Voucher — Status Check
 # ---------------------------------------------------------------------------
+
 
 class VoucherStatusResponseSerializer(serializers.Serializer):
     """
@@ -706,6 +725,7 @@ class VoucherStatusResponseSerializer(serializers.Serializer):
       voucher_amount: a STRING (str(voucher.amount)), NOT a float/number —
         the old `value = float(voucher.amount)` was a confirmed bug.
     """
+
     voucher_status = serializers.CharField(read_only=True)
     voucher_amount = serializers.CharField(read_only=True)
 
@@ -713,6 +733,7 @@ class VoucherStatusResponseSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 # Voucher — Cancellation
 # ---------------------------------------------------------------------------
+
 
 class VoucherCancellationRequestSerializer(serializers.Serializer):
     """
@@ -732,6 +753,7 @@ class VoucherCancellationRequestSerializer(serializers.Serializer):
     → HTTP 400 via standard DRF serializer validation (including the
     "no payload at all" case, since request.data then resolves to {}).
     """
+
     voucherserialnumber = serializers.CharField(
         max_length=100,
         help_text=(
@@ -775,14 +797,18 @@ class VoucherCancellationResponseSerializer(serializers.Serializer):
     entirely. voucherSerialNumber / voucherStatus are kept additively (not
     required by the harness, but useful to API consumers).
     """
-    voucherSerialNumber = serializers.CharField(read_only=True)
-    voucherStatus = serializers.CharField(read_only=True)   # GovStackVoucher.STATUS_CANCELLED = "cancelled"
+
+    voucherSerialNumber = serializers.CharField(read_only=True)  # noqa: N815
+    voucherStatus = serializers.CharField(  # noqa: N815
+        read_only=True
+    )  # GovStackVoucher.STATUS_CANCELLED = "cancelled"
     message = serializers.CharField(read_only=True)
 
 
 # ---------------------------------------------------------------------------
 # P2G — Bill Payments (Wave 5)
 # ---------------------------------------------------------------------------
+
 
 class BillTransferRequestSerializer(serializers.Serializer):
     """
@@ -805,25 +831,26 @@ class BillTransferRequestSerializer(serializers.Serializer):
       and read via `.get(..., "")` in the view — silently accepting requests
       the live spec says must be rejected with HTTP 400.
     """
-    requestId = serializers.CharField(
+
+    requestId = serializers.CharField(  # noqa: N815
         max_length=100,
         help_text=(
             "Caller-supplied idempotency key. Uniquely identifies this transfer request. "
             "Duplicate requestIds return HTTP 400."
         ),
     )
-    billId = serializers.CharField(
+    billId = serializers.CharField(  # noqa: N815
         max_length=100,
         help_text="Government-assigned bill identifier matching GovStackBill.bill_id.",
     )
-    billInquiryRequestId = serializers.CharField(
+    billInquiryRequestId = serializers.CharField(  # noqa: N815
         max_length=12,
         help_text=(
             "requestId from a prior GET /bills/{billId} inquiry. Required per "
             "billPaymentRequest.yml (`required: true`, maxLength: 12)."
         ),
     )
-    paymentReferenceID = serializers.CharField(
+    paymentReferenceID = serializers.CharField(  # noqa: N815
         max_length=16,
         help_text=(
             "Mobile money / financial network payment reference. Required per "
@@ -831,27 +858,23 @@ class BillTransferRequestSerializer(serializers.Serializer):
         ),
     )
 
-    def validate_requestId(self, value: str) -> str:
+    def validate_requestId(self, value: str) -> str:  # noqa: N802
         stripped = value.strip()
         if not stripped:
             # An all-whitespace requestId would strip to "" — an empty idempotency
             # key.  The first call would succeed with a blank key; the second
             # would hit the unique constraint and return 400 (DuplicateBillPaymentError),
             # making idempotency semantics meaningless.  Reject early.
-            raise serializers.ValidationError(
-                "requestId must not be blank or whitespace-only."
-            )
+            raise serializers.ValidationError("requestId must not be blank or whitespace-only.")
         return stripped
 
-    def validate_billId(self, value: str) -> str:
+    def validate_billId(self, value: str) -> str:  # noqa: N802
         stripped = value.strip()
         if not stripped:
-            raise serializers.ValidationError(
-                "billId must not be blank or whitespace-only."
-            )
+            raise serializers.ValidationError("billId must not be blank or whitespace-only.")
         return stripped
 
-    def validate_billInquiryRequestId(self, value: str) -> str:
+    def validate_billInquiryRequestId(self, value: str) -> str:  # noqa: N802
         stripped = value.strip()
         if not stripped:
             raise serializers.ValidationError(
@@ -859,7 +882,7 @@ class BillTransferRequestSerializer(serializers.Serializer):
             )
         return stripped
 
-    def validate_paymentReferenceID(self, value: str) -> str:
+    def validate_paymentReferenceID(self, value: str) -> str:  # noqa: N802
         stripped = value.strip()
         if not stripped:
             raise serializers.ValidationError(
@@ -877,6 +900,7 @@ class BillTransferRequestSerializer(serializers.Serializer):
 #   2. Source material for auto-generated OpenAPI/Swagger documentation.
 # The view Response() dict is always the source of truth.
 # ---------------------------------------------------------------------------
+
 
 class BillInquiryResponseSerializer(serializers.Serializer):
     """
@@ -900,15 +924,18 @@ class BillInquiryResponseSerializer(serializers.Serializer):
     docstring for the full rationale.
     Schema documentation only — the view Response() dict is the source of truth.
     """
-    responseCode = serializers.CharField(read_only=True, max_length=2)   # "00" | "01"
+
+    responseCode = serializers.CharField(read_only=True, max_length=2)  # "00" | "01"  # noqa: N815
     reason = serializers.CharField(read_only=True, max_length=200)
-    requestId = serializers.CharField(read_only=True, max_length=12)
-    billId = serializers.CharField(read_only=True)
+    requestId = serializers.CharField(read_only=True, max_length=12)  # noqa: N815
+    billId = serializers.CharField(read_only=True)  # noqa: N815
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     currency = serializers.CharField(read_only=True)
     description = serializers.CharField(read_only=True)
-    status = serializers.CharField(read_only=True)         # "unpaid" | "paid" | "overdue" | "cancelled"
-    dueDate = serializers.DateField(read_only=True, allow_null=True)   # null when not set
+    status = serializers.CharField(read_only=True)  # "unpaid" | "paid" | "overdue" | "cancelled"
+    dueDate = serializers.DateField(  # noqa: N815
+        read_only=True, allow_null=True
+    )  # null when not set
 
 
 class BillTransferResponseSerializer(serializers.Serializer):
@@ -922,13 +949,14 @@ class BillTransferResponseSerializer(serializers.Serializer):
     old `message` key is replaced by `reason`.
     Schema documentation only — the view Response() dict is the source of truth.
     """
-    responseCode = serializers.CharField(read_only=True, max_length=2)   # "00" | "01"
+
+    responseCode = serializers.CharField(read_only=True, max_length=2)  # "00" | "01"  # noqa: N815
     reason = serializers.CharField(read_only=True, max_length=200)
-    requestID = serializers.CharField(read_only=True, max_length=12)
-    billId = serializers.CharField(read_only=True)
+    requestID = serializers.CharField(read_only=True, max_length=12)  # noqa: N815
+    billId = serializers.CharField(read_only=True)  # noqa: N815
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     currency = serializers.CharField(read_only=True)
-    status = serializers.CharField(read_only=True)         # "completed"
+    status = serializers.CharField(read_only=True)  # "completed"
 
 
 class MarkBillPaidResponseSerializer(serializers.Serializer):
@@ -941,11 +969,12 @@ class MarkBillPaidResponseSerializer(serializers.Serializer):
     not because a live spec mandates it here.
     Schema documentation only — the view Response() dict is the source of truth.
     """
-    responseCode = serializers.CharField(read_only=True, max_length=2)   # "00"
+
+    responseCode = serializers.CharField(read_only=True, max_length=2)  # "00"  # noqa: N815
     reason = serializers.CharField(read_only=True, max_length=200)
-    requestID = serializers.CharField(read_only=True, max_length=12)
-    billId = serializers.CharField(read_only=True)
-    status = serializers.CharField(read_only=True)         # "paid"
+    requestID = serializers.CharField(read_only=True, max_length=12)  # noqa: N815
+    billId = serializers.CharField(read_only=True)  # noqa: N815
+    status = serializers.CharField(read_only=True)  # "paid"
 
 
 class TransferRequestStatusSerializer(serializers.Serializer):
@@ -959,11 +988,12 @@ class TransferRequestStatusSerializer(serializers.Serializer):
     properties.
     Schema documentation only — the view Response() dict is the source of truth.
     """
-    responseCode = serializers.CharField(read_only=True, max_length=2)   # "00"
+
+    responseCode = serializers.CharField(read_only=True, max_length=2)  # "00"  # noqa: N815
     reason = serializers.CharField(read_only=True, max_length=200)
-    requestID = serializers.CharField(read_only=True, max_length=12)
-    requestId = serializers.CharField(read_only=True)
-    billId = serializers.CharField(read_only=True)
+    requestID = serializers.CharField(read_only=True, max_length=12)  # noqa: N815
+    requestId = serializers.CharField(read_only=True)  # noqa: N815
+    billId = serializers.CharField(read_only=True)  # noqa: N815
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
     currency = serializers.CharField(read_only=True)
-    status = serializers.CharField(read_only=True)         # "pending" | "completed" | "failed"
+    status = serializers.CharField(read_only=True)  # "pending" | "completed" | "failed"

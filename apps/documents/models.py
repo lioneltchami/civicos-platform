@@ -29,7 +29,6 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import BaseModel
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # QuerySet
 # ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +42,7 @@ class DocumentQuerySet(models.QuerySet):
     correct filtering semantics (especially around soft-delete and scan status).
     """
 
-    def active(self):
+    def active(self):  # noqa: ANN201
         """
         Documents that are scanned clean and not soft-deleted.
 
@@ -55,7 +54,7 @@ class DocumentQuerySet(models.QuerySet):
             deleted_at__isnull=True,
         )
 
-    def latest_versions(self):
+    def latest_versions(self):  # noqa: ANN201
         """
         Only the most-recent version of each document chain.
 
@@ -63,7 +62,7 @@ class DocumentQuerySet(models.QuerySet):
         """
         return self.filter(is_latest_version=True)
 
-    def pending_disposal(self):
+    def pending_disposal(self):  # noqa: ANN201
         """
         Documents eligible for soft-delete disposal scheduling.
 
@@ -99,7 +98,7 @@ class DocumentQuerySet(models.QuerySet):
             deleted_at__isnull=True,
         )
 
-    def pending_hard_delete(self, grace_days: int = 30):
+    def pending_hard_delete(self, grace_days: int = 30):  # noqa: ANN201
         """
         Soft-deleted documents past the grace period — eligible for irreversible
         hard deletion (S3 delete + storage_key null + scan_status=PURGED).
@@ -270,7 +269,7 @@ class DocumentCategory(models.Model):
     class Meta:
         verbose_name = _("Document category")
         verbose_name_plural = _("Document categories")
-        ordering = ["name_en"]
+        ordering = ["name_en"]  # noqa: RUF012
 
     def __str__(self) -> str:
         return self.slug
@@ -563,11 +562,11 @@ class Document(BaseModel):
     class Meta:
         verbose_name = _("Document")
         verbose_name_plural = _("Documents")
-        ordering = ["-created_at"]
-        permissions = [
-            # Granted to authenticated citizens — allows upload to public (non-staff-only) categories.
+        ordering = ["-created_at"]  # noqa: RUF012
+        permissions = [  # noqa: RUF012
+            # Granted to authenticated citizens — allows upload to public (non-staff-only) categories.  # noqa: E501
             ("upload_document", "Can upload documents"),
-            # Granted to staff uploaders — allows upload to ALL categories, including staff-only ones.
+            # Granted to staff uploaders — allows upload to ALL categories, including staff-only ones.  # noqa: E501
             # Citizens who have this permission also bypass the staff_only restriction.
             ("upload_staff_document", "Can upload documents to staff-only categories"),
             # Granted to Privacy Officers and legal counsel only.
@@ -582,7 +581,7 @@ class Document(BaseModel):
             # Granted to staff who can inspect quarantined documents.
             ("view_quarantined", "Can view quarantined documents"),
         ]
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["scan_status", "deleted_at"],
                 name="doc_scan_deleted_idx",
@@ -636,9 +635,7 @@ class Document(BaseModel):
             )
 
         if self.version_number < 1:
-            errors["version_number"] = ValidationError(
-                _("Version number must be at least 1.")
-            )
+            errors["version_number"] = ValidationError(_("Version number must be at least 1."))
 
         # Use root_document_id (FK column) not root_document (relation) to avoid
         # an implicit DB query when root_document has not been prefetched.
@@ -649,8 +646,10 @@ class Document(BaseModel):
 
         if self.root_document_id is not None and self.version_number == 1:
             errors["version_number"] = ValidationError(
-                _("Version 1 documents cannot have a root document. "
-                  "Only subsequent versions (≥ 2) point to a root.")
+                _(
+                    "Version 1 documents cannot have a root document. "
+                    "Only subsequent versions (≥ 2) point to a root."
+                )
             )
 
         if errors:
@@ -725,14 +724,16 @@ class DocumentAttachment(BaseModel):
     note = models.TextField(
         blank=True,
         verbose_name=_("Note"),
-        help_text=_("Optional staff note about why this document was attached. Not visible to citizens."),
+        help_text=_(
+            "Optional staff note about why this document was attached. Not visible to citizens."
+        ),
     )
 
     class Meta:
         verbose_name = _("Document attachment")
         verbose_name_plural = _("Document attachments")
-        ordering = ["-created_at"]
-        indexes = [
+        ordering = ["-created_at"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["content_type", "object_id"],
                 name="docattach_ct_obj_idx",
@@ -822,7 +823,7 @@ class DocumentAccessToken(BaseModel):
     class Meta:
         verbose_name = _("Document access token")
         verbose_name_plural = _("Document access tokens")
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
 
     def __str__(self) -> str:
         return f"DocumentAccessToken #{self.pk} [doc={self.document_id}]"

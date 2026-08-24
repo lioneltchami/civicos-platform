@@ -10,24 +10,23 @@ Changes:
      citizen/category before this migration).
   3. Add "pgp" to ConsentSignature.verification_type choices.
 """
+
 from django.conf import settings
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("consent", "0010_govstack_gap2_fixes"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # 1. Remove unique_together constraint
         migrations.AlterUniqueTogether(
             name="consentrecord",
             unique_together=set(),
         ),
-
         # 2. Add is_current BooleanField
         migrations.AddField(
             model_name="consentrecord",
@@ -41,7 +40,6 @@ class Migration(migrations.Migration):
                 ),
             ),
         ),
-
         # 3. Update ConsentSignature.verification_type to include 'pgp'
         migrations.AlterField(
             model_name="consentsignature",

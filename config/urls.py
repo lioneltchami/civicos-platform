@@ -68,10 +68,15 @@ urlpatterns = [
     path("payments/", include("apps.payments.urls", namespace="payments")),
     # GovStack Payments BB — certification API layer (separate from CivicOS-internal payments)
     # Mounted outside i18n_patterns: BB-to-BB APIs are language-prefix-free.
-    path("govstack/payments/", include("apps.payments.govstack_urls", namespace="govstack_payments")),
+    path(
+        "govstack/payments/", include("apps.payments.govstack_urls", namespace="govstack_payments")
+    ),
     # GovStack Scheduler BB — certification API layer (37 endpoints across 9 entity groups)
     # Mounted outside i18n_patterns: BB-to-BB APIs are language-prefix-free.
-    path("govstack/scheduler/", include("apps.appointments.govstack_urls", namespace="govstack_scheduler")),
+    path(
+        "govstack/scheduler/",
+        include("apps.appointments.govstack_urls", namespace="govstack_scheduler"),
+    ),
     # Donations public-facing flows
     path("donate/", include("apps.payments.donation_urls", namespace="donate")),
     # Donor payments portal — authenticated view of giving history, receipts, recurring plans

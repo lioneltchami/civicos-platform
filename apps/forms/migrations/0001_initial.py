@@ -9,68 +9,236 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-        ('wagtailcore', '0094_alter_page_locale'),
+    dependencies = [  # noqa: RUF012
+        ("wagtailcore", "0094_alter_page_locale"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
-            name='FormPage',
+            name="FormPage",
             fields=[
-                ('page_ptr', models.OneToOneField(auto_created=True, on_delete=django.db.models.deletion.CASCADE, parent_link=True, primary_key=True, serialize=False, to='wagtailcore.page')),
-                ('to_address', models.CharField(blank=True, help_text='Optional - form submissions will be emailed to these addresses. Separate multiple addresses by comma.', max_length=255, validators=[wagtail.contrib.forms.models.validate_to_address], verbose_name='to address')),
-                ('from_address', models.EmailField(blank=True, max_length=255, verbose_name='from address')),
-                ('subject', models.CharField(blank=True, max_length=255, verbose_name='subject')),
-                ('intro', wagtail.fields.RichTextField(blank=True, help_text='Displayed above the form. Explain what the form is for and what happens after submission.', verbose_name='Introduction')),
-                ('thank_you_text', wagtail.fields.RichTextField(blank=True, help_text='Shown after a successful submission.', verbose_name='Thank you message')),
-                ('consent_text', models.TextField(blank=True, help_text='If set, a mandatory consent checkbox is added to the form. State how the data will be used.', verbose_name='Consent statement')),
-                ('retention_days', models.PositiveIntegerField(default=365, help_text='Submissions will be purged after this many days.', verbose_name='Submission retention (days)')),
+                (
+                    "page_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="wagtailcore.page",
+                    ),
+                ),
+                (
+                    "to_address",
+                    models.CharField(
+                        blank=True,
+                        help_text="Optional - form submissions will be emailed to these addresses. Separate multiple addresses by comma.",
+                        max_length=255,
+                        validators=[wagtail.contrib.forms.models.validate_to_address],
+                        verbose_name="to address",
+                    ),
+                ),
+                (
+                    "from_address",
+                    models.EmailField(blank=True, max_length=255, verbose_name="from address"),
+                ),
+                ("subject", models.CharField(blank=True, max_length=255, verbose_name="subject")),
+                (
+                    "intro",
+                    wagtail.fields.RichTextField(
+                        blank=True,
+                        help_text="Displayed above the form. Explain what the form is for and what happens after submission.",
+                        verbose_name="Introduction",
+                    ),
+                ),
+                (
+                    "thank_you_text",
+                    wagtail.fields.RichTextField(
+                        blank=True,
+                        help_text="Shown after a successful submission.",
+                        verbose_name="Thank you message",
+                    ),
+                ),
+                (
+                    "consent_text",
+                    models.TextField(
+                        blank=True,
+                        help_text="If set, a mandatory consent checkbox is added to the form. State how the data will be used.",
+                        verbose_name="Consent statement",
+                    ),
+                ),
+                (
+                    "retention_days",
+                    models.PositiveIntegerField(
+                        default=365,
+                        help_text="Submissions will be purged after this many days.",
+                        verbose_name="Submission retention (days)",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Form page',
+                "verbose_name": "Form page",
             },
-            bases=(wagtail.contrib.forms.models.FormMixin, 'wagtailcore.page', models.Model),
+            bases=(wagtail.contrib.forms.models.FormMixin, "wagtailcore.page", models.Model),
         ),
         migrations.CreateModel(
-            name='FormField',
+            name="FormField",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('sort_order', models.IntegerField(blank=True, editable=False, null=True)),
-                ('clean_name', models.CharField(blank=True, default='', help_text='Safe name of the form field, the label converted to ascii_snake_case', max_length=255, verbose_name='name')),
-                ('label', models.CharField(help_text='The label of the form field', max_length=255, verbose_name='label')),
-                ('field_type', models.CharField(choices=[('singleline', 'Single line text'), ('multiline', 'Multi-line text'), ('email', 'Email'), ('number', 'Number'), ('url', 'URL'), ('checkbox', 'Checkbox'), ('checkboxes', 'Checkboxes'), ('dropdown', 'Drop down'), ('multiselect', 'Multiple select'), ('radio', 'Radio buttons'), ('date', 'Date'), ('datetime', 'Date/time'), ('hidden', 'Hidden field')], max_length=16, verbose_name='field type')),
-                ('required', models.BooleanField(default=True, verbose_name='required')),
-                ('choices', models.TextField(blank=True, help_text='Comma or new line separated list of choices. Only applicable in checkboxes, radio and dropdown.', verbose_name='choices')),
-                ('default_value', models.TextField(blank=True, help_text='Default value. Comma or new line separated values supported for checkboxes.', verbose_name='default value')),
-                ('help_text', models.CharField(blank=True, max_length=255, verbose_name='help text')),
-                ('help_text_long', models.TextField(blank=True, help_text='Shown in a collapsible hint section for complex fields.', verbose_name='Expanded help text')),
-                ('is_pii', models.BooleanField(default=False, help_text='Flag fields that collect PII for retention and redaction purposes.', verbose_name='Contains personal information')),
-                ('page', modelcluster.fields.ParentalKey(on_delete=django.db.models.deletion.CASCADE, related_name='form_fields', to='forms.formpage')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("sort_order", models.IntegerField(blank=True, editable=False, null=True)),
+                (
+                    "clean_name",
+                    models.CharField(
+                        blank=True,
+                        default="",
+                        help_text="Safe name of the form field, the label converted to ascii_snake_case",
+                        max_length=255,
+                        verbose_name="name",
+                    ),
+                ),
+                (
+                    "label",
+                    models.CharField(
+                        help_text="The label of the form field",
+                        max_length=255,
+                        verbose_name="label",
+                    ),
+                ),
+                (
+                    "field_type",
+                    models.CharField(
+                        choices=[
+                            ("singleline", "Single line text"),
+                            ("multiline", "Multi-line text"),
+                            ("email", "Email"),
+                            ("number", "Number"),
+                            ("url", "URL"),
+                            ("checkbox", "Checkbox"),
+                            ("checkboxes", "Checkboxes"),
+                            ("dropdown", "Drop down"),
+                            ("multiselect", "Multiple select"),
+                            ("radio", "Radio buttons"),
+                            ("date", "Date"),
+                            ("datetime", "Date/time"),
+                            ("hidden", "Hidden field"),
+                        ],
+                        max_length=16,
+                        verbose_name="field type",
+                    ),
+                ),
+                ("required", models.BooleanField(default=True, verbose_name="required")),
+                (
+                    "choices",
+                    models.TextField(
+                        blank=True,
+                        help_text="Comma or new line separated list of choices. Only applicable in checkboxes, radio and dropdown.",
+                        verbose_name="choices",
+                    ),
+                ),
+                (
+                    "default_value",
+                    models.TextField(
+                        blank=True,
+                        help_text="Default value. Comma or new line separated values supported for checkboxes.",
+                        verbose_name="default value",
+                    ),
+                ),
+                (
+                    "help_text",
+                    models.CharField(blank=True, max_length=255, verbose_name="help text"),
+                ),
+                (
+                    "help_text_long",
+                    models.TextField(
+                        blank=True,
+                        help_text="Shown in a collapsible hint section for complex fields.",
+                        verbose_name="Expanded help text",
+                    ),
+                ),
+                (
+                    "is_pii",
+                    models.BooleanField(
+                        default=False,
+                        help_text="Flag fields that collect PII for retention and redaction purposes.",
+                        verbose_name="Contains personal information",
+                    ),
+                ),
+                (
+                    "page",
+                    modelcluster.fields.ParentalKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="form_fields",
+                        to="forms.formpage",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Form field',
-                'ordering': ['sort_order'],
+                "verbose_name": "Form field",
+                "ordering": ["sort_order"],
             },
         ),
         migrations.CreateModel(
-            name='FormSubmission',
+            name="FormSubmission",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('form_data', models.JSONField(encoder=django.core.serializers.json.DjangoJSONEncoder)),
-                ('submit_time', models.DateTimeField(auto_now_add=True, verbose_name='submit time')),
-                ('consent_given', models.BooleanField(default=False, verbose_name='Consent given')),
-                ('consent_text_shown', models.TextField(blank=True, help_text='The exact consent text displayed to the user at time of submission.', verbose_name='Consent text shown')),
-                ('submitter_ip', models.GenericIPAddressField(blank=True, null=True, verbose_name='Submitter IP')),
-                ('expires_at', models.DateTimeField(blank=True, db_index=True, help_text='After this date, the submission will be purged per retention policy.', null=True, verbose_name='Expires at')),
-                ('page', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='civicos_form_submissions', to='forms.formpage')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "form_data",
+                    models.JSONField(encoder=django.core.serializers.json.DjangoJSONEncoder),
+                ),
+                (
+                    "submit_time",
+                    models.DateTimeField(auto_now_add=True, verbose_name="submit time"),
+                ),
+                ("consent_given", models.BooleanField(default=False, verbose_name="Consent given")),
+                (
+                    "consent_text_shown",
+                    models.TextField(
+                        blank=True,
+                        help_text="The exact consent text displayed to the user at time of submission.",
+                        verbose_name="Consent text shown",
+                    ),
+                ),
+                (
+                    "submitter_ip",
+                    models.GenericIPAddressField(
+                        blank=True, null=True, verbose_name="Submitter IP"
+                    ),
+                ),
+                (
+                    "expires_at",
+                    models.DateTimeField(
+                        blank=True,
+                        db_index=True,
+                        help_text="After this date, the submission will be purged per retention policy.",
+                        null=True,
+                        verbose_name="Expires at",
+                    ),
+                ),
+                (
+                    "page",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="civicos_form_submissions",
+                        to="forms.formpage",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Form submission',
-                'verbose_name_plural': 'Form submissions',
-                'ordering': ['-submit_time'],
+                "verbose_name": "Form submission",
+                "verbose_name_plural": "Form submissions",
+                "ordering": ["-submit_time"],
             },
         ),
     ]

@@ -1,0 +1,3753 @@
+{
+  "maps": {
+    "consent": {
+      "classification": "explicit CivicOS implementation; official wire conformance unverified",
+      "rows": [
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-001",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configPolicyCreate",
+          "official_path": "/config/policy/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-002",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configPolicyRead",
+          "official_path": "/config/policy/{policyId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-003",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configPolicyUpdate",
+          "official_path": "/config/policy/{policyId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-004",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configPolicyDelete",
+          "official_path": "/config/policy/{policyId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-005",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configPolicyRevisionsList",
+          "official_path": "/config/policy/{policyId}/revisions/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-006",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configPolicyList",
+          "official_path": "/config/policies/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-007",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configDataAgreementRead",
+          "official_path": "/config/data-agreement/{dataAgreementId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-008",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configDataAgreementUpdate",
+          "official_path": "/config/data-agreement/{dataAgreementId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-009",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configDataAgreementDelete",
+          "official_path": "/config/data-agreement/{dataAgreementId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-010",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configDataAgreementCreate",
+          "official_path": "/config/data-agreement/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-011",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configDataAgreementList",
+          "official_path": "/config/data-agreements/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-012",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configIndividualCreate",
+          "official_path": "/config/individual/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-013",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configIndividualRead",
+          "official_path": "/config/individual/{individualId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-014",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configIndividualList",
+          "official_path": "/config/individuals/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-015",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configWebhookCreate",
+          "official_path": "/config/webhook/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-016",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configWebhookRead",
+          "official_path": "/config/webhook/{webhookId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-017",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configWebhookUpdate",
+          "official_path": "/config/webhook/{webhookId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-018",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configWebhookDelete",
+          "official_path": "/config/webhook/{webhookId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-019",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "configWebhookList",
+          "official_path": "/config/webhooks/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-020",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualCreate",
+          "official_path": "/service/individual/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-021",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualRead",
+          "official_path": "/service/individual/{individualId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-022",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualUpdate",
+          "official_path": "/service/individual/{individualId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-023",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualList",
+          "official_path": "/service/individuals/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-024",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceDataAgreementRead",
+          "official_path": "/service/data-agreement/{dataAgreementId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-025",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "servicePolicyRead",
+          "official_path": "/service/policy/{policyId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-026",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceVerificationDataAgreementList",
+          "official_path": "/service/verification/data-agreements/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-027",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceVerificationConsentRecordList",
+          "official_path": "/service/verification/consent-records/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-028",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceVerificationConsentRecordRead",
+          "official_path": "/service/verification/consent-record/{consentRecordId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-029",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualConsentRecordCreate",
+          "official_path": "/service/individual/record/data-agreement/{dataAgreementId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-030",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualConsentRecordRead",
+          "official_path": "/service/individual/record/data-agreement/{dataAgreementId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-031",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualConsentRecordDraftCreate",
+          "official_path": "/service/individual/record/consent-record/draft/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-032",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualConsentRecordSignatureCreate",
+          "official_path": "/service/individual/record/consent-record/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-033",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualConsentRecordList",
+          "official_path": "/service/individual/record/consent-record/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-034",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualConsentRecordUpdate",
+          "official_path": "/service/individual/record/consent-record/{consentRecordId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-035",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualSignatureCreate",
+          "official_path": "/service/individual/record/consent-record/{consentRecordId}/signature/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-036",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualSignatureUpdate",
+          "official_path": "/service/individual/record/consent-record/{consentRecordId}/signature/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-037",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualDataAgreementConsentRecordList",
+          "official_path": "/service/individual/record/data-agreement/{dataAgreementId}/all/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-038",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "serviceIndividualConsentRecordDeleteAll",
+          "official_path": "/service/individual/record/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-039",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "auditConsentRecordList",
+          "official_path": "/audit/consent-records/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-040",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "auditConsentRecordRead",
+          "official_path": "/audit/consent-record/{consentRecordId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-041",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "auditDataAgreementList",
+          "official_path": "/audit/data-agreements/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-042",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml"
+          ],
+          "official_operation": "auditDataAgreementRead",
+          "official_path": "/audit/data-agreement/{dataAgreementId}/",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-043",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-consent/README.md"
+          ],
+          "official_operation": "Artifact inventory only: README.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-044",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-consent/spec/8-service-apis.md"
+          ],
+          "official_operation": "Artifact inventory only: spec/8-service-apis.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/govstack_urls.py",
+            "apps/consent/govstack_views.py"
+          ],
+          "id": "CONSENT-OFFICIAL-045",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-consent/test/plan.md"
+          ],
+          "official_operation": "Artifact inventory only: test/plan.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "CivicOS consent actor authentication.",
+          "authorization": "CivicOS ownership and local policy rules.",
+          "building_block": "consent",
+          "civicos_surface": [
+            "apps/consent/services.py: ConsentService.update_signature"
+          ],
+          "id": "CONSENT-LOCAL-SIGNATURE-UPDATE",
+          "identifiers": [
+            "ConsentRecord",
+            "ConsentSignature",
+            "ConsentRevision"
+          ],
+          "local_test_evidence": [
+            "apps/consent/tests/test_govstack_api.py: test_update_signature_creates_audit_entry",
+            "apps/consent/tests/test_govstack_api.py: test_update_signature_creates_revision"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-consent/api/consent-openapi.yaml",
+            "bb-consent/test/plan.md"
+          ],
+          "official_operation": "Local signature update evidence; official acceptance unverified",
+          "official_path": null,
+          "reason": "Local action remains granted with details.trigger=signature_updated; official acceptance is unverified.",
+          "request_schema_source": "Local serializer/service behavior.",
+          "response_schema_source": "Local API behavior; official equivalence unverified.",
+          "states": [
+            "granted",
+            "signature_updated"
+          ],
+          "status": "IMPLEMENTED_LOCAL",
+          "statuses_errors": "Local behavior only; official mapping unverified."
+        }
+      ]
+    },
+    "file-management": {
+      "classification": "explicit CivicOS implementation; official wire conformance unverified",
+      "rows": [
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "file-management",
+          "civicos_surface": [
+            "apps/documents/urls.py",
+            "apps/documents/views/citizen.py",
+            "apps/documents/views/staff.py"
+          ],
+          "id": "FILE_MANAGEMENT-OFFICIAL-001",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/documents/tests/test_views_citizen.py",
+            "apps/documents/tests/test_views_staff.py",
+            "apps/documents/tests/test_tasks.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-file-management/api/swagger.yaml"
+          ],
+          "official_operation": "No operation discoverable: pinned swagger artifact is empty",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "file-management",
+          "civicos_surface": [
+            "apps/documents/urls.py",
+            "apps/documents/views/citizen.py",
+            "apps/documents/views/staff.py"
+          ],
+          "id": "FILE_MANAGEMENT-OFFICIAL-002",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/documents/tests/test_views_citizen.py",
+            "apps/documents/tests/test_views_staff.py",
+            "apps/documents/tests/test_tasks.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-file-management/README.md"
+          ],
+          "official_operation": "Artifact inventory only: README.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "file-management",
+          "civicos_surface": [
+            "apps/documents/urls.py",
+            "apps/documents/views/citizen.py",
+            "apps/documents/views/staff.py"
+          ],
+          "id": "FILE_MANAGEMENT-OFFICIAL-003",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/documents/tests/test_views_citizen.py",
+            "apps/documents/tests/test_views_staff.py",
+            "apps/documents/tests/test_tasks.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-file-management/spec/8-service-apis.md"
+          ],
+          "official_operation": "Artifact inventory only: spec/8-service-apis.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "file-management",
+          "civicos_surface": [
+            "apps/documents/urls.py",
+            "apps/documents/views/citizen.py",
+            "apps/documents/views/staff.py"
+          ],
+          "id": "FILE_MANAGEMENT-OFFICIAL-004",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/documents/tests/test_views_citizen.py",
+            "apps/documents/tests/test_views_staff.py",
+            "apps/documents/tests/test_tasks.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-file-management/test/openAPI/test_entrypoint.sh"
+          ],
+          "official_operation": "Artifact inventory only: test/openAPI/test_entrypoint.sh",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "file-management",
+          "civicos_surface": [
+            "apps/documents/urls.py",
+            "apps/documents/views/citizen.py",
+            "apps/documents/views/staff.py"
+          ],
+          "id": "FILE_MANAGEMENT-OFFICIAL-005",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/documents/tests/test_views_citizen.py",
+            "apps/documents/tests/test_views_staff.py",
+            "apps/documents/tests/test_tasks.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-file-management/test/plan.md"
+          ],
+          "official_operation": "Artifact inventory only: test/plan.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "CivicOS citizen/staff authentication.",
+          "authorization": "Local ownership, staff permission and access-token controls.",
+          "building_block": "file-management",
+          "civicos_surface": [
+            "apps/documents/urls.py",
+            "apps/documents/tasks.py"
+          ],
+          "id": "FILE-MANAGEMENT-LOCAL-SECURITY-EVIDENCE",
+          "identifiers": [
+            "document UUID",
+            "owner identity",
+            "access token"
+          ],
+          "local_test_evidence": [
+            "apps/documents/tests/test_views_citizen.py",
+            "apps/documents/tests/test_views_staff.py",
+            "apps/documents/tests/test_tasks.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-file-management/test/plan.md"
+          ],
+          "official_operation": "Local document access, scan and quarantine evidence; official lifecycle equivalence unverified",
+          "official_path": null,
+          "reason": "Local security controls remain behind a future contract-preserving adapter.",
+          "request_schema_source": "Local document views/models.",
+          "response_schema_source": "Local security/lifecycle responses; official equivalence unverified.",
+          "states": [
+            "pending_upload",
+            "scanning",
+            "active",
+            "quarantined",
+            "deleted"
+          ],
+          "status": "IMPLEMENTED_LOCAL",
+          "statuses_errors": "Local negative-case behavior only; official mapping unverified."
+        }
+      ]
+    },
+    "payments": {
+      "classification": "explicit CivicOS implementation; official wire conformance unverified",
+      "rows": [
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-001",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/AccountLookup.yml"
+          ],
+          "official_operation": "AccountLookup",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-002",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/BatchDetails.yml"
+          ],
+          "official_operation": "BatchDetails",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-003",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/BulkAccountLookup.yml"
+          ],
+          "official_operation": "BulkAccountLookup",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-004",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/BulkPayment.yml"
+          ],
+          "official_operation": "BulkPayment",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-005",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/BulkPaymentStatusUpdate.yml"
+          ],
+          "official_operation": "BulkPaymentStatusUpdate",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-006",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/BulkValidateAccountRequest.yml"
+          ],
+          "official_operation": "BulkValidateAccountRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-007",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/BulkValidateAccountResponse.yml"
+          ],
+          "official_operation": "BulkValidateAccountResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-008",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/GetAuthorizationRequest.yml"
+          ],
+          "official_operation": "GetAuthorizationRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-009",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/GetAuthorizationResponse.yml"
+          ],
+          "official_operation": "GetAuthorizationResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-010",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/RegisterBeneficiaryRequest.yml"
+          ],
+          "official_operation": "RegisterBeneficiaryRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-011",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/RegisterBeneficiaryResponse.yml"
+          ],
+          "official_operation": "RegisterBeneficiaryResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-012",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/UpdateBeneficiaryRequest.yml"
+          ],
+          "official_operation": "UpdateBeneficiaryRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-013",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/G2P API YAMLs/UpdateBeneficiaryResponse.yml"
+          ],
+          "official_operation": "UpdateBeneficiaryResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-014",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/billInquiryBillerRequest.yml"
+          ],
+          "official_operation": "billInquiryBillerRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-015",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/billInquiryBillerResponse.yml"
+          ],
+          "official_operation": "billInquiryBillerResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-016",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/billInquiryRequest.yml"
+          ],
+          "official_operation": "billInquiryRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-017",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/billInquiryResponse.yml"
+          ],
+          "official_operation": "billInquiryResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-018",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/billPaymentRequest.yml"
+          ],
+          "official_operation": "billPaymentRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-019",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/billPaymentResponse.yml"
+          ],
+          "official_operation": "billPaymentResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-020",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/billerRtpReq.yml"
+          ],
+          "official_operation": "billerRtpReq",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-021",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/billerRtpResponse.yml"
+          ],
+          "official_operation": "billerRtpResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-022",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/markBillPpaymentRequest.yml"
+          ],
+          "official_operation": "markBillPpaymentRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-023",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/markBillPpaymentResponse.yml"
+          ],
+          "official_operation": "markBillPpaymentResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-024",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/payerRtpRequest.yml"
+          ],
+          "official_operation": "payerRtpRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-025",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/payerRtpResponse.yml"
+          ],
+          "official_operation": "payerRtpResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-026",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/rtpStatusUpdateRequest.yml"
+          ],
+          "official_operation": "rtpStatusUpdateRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-027",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/rtpStatusUpdateResponse.yml"
+          ],
+          "official_operation": "rtpStatusUpdateResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-028",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/P2G API YAMLs/voucherRedemptionforBillPayment.yml"
+          ],
+          "official_operation": "voucherRedemptionforBillPayment",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-029",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/Voucher API YAMLs/VoucherActivate.yml"
+          ],
+          "official_operation": "VoucherActivate",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-030",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/Voucher API YAMLs/VoucherActivateResponse.yml"
+          ],
+          "official_operation": "VoucherActivateResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-031",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/Voucher API YAMLs/VoucherCancellation.yml"
+          ],
+          "official_operation": "VoucherCancellation",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-032",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/Voucher API YAMLs/VoucherCancellationResponse.yml"
+          ],
+          "official_operation": "VoucherCancellationResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-033",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/Voucher API YAMLs/VoucherCreationResponse.yml"
+          ],
+          "official_operation": "VoucherCreationResponse",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-034",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/Voucher API YAMLs/VoucherPreactivationRequest.yml"
+          ],
+          "official_operation": "VoucherPreactivationRequest",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-035",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/Voucher API YAMLs/VoucherRedemption.yml"
+          ],
+          "official_operation": "VoucherRedemption",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-036",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/api/Voucher API YAMLs/VoucherStatus.yml"
+          ],
+          "official_operation": "VoucherStatus",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-037",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/README.md"
+          ],
+          "official_operation": "Artifact inventory only: README.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-038",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/spec/.gitbook/assets/Mobile_Money_API_v1.1.2-Specification_Definition (1) (1).yaml"
+          ],
+          "official_operation": "Artifact inventory only: spec/.gitbook/assets/Mobile_Money_API_v1.1.2-Specification_Definition (1) (1).yaml",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-039",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/test/openAPI/plan.md"
+          ],
+          "official_operation": "Artifact inventory only: test/openAPI/plan.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_urls.py",
+            "apps/payments/govstack_views.py"
+          ],
+          "id": "PAYMENTS-OFFICIAL-040",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_bulk_payment.py",
+            "apps/payments/tests/test_govstack_auth.py",
+            "apps/payments/tests/test_govstack_p2g.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/test/openAPI/test_entrypoint.sh"
+          ],
+          "official_operation": "Artifact inventory only: test/openAPI/test_entrypoint.sh",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "apps/payments/govstack_auth.py",
+          "authorization": "Local registered-BB and tenant allow-list behavior.",
+          "building_block": "payments",
+          "civicos_surface": [
+            "apps/payments/govstack_views.py",
+            "apps/payments/govstack_services.py"
+          ],
+          "id": "PAYMENTS-LOCAL-REPLAY-EVIDENCE",
+          "identifiers": [
+            "requestId",
+            "X-CorrelationID",
+            "platform_tenant_id"
+          ],
+          "local_test_evidence": [
+            "apps/payments/tests/test_govstack_p2g.py",
+            "apps/payments/tests/test_govstack_beneficiary.py",
+            "apps/payments/tests/test_govstack_auth.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-payments/test/openAPI/plan.md"
+          ],
+          "official_operation": "Local duplicate/replay evidence; official callback semantics unverified",
+          "official_path": null,
+          "reason": "Local idempotency, correlation and authorization evidence is preserved without an official equivalence claim.",
+          "request_schema_source": "Local GovStack serializers and services.",
+          "response_schema_source": "Local error translation; official mapping unverified.",
+          "states": [
+            "local success",
+            "local failure",
+            "local duplicate handling"
+          ],
+          "status": "IMPLEMENTED_LOCAL",
+          "statuses_errors": "Do not infer official replay/callback statuses from local tests."
+        }
+      ]
+    },
+    "scheduler": {
+      "classification": "explicit CivicOS implementation; official wire conformance unverified",
+      "rows": [
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-001",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /affiliation",
+          "official_path": "/affiliation",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-002",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /affiliation/list_details",
+          "official_path": "/affiliation/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-003",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /affiliation/modifications",
+          "official_path": "/affiliation/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-004",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /affiliation/new",
+          "official_path": "/affiliation/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-005",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /alert_schedule",
+          "official_path": "/alert_schedule",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-006",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /alert_schedule/list_details",
+          "official_path": "/alert_schedule/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-007",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /alert_schedule/modifications",
+          "official_path": "/alert_schedule/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-008",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /alert_schedule/new",
+          "official_path": "/alert_schedule/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-009",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /appointment",
+          "official_path": "/appointment",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-010",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /appointment/list_details",
+          "official_path": "/appointment/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-011",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /appointment/modifications",
+          "official_path": "/appointment/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-012",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /appointment/new",
+          "official_path": "/appointment/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-013",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /entity",
+          "official_path": "/entity",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-014",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /entity/list_details",
+          "official_path": "/entity/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-015",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /entity/modifications",
+          "official_path": "/entity/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-016",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /entity/new",
+          "official_path": "/entity/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-017",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /event",
+          "official_path": "/event",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-018",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /event/list_details",
+          "official_path": "/event/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-019",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /event/modifications",
+          "official_path": "/event/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-020",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /event/new",
+          "official_path": "/event/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-021",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /log",
+          "official_path": "/log",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-022",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /log/list_details",
+          "official_path": "/log/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-023",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /log/modifications",
+          "official_path": "/log/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-024",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /log/new",
+          "official_path": "/log/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-025",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /message",
+          "official_path": "/message",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-026",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /message/list_details",
+          "official_path": "/message/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-027",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /message/modifications",
+          "official_path": "/message/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-028",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /message/new",
+          "official_path": "/message/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-029",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /resource",
+          "official_path": "/resource",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-030",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /resource/availability",
+          "official_path": "/resource/availability",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-031",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /resource/list_details",
+          "official_path": "/resource/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-032",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /resource/modifications",
+          "official_path": "/resource/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-033",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /resource/new",
+          "official_path": "/resource/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-034",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "DELETE",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "DELETE /subscriber",
+          "official_path": "/subscriber",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-035",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "GET",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "GET /subscriber/list_details",
+          "official_path": "/subscriber/list_details",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-036",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "PUT",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "PUT /subscriber/modifications",
+          "official_path": "/subscriber/modifications",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-037",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": "POST",
+          "official_artifacts": [
+            "bb-scheduler/api/Govstack_scheduler_BB_APIs.json"
+          ],
+          "official_operation": "POST /subscriber/new",
+          "official_path": "/subscriber/new",
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-038",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-scheduler/README.md"
+          ],
+          "official_operation": "Artifact inventory only: README.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-039",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-scheduler/spec/8-service-apis.md"
+          ],
+          "official_operation": "Artifact inventory only: spec/8-service-apis.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-040",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-scheduler/test/openAPI/test_entrypoint.sh"
+          ],
+          "official_operation": "Artifact inventory only: test/openAPI/test_entrypoint.sh",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "Official requirement must be mapped before a conformance claim.",
+          "authorization": "Official requirement must be mapped before a conformance claim.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_urls.py",
+            "apps/appointments/govstack_views.py"
+          ],
+          "id": "SCHEDULER-OFFICIAL-041",
+          "identifiers": [],
+          "local_test_evidence": [
+            "apps/appointments/tests/test_govstack_auth.py",
+            "apps/appointments/tests/test_govstack_appointment.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-scheduler/test/plan.md"
+          ],
+          "official_operation": "Artifact inventory only: test/plan.md",
+          "official_path": null,
+          "reason": "Official source is inventoried; no endpoint/schema/status equivalence is asserted.",
+          "request_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "response_schema_source": "Pinned official artifact; CivicOS equivalence unverified.",
+          "states": [],
+          "status": "UNVERIFIED",
+          "statuses_errors": "Official status/error equivalence is unverified."
+        },
+        {
+          "authentication": "apps/appointments/govstack_auth.py",
+          "authorization": "Local role resolution limited to a single-government deployment.",
+          "building_block": "scheduler",
+          "civicos_surface": [
+            "apps/appointments/govstack_auth.py"
+          ],
+          "id": "SCHEDULER-SINGLE-GOVERNMENT-GUARD",
+          "identifiers": [
+            "requestor_id",
+            "registered BB identity"
+          ],
+          "local_test_evidence": [
+            "tests/govstack/test_evidence_artifacts.py"
+          ],
+          "method": null,
+          "official_artifacts": [
+            "bb-scheduler/spec/8-service-apis.md",
+            "bb-scheduler/test/plan.md"
+          ],
+          "official_operation": "Local deployment boundary; multi-government role isolation deferred",
+          "official_path": null,
+          "reason": "Multi-government isolation is not implemented and is deliberately rejected at the auth boundary.",
+          "request_schema_source": "Not applicable to local deployment guard.",
+          "response_schema_source": "Authentication failure for unsupported deployment scope.",
+          "states": [
+            "single-government supported",
+            "multi-government rejected"
+          ],
+          "status": "IMPLEMENTED_LOCAL",
+          "statuses_errors": "Unsupported scope raises local AuthenticationFailed; official equivalence unverified."
+        }
+      ]
+    }
+  },
+  "non_claimed_scope": {
+    "local_modules": [
+      "messaging",
+      "workflow",
+      "cms"
+    ],
+    "not_done_yet": [
+      "cloud-infrastructure-hosting",
+      "digital-registries",
+      "emarketplace",
+      "esignature",
+      "gis",
+      "identity",
+      "im-connector",
+      "information-mediator",
+      "registration",
+      "template",
+      "ux",
+      "wallet"
+    ]
+  },
+  "required_row_fields": [
+    "authentication",
+    "authorization",
+    "building_block",
+    "civicos_surface",
+    "id",
+    "identifiers",
+    "local_test_evidence",
+    "method",
+    "official_artifacts",
+    "official_operation",
+    "official_path",
+    "reason",
+    "request_schema_source",
+    "response_schema_source",
+    "states",
+    "status",
+    "statuses_errors"
+  ],
+  "schema_version": 2,
+  "status_vocabulary": [
+    "IMPLEMENTED_LOCAL",
+    "UNVERIFIED",
+    "DEFERRED",
+    "UNSUPPORTED"
+  ]
+}

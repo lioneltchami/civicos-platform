@@ -1,5 +1,8 @@
 # GovStack Building Block Certification Record
 
+> **Historical-status notice (2026-08-18):** This document records a prior internal readiness assessment. It is **not** a current certification, official-harness result, or proof of GovStack wire conformance. The current CivicOS evidence boundary is [`docs/govstack/SCOPE.md`](docs/govstack/SCOPE.md): local implementation evidence remains distinct from official conformance, Messaging/Workflow/CMS are local-only, and remaining catalog Building Blocks are **Not Done Yet**.
+
+
 **Status as of 2026-07-27:** ✅ **4 of 4 GovStack Building Blocks in this codebase are READY** for GovStack certification submission — Documents Management, Appointments/Scheduler, Consent, and Payments. (Repo-wide search confirmed `apps/api/{notifications,portal,volunteers,workflows}` have zero GovStack scope — these four are the complete set.)
 
 **Purpose of this document:** this is the durable answer to "are these BBs actually done, and how do we know?" If this question ever comes up again — a new team member asks, a regression is suspected, or a real GovStack certification submission needs supporting evidence — read this file first. It explains what "READY" means here, what was wrong before, what was fixed, how the fixes were verified, and exactly how to re-verify any of it yourself in a few commands.

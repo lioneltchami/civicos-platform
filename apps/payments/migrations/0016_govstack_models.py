@@ -17,24 +17,23 @@
 #   (EncryptedCharField subclasses BinaryField). Django migrations
 #   generate BinaryField columns for these — that is correct.
 
-import django.core.validators
-import django.db.models.deletion
-import django.utils.timezone
 import uuid
 from decimal import Decimal
 
+import django.core.validators
+import django.db.models.deletion
+import django.utils.timezone
 from django.db import migrations, models
 
 import apps.core.fields
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("payments", "0015_alter_officialdonationreceipt_document"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ── GovStackBeneficiary ──────────────────────────────────────────
         migrations.CreateModel(
             name="GovStackBeneficiary",
@@ -70,7 +69,7 @@ class Migration(migrations.Migration):
                         unique=True,
                         validators=[
                             django.core.validators.RegexValidator(
-                                message="BB ID must be 1–20 alphanumeric or hyphen characters.",
+                                message="BB ID must be 1–20 alphanumeric or hyphen characters.",  # noqa: RUF001
                                 regex="^[a-zA-Z0-9\\-]{1,20}$",
                             )
                         ],
@@ -104,7 +103,7 @@ class Migration(migrations.Migration):
                         max_length=20,
                         validators=[
                             django.core.validators.RegexValidator(
-                                message="BB ID must be 1–20 alphanumeric or hyphen characters.",
+                                message="BB ID must be 1–20 alphanumeric or hyphen characters.",  # noqa: RUF001
                                 regex="^[a-zA-Z0-9\\-]{1,20}$",
                             )
                         ],
@@ -138,7 +137,6 @@ class Migration(migrations.Migration):
                 name="gs_ben_sourcebb_payee_idx",
             ),
         ),
-
         # ── BulkPaymentBatch ─────────────────────────────────────────────
         migrations.CreateModel(
             name="BulkPaymentBatch",
@@ -173,7 +171,7 @@ class Migration(migrations.Migration):
                         max_length=16,
                         validators=[
                             django.core.validators.RegexValidator(
-                                message="RequestID must be 1–16 alphanumeric or hyphen characters.",
+                                message="RequestID must be 1–16 alphanumeric or hyphen characters.",  # noqa: RUF001
                                 regex="^[a-zA-Z0-9\\-]{1,16}$",
                             )
                         ],
@@ -295,7 +293,6 @@ class Migration(migrations.Migration):
                 name="gs_batch_status_created_idx",
             ),
         ),
-
         # ── CreditInstruction ────────────────────────────────────────────
         migrations.CreateModel(
             name="CreditInstruction",
@@ -419,7 +416,6 @@ class Migration(migrations.Migration):
                 name="gs_instr_batch_status_idx",
             ),
         ),
-
         # ── PrepaymentValidationRequest ──────────────────────────────────
         migrations.CreateModel(
             name="PrepaymentValidationRequest",
@@ -556,7 +552,6 @@ class Migration(migrations.Migration):
                 name="gs_prepay_batch_status_idx",
             ),
         ),
-
         # ── GovStackVoucher ──────────────────────────────────────────────
         migrations.CreateModel(
             name="GovStackVoucher",
@@ -774,7 +769,6 @@ class Migration(migrations.Migration):
                 name="gs_voucher_bb_status_idx",
             ),
         ),
-
         # ── GovStackPaymentAuditEntry ────────────────────────────────────
         migrations.CreateModel(
             name="GovStackPaymentAuditEntry",

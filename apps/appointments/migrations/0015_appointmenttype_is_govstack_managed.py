@@ -11,18 +11,18 @@ This field is set True only by the GovStack event_create() service function.
 The gs- slug prefix convention is kept as a secondary/cosmetic naming style,
 but the actual security/scoping boundary for event_list() is this field.
 """
+
 from __future__ import annotations
 
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0014_govstack_wave_a_review_fixes"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="appointmenttype",
             name="is_govstack_managed",

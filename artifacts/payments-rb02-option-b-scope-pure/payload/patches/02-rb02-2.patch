@@ -1,0 +1,624 @@
+From 2fb03f830bd2dd2c50445420c4c9aa0c3aaf965e Mon Sep 17 00:00:00 2001
+From: Lionel Tchami <lioneltchami@gmail.com>
+Date: Thu, 20 Aug 2026 23:44:23 -0600
+Subject: [PATCH] =?UTF-8?q?Item=2002=20=E2=80=93=20RB-02.2=20binding=20and?=
+ =?UTF-8?q?=20finality?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ apps/payments/govstack_failure_services.py    | 137 ++++++++++++++++
+ apps/payments/govstack_models.py              |  10 ++
+ apps/payments/govstack_tasks.py               | 148 ++++++++++--------
+ ...dit_instruction_payment_attempt_binding.py |  20 +++
+ .../test_item02_rb02_batch_lease_live.py      | 138 +++++++++++++++-
+ 5 files changed, 386 insertions(+), 67 deletions(-)
+ create mode 100644 apps/payments/migrations/0044_item02_rb022_credit_instruction_payment_attempt_binding.py
+
+diff --git a/apps/payments/govstack_failure_services.py b/apps/payments/govstack_failure_services.py
+index d712dccb6bc44117b66245d77efb5aaa8fb86127..e5d38e1c7088fcbc752b31ef83119928f76631f5 100644
+--- a/apps/payments/govstack_failure_services.py
++++ b/apps/payments/govstack_failure_services.py
+@@ -9,6 +9,7 @@ from __future__ import annotations
+ 
+ import hashlib
+ import json
++from dataclasses import dataclass
+ from datetime import timedelta
+ from typing import Any, Mapping
+ 
+@@ -18,6 +19,7 @@ from django.utils import timezone
+ from apps.payments.govstack_provider import ProviderOutcome, ProviderResult, normalize_result
+ from apps.payments.govstack_models import (
+     CallbackDelivery,
++    CreditInstruction,
+     GovStackPaymentAuditEntry,
+     IdempotencyConflict,
+     PaymentAttempt,
+@@ -27,6 +29,16 @@ from apps.payments.govstack_models import (
+ )
+ 
+ 
++@dataclass(frozen=True)
++class AuthoritativeChildFinality:
++    """Read-only finality projection for one durably bound credit instruction."""
++
++    status: str
++    final: bool
++    reason: str
++    attempt_id: str | None = None
++
++
+ class PaymentLifecycleService:
+     """State-safe persistence helpers for provider-neutral payment execution."""
+ 
+@@ -306,6 +318,131 @@ class PaymentLifecycleService:
+     def binding_hash(tenant_id: str, attempt: PaymentAttempt, amount: Any, currency: str) -> str:
+         return hashlib.sha256(f"{tenant_id}|{attempt.pk}|{amount}|{currency.upper()}".encode()).hexdigest()
+ 
++    @classmethod
++    def bind_credit_instruction_attempt(
++        cls,
++        instruction: CreditInstruction,
++        attempt: PaymentAttempt,
++    ) -> CreditInstruction:
++        """Durably bind one instruction to its canonical existing bulk attempt.
++
++        The binding is additive and immutable in practice: a replay can reuse the
++        same attempt but a different attempt for the same instruction is rejected.
++        This prevents batch aggregation from selecting a parallel lifecycle row.
++        """
++        with transaction.atomic():
++            locked_instruction = CreditInstruction.objects.select_for_update().get(
++                pk=instruction.pk
++            )
++            locked_attempt = PaymentAttempt.objects.select_for_update().get(pk=attempt.pk)
++            expected_request_id = (
++                f"{locked_instruction.batch.request_id}:{locked_instruction.instruction_id}"
++            )
++            if (
++                locked_attempt.operation != "g2p_bulk_instruction"
++                or locked_attempt.request_id != expected_request_id
++                or locked_attempt.amount != locked_instruction.amount
++                or locked_attempt.currency.upper() != locked_instruction.currency.upper()
++            ):
++                raise ValueError("payment attempt does not match the credit instruction identity")
++            if locked_instruction.payment_attempt_id is None:
++                locked_instruction.payment_attempt = locked_attempt
++                locked_instruction.save(update_fields=["payment_attempt", "updated_at"])
++            elif locked_instruction.payment_attempt_id != locked_attempt.pk:
++                raise IdempotencyConflict("credit instruction is already bound to another attempt")
++            return locked_instruction
++
++    @classmethod
++    def materialize_credit_instruction_finality(
++        cls,
++        instruction: CreditInstruction,
++    ) -> AuthoritativeChildFinality:
++        """Project child finality from bound, verified, reconciled provider evidence.
++
++        Local mapper eligibility, attempt status alone, and unverified or
++        conflicting evidence are deliberately insufficient.  The method does not
++        create policy decisions or mutate provider/audit/callback records.
++        """
++        with transaction.atomic():
++            locked_instruction = (
++                CreditInstruction.objects.select_for_update()
++                .select_related("batch", "payment_attempt")
++                .get(pk=instruction.pk)
++            )
++            attempt = locked_instruction.payment_attempt
++            if attempt is None:
++                return AuthoritativeChildFinality("review", False, "instruction_unbound")
++            attempt = PaymentAttempt.objects.select_for_update().get(pk=attempt.pk)
++            expected_request_id = (
++                f"{locked_instruction.batch.request_id}:{locked_instruction.instruction_id}"
++            )
++            if (
++                attempt.operation != "g2p_bulk_instruction"
++                or attempt.request_id != expected_request_id
++                or attempt.amount != locked_instruction.amount
++                or attempt.currency.upper() != locked_instruction.currency.upper()
++            ):
++                return AuthoritativeChildFinality(
++                    "review", False, "bound_attempt_malformed", str(attempt.pk)
++                )
++
++            observations = list(
++                ProviderObservation.objects.select_for_update()
++                .filter(attempt=attempt)
++                .order_by("created_at", "pk")
++            )
++            accepted = [
++                observation
++                for observation in observations
++                if observation.accepted_finality
++                and observation.verified
++                and observation.outcome
++                in {ProviderObservation.OUTCOME_SETTLED, ProviderObservation.OUTCOME_REJECTED}
++            ]
++            if len(accepted) != 1:
++                return AuthoritativeChildFinality(
++                    "review", False, "missing_or_conflicting_observation", str(attempt.pk)
++                )
++            observation = accepted[0]
++            expected_hash = cls.binding_hash(
++                attempt.tenant_id,
++                attempt,
++                locked_instruction.amount,
++                locked_instruction.currency,
++            )
++            if (
++                observation.tenant_id != attempt.tenant_id
++                or observation.amount != locked_instruction.amount
++                or observation.currency.upper() != locked_instruction.currency.upper()
++                or observation.binding_hash != expected_hash
++                or any(item.pk != observation.pk for item in observations)
++            ):
++                return AuthoritativeChildFinality(
++                    "review", False, "observation_unverified_or_conflicting", str(attempt.pk)
++                )
++            if attempt.status != observation.outcome:
++                return AuthoritativeChildFinality(
++                    "review", False, "attempt_status_not_authoritative", str(attempt.pk)
++                )
++
++            reconciliations = list(
++                PaymentReconciliation.objects.select_for_update()
++                .filter(attempt=attempt)
++                .order_by("created_at", "pk")
++            )
++            if not reconciliations or any(
++                reconciliation.status != PaymentReconciliation.STATUS_MATCHED
++                or reconciliation.provider_status != observation.outcome
++                or reconciliation.internal_status != observation.outcome
++                for reconciliation in reconciliations
++            ):
++                return AuthoritativeChildFinality(
++                    "review", False, "reconciliation_unresolved_or_conflicting", str(attempt.pk)
++                )
++            return AuthoritativeChildFinality(
++                observation.outcome, True, "verified_reconciled_finality", str(attempt.pk)
++            )
++
+     @classmethod
+     def record_observation(cls, attempt: PaymentAttempt, *, tenant_id: str, observation_kind: str, observation_id: str, outcome: str, amount: Any, currency: str, provider_transaction_id: str = "", event_id: str = "", verified: bool = False, verification_method: str = "", binding_hash: str = "", metadata: Mapping[str, Any] | None = None) -> ProviderObservation:
+         """Persist evidence; only verified exact bindings can establish finality."""
+diff --git a/apps/payments/govstack_models.py b/apps/payments/govstack_models.py
+index 936135105f56202f1a1fd0ba3dd339f0a56a1045..1301489f480b624fbea8cdd1831bba8eb3eff95d 100644
+--- a/apps/payments/govstack_models.py
++++ b/apps/payments/govstack_models.py
+@@ -396,6 +396,16 @@ class CreditInstruction(TimestampedModel):
+         blank=True,
+         verbose_name=_("Failure Reason"),
+     )
++    # The canonical provider lifecycle attempt for this individual instruction.
++    # Nullable during the additive migration so historic rows remain readable.
++    payment_attempt = models.OneToOneField(
++        "PaymentAttempt",
++        on_delete=models.PROTECT,
++        null=True,
++        blank=True,
++        related_name="credit_instruction",
++        verbose_name=_("Payment Attempt"),
++    )
+ 
+     class Meta:
+         verbose_name = _("Credit Instruction")
+diff --git a/apps/payments/govstack_tasks.py b/apps/payments/govstack_tasks.py
+index 3999896495c4c0a73953b7004c060614fc1a675c..79d8ecdedfa5e8d36069a4e26082149786a55d87 100644
+--- a/apps/payments/govstack_tasks.py
++++ b/apps/payments/govstack_tasks.py
+@@ -92,7 +92,7 @@ def _record_bulk_instruction_lifecycle(
+     *,
+     beneficiary_found: bool,
+     lease_handle: BatchLeaseHandle | None = None,
+-) -> None:
++):
+     """Persist non-PII execution evidence without treating ID lookup as settlement.
+ 
+     Existing GovStack G2P compatibility semantics continue to expose local ID
+@@ -151,6 +151,7 @@ def _record_bulk_instruction_lifecycle(
+                 message="Destination account could not be validated.",
+             ),
+         )
++    return attempt
+ 
+ 
+ # Seconds to wait for a callback endpoint to respond before abandoning the POST.
+@@ -189,11 +190,11 @@ _IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
+     soft_time_limit=120,
+ )
+ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+-    """Process one bulk batch while holding a durable fenced ``BatchLease``.
++    """Materialize authoritative bulk-child finality under a durable lease.
+ 
+-    RB-02.1 intentionally preserves the existing local ID-Mapper business
+-    semantics.  It replaces only inline lease handling and adds owner-token /
+-    generation checks before every current durable task side effect.
++    RB-02.2 preserves mapper eligibility as a local processing gate only.  A
++    child and batch become financially terminal only through the bound attempt's
++    verified and reconciled provider evidence.
+     """
+     lease_handle: BatchLeaseHandle | None = None
+     callback_url = ""
+@@ -209,9 +210,12 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                 logger.error("process_bulk_payment_batch.not_found batch_pk=%s", batch_pk)
+                 return
+ 
+-            if batch.status != BulkPaymentBatch.STATUS_RECEIVED:
++            if batch.status not in {
++                BulkPaymentBatch.STATUS_RECEIVED,
++                BulkPaymentBatch.STATUS_PROCESSING,
++            }:
+                 logger.debug(
+-                    "process_bulk_payment_batch.already_processed batch_pk=%s status=%s",
++                    "process_bulk_payment_batch.already_terminal batch_pk=%s status=%s",
+                     batch_pk,
+                     batch.status,
+                 )
+@@ -223,81 +227,98 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                 return
+             BatchLeaseService.heartbeat(lease_handle)
+ 
+-            completed_count: int = 0
+-            failed_count: int = 0
+-            completed_amount: Decimal = Decimal("0.00")
+-            failed_amount: Decimal = Decimal("0.00")
++            settled_count = 0
++            rejected_count = 0
++            non_final_count = 0
++            settled_amount = Decimal("0.00")
++            rejected_amount = Decimal("0.00")
+ 
+             for instr in (
+-                CreditInstruction.objects.filter(
+-                    batch=batch,
+-                    status=CreditInstruction.STATUS_PENDING,
+-                ).select_for_update()
++                CreditInstruction.objects.filter(batch=batch)
++                .select_for_update()
++                .select_related("payment_attempt")
+             ):
+-                # Heartbeat and validate before any instruction-level mutation.
+                 BatchLeaseService.heartbeat(lease_handle)
+                 BatchLeaseService.assert_current_owner(lease_handle)
+-                found: bool = GovStackBeneficiary.objects.filter(
+-                    payee_functional_id=instr.payee_functional_id,
+-                    is_active=True,
+-                ).exists()
+-
+-                if found:
+-                    instr.status = CreditInstruction.STATUS_COMPLETED
+-                    instr.failure_reason = ""
+-                    completed_count += 1
+-                    completed_amount += instr.amount
+-                    _record_bulk_instruction_lifecycle(
++
++                if (
++                    instr.payment_attempt_id is None
++                    and instr.status
++                    in {CreditInstruction.STATUS_COMPLETED, CreditInstruction.STATUS_FAILED}
++                ):
++                    # Historic terminal-looking rows without the new durable
++                    # binding are intentionally not replayed. They remain
++                    # non-final until an authorised binding/evidence path exists.
++                    non_final_count += 1
++                    continue
++
++                if instr.payment_attempt_id is None:
++                    found = GovStackBeneficiary.objects.filter(
++                        payee_functional_id=instr.payee_functional_id,
++                        is_active=True,
++                    ).exists()
++                    attempt = _record_bulk_instruction_lifecycle(
+                         batch,
+                         instr,
+-                        beneficiary_found=True,
++                        beneficiary_found=found,
+                         lease_handle=lease_handle,
+                     )
+                     BatchLeaseService.assert_current_owner(lease_handle)
+-                    GovStackPaymentAuditEntry.objects.create(
+-                        action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_COMPLETED,
+-                        actor_bb_id=batch.source_bb_id,
+-                        object_type="instruction",
+-                        object_pk=str(instr.pk),
+-                        request_id=batch.request_id,
+-                        details={"local_account_validation": "passed"},
+-                    )
++                    instr = PaymentLifecycleService.bind_credit_instruction_attempt(instr, attempt)
++
++                finality = PaymentLifecycleService.materialize_credit_instruction_finality(instr)
++                if finality.final and finality.status == "settled":
++                    settled_count += 1
++                    settled_amount += instr.amount
++                    if instr.status != CreditInstruction.STATUS_COMPLETED:
++                        instr.status = CreditInstruction.STATUS_COMPLETED
++                        instr.failure_reason = ""
++                        BatchLeaseService.assert_current_owner(lease_handle)
++                        instr.save(update_fields=["status", "failure_reason"])
++                elif finality.final and finality.status == "rejected":
++                    rejected_count += 1
++                    rejected_amount += instr.amount
++                    if instr.status != CreditInstruction.STATUS_FAILED:
++                        instr.status = CreditInstruction.STATUS_FAILED
++                        instr.failure_reason = "Provider evidence rejected the instruction."
++                        BatchLeaseService.assert_current_owner(lease_handle)
++                        instr.save(update_fields=["status", "failure_reason"])
+                 else:
+-                    instr.status = CreditInstruction.STATUS_FAILED
+-                    instr.failure_reason = "PayeeFunctionalID not found in ID Mapper."
+-                    failed_count += 1
+-                    failed_amount += instr.amount
+-                    _record_bulk_instruction_lifecycle(
+-                        batch,
+-                        instr,
+-                        beneficiary_found=False,
+-                        lease_handle=lease_handle,
+-                    )
+-                    BatchLeaseService.assert_current_owner(lease_handle)
+-                    GovStackPaymentAuditEntry.objects.create(
+-                        action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
+-                        actor_bb_id=batch.source_bb_id,
+-                        object_type="instruction",
+-                        object_pk=str(instr.pk),
+-                        request_id=batch.request_id,
+-                        details={"failure_reason": instr.failure_reason},
+-                    )
+-
++                    non_final_count += 1
++                    if instr.status == CreditInstruction.STATUS_PENDING:
++                        instr.status = CreditInstruction.STATUS_VALIDATED
++                        instr.failure_reason = ""
++                        BatchLeaseService.assert_current_owner(lease_handle)
++                        instr.save(update_fields=["status", "failure_reason"])
++
++            if non_final_count:
++                batch.status = BulkPaymentBatch.STATUS_PROCESSING
++                batch.completed_amount = settled_amount
++                batch.failed_amount = rejected_amount
++                batch.result_generated_at = None
+                 BatchLeaseService.assert_current_owner(lease_handle)
+-                instr.save(update_fields=["status", "failure_reason"])
++                batch.save(
++                    update_fields=[
++                        "status",
++                        "completed_amount",
++                        "failed_amount",
++                        "result_generated_at",
++                    ]
++                )
++                return
+ 
+-            if failed_count == 0:
++            if rejected_count == 0:
+                 batch.status = BulkPaymentBatch.STATUS_COMPLETED
+                 batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_COMPLETED
+-            elif completed_count == 0:
++            elif settled_count == 0:
+                 batch.status = BulkPaymentBatch.STATUS_FAILED
+                 batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_FAILED
+             else:
+                 batch.status = BulkPaymentBatch.STATUS_PARTIAL
+                 batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_PARTIAL
+ 
+-            batch.completed_amount = completed_amount
+-            batch.failed_amount = failed_amount
++            batch.completed_amount = settled_amount
++            batch.failed_amount = rejected_amount
+             batch.result_generated_at = timezone.now()
+             BatchLeaseService.assert_current_owner(lease_handle)
+             batch.save(
+@@ -308,7 +329,6 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                     "result_generated_at",
+                 ]
+             )
+-
+             BatchLeaseService.assert_current_owner(lease_handle)
+             GovStackPaymentAuditEntry.objects.create(
+                 action=batch_audit_action,
+@@ -319,8 +339,8 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                 details={
+                     "batch_id": batch.batch_id,
+                     "source_bb_id": batch.source_bb_id,
+-                    "completed_count": completed_count,
+-                    "failed_count": failed_count,
++                    "settled_count": settled_count,
++                    "rejected_count": rejected_count,
+                 },
+             )
+             callback_url = batch.callback_url
+diff --git a/apps/payments/migrations/0044_item02_rb022_credit_instruction_payment_attempt_binding.py b/apps/payments/migrations/0044_item02_rb022_credit_instruction_payment_attempt_binding.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c7239cc6638bb244abb4e697fdc07000699afe4
+--- /dev/null
++++ b/apps/payments/migrations/0044_item02_rb022_credit_instruction_payment_attempt_binding.py
+@@ -0,0 +1,20 @@
++from django.db import migrations, models
++import django.db.models.deletion
++
++
++class Migration(migrations.Migration):
++    dependencies = [("payments", "0043_executionintent_submit_admission")]
++
++    operations = [
++        migrations.AddField(
++            model_name="creditinstruction",
++            name="payment_attempt",
++            field=models.OneToOneField(
++                blank=True,
++                null=True,
++                on_delete=django.db.models.deletion.PROTECT,
++                related_name="credit_instruction",
++                to="payments.paymentattempt",
++            ),
++        ),
++    ]
+diff --git a/apps/payments/tests/test_item02_rb02_batch_lease_live.py b/apps/payments/tests/test_item02_rb02_batch_lease_live.py
+index 947930b53a573fd3926ae38facc11fb8ee1bd110..d66efb703958a132e1f8d2b6f36163942e55002b 100644
+--- a/apps/payments/tests/test_item02_rb02_batch_lease_live.py
++++ b/apps/payments/tests/test_item02_rb02_batch_lease_live.py
+@@ -1,8 +1,9 @@
+ """Live-path RB-02.1 lease and basic-fencing tests.
+ 
+-These tests deliberately exercise the real ``process_bulk_payment_batch`` task
+-and the durable ``BatchLease`` row.  They do not test RB-02.2 provider-finality,
+-policy, decision, or broader competing-worker behavior.
++These tests deliberately exercise the real ``process_bulk_payment_batch`` task,
++the durable ``BatchLease`` row, and the authoritative RB-02.2 child-finality
++projection. They do not test policy, durable decisions, or broader
++competing-worker behavior.
+ """
+ from __future__ import annotations
+ 
+@@ -16,6 +17,7 @@ from apps.payments.govstack_batch_lease import (
+     BatchLeaseOwnershipLost,
+     BatchLeaseService,
+ )
++from apps.payments.govstack_failure_services import PaymentLifecycleService
+ from apps.payments.govstack_models import (
+     BatchLease,
+     BulkPaymentBatch,
+@@ -59,6 +61,72 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
+     def _run_live_task(self, batch: BulkPaymentBatch, *, task_id: str | None = None) -> None:
+         process_bulk_payment_batch.apply(args=[str(batch.pk)], task_id=task_id)
+ 
++    def _bind_final_attempt(
++        self,
++        *,
++        batch: BulkPaymentBatch,
++        instruction: CreditInstruction,
++        outcome: str,
++        observation_id: str,
++    ) -> PaymentAttempt:
++        attempt, _ = PaymentLifecycleService.get_or_create_attempt(
++            tenant_id="",
++            operation="g2p_bulk_instruction",
++            request_id=f"{batch.request_id}:{instruction.instruction_id}",
++            payload={
++                "batch_pk": str(batch.pk),
++                "instruction_pk": str(instruction.pk),
++                "amount": str(instruction.amount),
++                "currency": instruction.currency,
++            },
++            amount=instruction.amount,
++            currency=instruction.currency,
++            correlation_id=batch.correlation_id,
++            source_bb_id=batch.source_bb_id,
++        )
++        PaymentLifecycleService.bind_credit_instruction_attempt(instruction, attempt)
++        PaymentLifecycleService.record_observation(
++            attempt,
++            tenant_id="",
++            observation_kind="provider",
++            observation_id=observation_id,
++            outcome=outcome,
++            amount=instruction.amount,
++            currency=instruction.currency,
++            verified=True,
++            verification_method="rb02_2_test",
++            binding_hash=PaymentLifecycleService.binding_hash(
++                "", attempt, instruction.amount, instruction.currency
++            ),
++        )
++        attempt.refresh_from_db()
++        PaymentLifecycleService.reconcile(attempt, provider_status=outcome)
++        return attempt
++
++    def _bind_nonfinal_attempt(
++        self,
++        *,
++        batch: BulkPaymentBatch,
++        instruction: CreditInstruction,
++    ) -> PaymentAttempt:
++        attempt, _ = PaymentLifecycleService.get_or_create_attempt(
++            tenant_id="",
++            operation="g2p_bulk_instruction",
++            request_id=f"{batch.request_id}:{instruction.instruction_id}",
++            payload={
++                "batch_pk": str(batch.pk),
++                "instruction_pk": str(instruction.pk),
++                "amount": str(instruction.amount),
++                "currency": instruction.currency,
++            },
++            amount=instruction.amount,
++            currency=instruction.currency,
++            correlation_id=batch.correlation_id,
++            source_bb_id=batch.source_bb_id,
++        )
++        PaymentLifecycleService.bind_credit_instruction_attempt(instruction, attempt)
++        return attempt
++
+     def test_fresh_acquire_and_heartbeat_is_fenced(self):
+         batch = self._make_batch(suffix="fresh")
+         now = timezone.now()
+@@ -170,3 +238,67 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
+         )
+         self.assertFalse(GovStackPaymentAuditEntry.objects.filter(object_pk=str(batch.pk)).exists())
+         self.assertFalse(CallbackDelivery.objects.exists())
++
++    def test_authoritative_mixed_child_finality_is_nonterminal(self):
++        batch = self._make_batch(suffix="mixed")
++        settled_instruction = CreditInstruction.objects.get(batch=batch)
++        unsettled_instruction = CreditInstruction.objects.create(
++            batch=batch,
++            instruction_id="LeaseInstructionMixedTwo",
++            payee_functional_id="LeasePayeeMixedTwo",
++            amount=Decimal("50.00"),
++            currency="USD",
++            narration="RB-02.2 non-final child",
++            status=CreditInstruction.STATUS_PENDING,
++        )
++        batch.total_amount = Decimal("150.00")
++        batch.save(update_fields=["total_amount"])
++        self._bind_final_attempt(
++            batch=batch,
++            instruction=settled_instruction,
++            outcome="settled",
++            observation_id="rb022-mixed-settled",
++        )
++        nonfinal_attempt = self._bind_nonfinal_attempt(
++            batch=batch,
++            instruction=unsettled_instruction,
++        )
++
++        self._run_live_task(batch)
++
++        batch.refresh_from_db()
++        settled_instruction.refresh_from_db()
++        unsettled_instruction.refresh_from_db()
++        nonfinal_attempt.refresh_from_db()
++        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
++        self.assertEqual(batch.completed_amount, Decimal("100.00"))
++        self.assertEqual(batch.failed_amount, Decimal("0.00"))
++        self.assertIsNone(batch.result_generated_at)
++        self.assertEqual(settled_instruction.status, CreditInstruction.STATUS_COMPLETED)
++        self.assertEqual(unsettled_instruction.status, CreditInstruction.STATUS_VALIDATED)
++        self.assertEqual(nonfinal_attempt.status, PaymentAttempt.STATUS_PENDING)
++
++    def test_already_terminal_children_are_aggregated_not_reprocessed(self):
++        batch = self._make_batch(suffix="terminal")
++        instruction = CreditInstruction.objects.get(batch=batch)
++        attempt = self._bind_final_attempt(
++            batch=batch,
++            instruction=instruction,
++            outcome="settled",
++            observation_id="rb022-terminal-settled",
++        )
++        instruction.status = CreditInstruction.STATUS_COMPLETED
++        instruction.save(update_fields=["status"])
++        attempt.refresh_from_db()
++        attempt_count_before = attempt.attempt_count
++
++        self._run_live_task(batch)
++
++        batch.refresh_from_db()
++        instruction.refresh_from_db()
++        attempt.refresh_from_db()
++        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_COMPLETED)
++        self.assertEqual(batch.completed_amount, instruction.amount)
++        self.assertEqual(instruction.payment_attempt_id, attempt.pk)
++        self.assertEqual(instruction.status, CreditInstruction.STATUS_COMPLETED)
++        self.assertEqual(attempt.attempt_count, attempt_count_before)

@@ -4,18 +4,18 @@ Wave 3 — Waitlist & Queue: WaitlistEntry, QueueEntry, ClientNoShowRecord table
 Handwritten migration. Depends only on 0011_wave3_bookings so that
 WaitlistEntry and QueueEntry can reference Booking and Slot which now exist.
 """
+
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0011_wave3_bookings"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ------------------------------------------------------------------
         # WaitlistEntry
         # ------------------------------------------------------------------
@@ -33,7 +33,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",
@@ -169,7 +171,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",
@@ -323,7 +327,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",

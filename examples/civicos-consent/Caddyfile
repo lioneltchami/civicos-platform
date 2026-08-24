@@ -1,0 +1,13 @@
+https://host.docker.internal:8888 {
+    # The pinned official Consent suite constructs an HTTPS base URL and disables
+    # certificate verification for example deployments. Caddy's local issuer
+    # therefore provides a local-only self-signed endpoint for the suite.
+    tls internal
+
+    # The official Consent gherkin suite addresses /config, /service and /audit
+    # at the candidate root. CivicOS exposes the same GovStack-facing surface
+    # below /api/v1/consent/. This local-only adapter adds that exact prefix and
+    # forwards no other target, credential, or outbound request.
+    rewrite * /api/v1/consent{uri}
+    reverse_proxy host.docker.internal:18000
+}

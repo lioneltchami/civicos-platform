@@ -1,9 +1,11 @@
 """Security-focused tests for the auth building block."""
-from django.test import TestCase, override_settings
+
 from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
 
 try:
     from allauth.account.models import EmailAddress
+
     HAS_ALLAUTH = True
 except ImportError:
     HAS_ALLAUTH = False
@@ -23,12 +25,11 @@ def force_otp_login(client, user):
     from django_otp.plugins.otp_static.models import StaticDevice
 
     client.force_login(user)
-    device, _ = StaticDevice.objects.get_or_create(
-        user=user, defaults={"name": "test-device"}
-    )
+    device, _ = StaticDevice.objects.get_or_create(user=user, defaults={"name": "test-device"})
     session = client.session
     session[DEVICE_ID_SESSION_KEY] = device.persistent_id
     session.save()
+
 
 LOGIN_URL = "/account/login/"  # two_factor URLs have built-in "account/" prefix; mount at root
 SIGNUP_URL = "/account/signup/"
@@ -43,9 +44,7 @@ PASSWORD_RESET_URL = "/account/password/reset/"
 @override_settings(ACCOUNT_EMAIL_VERIFICATION="none")
 class AuthSecurityTest(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(
-            email="secure@example.com", password=VALID_PASSWORD
-        )
+        self.user = User.objects.create_user(email="secure@example.com", password=VALID_PASSWORD)
         if HAS_ALLAUTH:
             EmailAddress.objects.create(
                 user=self.user, email=self.user.email, primary=True, verified=True
@@ -56,9 +55,7 @@ class AuthSecurityTest(TestCase):
 
     @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.Argon2PasswordHasher"])
     def test_password_is_hashed_with_argon2_when_configured(self):
-        user = User.objects.create_user(
-            email="argon2test@example.com", password=VALID_PASSWORD
-        )
+        user = User.objects.create_user(email="argon2test@example.com", password=VALID_PASSWORD)
         # Django's Argon2PasswordHasher stores as "argon2$argon2id$..."
         self.assertTrue(user.password.startswith("argon2$"))
 
@@ -138,6 +135,7 @@ class AuthSecurityTest(TestCase):
     def test_csrf_enforced_on_backup_codes_generation(self):
         """POST without CSRF token must be rejected with 403."""
         from django.test import Client
+
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.user)
         response = csrf_client.post(BACKUP_CODES_URL)
@@ -146,6 +144,7 @@ class AuthSecurityTest(TestCase):
     def test_csrf_enforced_on_language_change(self):
         """POST without CSRF token must be rejected with 403."""
         from django.test import Client
+
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.user)
         response = csrf_client.post(LANGUAGE_URL, {"language": "fr", "next": "/"})

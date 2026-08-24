@@ -24,6 +24,7 @@ CRA mandatory fields (Income Tax Act s.118.1 / IT-110R3 / T4033):
 14. Description of advantage (if advantage_amount > 0)
 15. Signature of authorized official + title
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,7 +36,7 @@ from django.utils import timezone
 logger = logging.getLogger("apps.payments.receipt_pdf")
 
 
-def generate_receipt_pdf(receipt) -> bytes:
+def generate_receipt_pdf(receipt) -> bytes:  # noqa: ANN001
     """
     Render an OfficialDonationReceipt to PDF bytes using WeasyPrint.
 
@@ -62,14 +63,13 @@ def generate_receipt_pdf(receipt) -> bytes:
         raise
 
 
-def _build_receipt_context(receipt) -> dict:
+def _build_receipt_context(receipt) -> dict:  # noqa: ANN001
     """
     Build template context containing all 14 CRA mandatory fields.
     Uses real field names from OfficialDonationReceipt model introspection.
     """
-    has_advantage = (
-        receipt.advantage_amount is not None
-        and receipt.advantage_amount > Decimal("0.00")
+    has_advantage = receipt.advantage_amount is not None and receipt.advantage_amount > Decimal(
+        "0.00"
     )
 
     # Total donation amount = eligible_amount + advantage_amount
@@ -116,7 +116,7 @@ def _build_receipt_context(receipt) -> dict:
     }
 
 
-def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
+def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:  # noqa: ANN001
     """
     Save PDF bytes to the Documents BB and link them to the receipt.
 
@@ -129,9 +129,9 @@ def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
     PIPEDA: only logs serial_number, never the storage key, storage path, or donor PII.
     Returns the storage key string (internal — never expose to callers beyond this service).
     """
-    import uuid as _uuid
     from django.core.files.base import ContentFile
     from django.core.files.storage import default_storage
+
     from apps.documents.models import Document, DocumentCategory
     from apps.documents.services.retention import schedule_expiry
 
@@ -191,7 +191,7 @@ def save_receipt_pdf(receipt, pdf_bytes: bytes) -> str:
                     serial,
                 )
                 default_storage.delete(storage_key)
-        except (OSError, IOError):
+        except OSError:
             logger.warning(
                 "payments.receipt_pdf.unreadable_file_regenerating serial=%s",
                 serial,

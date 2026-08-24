@@ -3,13 +3,12 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("volunteers", "0006_volunteer_note_body_max_length"),
         ("documents", "0007_seed_document_categories"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
             model_name="certification",
             name="document_v2",

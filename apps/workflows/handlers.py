@@ -12,6 +12,7 @@ at import time AND again when ready() re-imports the module.
 """
 
 import logging
+from typing import Any
 
 from apps.audit.services import record_event
 from apps.workflows.models import WorkItem, WorkItemPriority
@@ -23,7 +24,8 @@ logger = logging.getLogger(__name__)
 # Portal → Workflows integration
 # ---------------------------------------------------------------------------
 
-def on_service_request_submitted(sender, instance, actor=None, **kwargs) -> None:
+
+def on_service_request_submitted(sender, instance, actor=None, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Automatically create a WorkItem when a ServiceRequest is submitted.
 
@@ -36,7 +38,7 @@ def on_service_request_submitted(sender, instance, actor=None, **kwargs) -> None
     create_work_item_for_service_request(instance, actor=None)
 
 
-def create_work_item_for_service_request(service_request, actor=None) -> None:
+def create_work_item_for_service_request(service_request, actor=None) -> None:  # noqa: ANN001
     """
     Create a WorkItem for a ServiceRequest.
 
@@ -73,11 +75,12 @@ def create_work_item_for_service_request(service_request, actor=None) -> None:
 # Workflows → Audit
 # ---------------------------------------------------------------------------
 
+
 def _record_work_item_event(
     *,
     event_type: str,
     work_item: WorkItem,
-    actor,
+    actor,  # noqa: ANN001
     event_detail: dict | None = None,
 ) -> None:
     """Write a workflow audit event using the shared audit service contract."""
@@ -99,7 +102,7 @@ def _record_work_item_event(
         )
 
 
-def audit_work_item_created(sender, work_item: WorkItem, actor, **kwargs) -> None:
+def audit_work_item_created(sender, work_item: WorkItem, actor, **kwargs) -> None:  # noqa: ANN001, ANN003
     _record_work_item_event(
         event_type="workflows.work_item.created",
         work_item=work_item,
@@ -108,7 +111,7 @@ def audit_work_item_created(sender, work_item: WorkItem, actor, **kwargs) -> Non
     )
 
 
-def audit_work_item_assigned(sender, work_item: WorkItem, assignee, actor, **kwargs) -> None:
+def audit_work_item_assigned(sender, work_item: WorkItem, assignee, actor, **kwargs) -> None:  # noqa: ANN001, ANN003
     _record_work_item_event(
         event_type="workflows.work_item.assigned",
         work_item=work_item,
@@ -118,7 +121,13 @@ def audit_work_item_assigned(sender, work_item: WorkItem, assignee, actor, **kwa
 
 
 def audit_work_item_status_changed(
-    sender, work_item: WorkItem, old_status, new_status, actor, notes, **kwargs
+    sender: Any,
+    work_item: WorkItem,
+    old_status: Any,
+    new_status: Any,
+    actor: Any,
+    notes: Any,
+    **kwargs: Any,
 ) -> None:
     _record_work_item_event(
         event_type="workflows.work_item.status_changed",
@@ -132,9 +141,7 @@ def audit_work_item_status_changed(
     )
 
 
-def audit_work_item_escalated(
-    sender, work_item: WorkItem, level, actor, reason, **kwargs
-) -> None:
+def audit_work_item_escalated(sender, work_item: WorkItem, level, actor, reason, **kwargs) -> None:  # noqa: ANN001, ANN003
     _record_work_item_event(
         event_type="workflows.work_item.escalated",
         work_item=work_item,

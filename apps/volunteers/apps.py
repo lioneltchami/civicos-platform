@@ -13,6 +13,7 @@ Canadian compliance:
   - Vulnerable Sector Check (VSC) tracking — RCMP framework
   - PIPEDA minimum-collection principle enforced at model + form level
 """
+
 import sys
 
 from django.apps import AppConfig
@@ -24,9 +25,10 @@ class VolunteersConfig(AppConfig):
     label = "volunteers"
     verbose_name = "Volunteer Management"
 
-    def ready(self):
-        import apps.volunteers.signals   # noqa: F401 — define signals
-        import apps.volunteers.receivers  # noqa: F401 — register signal receivers
+    def ready(self) -> None:
+        import apps.volunteers.receivers
+        import apps.volunteers.signals  # noqa: F401 — define signals
+
         self._check_sin_key_config()
         self._check_media_storage_config()
 
@@ -41,9 +43,9 @@ class VolunteersConfig(AppConfig):
         are also detected reliably.
         """
         from django.conf import settings
-        return (
-            getattr(settings, "TESTING", False)
-            or (len(sys.argv) >= 2 and sys.argv[1] in ("test", "pytest"))
+
+        return getattr(settings, "TESTING", False) or (
+            len(sys.argv) >= 2 and sys.argv[1] in ("test", "pytest")
         )
 
     def _check_sin_key_config(self) -> None:
@@ -54,9 +56,11 @@ class VolunteersConfig(AppConfig):
         TESTING=True (set in config/settings/test.py) suppresses the hard error
         so the test suite can boot without real Fernet keys.
         """
+        import logging
+
         from django.conf import settings
         from django.core.exceptions import ImproperlyConfigured
-        import logging
+
         logger = logging.getLogger(__name__)
 
         keys = getattr(settings, "VOLUNTEER_SIN_FERNET_KEYS", [])

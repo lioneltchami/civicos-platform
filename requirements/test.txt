@@ -11,3 +11,4 @@ factory-boy==3.3.1
 faker==33.0.0
 responses==0.25.3
 time-machine==2.16.0
+pyyaml==6.0.3

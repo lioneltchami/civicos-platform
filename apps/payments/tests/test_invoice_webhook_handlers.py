@@ -4,16 +4,21 @@ Wave 4 — test_invoice_webhook_handlers.py
 Tests for _handle_invoice_payment_succeeded and _handle_invoice_payment_failed
 in apps/payments/tasks.py.
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from django.utils import timezone
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
+    FREQUENCY_MONTHLY,
+    PLAN_STATUS_ACTIVE,
+    PLAN_STATUS_CANCELLED,
+    PLAN_STATUS_PAUSED,
     Donation,
     DonationCampaign,
     Payment,
@@ -21,15 +26,10 @@ from apps.payments.models import (
     PaymentIntent,
     RecurringGiftPlan,
     WebhookEvent,
-    FREQUENCY_MONTHLY,
-    PLAN_STATUS_ACTIVE,
-    PLAN_STATUS_PAUSED,
-    PLAN_STATUS_CANCELLED,
-    DONATION_STATUS_COMPLETED,
 )
 from apps.payments.tasks import (
-    _handle_invoice_payment_succeeded,
     _handle_invoice_payment_failed,
+    _handle_invoice_payment_succeeded,
 )
 
 User = get_user_model()
@@ -38,6 +38,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -88,8 +89,8 @@ def make_recurring_plan(donor, campaign=None, **kwargs):
 # _handle_invoice_payment_succeeded tests
 # ---------------------------------------------------------------------------
 
-class HandleInvoicePaymentSucceededTests(TestCase):
 
+class HandleInvoicePaymentSucceededTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.campaign = make_campaign()
@@ -129,6 +130,7 @@ class HandleInvoicePaymentSucceededTests(TestCase):
     def test_valid_event_defers_signal_to_on_commit(self):
         """Signal is registered via on_commit — test it fires in a committed transaction."""
         from apps.payments.signals import donation_completed
+
         received = []
 
         def _receiver(sender, donation, payment, **kwargs):
@@ -140,6 +142,7 @@ class HandleInvoicePaymentSucceededTests(TestCase):
             # on_commit fires in TestCase (uses transactions rolled back)
             # Use atomic() to trigger on_commit hooks
             from django.db import transaction
+
             with transaction.atomic():
                 _handle_invoice_payment_succeeded(event_data, self.webhook)
             # In Django TestCase, on_commit hooks fire at end of atomic block when
@@ -169,9 +172,7 @@ class HandleInvoicePaymentSucceededTests(TestCase):
         event_data = self._event_data(gateway_charge_id=charge_id)
         _handle_invoice_payment_succeeded(event_data, self.webhook)
         # Second call with same charge_id
-        webhook2 = make_webhook_event(
-            gateway_event_id=f"evt_{uuid.uuid4().hex[:12]}"
-        )
+        webhook2 = make_webhook_event(gateway_event_id=f"evt_{uuid.uuid4().hex[:12]}")
         _handle_invoice_payment_succeeded(event_data, webhook2)
         self.assertEqual(Donation.objects.count(), 1)
         self.assertEqual(Payment.objects.count(), 1)
@@ -194,9 +195,8 @@ class HandleInvoicePaymentSucceededTests(TestCase):
     def test_atomic_rollback_on_donation_failure(self):
         """If Donation creation fails, Payment should also be rolled back."""
         from django.db import transaction as db_transaction
-        event_data = self._event_data()
 
-        original_create = Donation.objects.create
+        event_data = self._event_data()
 
         call_count = [0]
 
@@ -251,8 +251,8 @@ class HandleInvoicePaymentSucceededTests(TestCase):
 # _handle_invoice_payment_failed tests
 # ---------------------------------------------------------------------------
 
-class HandleInvoicePaymentFailedTests(TestCase):
 
+class HandleInvoicePaymentFailedTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.campaign = make_campaign()

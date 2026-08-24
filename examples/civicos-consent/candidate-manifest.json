@@ -1,0 +1,34 @@
+{
+  "schema_version": 2,
+  "candidate_id": "civicos-consent-testing",
+  "building_block": "Consent",
+  "official_repository": "GovStackWorkingGroup/bb-consent",
+  "official_revision": "7af4b62a1c0b0d7073d42b37c71b0f08bea63dda",
+  "official_suite": "test/gherkin",
+  "official_candidate_convention": "examples/<candidate>/test_entrypoint.sh --config api-suite",
+  "local_candidate_url": "http://127.0.0.1:8888/",
+  "civicos_surface": [
+    "apps/consent/govstack_urls.py",
+    "apps/consent/govstack_views.py",
+    "apps/consent/tests/test_govstack_api.py"
+  ],
+  "adapter": {
+    "enabled": true,
+    "observed_failure": "Pinned official Consent gherkin suite returned 404 for root /config and /service paths on 2026-08-18.",
+    "scope": "Inbound root-path prefix rewrite only: /config, /service and /audit to /api/v1/consent/<same-path>.",
+    "policy": "No outbound calls, credentials, data transformation, or non-Consent routes; expand only after a new pinned-suite failure is recorded."
+  },
+  "target_policy": "local-only",
+  "claim_boundary": "candidate preparation only; not an API compliance result or certification",
+  "candidate_identity": {
+    "artifact_sha256": "NOT_COMPUTED_LOCAL_SOURCE_ONLY",
+    "configuration_sha256": "NOT_COMPUTED",
+    "migration_identity": "NOT_COMPUTED"
+  },
+  "evidence_identity": {
+    "matrix_sha256": "LOCAL_FILE_HASH_REQUIRED",
+    "test_run_id": "LOCAL_ONLY_NOT_OFFICIAL"
+  },
+  "readiness": "NOT_READY",
+  "submission_guard": "NOT_READY: never present this artifact as staging, official, submitted, or certified evidence"
+}

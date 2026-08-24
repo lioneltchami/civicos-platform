@@ -17,11 +17,11 @@ class Migration(migrations.Migration):
     cross-field constraint is new here.
     """
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("payments", "0004_wave9_fixes"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddConstraint(
             model_name="officialdonationreceipt",
             constraint=models.CheckConstraint(

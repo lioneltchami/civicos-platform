@@ -41,8 +41,8 @@ logger = logging.getLogger(__name__)
 
 def create_new_version(
     *,
-    user: "User",
-    root_document: "Document",
+    user: User,
+    root_document: Document,
     original_filename: str,
     mime_type: str,
     size_bytes: int,
@@ -99,6 +99,8 @@ def create_new_version(
         PermissionDenied:      User is not authorised to version this document.
         ValidationError:       File fails size, extension, or MIME type validation.
     """
+    from pathlib import Path
+
     from apps.audit.models import AuditEventType
     from apps.audit.services import record_event
     from apps.documents.models import Document
@@ -111,7 +113,6 @@ def create_new_version(
         _user_is_staff_uploader,
     )
     from apps.documents.signals import document_version_created
-    from pathlib import Path
 
     # ── Resolve chain root ────────────────────────────────────────────────────
     # Caller may pass any version in the chain. We normalise to the chain root
@@ -130,7 +131,7 @@ def create_new_version(
                 root_document.pk,
                 root_document.root_document_id,
             )
-            raise ValidationError(
+            raise ValidationError(  # noqa: B904
                 _("Could not resolve the document version chain. Please contact support.")
             )
     else:
@@ -138,13 +139,9 @@ def create_new_version(
         # Re-fetch with select_related("category") if category is not already loaded.
         if "category" not in root_document.__dict__:
             try:
-                chain_root = Document.objects.select_related("category").get(
-                    pk=root_document.pk
-                )
+                chain_root = Document.objects.select_related("category").get(pk=root_document.pk)
             except Document.DoesNotExist:
-                raise ValidationError(
-                    _("Document not found.")
-                )
+                raise ValidationError(_("Document not found."))  # noqa: B904
         else:
             chain_root = root_document
 
@@ -156,15 +153,11 @@ def create_new_version(
             chain_root.pk,
             chain_root.root_document_id,
         )
-        raise ValidationError(
-            _("Document version chain is corrupted. Contact support.")
-        )
+        raise ValidationError(_("Document version chain is corrupted. Contact support."))
 
     # ── Soft-delete guard ─────────────────────────────────────────────────────
     if chain_root.deleted_at is not None:
-        raise ValidationError(
-            _("Cannot create a new version of a deleted document.")
-        )
+        raise ValidationError(_("Cannot create a new version of a deleted document."))
 
     # ── SQLite guard ──────────────────────────────────────────────────────────
     if connection.vendor == "sqlite":
@@ -193,8 +186,7 @@ def create_new_version(
 
     if size_bytes > max_size:
         raise ValidationError(
-            _("File exceeds the maximum allowed size of %(max)s bytes.")
-            % {"max": max_size}
+            _("File exceeds the maximum allowed size of %(max)s bytes.") % {"max": max_size}
         )
 
     # ── Extension allowlist ───────────────────────────────────────────────────
@@ -202,8 +194,7 @@ def create_new_version(
     ext = raw_suffix.lstrip(".").lower()
     if not ext or ext not in _ALLOWED_EXTENSIONS:
         raise ValidationError(
-            _("File type '.%(ext)s' is not permitted.")
-            % {"ext": ext or "(none)"}
+            _("File type '.%(ext)s' is not permitted.") % {"ext": ext or "(none)"}
         )
 
     # ── MIME type check ───────────────────────────────────────────────────────
@@ -239,10 +230,7 @@ def create_new_version(
     with transaction.atomic():
         chain_qs = (
             Document.objects.select_for_update(of=("self",))
-            .filter(
-                models.Q(pk=chain_root.pk)
-                | models.Q(root_document_id=chain_root.pk)
-            )
+            .filter(models.Q(pk=chain_root.pk) | models.Q(root_document_id=chain_root.pk))
             .order_by("-version_number")
         )
         chain_docs = list(chain_qs)
@@ -265,23 +253,21 @@ def create_new_version(
         # Re-read chain_root from the locked result set to get the committed state.
         locked_root = next((d for d in chain_docs if d.pk == chain_root.pk), None)
         if locked_root is not None and locked_root.deleted_at is not None:
-            raise ValidationError(
-                _("Cannot create a new version of a deleted document.")
-            )
+            raise ValidationError(_("Cannot create a new version of a deleted document."))
 
         # Find the current latest version (invariant: exactly one per chain).
         current_latest_candidates = [d for d in chain_docs if d.is_latest_version]
         if len(current_latest_candidates) == 0:
             logger.error(
                 "create_new_version: chain_root pk=%s has ZERO is_latest_version=True docs. "
-                "Chain invariant violated — using highest version as repair. Manual audit required.",
+                "Chain invariant violated — using highest version as repair. Manual audit required.",  # noqa: E501
                 chain_root.pk,
             )
             current_latest = chain_docs[0]  # chain_docs is ordered by -version_number
         elif len(current_latest_candidates) > 1:
             logger.error(
                 "create_new_version: chain_root pk=%s has %d is_latest_version=True docs. "
-                "Chain invariant violated — using highest version_number as repair. Manual audit required.",
+                "Chain invariant violated — using highest version_number as repair. Manual audit required.",  # noqa: E501
                 chain_root.pk,
                 len(current_latest_candidates),
             )
@@ -302,14 +288,14 @@ def create_new_version(
             id=doc_uuid,
             category=category,
             uploaded_by=user,
-            original_filename=original_filename,   # stored in DB; NEVER used as path
-            _storage_key=new_storage_key,           # NEVER returned to callers
+            original_filename=original_filename,  # stored in DB; NEVER used as path
+            _storage_key=new_storage_key,  # NEVER returned to callers
             mime_type=mime_type,
             size_bytes=size_bytes,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
             security_classification=category.security_classification,
             version_number=new_version_number,
-            root_document=chain_root,              # always points to version 1
+            root_document=chain_root,  # always points to version 1
             is_latest_version=True,
             description=description,
             # H-1: Propagate legal_hold from the locked chain root so that every
@@ -431,10 +417,10 @@ def create_new_version(
     _ver_num = new_version_number
 
     def _fire_version_created(
-        _rpk=_root_pk,
-        _npk=_new_pk,
-        _vn=_ver_num,
-    ):
+        _rpk=_root_pk,  # noqa: ANN001
+        _npk=_new_pk,  # noqa: ANN001
+        _vn=_ver_num,  # noqa: ANN001
+    ) -> None:
         results = document_version_created.send_robust(
             sender=Document,
             root_document_pk=_rpk,
@@ -462,9 +448,9 @@ def create_new_version(
 
 def get_version_history(
     *,
-    user: "User",
+    user: User,
     root_document_pk: str,
-) -> list["Document"]:
+) -> list[Document]:
     """
     Return the full version chain for a document, ordered by version_number ascending.
 
@@ -494,8 +480,8 @@ def get_version_history(
 
 def _user_may_version(
     *,
-    user: "User",
-    chain_root: "Document",
+    user: User,
+    chain_root: Document,
 ) -> bool:
     """
     Return True if ``user`` is allowed to create a new version of this document chain.

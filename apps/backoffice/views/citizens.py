@@ -56,7 +56,7 @@ class CitizenListView(StaffRequiredMixin, ListView):
     context_object_name = "citizens"
     paginate_by = 25
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         qs = (
             User.objects.filter(is_staff=False)
             .annotate(request_count=Count("service_requests"))
@@ -75,7 +75,7 @@ class CitizenListView(StaffRequiredMixin, ListView):
 
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         ctx["search_query"] = self.request.GET.get("q", "")
         ctx["active_filter"] = self.request.GET.get("active", "")
@@ -99,19 +99,19 @@ class CitizenDetailView(StaffRequiredMixin, DetailView):
     template_name = "backoffice/citizens/detail.html"
     context_object_name = "citizen"
 
-    def get_object(self, queryset=None):
+    def get_object(self, queryset=None):  # noqa: ANN001, ANN201
         return get_object_or_404(User, pk=self.kwargs["pk"], is_staff=False)
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         obj = self.object
 
-        ctx["service_requests"] = (
-            ServiceRequest.objects.filter(citizen=obj).order_by("-created_at")[:20]
-        )
-        ctx["notifications"] = (
-            Notification.objects.filter(recipient=obj).order_by("-created_at")[:10]
-        )
+        ctx["service_requests"] = ServiceRequest.objects.filter(citizen=obj).order_by(
+            "-created_at"
+        )[:20]
+        ctx["notifications"] = Notification.objects.filter(recipient=obj).order_by("-created_at")[
+            :10
+        ]
         ctx["request_count"] = ServiceRequest.objects.filter(citizen=obj).count()
 
         return ctx
@@ -131,9 +131,9 @@ class CitizenDeactivateView(StaffRequiredMixin, View):
     The route is restricted to non-staff users (is_staff=False 404 guard).
     """
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, pk):
+    def post(self, request, pk):  # noqa: ANN001, ANN201
         citizen = get_object_or_404(User, pk=pk, is_staff=False)
 
         # Prevent self-deactivation

@@ -11,7 +11,7 @@ Covers three security-relevant scenarios:
 
 These tests do NOT hit Stripe's API. All gateway calls are mocked.
 """
-import json
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -24,8 +24,8 @@ from django.urls import reverse
 
 from apps.payments.gateways.stripe_gateway import StripeGateway
 from apps.payments.models import (
-    DonationCampaign,
     GATEWAY_STRIPE,
+    DonationCampaign,
     Payment,
     PaymentIntent,
     TenantPaymentConfig,
@@ -109,6 +109,7 @@ def _succeeded_event_data(gateway_intent_id, gateway_charge_id="ch_3ds_test_001"
 # Test 1 — create_donation_intent_api returns client_secret when
 #           gateway status is requires_action
 # ---------------------------------------------------------------------------
+
 
 class DonationIntentRequiresActionTests(TestCase):
     """
@@ -256,6 +257,7 @@ class DonationIntentRequiresActionTests(TestCase):
 # Test 2 — payment_intent.succeeded webhook processed after 3DS
 # ---------------------------------------------------------------------------
 
+
 class WebhookAfter3DSTests(TestCase):
     """
     Verify that the process_stripe_webhook task correctly handles
@@ -273,8 +275,10 @@ class WebhookAfter3DSTests(TestCase):
             gateway_intent_id=pi.gateway_intent_id,
             gateway_charge_id=charge_id,
         )
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -299,8 +303,9 @@ class WebhookAfter3DSTests(TestCase):
         when payment_intent.succeeded is processed.
         """
         user = _make_user()
-        pi = _make_payment_intent(user, gateway_intent_id="pi_3ds_w_002",
-                                  status=PaymentIntent.STATUS_PENDING)
+        pi = _make_payment_intent(
+            user, gateway_intent_id="pi_3ds_w_002", status=PaymentIntent.STATUS_PENDING
+        )
         self.assertEqual(pi.status, PaymentIntent.STATUS_PENDING)
 
         self._run_webhook(pi)
@@ -340,8 +345,10 @@ class WebhookAfter3DSTests(TestCase):
         event = _make_webhook_event(pi.gateway_intent_id)
         mock_parse_return = _succeeded_event_data(gateway_intent_id=pi.gateway_intent_id)
 
-        with patch("apps.payments.gateway.get_gateway") as mock_get_gw, \
-             patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()):
+        with (
+            patch("apps.payments.gateway.get_gateway") as mock_get_gw,
+            patch("django.db.transaction.on_commit", side_effect=lambda fn: fn()),
+        ):
             mock_gw = MagicMock()
             mock_gw.parse_webhook_event.return_value = mock_parse_return
             mock_get_gw.return_value = mock_gw
@@ -365,6 +372,7 @@ class WebhookAfter3DSTests(TestCase):
 # ---------------------------------------------------------------------------
 # Test 3 — gateway handles requires_action status without raising
 # ---------------------------------------------------------------------------
+
 
 class GatewayRequiresActionTests(TestCase):
     """
@@ -400,8 +408,10 @@ class GatewayRequiresActionTests(TestCase):
         mock_stripe_module = MagicMock()
         mock_stripe_module.PaymentIntent.create.return_value = pi_mock
 
-        with patch.object(gw, "_stripe", return_value=mock_stripe_module), \
-             patch.object(gw, "_api_key", return_value="sk_test_dummy"):
+        with (
+            patch.object(gw, "_stripe", return_value=mock_stripe_module),
+            patch.object(gw, "_api_key", return_value="sk_test_dummy"),
+        ):
             result = gw.create_payment_intent(
                 amount=Decimal("50.00"),
                 currency="cad",
@@ -424,8 +434,10 @@ class GatewayRequiresActionTests(TestCase):
         mock_stripe_module = MagicMock()
         mock_stripe_module.PaymentIntent.create.return_value = pi_mock
 
-        with patch.object(gw, "_stripe", return_value=mock_stripe_module), \
-             patch.object(gw, "_api_key", return_value="sk_test_dummy"):
+        with (
+            patch.object(gw, "_stripe", return_value=mock_stripe_module),
+            patch.object(gw, "_api_key", return_value="sk_test_dummy"),
+        ):
             result = gw.create_payment_intent(
                 amount=Decimal("50.00"),
                 currency="cad",
@@ -446,8 +458,10 @@ class GatewayRequiresActionTests(TestCase):
         mock_stripe_module = MagicMock()
         mock_stripe_module.PaymentIntent.create.return_value = pi_mock
 
-        with patch.object(gw, "_stripe", return_value=mock_stripe_module), \
-             patch.object(gw, "_api_key", return_value="sk_test_dummy"):
+        with (
+            patch.object(gw, "_stripe", return_value=mock_stripe_module),
+            patch.object(gw, "_api_key", return_value="sk_test_dummy"),
+        ):
             result = gw.create_payment_intent(
                 amount=Decimal("50.00"),
                 currency="cad",
@@ -469,8 +483,10 @@ class GatewayRequiresActionTests(TestCase):
         mock_stripe_module = MagicMock()
         mock_stripe_module.PaymentIntent.create.return_value = pi_mock
 
-        with patch.object(gw, "_stripe", return_value=mock_stripe_module), \
-             patch.object(gw, "_api_key", return_value="sk_test_dummy"):
+        with (
+            patch.object(gw, "_stripe", return_value=mock_stripe_module),
+            patch.object(gw, "_api_key", return_value="sk_test_dummy"),
+        ):
             result = gw.create_payment_intent(
                 amount=Decimal("50.00"),
                 currency="cad",

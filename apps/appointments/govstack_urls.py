@@ -28,56 +28,57 @@ Ordering note for resource paths:
   resource DELETE path. Django's path() resolver does not use regex and <str:>
   converters never match slashes, so there is no ambiguity here — the ordering
   is purely for human readability and to make intent explicit.
-"""
+"""  # noqa: RUF002
+
 from django.urls import path
 
 from apps.appointments.govstack_views import (
-    # Wave B — Entity
-    EntityNewView,
-    EntityModificationsView,
-    EntityDeleteView,
-    EntityListDetailsView,
-    # Wave B — Resource
-    ResourceNewView,
-    ResourceModificationsView,
-    ResourceDeleteView,
-    ResourceListDetailsView,
-    ResourceAvailabilityView,
-    # Wave B — Affiliation
-    AffiliationNewView,
-    AffiliationModificationsView,
     AffiliationDeleteView,
     AffiliationListDetailsView,
-    # Wave C — Subscriber
-    SubscriberNewView,
-    SubscriberModificationsView,
-    SubscriberDeleteView,
-    SubscriberListDetailsView,
-    # Wave D — Event
-    EventNewView,
-    EventModificationsView,
-    EventDeleteView,
-    EventListDetailsView,
-    # Wave E — Appointment
-    AppointmentNewView,
-    AppointmentModificationsView,
-    AppointmentDeleteView,
-    AppointmentListDetailsView,
-    # Wave F — AlertSchedule
-    AlertScheduleNewView,
-    AlertScheduleModificationsView,
+    AffiliationModificationsView,
+    # Wave B — Affiliation
+    AffiliationNewView,
     AlertScheduleDeleteView,
     AlertScheduleListDetailsView,
-    # Wave F — Message
-    MessageNewView,
-    MessageModificationsView,
-    MessageDeleteView,
-    MessageListDetailsView,
-    # Wave G — Log
-    LogNewView,
-    LogModificationsView,
+    AlertScheduleModificationsView,
+    # Wave F — AlertSchedule
+    AlertScheduleNewView,
+    AppointmentDeleteView,
+    AppointmentListDetailsView,
+    AppointmentModificationsView,
+    # Wave E — Appointment
+    AppointmentNewView,
+    EntityDeleteView,
+    EntityListDetailsView,
+    EntityModificationsView,
+    # Wave B — Entity
+    EntityNewView,
+    EventDeleteView,
+    EventListDetailsView,
+    EventModificationsView,
+    # Wave D — Event
+    EventNewView,
     LogDeleteView,
     LogListDetailsView,
+    LogModificationsView,
+    # Wave G — Log
+    LogNewView,
+    MessageDeleteView,
+    MessageListDetailsView,
+    MessageModificationsView,
+    # Wave F — Message
+    MessageNewView,
+    ResourceAvailabilityView,
+    ResourceDeleteView,
+    ResourceListDetailsView,
+    ResourceModificationsView,
+    # Wave B — Resource
+    ResourceNewView,
+    SubscriberDeleteView,
+    SubscriberListDetailsView,
+    SubscriberModificationsView,
+    # Wave C — Subscriber
+    SubscriberNewView,
 )
 
 app_name = "govstack_scheduler"
@@ -89,13 +90,11 @@ urlpatterns = [
     path("event/modifications", EventModificationsView.as_view(), name="event_modifications"),
     path("event/list_details", EventListDetailsView.as_view(), name="event_list_details"),
     path("event", EventDeleteView.as_view(), name="event_delete"),
-
     # ── Entity (Wave B) ───────────────────────────────────────────────────────
     path("entity/new", EntityNewView.as_view(), name="entity_new"),
     path("entity/modifications", EntityModificationsView.as_view(), name="entity_modifications"),
     path("entity/list_details", EntityListDetailsView.as_view(), name="entity_list_details"),
     path("entity", EntityDeleteView.as_view(), name="entity_delete"),
-
     # ── AlertSchedule (Wave F) — sub-paths listed before bare DELETE path ──────
     path("alert_schedule/new", AlertScheduleNewView.as_view(), name="alert_schedule_new"),
     path(
@@ -109,38 +108,58 @@ urlpatterns = [
         name="alert_schedule_list_details",
     ),
     path("alert_schedule", AlertScheduleDeleteView.as_view(), name="alert_schedule_delete"),
-
     # ── Message (Wave F) — sub-paths listed before bare DELETE path ────────────
     path("message/new", MessageNewView.as_view(), name="message_new"),
     path("message/modifications", MessageModificationsView.as_view(), name="message_modifications"),
     path("message/list_details", MessageListDetailsView.as_view(), name="message_list_details"),
     path("message", MessageDeleteView.as_view(), name="message_delete"),
-
     # ── Resource (Wave B) — sub-paths listed before bare DELETE path ──────────
     path("resource/new", ResourceNewView.as_view(), name="resource_new"),
-    path("resource/modifications", ResourceModificationsView.as_view(), name="resource_modifications"),
+    path(
+        "resource/modifications", ResourceModificationsView.as_view(), name="resource_modifications"
+    ),
     path("resource/availability", ResourceAvailabilityView.as_view(), name="resource_availability"),
     path("resource/list_details", ResourceListDetailsView.as_view(), name="resource_list_details"),
     path("resource", ResourceDeleteView.as_view(), name="resource_delete"),
-
     # ── Subscriber (Wave C) ───────────────────────────────────────────────────
     path("subscriber/new", SubscriberNewView.as_view(), name="subscriber_new"),
-    path("subscriber/modifications", SubscriberModificationsView.as_view(), name="subscriber_modifications"),
-    path("subscriber/list_details", SubscriberListDetailsView.as_view(), name="subscriber_list_details"),
+    path(
+        "subscriber/modifications",
+        SubscriberModificationsView.as_view(),
+        name="subscriber_modifications",
+    ),
+    path(
+        "subscriber/list_details",
+        SubscriberListDetailsView.as_view(),
+        name="subscriber_list_details",
+    ),
     path("subscriber", SubscriberDeleteView.as_view(), name="subscriber_delete"),
-
     # ── Affiliation (Wave B) ──────────────────────────────────────────────────
     path("affiliation/new", AffiliationNewView.as_view(), name="affiliation_new"),
-    path("affiliation/modifications", AffiliationModificationsView.as_view(), name="affiliation_modifications"),
-    path("affiliation/list_details", AffiliationListDetailsView.as_view(), name="affiliation_list_details"),
+    path(
+        "affiliation/modifications",
+        AffiliationModificationsView.as_view(),
+        name="affiliation_modifications",
+    ),
+    path(
+        "affiliation/list_details",
+        AffiliationListDetailsView.as_view(),
+        name="affiliation_list_details",
+    ),
     path("affiliation", AffiliationDeleteView.as_view(), name="affiliation_delete"),
-
     # ── Appointment (Wave E) ──────────────────────────────────────────────────
     path("appointment/new", AppointmentNewView.as_view(), name="appointment_new"),
-    path("appointment/modifications", AppointmentModificationsView.as_view(), name="appointment_modifications"),
-    path("appointment/list_details", AppointmentListDetailsView.as_view(), name="appointment_list_details"),
+    path(
+        "appointment/modifications",
+        AppointmentModificationsView.as_view(),
+        name="appointment_modifications",
+    ),
+    path(
+        "appointment/list_details",
+        AppointmentListDetailsView.as_view(),
+        name="appointment_list_details",
+    ),
     path("appointment", AppointmentDeleteView.as_view(), name="appointment_delete"),
-
     # ── Log (Wave G) — sub-paths listed before bare DELETE path. PUT
     # /log/modifications and DELETE /log return 405 unconditionally
     # (BookingAuditLog immutability — see govstack_views.py's Log views

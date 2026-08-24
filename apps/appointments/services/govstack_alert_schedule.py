@@ -53,6 +53,7 @@ PIPEDA note:
   (owned by the referenced GovStackMessage, not this model) is never logged
   from this module.
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,6 +79,7 @@ _VALID_TARGET_CATEGORIES: frozenset[str] = frozenset({"", "subscriber", "resourc
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _validate_target_category(target_category: str) -> None:
     """Raise ValueError if target_category is not '', 'subscriber', or 'resource'."""
     if target_category not in _VALID_TARGET_CATEGORIES:
@@ -87,7 +89,7 @@ def _validate_target_category(target_category: str) -> None:
         )
 
 
-def _parse_datetime_str(value: str):
+def _parse_datetime_str(value: str):  # noqa: ANN202
     """
     Parse an ISO 8601 datetime string, requiring timezone awareness.
 
@@ -112,7 +114,7 @@ def _parse_datetime_str(value: str):
     return dt
 
 
-def _validate_future_datetime(dt) -> None:
+def _validate_future_datetime(dt) -> None:  # noqa: ANN001
     """Raise ValueError if dt is not strictly in the future (relative to now)."""
     if dt <= timezone.now():
         raise ValueError("alert_datetime must be in the future.")
@@ -132,13 +134,16 @@ def _resolve_message(message_id: str | int) -> GovStackMessage:
     try:
         msg_pk = int(message_id)
     except (ValueError, TypeError) as exc:
-        raise GovStackMessage.DoesNotExist("message_id does not reference a known message.") from exc
+        raise GovStackMessage.DoesNotExist(
+            "message_id does not reference a known message."
+        ) from exc
     return GovStackMessage.objects.get(pk=msg_pk)
 
 
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
+
 
 def alert_schedule_create(
     event_id: str,
@@ -174,7 +179,9 @@ def alert_schedule_create(
     )
     logger.debug(
         "alert_schedule_create: created alert_schedule pk=%s event_id=%s message_id=%s",
-        alert_schedule.pk, event_id, message_id,
+        alert_schedule.pk,
+        event_id,
+        message_id,
     )
     return alert_schedule
 
@@ -259,17 +266,21 @@ def alert_schedule_modify(
         update_fields: list[str] = []
         alert_datetime_changed = False
         message_id_changed = False
+        delivery_content_changed = False
 
         if event_id is not None:
             slot = Slot.objects.get(pk=event_id)
             if slot.pk != alert_schedule.slot_id:
                 alert_schedule.slot = slot
                 update_fields.append("slot")
+                delivery_content_changed = True
 
         if target_category is not None:
             _validate_target_category(target_category)
-            alert_schedule.target_category = target_category
-            update_fields.append("target_category")
+            if target_category != alert_schedule.target_category:
+                alert_schedule.target_category = target_category
+                update_fields.append("target_category")
+                delivery_content_changed = True
 
         if message_id is not None:
             message = _resolve_message(message_id)
@@ -277,6 +288,7 @@ def alert_schedule_modify(
                 alert_schedule.message = message
                 update_fields.append("message")
                 message_id_changed = True
+                delivery_content_changed = True
 
         if alert_datetime is not None:
             new_dt = _parse_datetime_str(alert_datetime)
@@ -285,6 +297,14 @@ def alert_schedule_modify(
                 alert_schedule.alert_datetime = new_dt
                 update_fields.append("alert_datetime")
                 alert_datetime_changed = True
+                delivery_content_changed = True
+
+        if delivery_content_changed:
+            # Supersede old durable work without permanently cancelling the
+            # schedule: the new authoritative generation remains admittable.
+            from apps.appointments.services import scheduler_runtime
+
+            scheduler_runtime.fence_schedule_for_modify(schedule=alert_schedule)
 
         reschedule_needed = False
         if alert_schedule.dispatched:
@@ -305,7 +325,8 @@ def alert_schedule_modify(
             alert_schedule.save(update_fields=update_fields)
             logger.debug(
                 "alert_schedule_modify: updated alert_schedule pk=%s fields=%r",
-                alert_schedule.pk, update_fields,
+                alert_schedule.pk,
+                update_fields,
             )
         else:
             logger.debug(
@@ -327,9 +348,17 @@ def alert_schedule_delete(alert_schedule_id: str | int) -> None:
 
     Raises GovStackAlertSchedule.DoesNotExist if no row with alert_schedule_id exists.
     """
-    alert_schedule = GovStackAlertSchedule.objects.get(pk=alert_schedule_id)
-    alert_schedule.delete()
+    from apps.appointments.services import scheduler_runtime
+
+    scheduler_runtime.delete_schedule(schedule_id=alert_schedule_id)
     logger.debug("alert_schedule_delete: hard-deleted alert_schedule pk=%s", alert_schedule_id)
+
+
+def alert_schedule_rearm(alert_schedule_id: str | int) -> dict:
+    """Distinct durable Re-arm transition for a previously non-admittable schedule."""
+    from apps.appointments.services import scheduler_runtime
+
+    return scheduler_runtime.rearm_schedule(schedule_id=alert_schedule_id)
 
 
 def alert_schedule_list(
@@ -411,7 +440,9 @@ def alert_schedule_list(
             details["alert_schedule_id"] = str(alert_schedule.pk)
 
         if required.get("entity_id", True):
-            org_id = alert_schedule.slot.location.organization_id if alert_schedule.slot_id else None
+            org_id = (
+                alert_schedule.slot.location.organization_id if alert_schedule.slot_id else None
+            )
             details["entity_id"] = str(org_id) if org_id else ""
 
         if required.get("message_id", True):

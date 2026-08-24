@@ -1,0 +1,9 @@
+{
+  "building_block": "Payments",
+  "official_repository": "GovStackWorkingGroup/bb-payments",
+  "official_revision": "4b63a6b5efbb20123c442e0b09fb44ec2d7e6b6a",
+  "execution_scope": "local-only",
+  "command": "bash test/openAPI/test_entrypoint.sh",
+  "result": "not_passing",
+  "interpretation": "Official suite executed against the local candidate; raw message/XML and logs are archived without an external compliance claim."
+}

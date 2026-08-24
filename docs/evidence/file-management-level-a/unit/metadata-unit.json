@@ -1,0 +1,17 @@
+{
+  "collected": 317,
+  "django_settings_module": "config.settings.test",
+  "layer": "unit",
+  "official_harness_executed": false,
+  "runner": "local/CI File Management candidate runner",
+  "selector": [
+    "apps/documents/tests/test_access_tokens.py",
+    "apps/documents/tests/test_models.py",
+    "apps/documents/tests/test_services_retention.py",
+    "apps/documents/tests/test_services_upload.py",
+    "apps/documents/tests/test_services_versioning.py",
+    "apps/documents/tests/test_signals.py",
+    "apps/documents/tests/test_tasks.py",
+    "apps/documents/tests/test_upload_presign_template.py"
+  ]
+}

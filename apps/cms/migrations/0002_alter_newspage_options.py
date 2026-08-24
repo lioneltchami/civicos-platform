@@ -4,14 +4,13 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('cms', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("cms", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterModelOptions(
-            name='newspage',
-            options={'verbose_name': 'News article'},
+            name="newspage",
+            options={"verbose_name": "News article"},
         ),
     ]

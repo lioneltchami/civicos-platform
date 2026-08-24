@@ -6,6 +6,7 @@ and isolation between citizens.
 
 URL prefix: /api/v1/consent/
 """
+
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -52,8 +53,7 @@ def _bearer(client, user):
     )
     if resp.status_code != 200:
         raise RuntimeError(
-            f"Token fetch failed for {user.email}: "
-            f"status={resp.status_code} data={resp.data}"
+            f"Token fetch failed for {user.email}: " f"status={resp.status_code} data={resp.data}"
         )
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
 
@@ -257,9 +257,10 @@ class DataExportRequestAPITests(APITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.data), 1)
         # Must only return this citizen's exports
-        self.assertEqual(str(resp.data[0]["id"]), str(
-            DataExportRequest.objects.filter(citizen=self.citizen).first().pk
-        ))
+        self.assertEqual(
+            str(resp.data[0]["id"]),
+            str(DataExportRequest.objects.filter(citizen=self.citizen).first().pk),
+        )
 
     def test_get_unauthenticated_returns_401(self):
         resp = self.client.get(EXPORTS_URL)

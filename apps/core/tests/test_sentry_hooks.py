@@ -25,7 +25,11 @@ class BeforeBreadcrumbPIIFieldsTest(SimpleTestCase):
     """_before_breadcrumb scrubs known PII field names from crumb['data']."""
 
     def test_strips_email_field(self):
-        crumb = {"message": "user logged in", "data": {"email": "donor@example.com"}, "category": "auth"}
+        crumb = {
+            "message": "user logged in",
+            "data": {"email": "donor@example.com"},
+            "category": "auth",
+        }
         result = _before_breadcrumb(crumb, {})
         self.assertEqual(result["data"]["email"], "[Filtered]")
 
@@ -45,14 +49,22 @@ class BeforeBreadcrumbPIIFieldsTest(SimpleTestCase):
         self.assertEqual(result["data"]["token"], "[Filtered]")
 
     def test_strips_webhook_endpoint_secret_field(self):
-        crumb = {"message": "webhook", "data": {"webhook_endpoint_secret": "whsec_abc"}, "category": "app"}
+        crumb = {
+            "message": "webhook",
+            "data": {"webhook_endpoint_secret": "whsec_abc"},
+            "category": "app",
+        }
         result = _before_breadcrumb(crumb, {})
         self.assertEqual(result["data"]["webhook_endpoint_secret"], "[Filtered]")
 
     def test_preserves_non_pii_fields(self):
         # Note: "amount" was moved to PII_FIELDS by M-J fix (financial data is PII
         # when combined with donor identity under PIPEDA). Use non-PII keys instead.
-        crumb = {"message": "payment processed", "data": {"payment_id": "pi_abc123", "status": "succeeded"}, "category": "app"}
+        crumb = {
+            "message": "payment processed",
+            "data": {"payment_id": "pi_abc123", "status": "succeeded"},
+            "category": "app",
+        }
         result = _before_breadcrumb(crumb, {})
         self.assertEqual(result["data"]["payment_id"], "pi_abc123")
         self.assertEqual(result["data"]["status"], "succeeded")
@@ -143,7 +155,9 @@ class BeforeSendHeaderStrippingTest(SimpleTestCase):
         return {"request": {"headers": dict(headers), "url": "/pay/"}}
 
     def test_strips_authorization_header(self):
-        event = self._make_event({"Authorization": "Bearer sk_live_abc", "Content-Type": "application/json"})
+        event = self._make_event(
+            {"Authorization": "Bearer sk_live_abc", "Content-Type": "application/json"}
+        )
         result = _before_send(event, {})
         self.assertNotIn("Authorization", result["request"]["headers"])
 
@@ -158,11 +172,13 @@ class BeforeSendHeaderStrippingTest(SimpleTestCase):
         self.assertNotIn("X-Stripe-Signature", result["request"]["headers"])
 
     def test_preserves_safe_headers(self):
-        event = self._make_event({
-            "Content-Type": "application/json",
-            "X-Request-Id": "req_abc",
-            "Authorization": "Bearer token",
-        })
+        event = self._make_event(
+            {
+                "Content-Type": "application/json",
+                "X-Request-Id": "req_abc",
+                "Authorization": "Bearer token",
+            }
+        )
         result = _before_send(event, {})
         self.assertEqual(result["request"]["headers"]["Content-Type"], "application/json")
         self.assertEqual(result["request"]["headers"]["X-Request-Id"], "req_abc")
@@ -181,6 +197,7 @@ class BeforeSendHeaderStrippingTest(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # M-I — httpx and httpcore breadcrumbs must be dropped
 # ---------------------------------------------------------------------------
+
 
 class BeforeBreadcrumbHttpxDropTest(SimpleTestCase):
     """
@@ -237,6 +254,7 @@ class BeforeBreadcrumbHttpxDropTest(SimpleTestCase):
 # ---------------------------------------------------------------------------
 # M-J — before_send must scrub event["extra"]
 # ---------------------------------------------------------------------------
+
 
 class BeforeSendExtraScrubbingTest(SimpleTestCase):
     """

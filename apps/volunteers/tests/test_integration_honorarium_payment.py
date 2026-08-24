@@ -16,6 +16,7 @@ Tests:
 PIPEDA: volunteers referenced by profile PK only in assertions.
 Settings: --settings=config.settings.test
 """
+
 from __future__ import annotations
 
 import datetime
@@ -26,7 +27,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, TransactionTestCase
 
 User = get_user_model()
 
@@ -34,7 +35,7 @@ User = get_user_model()
 # Shared factory helpers
 # ---------------------------------------------------------------------------
 
-import uuid as _uuid_mod
+import uuid as _uuid_mod  # noqa: E402
 
 
 def _uid():
@@ -50,19 +51,21 @@ def _make_user(email=None, password="testpass123!", **kwargs):
 
 def _make_program(**kwargs):
     from apps.volunteers.models import Program
+
     n = _uid()
-    defaults = dict(
-        name_en=f"Program {n}",
-        name_fr=f"Programme {n}",
-        slug=f"hprog-int-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"Program {n}",
+        "name_fr": f"Programme {n}",
+        "slug": f"hprog-int-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_profile(user):
     from apps.volunteers.models import VolunteerProfile
+
     return VolunteerProfile.objects.create(user=user)
 
 
@@ -80,12 +83,15 @@ def _grant_add_honorarium(user):
     return User.objects.get(pk=user.pk)
 
 
-def _make_honorarium_direct(volunteer, amount, payment_type=None, payment_date=None, created_by=None):
+def _make_honorarium_direct(
+    volunteer, amount, payment_type=None, payment_date=None, created_by=None
+):
     """
     Create an Honorarium directly (bypassing the service), skipping full_clean().
     Used for test setup to pre-load YTD without triggering CRA threshold checks.
     """
     from apps.volunteers.models import Honorarium
+
     payment_type = payment_type or Honorarium.PAYMENT_TYPE_HONORARIUM
     payment_date = payment_date or datetime.date.today()
     h = Honorarium(
@@ -100,11 +106,19 @@ def _make_honorarium_direct(volunteer, amount, payment_type=None, payment_date=N
     return h
 
 
-def _create_honorarium(volunteer_profile, *, amount, created_by, payment_type=None,
-                        description="Test honorarium", payment_date=None):
+def _create_honorarium(
+    volunteer_profile,
+    *,
+    amount,
+    created_by,
+    payment_type=None,
+    description="Test honorarium",
+    payment_date=None,
+):
     """Call the service layer create_honorarium with sensible defaults."""
     from apps.volunteers.models import Honorarium
     from apps.volunteers.services.honoraria import create_honorarium
+
     payment_type = payment_type or Honorarium.PAYMENT_TYPE_HONORARIUM
     payment_date = payment_date or datetime.date.today()
     return create_honorarium(
@@ -120,6 +134,7 @@ def _create_honorarium(volunteer_profile, *, amount, created_by, payment_type=No
 # ---------------------------------------------------------------------------
 # HonorariumPaymentWiringTests (TransactionTestCase — on_commit fires)
 # ---------------------------------------------------------------------------
+
 
 class HonorariumPaymentWiringTests(TransactionTestCase):
     """
@@ -143,48 +158,56 @@ class HonorariumPaymentWiringTests(TransactionTestCase):
 
     def test_creates_payment_intent_with_honorarium_purpose(self):
         from apps.payments.models import PaymentIntent
+
         honorarium = _create_honorarium(self.profile, amount="100.00", created_by=self.coordinator)
         pi = PaymentIntent.objects.get(gateway_intent_id=f"hon-{honorarium.pk}")
         self.assertEqual(pi.purpose, PaymentIntent.PURPOSE_HONORARIUM)
 
     def test_creates_payment_intent_with_manual_gateway(self):
-        from apps.payments.models import PaymentIntent, GATEWAY_MANUAL
+        from apps.payments.models import GATEWAY_MANUAL, PaymentIntent
+
         honorarium = _create_honorarium(self.profile, amount="150.00", created_by=self.coordinator)
         pi = PaymentIntent.objects.get(gateway_intent_id=f"hon-{honorarium.pk}")
         self.assertEqual(pi.gateway, GATEWAY_MANUAL)
 
     def test_creates_payment_intent_with_completed_status(self):
         from apps.payments.models import PaymentIntent
+
         honorarium = _create_honorarium(self.profile, amount="200.00", created_by=self.coordinator)
         pi = PaymentIntent.objects.get(gateway_intent_id=f"hon-{honorarium.pk}")
         self.assertEqual(pi.status, PaymentIntent.STATUS_COMPLETED)
 
     def test_payment_intent_payer_is_volunteers_user(self):
         from apps.payments.models import PaymentIntent
+
         honorarium = _create_honorarium(self.profile, amount="250.00", created_by=self.coordinator)
         pi = PaymentIntent.objects.get(gateway_intent_id=f"hon-{honorarium.pk}")
         self.assertEqual(pi.payer_id, self.vol_user.pk)
 
     def test_payment_intent_amount_equals_honorarium_amount(self):
         from apps.payments.models import PaymentIntent
+
         honorarium = _create_honorarium(self.profile, amount="300.00", created_by=self.coordinator)
         pi = PaymentIntent.objects.get(gateway_intent_id=f"hon-{honorarium.pk}")
         self.assertEqual(pi.amount, Decimal("300.00"))
 
     def test_creates_payment_with_correct_gateway_charge_id(self):
         from apps.payments.models import Payment
+
         honorarium = _create_honorarium(self.profile, amount="75.00", created_by=self.coordinator)
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
         self.assertEqual(payment.gateway_charge_id, f"HON-{honorarium.pk}")
 
     def test_payment_amount_paid_equals_honorarium_amount(self):
         from apps.payments.models import Payment
+
         honorarium = _create_honorarium(self.profile, amount="80.00", created_by=self.coordinator)
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
         self.assertEqual(payment.amount_paid, Decimal("80.00"))
 
     def test_payment_processor_fee_is_zero(self):
         from apps.payments.models import Payment
+
         honorarium = _create_honorarium(self.profile, amount="90.00", created_by=self.coordinator)
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
         self.assertEqual(payment.processor_fee, Decimal("0.00"))
@@ -195,6 +218,7 @@ class HonorariumPaymentWiringTests(TransactionTestCase):
 
     def test_honorarium_payment_fk_points_to_correct_payment(self):
         from apps.payments.models import Payment
+
         honorarium = _create_honorarium(self.profile, amount="120.00", created_by=self.coordinator)
         expected_payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
         self.assertEqual(honorarium.payment.pk, expected_payment.pk)
@@ -202,6 +226,7 @@ class HonorariumPaymentWiringTests(TransactionTestCase):
     def test_payment_intent_back_reference_set(self):
         """Payment.intent FK must point to the created PaymentIntent."""
         from apps.payments.models import Payment, PaymentIntent
+
         honorarium = _create_honorarium(self.profile, amount="130.00", created_by=self.coordinator)
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
         pi = PaymentIntent.objects.get(gateway_intent_id=f"hon-{honorarium.pk}")
@@ -210,19 +235,25 @@ class HonorariumPaymentWiringTests(TransactionTestCase):
     def test_gateway_intent_id_format(self):
         """PaymentIntent.gateway_intent_id must be f'hon-{honorarium.pk}'."""
         from apps.payments.models import PaymentIntent
+
         honorarium = _create_honorarium(self.profile, amount="140.00", created_by=self.coordinator)
-        pi = PaymentIntent.objects.get(payer=self.vol_user, purpose=PaymentIntent.PURPOSE_HONORARIUM,
-                                       amount=Decimal("140.00"))
+        pi = PaymentIntent.objects.get(
+            payer=self.vol_user, purpose=PaymentIntent.PURPOSE_HONORARIUM, amount=Decimal("140.00")
+        )
         self.assertEqual(pi.gateway_intent_id, f"hon-{honorarium.pk}")
 
     def test_gateway_charge_id_uniqueness_two_honoraria(self):
         """Two honoraria for the same volunteer each get a unique gateway_charge_id."""
         honorarium_1 = _create_honorarium(
-            self.profile, amount="50.00", created_by=self.coordinator,
+            self.profile,
+            amount="50.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2024, 1, 15),
         )
         honorarium_2 = _create_honorarium(
-            self.profile, amount="60.00", created_by=self.coordinator,
+            self.profile,
+            amount="60.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2024, 2, 15),
         )
         charge_id_1 = f"HON-{honorarium_1.pk}"
@@ -235,6 +266,7 @@ class HonorariumPaymentWiringTests(TransactionTestCase):
 # HonorariumPaymentPIPEDATests
 # ---------------------------------------------------------------------------
 
+
 class HonorariumPaymentPIPEDATests(TransactionTestCase):
     """Tests that PaymentIntent.metadata never contains volunteer PII."""
 
@@ -245,6 +277,7 @@ class HonorariumPaymentPIPEDATests(TransactionTestCase):
 
     def _get_payment_intent(self, honorarium):
         from apps.payments.models import PaymentIntent
+
         return PaymentIntent.objects.get(gateway_intent_id=f"hon-{honorarium.pk}")
 
     def test_metadata_does_not_contain_volunteer_email(self):
@@ -305,37 +338,45 @@ class HonorariumPaymentPIPEDATests(TransactionTestCase):
 # HonorariumPaymentConstantsTests
 # ---------------------------------------------------------------------------
 
+
 class HonorariumPaymentConstantsTests(TestCase):
     """Tests for the new constants added to apps.payments.models."""
 
     def test_payment_intent_purpose_honorarium_value(self):
         from apps.payments.models import PaymentIntent
+
         self.assertEqual(PaymentIntent.PURPOSE_HONORARIUM, "honorarium")
 
     def test_payment_intent_gateway_manual_value(self):
         from apps.payments.models import PaymentIntent
+
         self.assertEqual(PaymentIntent.GATEWAY_MANUAL, "manual")
 
     def test_module_level_gateway_manual_value(self):
         from apps.payments.models import GATEWAY_MANUAL
+
         self.assertEqual(GATEWAY_MANUAL, "manual")
 
     def test_purpose_honorarium_in_purpose_choices(self):
         from apps.payments.models import PaymentIntent
+
         choices_values = [c[0] for c in PaymentIntent.PURPOSE_CHOICES]
         self.assertIn("honorarium", choices_values)
 
     def test_gateway_manual_in_gateway_choices(self):
         from apps.payments.models import GATEWAY_CHOICES
+
         choices_values = [c[0] for c in GATEWAY_CHOICES]
         self.assertIn("manual", choices_values)
 
     def test_payment_intent_status_completed_value(self):
         from apps.payments.models import PaymentIntent
+
         self.assertEqual(PaymentIntent.STATUS_COMPLETED, "completed")
 
     def test_payment_method_bank_exists(self):
         from apps.payments.models import Payment
+
         self.assertEqual(Payment.PAYMENT_METHOD_BANK, "bank_transfer")
 
 
@@ -343,11 +384,13 @@ class HonorariumPaymentConstantsTests(TestCase):
 # HonorariumCRAThresholdTests
 # ---------------------------------------------------------------------------
 
+
 class HonorariumCRAThresholdTests(TestCase):
     """Tests that CRA hard block ($1,000) is still enforced after Payments BB wiring."""
 
     def setUp(self):
         from apps.volunteers.models import Honorarium
+
         self.vol_user = _make_user()
         self.profile = _make_profile(self.vol_user)
         self.coordinator = _grant_add_honorarium(_make_user())
@@ -373,6 +416,7 @@ class HonorariumCRAThresholdTests(TestCase):
     def test_validation_error_no_payment_intent_created(self):
         """When ValidationError is raised, NO PaymentIntent must be created for that amount."""
         from apps.payments.models import PaymentIntent
+
         pi_count_before = PaymentIntent.objects.filter(payer=self.vol_user).count()
         # T1: assertRaises makes the test fail if ValidationError is NOT raised (silent pass
         # via try/except would mask a regression where the hard block stopped working).
@@ -388,7 +432,8 @@ class HonorariumCRAThresholdTests(TestCase):
 
     def test_validation_error_no_payment_created(self):
         """When ValidationError is raised, NO Payment must be created."""
-        from apps.payments.models import Payment, PaymentIntent
+        from apps.payments.models import Payment
+
         payment_count_before = Payment.objects.filter(
             intent__payer=self.vol_user,
         ).count()
@@ -408,6 +453,7 @@ class HonorariumCRAThresholdTests(TestCase):
     def test_validation_error_honorarium_not_created(self):
         """When hard block fires, no new Honorarium row should be created."""
         from apps.volunteers.models import Honorarium
+
         count_before = Honorarium.objects.filter(volunteer=self.profile).count()
         # T1: assertRaises enforces that the hard block actually fires.
         with self.assertRaises(ValidationError):
@@ -464,6 +510,7 @@ class HonorariumCRAThresholdTests(TestCase):
 # HonorariumCRASignalExclusivityTests
 # ---------------------------------------------------------------------------
 
+
 class HonorariumCRASignalExclusivityTests(TransactionTestCase):
     """
     P2-6 / VN-5: Signal exclusivity — t4a_threshold_reached and
@@ -479,6 +526,7 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
 
     def setUp(self):
         from apps.volunteers.models import Honorarium
+
         self.vol_user = _make_user()
         self.profile = _make_profile(self.vol_user)
         self.coordinator = _grant_add_honorarium(_make_user())
@@ -489,7 +537,8 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
         A $500 honorarium (no prior YTD) must fire t4a_threshold_reached
         and must NOT fire cra_alert_threshold_reached.
         """
-        from apps.volunteers.signals import t4a_threshold_reached, cra_alert_threshold_reached
+        from apps.volunteers.signals import cra_alert_threshold_reached, t4a_threshold_reached
+
         t4a_calls = []
         alert_calls = []
 
@@ -512,21 +561,32 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
             t4a_threshold_reached.disconnect(t4a_receiver)
             cra_alert_threshold_reached.disconnect(alert_receiver)
 
-        self.assertEqual(len(t4a_calls), 1,
-            "t4a_threshold_reached must fire exactly once for a $500 honorarium")
-        self.assertEqual(len(alert_calls), 0,
+        self.assertEqual(
+            len(t4a_calls), 1, "t4a_threshold_reached must fire exactly once for a $500 honorarium"
+        )
+        self.assertEqual(
+            len(alert_calls),
+            0,
             "cra_alert_threshold_reached must NOT fire when T4A threshold is reached "
-            "(T4A supersedes the advisory alert — VN-5)")
+            "(T4A supersedes the advisory alert — VN-5)",
+        )
         # M9 / CRIT-2: Verify ytd_total kwarg is present, is a Decimal, AND equals the
         # correct post-commit live YTD value. assertIsInstance alone is insufficient —
         # a wrong YTD (e.g. Decimal("0.00") from a mis-filtered query) would still pass
         # the type check. The alert-path test asserts the exact value; this must too.
-        self.assertIn("ytd_total", t4a_calls[0],
-            "t4a_threshold_reached must include ytd_total= kwarg (signal contract)")
-        self.assertIsInstance(t4a_calls[0]["ytd_total"], Decimal,
-            "ytd_total must be a Decimal, not a string or int")
-        self.assertEqual(t4a_calls[0]["ytd_total"], Decimal("500.00"),
-            "ytd_total must equal the post-commit live YTD (0 + 500 = 500.00)")
+        self.assertIn(
+            "ytd_total",
+            t4a_calls[0],
+            "t4a_threshold_reached must include ytd_total= kwarg (signal contract)",
+        )
+        self.assertIsInstance(
+            t4a_calls[0]["ytd_total"], Decimal, "ytd_total must be a Decimal, not a string or int"
+        )
+        self.assertEqual(
+            t4a_calls[0]["ytd_total"],
+            Decimal("500.00"),
+            "ytd_total must equal the post-commit live YTD (0 + 500 = 500.00)",
+        )
 
     def test_alert_fires_not_t4a_when_ytd_crosses_450(self):
         """
@@ -535,12 +595,14 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
         """
         # Pre-load $430 so the new $21 payment crosses $450 but not $500.
         _make_honorarium_direct(
-            self.profile, amount="430.00",
+            self.profile,
+            amount="430.00",
             payment_type=self.Honorarium.PAYMENT_TYPE_HONORARIUM,
             payment_date=datetime.date.today(),
             created_by=self.coordinator,
         )
-        from apps.volunteers.signals import t4a_threshold_reached, cra_alert_threshold_reached
+        from apps.volunteers.signals import cra_alert_threshold_reached, t4a_threshold_reached
+
         t4a_calls = []
         alert_calls = []
 
@@ -563,21 +625,35 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
             t4a_threshold_reached.disconnect(t4a_receiver)
             cra_alert_threshold_reached.disconnect(alert_receiver)
 
-        self.assertEqual(len(alert_calls), 1,
-            "cra_alert_threshold_reached must fire when YTD crosses $450 alert threshold")
-        self.assertEqual(len(t4a_calls), 0,
-            "t4a_threshold_reached must NOT fire when YTD is $451 (below $500 T4A threshold)")
+        self.assertEqual(
+            len(alert_calls),
+            1,
+            "cra_alert_threshold_reached must fire when YTD crosses $450 alert threshold",
+        )
+        self.assertEqual(
+            len(t4a_calls),
+            0,
+            "t4a_threshold_reached must NOT fire when YTD is $451 (below $500 T4A threshold)",
+        )
         # M9: Verify ytd_total kwarg is present and correct on the alert signal.
-        self.assertIn("ytd_total", alert_calls[0],
-            "cra_alert_threshold_reached must include ytd_total= kwarg (signal contract)")
-        self.assertIsInstance(alert_calls[0]["ytd_total"], Decimal,
-            "ytd_total must be a Decimal, not a string or int")
-        self.assertEqual(alert_calls[0]["ytd_total"], Decimal("451.00"),
-            "ytd_total must equal the post-commit live YTD (430 + 21 = 451)")
+        self.assertIn(
+            "ytd_total",
+            alert_calls[0],
+            "cra_alert_threshold_reached must include ytd_total= kwarg (signal contract)",
+        )
+        self.assertIsInstance(
+            alert_calls[0]["ytd_total"], Decimal, "ytd_total must be a Decimal, not a string or int"
+        )
+        self.assertEqual(
+            alert_calls[0]["ytd_total"],
+            Decimal("451.00"),
+            "ytd_total must equal the post-commit live YTD (430 + 21 = 451)",
+        )
 
     def test_neither_signal_fires_below_alert_threshold(self):
         """A $100 honorarium (YTD = $100) must fire neither signal."""
-        from apps.volunteers.signals import t4a_threshold_reached, cra_alert_threshold_reached
+        from apps.volunteers.signals import cra_alert_threshold_reached, t4a_threshold_reached
+
         t4a_calls = []
         alert_calls = []
 
@@ -600,21 +676,30 @@ class HonorariumCRASignalExclusivityTests(TransactionTestCase):
             t4a_threshold_reached.disconnect(t4a_receiver)
             cra_alert_threshold_reached.disconnect(alert_receiver)
 
-        self.assertEqual(len(t4a_calls), 0,
-            "t4a_threshold_reached must not fire at $100 YTD")
-        self.assertEqual(len(alert_calls), 0,
-            "cra_alert_threshold_reached must not fire at $100 YTD (below $450 threshold)")
+        self.assertEqual(len(t4a_calls), 0, "t4a_threshold_reached must not fire at $100 YTD")
+        self.assertEqual(
+            len(alert_calls),
+            0,
+            "cra_alert_threshold_reached must not fire at $100 YTD (below $450 threshold)",
+        )
         # M9: When neither signal fires, verify the calls lists are empty (no ytd_total
         # to check, but confirms no phantom kwargs were captured from other tests).
-        self.assertListEqual(t4a_calls, [],
-            "t4a_calls must be empty — no t4a_threshold_reached signal should have fired")
-        self.assertListEqual(alert_calls, [],
-            "alert_calls must be empty — no cra_alert_threshold_reached signal should have fired")
+        self.assertListEqual(
+            t4a_calls,
+            [],
+            "t4a_calls must be empty — no t4a_threshold_reached signal should have fired",
+        )
+        self.assertListEqual(
+            alert_calls,
+            [],
+            "alert_calls must be empty — no cra_alert_threshold_reached signal should have fired",
+        )
 
 
 # ---------------------------------------------------------------------------
 # HonorariumAtomicGuardTests
 # ---------------------------------------------------------------------------
+
 
 class HonorariumAtomicGuardTests(TestCase):
     """
@@ -648,7 +733,8 @@ class HonorariumAtomicGuardTests(TestCase):
         the lock when already inside a transaction (avoids nested locking issues),
         and correctly uses it when in the normal service-layer atomic block.
         """
-        from django.db import connection, transaction
+        from django.db import connection
+
         from apps.volunteers.models import Honorarium
 
         hon = Honorarium(
@@ -660,15 +746,19 @@ class HonorariumAtomicGuardTests(TestCase):
             created_by=self.coordinator,
         )
         # Inside the TestCase transaction wrapper, in_atomic_block is True.
-        self.assertTrue(connection.in_atomic_block,
-            "TestCase wraps in a transaction — in_atomic_block should be True here")
+        self.assertTrue(
+            connection.in_atomic_block,
+            "TestCase wraps in a transaction — in_atomic_block should be True here",
+        )
         # full_clean() must not raise TransactionManagementError.
         try:
             hon.full_clean()
         except Exception as e:
             from django.db import utils as _db_utils
+
             self.assertNotIsInstance(
-                e, _db_utils.Error,
+                e,
+                _db_utils.Error,
                 f"full_clean() raised a DB error inside an atomic block: {e}",
             )
 
@@ -679,6 +769,7 @@ class HonorariumAtomicGuardTests(TestCase):
         any per-call state mutation in the guard logic.
         """
         from django.db import connection
+
         from apps.volunteers.models import Honorarium
 
         self.assertTrue(connection.in_atomic_block)
@@ -697,10 +788,9 @@ class HonorariumAtomicGuardTests(TestCase):
                 hon.full_clean()
             except Exception as e:
                 from django.db import utils as _db_utils
+
                 if isinstance(e, _db_utils.Error):
-                    self.fail(
-                        f"full_clean() invocation raised DB error: {type(e).__name__}: {e}"
-                    )
+                    self.fail(f"full_clean() invocation raised DB error: {type(e).__name__}: {e}")
 
 
 class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
@@ -724,11 +814,14 @@ class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
         must skip select_for_update() and fall back to a plain queryset.
         """
         from django.db import connection
+
         from apps.volunteers.models import Honorarium
 
         # Confirm we're outside any transaction.
-        self.assertFalse(connection.in_atomic_block,
-            "TransactionTestCase must not wrap in an atomic block at test start")
+        self.assertFalse(
+            connection.in_atomic_block,
+            "TransactionTestCase must not wrap in an atomic block at test start",
+        )
 
         hon = Honorarium(
             volunteer=self.profile,
@@ -743,6 +836,7 @@ class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
             hon.full_clean()
         except Exception as e:
             from django.db import utils as _db_utils
+
             if isinstance(e, _db_utils.Error):
                 self.fail(
                     f"full_clean() outside atomic raised DB error (guard failed): "
@@ -767,8 +861,10 @@ class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
         """
         from django.db import connection
 
-        self.assertFalse(connection.in_atomic_block,
-            "Must start outside any transaction for this test to be meaningful")
+        self.assertFalse(
+            connection.in_atomic_block,
+            "Must start outside any transaction for this test to be meaningful",
+        )
 
         # create_honorarium wraps in transaction.atomic() internally, so
         # connection.in_atomic_block will be True INSIDE the service call.
@@ -783,6 +879,7 @@ class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
             )
         except Exception as e:
             from django.db import utils as _db_utils
+
             if isinstance(e, _db_utils.Error):
                 self.fail(
                     f"create_honorarium() raised a DB error — likely select_for_update() "
@@ -792,6 +889,7 @@ class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
 
         # Verify the honorarium was actually persisted (not silently swallowed).
         from apps.volunteers.models import Honorarium
+
         self.assertTrue(
             Honorarium.objects.filter(pk=honorarium.pk).exists(),
             "Honorarium must be persisted after create_honorarium() completes",
@@ -801,6 +899,7 @@ class HonorariumAtomicGuardTransactionTests(TransactionTestCase):
 # ---------------------------------------------------------------------------
 # HonorariumPostCommitOuterGuardTests — T2
 # ---------------------------------------------------------------------------
+
 
 class HonorariumPostCommitOuterGuardTests(TransactionTestCase):
     """
@@ -857,10 +956,7 @@ class HonorariumPostCommitOuterGuardTests(TransactionTestCase):
         )
 
         # 2. An ERROR log must be emitted referencing the honorarium PK.
-        error_msgs = [
-            m for m in log_ctx.output
-            if "ERROR" in m and "_post_commit failed" in m
-        ]
+        error_msgs = [m for m in log_ctx.output if "ERROR" in m and "_post_commit failed" in m]
         self.assertTrue(
             error_msgs,
             "T2: Outer guard must emit an ERROR log when _post_commit raises. "
@@ -881,7 +977,6 @@ class HonorariumPostCommitOuterGuardTests(TransactionTestCase):
         capture _honorarium_pk before any failure, not read it from an ORM attribute
         that might be unavailable post-rollback.
         """
-        from apps.volunteers.models import Honorarium
         from apps.volunteers.signals import honorarium_created
 
         with patch.object(
@@ -909,6 +1004,7 @@ class HonorariumPostCommitOuterGuardTests(TransactionTestCase):
 # ---------------------------------------------------------------------------
 # HonorariumPIPEDALogTests
 # ---------------------------------------------------------------------------
+
 
 class HonorariumPIPEDALogTests(TransactionTestCase):
     """
@@ -949,15 +1045,18 @@ class HonorariumPIPEDALogTests(TransactionTestCase):
 
         for line in info_lines:
             self.assertNotIn(
-                "payment_type", line,
+                "payment_type",
+                line,
                 f"PIPEDA: 'payment_type' must not appear in INFO log — found in: {line}",
             )
             self.assertNotIn(
-                "317", line,
+                "317",
+                line,
                 f"PIPEDA: amount '317' must not appear in INFO log — found in: {line}",
             )
             self.assertNotIn(
-                "317.00", line,
+                "317.00",
+                line,
                 f"PIPEDA: formatted amount '317.00' must not appear in INFO log — found in: {line}",
             )
             # CRIT-1: PIPEDA requires that the INFO log does NOT correlate the volunteer
@@ -967,6 +1066,7 @@ class HonorariumPIPEDALogTests(TransactionTestCase):
             # causes the anchor to fail — this is stronger than a bare assertNotIn check
             # and avoids false positives when profile.pk coincidentally equals honorarium.pk.
             import re as _re
+
             _expected_anchored = (
                 rf"^INFO:apps\.volunteers\.services\.honoraria:"
                 rf"volunteers\.services\.honoraria: "
@@ -974,7 +1074,8 @@ class HonorariumPIPEDALogTests(TransactionTestCase):
                 rf" — created_by user #{_re.escape(str(self.coordinator.pk))}$"
             )
             self.assertRegex(
-                line, _expected_anchored,
+                line,
+                _expected_anchored,
                 f"PIPEDA: INFO log line must match the exact expected format with no "
                 f"extra fields. The format 'Honorarium #N created — created_by user #M' "
                 f"must not be extended with volunteer_pk, amount, or payment_type. "
@@ -982,7 +1083,8 @@ class HonorariumPIPEDALogTests(TransactionTestCase):
             )
             # Verify the actor PK IS present (operational requirement, not PII).
             self.assertIn(
-                str(self.coordinator.pk), line,
+                str(self.coordinator.pk),
+                line,
                 f"INFO log must reference the actor (created_by) user PK — missing from: {line}",
             )
 
@@ -990,6 +1092,7 @@ class HonorariumPIPEDALogTests(TransactionTestCase):
 # ---------------------------------------------------------------------------
 # HonorariumPaymentGracefulDegradationTests
 # ---------------------------------------------------------------------------
+
 
 class HonorariumPaymentGracefulDegradationTests(TransactionTestCase):
     """
@@ -1030,6 +1133,7 @@ class HonorariumPaymentGracefulDegradationTests(TransactionTestCase):
             )
 
         from apps.volunteers.models import Honorarium
+
         self.assertTrue(Honorarium.objects.filter(pk=honorarium.pk).exists())
 
     def test_payment_failure_leaves_payment_fk_as_none(self):
@@ -1062,6 +1166,7 @@ class HonorariumPaymentGracefulDegradationTests(TransactionTestCase):
             )
 
         from apps.volunteers.models import Honorarium
+
         self.assertTrue(Honorarium.objects.filter(pk=honorarium.pk).exists())
 
     def test_payment_intent_failure_leaves_payment_fk_as_none(self):
@@ -1080,17 +1185,14 @@ class HonorariumPaymentGracefulDegradationTests(TransactionTestCase):
 
     def test_successful_wiring_sets_payment_fk(self):
         """Control test: without errors, honorarium.payment IS set."""
-        honorarium = _create_honorarium(
-            self.profile, amount="70.00", created_by=self.coordinator
-        )
+        honorarium = _create_honorarium(self.profile, amount="70.00", created_by=self.coordinator)
         self.assertIsNotNone(honorarium.payment)
 
     def test_successful_wiring_payment_intent_exists(self):
         """Control test: without errors, a PaymentIntent IS created."""
         from apps.payments.models import PaymentIntent
-        honorarium = _create_honorarium(
-            self.profile, amount="75.00", created_by=self.coordinator
-        )
+
+        honorarium = _create_honorarium(self.profile, amount="75.00", created_by=self.coordinator)
         self.assertTrue(
             PaymentIntent.objects.filter(gateway_intent_id=f"hon-{honorarium.pk}").exists()
         )
@@ -1098,12 +1200,17 @@ class HonorariumPaymentGracefulDegradationTests(TransactionTestCase):
     def test_two_honoraria_produce_two_payment_intents(self):
         """Each honorarium produces its own PaymentIntent."""
         from apps.payments.models import PaymentIntent
+
         hon1 = _create_honorarium(
-            self.profile, amount="40.00", created_by=self.coordinator,
+            self.profile,
+            amount="40.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2024, 1, 10),
         )
         hon2 = _create_honorarium(
-            self.profile, amount="50.00", created_by=self.coordinator,
+            self.profile,
+            amount="50.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2024, 2, 10),
         )
         pi1_exists = PaymentIntent.objects.filter(gateway_intent_id=f"hon-{hon1.pk}").exists()
@@ -1114,12 +1221,17 @@ class HonorariumPaymentGracefulDegradationTests(TransactionTestCase):
     def test_two_honoraria_produce_two_payments(self):
         """Each honorarium produces its own Payment."""
         from apps.payments.models import Payment
+
         hon1 = _create_honorarium(
-            self.profile, amount="40.00", created_by=self.coordinator,
+            self.profile,
+            amount="40.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2024, 3, 10),
         )
         hon2 = _create_honorarium(
-            self.profile, amount="50.00", created_by=self.coordinator,
+            self.profile,
+            amount="50.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2024, 4, 10),
         )
         p1_exists = Payment.objects.filter(gateway_charge_id=f"HON-{hon1.pk}").exists()
@@ -1130,22 +1242,21 @@ class HonorariumPaymentGracefulDegradationTests(TransactionTestCase):
     def test_permission_denied_if_no_add_honorarium_perm(self):
         """User without volunteers.add_honorarium permission should get PermissionDenied."""
         from django.core.exceptions import PermissionDenied
+
         unpermitted_user = _make_user()
         with self.assertRaises(PermissionDenied):
-            _create_honorarium(
-                self.profile, amount="50.00", created_by=unpermitted_user
-            )
+            _create_honorarium(self.profile, amount="50.00", created_by=unpermitted_user)
 
     def test_permission_denied_no_payment_intent_created(self):
         """PermissionDenied must not leave partial Payments BB records."""
         from django.core.exceptions import PermissionDenied
+
         from apps.payments.models import PaymentIntent
+
         unpermitted_user = _make_user()
         count_before = PaymentIntent.objects.filter(payer=self.vol_user).count()
         try:
-            _create_honorarium(
-                self.profile, amount="50.00", created_by=unpermitted_user
-            )
+            _create_honorarium(self.profile, amount="50.00", created_by=unpermitted_user)
         except PermissionDenied:
             pass
         count_after = PaymentIntent.objects.filter(payer=self.vol_user).count()
@@ -1155,6 +1266,7 @@ class HonorariumPaymentGracefulDegradationTests(TransactionTestCase):
 # ---------------------------------------------------------------------------
 # HonorariumPaymentFieldTests — H-10
 # ---------------------------------------------------------------------------
+
 
 class HonorariumPaymentFieldTests(TransactionTestCase):
     """
@@ -1176,8 +1288,11 @@ class HonorariumPaymentFieldTests(TransactionTestCase):
         ('bank_transfer') — honoraria are paid by bank transfer, not card.
         """
         from apps.payments.models import Payment
+
         honorarium = _create_honorarium(
-            self.profile, amount="100.00", created_by=self.coordinator,
+            self.profile,
+            amount="100.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2025, 3, 15),
         )
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
@@ -1189,27 +1304,33 @@ class HonorariumPaymentFieldTests(TransactionTestCase):
         H-10: Payment.paid_at must be a timezone-aware datetime — the service
         uses django.utils.timezone.make_aware() to attach the current timezone.
         """
+
         from apps.payments.models import Payment
-        from django.utils import timezone
+
         honorarium = _create_honorarium(
-            self.profile, amount="110.00", created_by=self.coordinator,
+            self.profile,
+            amount="110.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2025, 4, 20),
         )
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
         self.assertIsNotNone(payment.paid_at)
-        self.assertIsNotNone(payment.paid_at.tzinfo,
-                             "paid_at must be timezone-aware, not naive")
+        self.assertIsNotNone(payment.paid_at.tzinfo, "paid_at must be timezone-aware, not naive")
 
     def test_paid_at_date_matches_payment_date(self):
         """
         H-10: The date portion of Payment.paid_at must match the honorarium's
         payment_date — the service combines payment_date with midnight time.
         """
-        from apps.payments.models import Payment
         from django.utils import timezone
+
+        from apps.payments.models import Payment
+
         target_date = datetime.date(2025, 5, 10)
         honorarium = _create_honorarium(
-            self.profile, amount="120.00", created_by=self.coordinator,
+            self.profile,
+            amount="120.00",
+            created_by=self.coordinator,
             payment_date=target_date,
         )
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
@@ -1222,10 +1343,14 @@ class HonorariumPaymentFieldTests(TransactionTestCase):
         H-10: The time portion of Payment.paid_at must be midnight (00:00:00)
         in local time — the service uses datetime.min.time() as the time component.
         """
-        from apps.payments.models import Payment
         from django.utils import timezone
+
+        from apps.payments.models import Payment
+
         honorarium = _create_honorarium(
-            self.profile, amount="130.00", created_by=self.coordinator,
+            self.profile,
+            amount="130.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2025, 6, 1),
         )
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")
@@ -1245,8 +1370,11 @@ class HonorariumPaymentFieldTests(TransactionTestCase):
         """
         from apps.payments.models import Payment
         from apps.volunteers.models import Honorarium
+
         honorarium = _create_honorarium(
-            self.profile, amount="45.00", created_by=self.coordinator,
+            self.profile,
+            amount="45.00",
+            created_by=self.coordinator,
             payment_type=Honorarium.PAYMENT_TYPE_EXPENSE,
             payment_date=datetime.date(2025, 7, 1),
         )
@@ -1266,8 +1394,11 @@ class HonorariumPaymentFieldTests(TransactionTestCase):
         CharField with no default in the Production Payment model.
         """
         from apps.payments.models import Payment
+
         honorarium = _create_honorarium(
-            self.profile, amount="140.00", created_by=self.coordinator,
+            self.profile,
+            amount="140.00",
+            created_by=self.coordinator,
             payment_date=datetime.date(2025, 8, 15),
         )
         payment = Payment.objects.get(gateway_charge_id=f"HON-{honorarium.pk}")

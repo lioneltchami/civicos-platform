@@ -56,6 +56,7 @@ _STAFF_THROTTLE = [StaffRateThrottle]
 # Queue / list view
 # ---------------------------------------------------------------------------
 
+
 class WorkItemQueueView(generics.ListAPIView):
     """
     GET /api/v1/workflows/queue/
@@ -76,7 +77,7 @@ class WorkItemQueueView(generics.ListAPIView):
     pagination_class = StandardPagination
     serializer_class = WorkItemSerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         params = self.request.query_params
 
         status_filter: str | None = params.get("status") or None
@@ -109,6 +110,7 @@ class WorkItemQueueView(generics.ListAPIView):
 # Detail view
 # ---------------------------------------------------------------------------
 
+
 class WorkItemDetailAPIView(generics.RetrieveAPIView):
     """
     GET /api/v1/workflows/<uuid:pk>/
@@ -122,7 +124,7 @@ class WorkItemDetailAPIView(generics.RetrieveAPIView):
     throttle_classes = _STAFF_THROTTLE
     serializer_class = WorkItemDetailSerializer
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return WorkItem.objects.prefetch_related(
             "history__actor",
             "comments__author",
@@ -132,6 +134,7 @@ class WorkItemDetailAPIView(generics.RetrieveAPIView):
 # ---------------------------------------------------------------------------
 # Action views — all operate on a specific WorkItem identified by <uuid:pk>
 # ---------------------------------------------------------------------------
+
 
 class _WorkItemActionView(APIView):
     """
@@ -145,10 +148,10 @@ class _WorkItemActionView(APIView):
     permission_classes = _STAFF_PERMS
     throttle_classes = _STAFF_THROTTLE
 
-    def _get_work_item(self, pk):
+    def _get_work_item(self, pk):  # noqa: ANN001, ANN202
         return get_object_or_404(WorkItem, pk=pk)
 
-    def _ok(self, work_item, request, status_code=status.HTTP_200_OK):
+    def _ok(self, work_item, request, status_code=status.HTTP_200_OK):  # noqa: ANN001, ANN202
         serializer = WorkItemSerializer(work_item, context={"request": request})
         return Response(serializer.data, status=status_code)
 
@@ -177,7 +180,7 @@ class ClaimWorkItemAPIView(_WorkItemActionView):
     No request body required.
     """
 
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, pk, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         work_item = self._get_work_item(pk)
         # Validate (no-op serializer — kept for consistency and future extensibility)
         ClaimWorkItemSerializer(data=request.data).is_valid(raise_exception=True)
@@ -202,7 +205,7 @@ class AssignWorkItemAPIView(_WorkItemActionView):
     Request body: ``{"assignee_id": "<uuid>"}``
     """
 
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, pk, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         work_item = self._get_work_item(pk)
         serializer = AssignWorkItemSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -228,16 +231,14 @@ class AdvanceStatusAPIView(_WorkItemActionView):
     Request body: ``{"new_status": "<value>", "notes": "<optional>"}``
     """
 
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, pk, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         work_item = self._get_work_item(pk)
         serializer = AdvanceStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         new_status = serializer.validated_data["new_status"]
         notes = serializer.validated_data.get("notes", "")
         try:
-            work_item = update_work_item_status(
-                work_item, new_status, request.user, notes=notes
-            )
+            work_item = update_work_item_status(work_item, new_status, request.user, notes=notes)
         except (ValueError, PermissionError) as exc:
             logger.info(
                 "AdvanceStatus failed for work_item pk=%s by user pk=%s: %s",
@@ -257,7 +258,7 @@ class EscalateWorkItemAPIView(_WorkItemActionView):
     Request body: ``{"reason": "<optional>"}``
     """
 
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, pk, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         work_item = self._get_work_item(pk)
         serializer = EscalateWorkItemSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -284,7 +285,7 @@ class AddCommentAPIView(_WorkItemActionView):
     Returns 201 Created with the new comment.
     """
 
-    def post(self, request, pk, *args, **kwargs):
+    def post(self, request, pk, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         work_item = self._get_work_item(pk)
         serializer = AddCommentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

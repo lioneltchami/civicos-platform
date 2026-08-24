@@ -9,6 +9,7 @@ Note: the existing citizen portal at apps.portal uses namespace "portal"
 (mounted at /portal/). This payments donor portal uses a distinct namespace
 "donor_portal" to avoid collision.
 """
+
 from django.urls import path
 
 from apps.payments.views.portal import (

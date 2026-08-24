@@ -7,6 +7,7 @@ PIPEDA-compliant consent lifecycle:
   • Every consent state change is recorded in an append-only audit trail
   • Data export requests are fulfilled within 30 days (PIPEDA s.4.9)
 """
+
 from django.apps import AppConfig
 
 
@@ -15,6 +16,6 @@ class ConsentConfig(AppConfig):
     name = "apps.consent"
     verbose_name = "Consent & Privacy"
 
-    def ready(self):
+    def ready(self) -> None:
+        import apps.consent.receivers
         import apps.consent.signals  # noqa: F401 — define signals
-        import apps.consent.receivers  # noqa: F401 — register signal receivers

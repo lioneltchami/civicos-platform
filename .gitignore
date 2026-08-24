@@ -20,6 +20,8 @@ ENV/
 *.log
 local_settings.py
 db.sqlite3
+/test.db
+*.sqlite3
 media/
 staticfiles/
 
@@ -51,12 +53,16 @@ dmypy.json
 *.swo
 *~
 .DS_Store
+._*
 Thumbs.db
 
 # Docker
 .docker/
 ops/cloudflared/config.yml
 ops/cloudflared/credentials.json
+
+# GovStack local candidate run artifacts — generated only after local or official-suite runs.
+examples/civicos-*/result/
 
 # Celery
 celerybeat-schedule

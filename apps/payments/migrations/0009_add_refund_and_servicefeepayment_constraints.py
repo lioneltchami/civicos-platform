@@ -14,12 +14,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("payments", "0008_add_payment_financial_constraints"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddConstraint(
             model_name="servicefeepayment",
             constraint=models.CheckConstraint(

@@ -79,7 +79,6 @@ def _make_document(user, category, **kwargs):
 
 
 class DocumentCategoryStrTests(TestCase):
-
     def test_str_returns_slug(self):
         cat = _make_category()
         self.assertEqual(str(cat), cat.slug)
@@ -90,7 +89,6 @@ class DocumentCategoryStrTests(TestCase):
 
 
 class DocumentCategoryCleanTests(TestCase):
-
     def test_clean_raises_when_min_exceeds_max(self):
         cat = _make_category()
         cat.min_retention_days = 3000
@@ -125,7 +123,6 @@ class DocumentCategoryCleanTests(TestCase):
 
 
 class DocumentCategoryDefaultsTests(TestCase):
-
     def test_default_security_classification_is_protected_b(self):
         cat = _make_category()
         self.assertEqual(
@@ -158,7 +155,6 @@ class DocumentCategoryDefaultsTests(TestCase):
 
 
 class DocumentStrTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -194,7 +190,6 @@ class DocumentStrTests(TestCase):
 
 
 class DocumentCleanTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -227,7 +222,8 @@ class DocumentCleanTests(TestCase):
         root = _make_document(self.user, self.cat)
         # Create a version-2 doc pointing to root, then try to set it as v1.
         child = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=2,
             root_document=root,
         )
@@ -249,7 +245,8 @@ class DocumentCleanTests(TestCase):
         """version_number=2 with root_document set is valid."""
         root = _make_document(self.user, self.cat)
         child = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             version_number=2,
             root_document=root,
         )
@@ -268,7 +265,6 @@ class DocumentCleanTests(TestCase):
 
 
 class DocumentQuerySetActiveTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -311,7 +307,6 @@ class DocumentQuerySetActiveTests(TestCase):
 
 
 class DocumentQuerySetLatestVersionsTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -327,7 +322,8 @@ class DocumentQuerySetLatestVersionsTests(TestCase):
     def test_latest_versions_combined_with_active(self):
         """Most common use case: active().latest_versions()."""
         doc = _make_document(
-            self.user, self.cat,
+            self.user,
+            self.cat,
             scan_status=Document.ScanStatus.ACTIVE,
             is_latest_version=True,
         )
@@ -341,7 +337,6 @@ class DocumentQuerySetLatestVersionsTests(TestCase):
 
 
 class DocumentQuerySetPendingDisposalTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -364,7 +359,9 @@ class DocumentQuerySetPendingDisposalTests(TestCase):
         doc.retain_until = self._past_date(2)
         doc.legal_hold = False
         doc.deleted_at = None
-        doc.save(update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"])
+        doc.save(
+            update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"]
+        )
         self.assertIn(doc, Document.objects.pending_disposal())
 
     def test_pending_disposal_excludes_legal_hold(self):
@@ -373,7 +370,9 @@ class DocumentQuerySetPendingDisposalTests(TestCase):
         doc.retain_until = self._past_date(2)
         doc.legal_hold = True
         doc.deleted_at = None
-        doc.save(update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"])
+        doc.save(
+            update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"]
+        )
         self.assertNotIn(doc, Document.objects.pending_disposal())
 
     def test_pending_disposal_excludes_already_deleted(self):
@@ -382,7 +381,9 @@ class DocumentQuerySetPendingDisposalTests(TestCase):
         doc.retain_until = self._past_date(2)
         doc.legal_hold = False
         doc.deleted_at = self._past_datetime(1)
-        doc.save(update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"])
+        doc.save(
+            update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"]
+        )
         self.assertNotIn(doc, Document.objects.pending_disposal())
 
     def test_pending_disposal_excludes_future_expires_at(self):
@@ -391,7 +392,9 @@ class DocumentQuerySetPendingDisposalTests(TestCase):
         doc.retain_until = self._past_date(2)
         doc.legal_hold = False
         doc.deleted_at = None
-        doc.save(update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"])
+        doc.save(
+            update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"]
+        )
         self.assertNotIn(doc, Document.objects.pending_disposal())
 
     def test_pending_disposal_excludes_future_retain_until(self):
@@ -400,7 +403,9 @@ class DocumentQuerySetPendingDisposalTests(TestCase):
         doc.retain_until = self._future_date(10)
         doc.legal_hold = False
         doc.deleted_at = None
-        doc.save(update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"])
+        doc.save(
+            update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"]
+        )
         self.assertNotIn(doc, Document.objects.pending_disposal())
 
     def test_pending_disposal_excludes_null_expires_at(self):
@@ -410,7 +415,9 @@ class DocumentQuerySetPendingDisposalTests(TestCase):
         doc.retain_until = self._past_date(2)
         doc.legal_hold = False
         doc.deleted_at = None
-        doc.save(update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"])
+        doc.save(
+            update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"]
+        )
         self.assertNotIn(doc, Document.objects.pending_disposal())
 
     def test_pending_disposal_excludes_null_retain_until(self):
@@ -420,7 +427,9 @@ class DocumentQuerySetPendingDisposalTests(TestCase):
         doc.retain_until = None
         doc.legal_hold = False
         doc.deleted_at = None
-        doc.save(update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"])
+        doc.save(
+            update_fields=["expires_at", "retain_until", "legal_hold", "deleted_at", "updated_at"]
+        )
         self.assertNotIn(doc, Document.objects.pending_disposal())
 
 
@@ -430,7 +439,6 @@ class DocumentQuerySetPendingDisposalTests(TestCase):
 
 
 class DocumentQuerySetPendingHardDeleteTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -509,7 +517,6 @@ class DocumentQuerySetPendingHardDeleteTests(TestCase):
 
 
 class DocumentPropertyTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -545,7 +552,6 @@ class DocumentPropertyTests(TestCase):
 
 
 class DocumentAccessTokenTests(TestCase):
-
     def setUp(self):
         self.user = _make_user()
         self.cat = _make_category()
@@ -570,9 +576,7 @@ class DocumentAccessTokenTests(TestCase):
         self.assertFalse(token.is_valid)
 
     def test_is_valid_false_when_expired(self):
-        token = self._make_token(
-            expires_at=timezone.now() - timedelta(seconds=1)
-        )
+        token = self._make_token(expires_at=timezone.now() - timedelta(seconds=1))
         self.assertFalse(token.is_valid)
 
     def test_is_valid_false_when_used_and_expired(self):
@@ -584,22 +588,26 @@ class DocumentAccessTokenTests(TestCase):
 
     def test_generate_token_returns_64_chars(self):
         from apps.documents.models import _generate_token
+
         token = _generate_token()
         self.assertEqual(len(token), 64)
 
     def test_generate_token_is_hex_string(self):
         from apps.documents.models import _generate_token
+
         token = _generate_token()
         int(token, 16)  # Raises ValueError if not hex
 
     def test_generate_token_unique(self):
         from apps.documents.models import _generate_token
+
         tokens = {_generate_token() for _ in range(20)}
         self.assertEqual(len(tokens), 20)
 
     def test_token_uniqueness_db_constraint(self):
         """Two tokens with the same value → IntegrityError."""
         from django.db import IntegrityError
+
         token_a = self._make_token()
         with self.assertRaises(IntegrityError):
             DocumentAccessToken.objects.create(
@@ -624,9 +632,9 @@ class DocumentAccessTokenTests(TestCase):
 
 
 class DocumentAttachmentStrTests(TestCase):
-
     def setUp(self):
         from django.contrib.contenttypes.models import ContentType
+
         self.user = _make_user()
         self.cat = _make_category()
         self.doc = _make_document(self.user, self.cat)
@@ -661,11 +669,14 @@ class DocumentAttachmentStrTests(TestCase):
 
 
 class ScanStatusChoicesTests(TestCase):
-
     def test_all_statuses_exist(self):
         expected = {
-            "pending_upload", "scanning", "active",
-            "quarantined", "deleted", "purged",
+            "pending_upload",
+            "scanning",
+            "active",
+            "quarantined",
+            "deleted",
+            "purged",
         }
         actual = {s.value for s in Document.ScanStatus}
         self.assertTrue(expected.issubset(actual))
@@ -688,7 +699,6 @@ class ScanStatusChoicesTests(TestCase):
 
 
 class SecurityClassificationTests(TestCase):
-
     def test_three_levels_exist(self):
         values = {c[0] for c in DocumentCategory.SecurityClassification.choices}
         self.assertIn("unclassified", values)
@@ -704,5 +714,7 @@ class SecurityClassificationTests(TestCase):
         doc = _make_document(user, cat)
         # Document has its own field — at creation we don't auto-inherit in this test
         # (auto-inherit happens in the service layer). Just check field exists.
-        self.assertIn(doc.security_classification,
-                      [c[0] for c in DocumentCategory.SecurityClassification.choices])
+        self.assertIn(
+            doc.security_classification,
+            [c[0] for c in DocumentCategory.SecurityClassification.choices],
+        )

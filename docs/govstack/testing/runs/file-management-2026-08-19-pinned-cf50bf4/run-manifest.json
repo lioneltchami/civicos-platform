@@ -1,0 +1,9 @@
+{
+  "building_block": "File Management",
+  "official_repository": "GovStackWorkingGroup/bb-file-management",
+  "official_revision": "cf50bf4952491bd1ede775aa3c90a228319c3977",
+  "execution_scope": "local-only",
+  "command": "examples/civicos-file-management/test_entrypoint.sh --config api-suite",
+  "result": "candidate_blocked",
+  "interpretation": "The local candidate could not start because clamav/clamav:1.4 has no linux/arm64/v8 image manifest on the connected host."
+}

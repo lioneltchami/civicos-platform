@@ -1,0 +1,16 @@
+artifact_payload_paths:
+./allowlist.tsv
+./patches/01-rb02-1.patch
+./patches/02-rb02-2.patch
+./patches/03-rb02-3.patch
+./patches/04-rb02-4.patch
+./patches/05-batchlease-repair.patch
+./patches/06-rb02-3-policy-settings.patch
+./provenance.txt
+./source-commits.tsv
+forbidden_patch_paths:
+none
+patch_path_allowlist_difference:
+none
+mixed_anchor_in_canonical_payload:
+none

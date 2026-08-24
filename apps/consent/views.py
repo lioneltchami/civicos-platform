@@ -12,6 +12,7 @@ View inventory:
   ExportStatusView            GET  /consent/export/status/
   ExportDownloadView          GET  /consent/export/download/<uuid>/
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,14 +38,11 @@ logger = logging.getLogger(__name__)
 class ConsentDashboardView(LoginRequiredMixin, TemplateView):
     template_name = "consent/dashboard.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         citizen = self.request.user
 
-        existing = {
-            r.category_id: r
-            for r in ConsentService.get_citizen_consents(citizen)
-        }
+        existing = {r.category_id: r for r in ConsentService.get_citizen_consents(citizen)}
 
         consent_items = []
         for category in ConsentService.get_active_categories():
@@ -78,9 +76,9 @@ class ConsentDashboardView(LoginRequiredMixin, TemplateView):
 
 
 class ConsentUpdateView(LoginRequiredMixin, View):
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         form = ConsentUpdateForm(request.POST)
         if not form.is_valid():
             messages.error(request, _("Invalid consent form submission."))
@@ -108,12 +106,12 @@ class ConsentUpdateView(LoginRequiredMixin, View):
 class ConsentWithdrawConfirmView(LoginRequiredMixin, TemplateView):
     template_name = "consent/withdraw_confirm.html"
 
-    def _get_category(self, category_slug: str):
+    def _get_category(self, category_slug: str):  # noqa: ANN202
         from apps.consent.models import ConsentCategory
 
         return get_object_or_404(ConsentCategory, slug=category_slug, is_active=True)
 
-    def get(self, request, category_slug: str):
+    def get(self, request, category_slug: str):  # noqa: ANN001, ANN201
         category = self._get_category(category_slug)
         if category.is_required:
             return HttpResponseBadRequest(
@@ -121,7 +119,7 @@ class ConsentWithdrawConfirmView(LoginRequiredMixin, TemplateView):
             )
         return self.render_to_response({"category": category})
 
-    def post(self, request, category_slug: str):
+    def post(self, request, category_slug: str):  # noqa: ANN001, ANN201
         category = self._get_category(category_slug)
         if category.is_required:
             return HttpResponseBadRequest(
@@ -140,7 +138,7 @@ class ExportRequestView(LoginRequiredMixin, FormView):
     form_class = ExportRequestForm
     success_url = reverse_lazy("consent:export-status")
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         try:
             ConsentService.request_export(self.request.user, request=self.request)
             messages.success(
@@ -159,14 +157,14 @@ class ExportRequestView(LoginRequiredMixin, FormView):
 class ExportStatusView(LoginRequiredMixin, TemplateView):
     template_name = "consent/export_status.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         ctx["exports"] = ConsentService.get_citizen_exports(self.request.user)
         return ctx
 
 
 class ExportDownloadView(LoginRequiredMixin, View):
-    def get(self, request, token):
+    def get(self, request, token):  # noqa: ANN001, ANN201
         from apps.consent.models import ConsentAuditEntry, DataExportRequest
         from apps.documents.services.retention import mark_purpose_fulfilled
 
@@ -177,25 +175,35 @@ class ExportDownloadView(LoginRequiredMixin, View):
 
         with transaction.atomic():
             try:
-                req = DataExportRequest.objects.select_for_update(of=("self",)).select_related(
-                    "document__category"
-                ).get(download_token=token)
+                req = (
+                    DataExportRequest.objects.select_for_update(of=("self",))
+                    .select_related("document__category")
+                    .get(download_token=token)
+                )
             except DataExportRequest.DoesNotExist:
-                raise Http404
+                raise Http404  # noqa: B904
 
             # IDOR guard — 404 (not 403) for non-owned exports; 403 leaks existence
             if req.citizen_id != request.user.pk:
                 raise Http404
 
             now = timezone.now()
-            if req.status == DataExportRequest.STATUS_READY and req.expires_at and req.expires_at < now:
+            if (
+                req.status == DataExportRequest.STATUS_READY
+                and req.expires_at
+                and req.expires_at < now
+            ):
                 # Mark expired inside the lock
                 req.status = DataExportRequest.STATUS_EXPIRED
                 req.save(update_fields=["status"])
                 # Capture reference for disposal AFTER commit — mark_purpose_fulfilled
                 # opens its own atomic block, so calling it inside the parent transaction
                 # causes savepoint nesting issues.
-                if req.document_id and req.document.category and req.document.category.is_transitory:
+                if (
+                    req.document_id
+                    and req.document.category
+                    and req.document.category.is_transitory
+                ):
                     _doc_for_disposal = req.document
                 raise Http404
 
@@ -203,9 +211,7 @@ class ExportDownloadView(LoginRequiredMixin, View):
                 raise Http404
 
             if not req.document_id:
-                logger.error(
-                    "ExportDownloadView: no document linked for export pk=%s", req.pk
-                )
+                logger.error("ExportDownloadView: no document linked for export pk=%s", req.pk)
                 messages.error(request, _("Export file not found. Please contact support."))
                 return redirect("consent:export-status")
 
@@ -249,16 +255,15 @@ class ExportDownloadView(LoginRequiredMixin, View):
             except Exception as exc:
                 logger.error(
                     "ExportDownloadView: mark_purpose_fulfilled failed for document pk=%s: %s",
-                    document_obj.pk, type(exc).__name__,
+                    document_obj.pk,
+                    type(exc).__name__,
                 )
 
         # Phase 2: open and stream the file OUTSIDE the transaction
         try:
             file_handle = default_storage.open(storage_key_to_serve, "rb")
         except Exception:
-            logger.exception(
-                "ExportDownloadView: failed to open file for export pk=%s", export_pk
-            )
+            logger.exception("ExportDownloadView: failed to open file for export pk=%s", export_pk)
             messages.error(request, _("Export file could not be read. Please contact support."))
             return redirect("consent:export-status")
 

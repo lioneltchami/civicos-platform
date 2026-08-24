@@ -33,7 +33,6 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
@@ -83,10 +82,10 @@ _PROXY_SIZE_THRESHOLD_BYTES: int = 1 * 1024 * 1024  # 1 MB
 
 def issue_access_token(
     *,
-    user: "User",
-    document: "Document",
+    user: User,
+    document: Document,
     ip_address: str | None = None,
-) -> "DocumentAccessToken":
+) -> DocumentAccessToken:
     """
     Issue a single-use DocumentAccessToken for an authorised download.
 
@@ -146,13 +145,9 @@ def issue_access_token(
     # writes are rolled back together with the token if the transaction fails.
     with transaction.atomic():
         try:
-            locked_doc = (
-                Document.objects
-                .select_for_update()
-                .get(pk=document.pk)
-            )
+            locked_doc = Document.objects.select_for_update().get(pk=document.pk)
         except Document.DoesNotExist:
-            raise Http404
+            raise Http404  # noqa: B904
 
         # ── Scan status + soft-delete gate (under lock) ───────────────────────
         # Citizens may ONLY download ACTIVE documents. PENDING_UPLOAD, SCANNING,
@@ -212,9 +207,9 @@ def issue_access_token(
 def consume_access_token(
     *,
     token_value: str,
-    user: "User",
+    user: User,
     ip_address: str | None = None,
-) -> "Document":
+) -> Document:
     """
     Validate and consume a DocumentAccessToken, returning the linked Document.
 
@@ -266,14 +261,13 @@ def consume_access_token(
         with transaction.atomic():
             try:
                 token = (
-                    DocumentAccessToken.objects
-                    .select_for_update(of=("self",))
+                    DocumentAccessToken.objects.select_for_update(of=("self",))
                     .select_related("document", "issued_to")
                     .get(token=token_value)
                 )
             except DocumentAccessToken.DoesNotExist:
                 # 404: token not found. IDOR: never reveal whether the token exists.
-                raise Http404
+                raise Http404  # noqa: B904
 
             # ── Cross-user isolation ───────────────────────────────────────────
             # A token issued to user A cannot be redeemed by user B.
@@ -341,9 +335,7 @@ def consume_access_token(
         # no-op for those cases — this except clause exists purely to defer
         # the one audit write that must survive the rollback.
         if _cross_user_denied_document_pk is not None:
-            _record_access_denied(
-                requested_pk=_cross_user_denied_document_pk, requesting_user=user
-            )
+            _record_access_denied(requested_pk=_cross_user_denied_document_pk, requesting_user=user)
         raise
 
     return token.document
@@ -430,7 +422,7 @@ def generate_presigned_download_url(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _record_access_denied(*, requested_pk, requesting_user) -> None:
+def _record_access_denied(*, requested_pk, requesting_user) -> None:  # noqa: ANN001
     """
     Write an AuditEventType.ACCESS_DENIED entry for a denied (IDOR) access
     attempt — spec §13.1 "Access denied (non-owned PK)".
@@ -515,8 +507,8 @@ def _mask_ip(ip_address: str | None) -> str | None:
 
 def _user_may_download(
     *,
-    user: "User",
-    document: "Document",
+    user: User,
+    document: Document,
 ) -> bool:
     """
     Return True if the user is authorised to download the given document.

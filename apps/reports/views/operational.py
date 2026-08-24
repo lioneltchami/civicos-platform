@@ -14,6 +14,7 @@ are never sent to templates — they may contain request data with PII).
 Permission: payments.view_operationalreport (custom permission on the Payment
 model — see apps/payments/models.py).
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,7 +55,7 @@ class OperationalDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Temp
     permission_required = "payments.view_operationalreport"
     template_name = "reports/operational/dashboard.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
 
         # Parse optional ?days= parameter
@@ -69,20 +70,21 @@ class OperationalDashboardView(LoginRequiredMixin, PermissionRequiredMixin, Temp
         beat_status = get_celery_beat_status()
 
         logger.info(
-            "reports.views.operational.dashboard user_pk=%s days=%s "
-            "tasks=%s webhooks=%s",
+            "reports.views.operational.dashboard user_pk=%s days=%s " "tasks=%s webhooks=%s",
             self.request.user.pk,
             days,
             task_summary["total_tasks"],
             webhook_summary["total_events"],
         )
 
-        ctx.update({
-            "days": days,
-            "task_summary": task_summary,
-            "webhook_summary": webhook_summary,
-            "beat_status": beat_status,
-        })
+        ctx.update(
+            {
+                "days": days,
+                "task_summary": task_summary,
+                "webhook_summary": webhook_summary,
+                "beat_status": beat_status,
+            }
+        )
         return ctx
 
 
@@ -105,7 +107,7 @@ class TaskFailureDetailView(LoginRequiredMixin, PermissionRequiredMixin, Templat
     permission_required = "payments.view_operationalreport"
     template_name = "reports/operational/task_failures.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
 
         task_name_filter = self.request.GET.get("task_name", "").strip() or None
@@ -125,9 +127,11 @@ class TaskFailureDetailView(LoginRequiredMixin, PermissionRequiredMixin, Templat
             len(failures),
         )
 
-        ctx.update({
-            "failures": failures,
-            "task_name_filter": task_name_filter or "",
-            "limit": limit,
-        })
+        ctx.update(
+            {
+                "failures": failures,
+                "task_name_filter": task_name_filter or "",
+                "limit": limit,
+            }
+        )
         return ctx

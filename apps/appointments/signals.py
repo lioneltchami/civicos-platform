@@ -12,6 +12,7 @@ Signal naming convention: appt_<noun>_<past_tense_verb>
 PIPEDA note: kwargs must contain only PKs and slugs — no email, name, or
              content that constitutes personal information.
 """
+
 from django.dispatch import Signal
 
 # ---------------------------------------------------------------------------

@@ -3,12 +3,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0005_wave2_constraint_fixes"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # H-1: PROTECT on AvailabilityTemplate.staff
         # PIPEDA 4.5.3: AvailabilityTemplates are audit records explaining when a staff
         # member was scheduled. Silent cascade-delete on StaffProfile removal violates

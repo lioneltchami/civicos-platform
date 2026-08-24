@@ -23,16 +23,12 @@ class NotificationSerializer(serializers.ModelSerializer):
     is_read = serializers.SerializerMethodField(
         help_text="True when the notification has been read (read_at is set)."
     )
-    channel_display = serializers.CharField(
-        source="get_channel_display", read_only=True
-    )
-    status_display = serializers.CharField(
-        source="get_status_display", read_only=True
-    )
+    channel_display = serializers.CharField(source="get_channel_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     class Meta:
         model = Notification
-        fields = [
+        fields = [  # noqa: RUF012
             "id",
             "subject",
             "body",

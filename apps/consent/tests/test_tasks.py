@@ -5,6 +5,7 @@ process_data_export and cleanup_export_files are tested by calling them
 via .apply() so Celery's TASK_ALWAYS_EAGER setting runs them synchronously
 in-process with a real task instance (no mock self required).
 """
+
 import hashlib
 import hmac
 import json
@@ -13,8 +14,6 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import requests as _requests
-from celery.exceptions import Retry
-
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import TestCase
@@ -32,6 +31,7 @@ from apps.consent.tasks import (
     dispatch_consent_webhook,
     process_data_export,
 )
+from celery.exceptions import Retry
 
 User = get_user_model()
 VALID_PASSWORD = "SecureTest123!"
@@ -215,16 +215,18 @@ class BuildExportPayloadTests(TestCase):
 
     def setUp(self):
         self.citizen = _make_citizen()
-        self.category, _initial_revision = ConsentService.create_data_agreement({
-            "slug": f"export-cat-{uuid.uuid4().hex[:6]}",
-            "name_en": "Export Test Category",
-            "name_fr": "Catégorie de test",
-            "purpose_en": "Testing exports",
-            "purpose_fr": "Test",
-            "lawful_basis": "consent",
-            "is_required": False,
-            "is_active": True,
-        })
+        self.category, _initial_revision = ConsentService.create_data_agreement(
+            {
+                "slug": f"export-cat-{uuid.uuid4().hex[:6]}",
+                "name_en": "Export Test Category",
+                "name_fr": "Catégorie de test",
+                "purpose_en": "Testing exports",
+                "purpose_fr": "Test",
+                "lawful_basis": "consent",
+                "is_required": False,
+                "is_active": True,
+            }
+        )
 
     def test_payload_includes_consent_revisions_for_this_citizen(self):
         """
@@ -304,6 +306,7 @@ class BuildExportPayloadTests(TestCase):
         without needing to actually uninstall anything.
         """
         import sys
+
         with patch.dict(sys.modules, {"apps.portal.models": None}):
             with patch("apps.consent.tasks.logger") as mock_logger:
                 payload = _build_export_payload(self.citizen)
@@ -368,9 +371,10 @@ class CleanupExportFilesTaskTests(TestCase):
         export.document = doc
         export.save(update_fields=["document"])
 
-        with patch(
-            "apps.documents.services.retention.mark_purpose_fulfilled"
-        ) as mock_mpf, patch(_STORAGE):
+        with (
+            patch("apps.documents.services.retention.mark_purpose_fulfilled") as mock_mpf,
+            patch(_STORAGE),
+        ):
             cleanup_export_files.apply()
 
         mock_mpf.assert_called_once_with(document=doc, actor=self.citizen)
@@ -424,9 +428,10 @@ class CleanupExportFilesTaskTests(TestCase):
             expires_at=timezone.now() - timedelta(hours=1),
         )
         # document is NULL — no disposal should be attempted.
-        with patch(
-            "apps.documents.services.retention.mark_purpose_fulfilled"
-        ) as mock_mpf, patch(_STORAGE):
+        with (
+            patch("apps.documents.services.retention.mark_purpose_fulfilled") as mock_mpf,
+            patch(_STORAGE),
+        ):
             cleanup_export_files.apply()
         mock_mpf.assert_not_called()
         export.refresh_from_db()
@@ -449,7 +454,7 @@ class CleanupExportFilesTaskTests(TestCase):
             result = cleanup_export_files.apply()
         self.assertEqual(result.result.get("expired"), 2)
 
-    # ── Stuck-processing recovery (lines 281–310 in tasks.py) ──────────────
+    # ── Stuck-processing recovery (lines 281–310 in tasks.py) ──────────────  # noqa: RUF003
 
     def _make_stuck_processing(self, hours_ago=3):
         """
@@ -595,15 +600,18 @@ class CleanupExportFilesTaskTests(TestCase):
         If it were accidentally removed, a ValueError from a concurrent legal hold
         would abort the per-export iteration, leaving the export stuck in STATUS_READY
         and skipping the audit entry.
-        """
+        """  # noqa: RUF002
         export = self._make_ready_expired()
         export.document = self._make_transitory_doc()
         export.save(update_fields=["document"])
 
-        with patch(
-            "apps.documents.services.retention.mark_purpose_fulfilled",
-            side_effect=ValueError("Document is on legal hold — concurrent race"),
-        ), patch(_STORAGE):
+        with (
+            patch(
+                "apps.documents.services.retention.mark_purpose_fulfilled",
+                side_effect=ValueError("Document is on legal hold — concurrent race"),
+            ),
+            patch(_STORAGE),
+        ):
             cleanup_export_files.apply()
 
         export.refresh_from_db()
@@ -642,10 +650,13 @@ class CleanupExportFilesTaskTests(TestCase):
         export2.save(update_fields=["document"])
 
         # Both mark_purpose_fulfilled calls raise — the loop must survive both.
-        with patch(
-            "apps.documents.services.retention.mark_purpose_fulfilled",
-            side_effect=ValueError("document on legal hold"),
-        ), patch(_STORAGE):
+        with (
+            patch(
+                "apps.documents.services.retention.mark_purpose_fulfilled",
+                side_effect=ValueError("document on legal hold"),
+            ),
+            patch(_STORAGE),
+        ):
             result = cleanup_export_files.apply()
 
         export1.refresh_from_db()
@@ -670,6 +681,7 @@ class CleanupExportFilesTaskTests(TestCase):
 # ===========================================================================
 # dispatch_consent_webhook — Fix 5 (zero coverage before this pass)
 # ===========================================================================
+
 
 def _make_webhook(**kwargs):
     defaults = {
@@ -806,9 +818,7 @@ class DispatchConsentWebhookDeliveryPersistenceTests(_WebhookDispatchTestCase):
         self.assertIsNotNone(self.webhook.last_delivery_at)
         self.assertIsNotNone(self.webhook.last_payload)
         self.assertEqual(self.webhook.last_payload["event"], "consent.granted")
-        self.assertEqual(
-            self.webhook.last_payload["payload"], {"category_slug": "marketing"}
-        )
+        self.assertEqual(self.webhook.last_payload["payload"], {"category_slug": "marketing"})
         self.assertEqual(result.result, {"status": "delivered", "http_status": 200})
 
     def test_non_2xx_response_marks_failed_without_overwriting_last_payload(self):
@@ -842,9 +852,7 @@ class DispatchConsentWebhookDeliveryPersistenceTests(_WebhookDispatchTestCase):
         self.webhook.refresh_from_db()
         self.assertEqual(self.webhook.last_delivery_status, "failed")
         self.assertEqual(self.webhook.last_payload, first_payload)
-        self.assertEqual(
-            result.result, {"status": "receiver_error", "http_status": 500}
-        )
+        self.assertEqual(result.result, {"status": "receiver_error", "http_status": 500})
 
     def test_webhook_not_found_is_skipped_gracefully(self):
         fake_pk = str(uuid.uuid4())
@@ -853,9 +861,7 @@ class DispatchConsentWebhookDeliveryPersistenceTests(_WebhookDispatchTestCase):
                 args=[fake_pk, "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
             )
         mock_post.assert_not_called()
-        self.assertEqual(
-            result.result, {"status": "skipped", "reason": "webhook_not_found"}
-        )
+        self.assertEqual(result.result, {"status": "skipped", "reason": "webhook_not_found"})
 
 
 class DispatchConsentWebhookDisabledTests(_WebhookDispatchTestCase):
@@ -868,9 +874,7 @@ class DispatchConsentWebhookDisabledTests(_WebhookDispatchTestCase):
                 args=[str(webhook.pk), "consent.granted", {}, "2026-01-01T00:00:00+00:00"]
             )
         mock_post.assert_not_called()
-        self.assertEqual(
-            result.result, {"status": "skipped", "reason": "webhook_disabled"}
-        )
+        self.assertEqual(result.result, {"status": "skipped", "reason": "webhook_disabled"})
         webhook.refresh_from_db()
         self.assertIsNone(webhook.last_delivery_status)
         self.assertIsNone(webhook.last_payload)
@@ -899,9 +903,10 @@ class DispatchConsentWebhookRetryTests(_WebhookDispatchTestCase):
         swallowed and not allowed to mark the webhook as a permanent failure
         without at least one retry attempt.
         """
-        with patch(_POST) as mock_post, patch.object(
-            dispatch_consent_webhook, "retry", side_effect=Retry()
-        ) as mock_retry:
+        with (
+            patch(_POST) as mock_post,
+            patch.object(dispatch_consent_webhook, "retry", side_effect=Retry()) as mock_retry,
+        ):
             mock_post.side_effect = _requests.exceptions.ConnectionError("connection refused")
             dispatch_consent_webhook.apply(
                 args=[
@@ -915,9 +920,7 @@ class DispatchConsentWebhookRetryTests(_WebhookDispatchTestCase):
 
         mock_retry.assert_called_once()
         _, retry_kwargs = mock_retry.call_args
-        self.assertIsInstance(
-            retry_kwargs.get("exc"), _requests.exceptions.RequestException
-        )
+        self.assertIsInstance(retry_kwargs.get("exc"), _requests.exceptions.RequestException)
 
     def test_network_error_does_not_mark_delivery_failed_without_retry_exhaustion(self):
         """
@@ -926,8 +929,9 @@ class DispatchConsentWebhookRetryTests(_WebhookDispatchTestCase):
         non-2xx HTTP response from the receiver (a receiver-side logic
         error), not a network-level exception, which is retried instead.
         """
-        with patch(_POST) as mock_post, patch.object(
-            dispatch_consent_webhook, "retry", side_effect=Retry()
+        with (
+            patch(_POST) as mock_post,
+            patch.object(dispatch_consent_webhook, "retry", side_effect=Retry()),
         ):
             mock_post.side_effect = _requests.exceptions.Timeout("timed out")
             dispatch_consent_webhook.apply(
@@ -943,6 +947,7 @@ class DispatchConsentWebhookRetryTests(_WebhookDispatchTestCase):
 # Bug 4 (SSRF hardening) — dispatch-time safety check + registration-time
 # HTTPS-only guard.
 # ===========================================================================
+
 
 class WebhookSSRFProtectionTests(TestCase):
     """
@@ -1092,6 +1097,7 @@ class WebhookDispatchRedirectHandlingTests(TestCase):
 # ===========================================================================
 # Bug 4 (SSRF hardening) — WebhookSerializer registration-time HTTPS guard.
 # ===========================================================================
+
 
 class WebhookSerializerHttpsValidationTests(TestCase):
     """

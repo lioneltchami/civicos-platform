@@ -1,0 +1,36 @@
+CIVICOS_SHIP_PREFLIGHT=START
+WORKTREE_CLEAN=PASS
+HEAD=e7db8679f22042efd9b78b139a2bdca3000a6c81
+ORIGIN_MAIN_BEFORE_FETCH=254936445ae9e66cb80fb701f63e99981ec81bee
+ORIGIN_MAIN_AHEAD_BEFORE_FETCH=297
+ORIGIN_MAIN_BEHIND_BEFORE_FETCH=0
+VALIDATOR_START=scripts/validate_payments_rb02_level_a.sh
+PASS: Level A evidence validated; report: /Users/lioneltchami/build/civicos-platform/docs/evidence/civicos-payments-rb02-level-a-validation-20260823.log
+VALIDATOR_EXIT=0 scripts/validate_payments_rb02_level_a.sh
+VALIDATOR_START=scripts/validate_consent_level_a.sh
+PASS: Consent Level A evidence validated; report: /Users/lioneltchami/build/civicos-platform/docs/evidence/civicos-consent-level-a-validation-20260823.log
+VALIDATOR_EXIT=0 scripts/validate_consent_level_a.sh
+VALIDATOR_START=scripts/validate_scheduler_level_a.sh
+PASS: Scheduler Level A evidence validated; report: /Users/lioneltchami/build/civicos-platform/docs/evidence/civicos-scheduler-level-a-validation-20260823.log
+VALIDATOR_EXIT=0 scripts/validate_scheduler_level_a.sh
+VALIDATOR_START=scripts/validate_file_management_level_a.sh
+PASS: File Management Level A evidence validated; report: /Users/lioneltchami/build/civicos-platform/docs/evidence/civicos-file-management-level-a-validation-20260823.log
+VALIDATOR_EXIT=0 scripts/validate_file_management_level_a.sh
+VALIDATOR_START=scripts/validate_level_a_portfolio.sh
+PASS: Level A portfolio validated; report: /Users/lioneltchami/build/civicos-platform/docs/evidence/civicos-level-a-portfolio-validation-20260823.log
+VALIDATOR_EXIT=0 scripts/validate_level_a_portfolio.sh
+MISSED_FILES=NONE
+SHIP_SECRET_SCAN=PASS
+BASE=origin/main
+HEAD=HEAD
+ALLOWLIST_RECORDS=3
+FINDINGS=3
+ALLOWLIST_MATCH=SHIP-SEC-001|scripts/validate_file_management_level_a.sh|75|c2d34928d653b7811ed13fac198a29ddad02fcefb087ce469ad5833c10b51f9e
+ALLOWLIST_MATCH=SHIP-SEC-002|scripts/validate_payments_rb02_level_a.sh|49|75084b7c109bc4b577515b42fb803a26596a61df8ca7c81c7838ff8f0c4e0f89
+ALLOWLIST_MATCH=SHIP-SEC-003|tests/test_medium_priority_contracts.py|66|5b4bab93cd81d8c8014720085f91afee91d9fcf9f36575083e81d40b85e5b75f
+NO_SECRET_VALUES_RECORDED=TRUE
+RANGE_THEME_SUMMARY=BB remediation; Level A validators/evidence; campaign closeout; ship preflight and reviewed secret triage
+GIT_FETCH=NOT_YET_PERFORMED
+GIT_PUSH=NOT_YET_PERFORMED
+PULL_REQUEST=NOT_YET_CREATED
+CIVICOS_SHIP_PREFLIGHT=PASS

@@ -51,28 +51,126 @@ Security invariants (MUST NEVER be violated)
   ``apps.consent.tasks._is_safe_outbound_url`` (HTTPS-only, same extra IP
   ranges rejected, same fail-closed behaviour).
 """
+
 from __future__ import annotations
 
 import ipaddress
 import logging
 import socket
+from collections.abc import Callable
 from decimal import Decimal
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import requests
-from celery import shared_task
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from apps.payments.govstack_batch_decision import (
+    BatchDecisionConflict,
+    BatchDecisionService,
+)
+from apps.payments.govstack_batch_lease import (
+    BatchLeaseHandle,
+    BatchLeaseOwnershipLost,
+    BatchLeaseService,
+)
+from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
+    GovStackBatchDecision,
     GovStackBeneficiary,
     GovStackPaymentAuditEntry,
+    PaymentOutcome,
     PrepaymentValidationRequest,
 )
+from apps.payments.provider_runtime import enqueue_attempt
+from celery import shared_task
 
 logger = logging.getLogger(__name__)
+
+# RB-02.4 test-only timing seam. It is ``None`` in every normal worker process
+# and is deliberately positioned between committed lease admission and the
+# downstream processing transaction. The durable lease service remains the
+# production fence; this hook never authorizes or persists anything.
+_PROCESS_BULK_PAYMENT_BATCH_TEST_HOOK: Callable[[BatchLeaseHandle], None] | None = None
+
+
+def _run_bulk_payment_batch_test_hook(lease_handle: BatchLeaseHandle) -> None:
+    hook = _PROCESS_BULK_PAYMENT_BATCH_TEST_HOOK
+    if hook is not None:
+        hook(lease_handle)
+
+
+def _record_bulk_instruction_lifecycle(  # noqa: ANN202
+    batch: BulkPaymentBatch,
+    instruction: CreditInstruction,
+    *,
+    beneficiary_found: bool,
+    lease_handle: BatchLeaseHandle | None = None,
+):
+    """Persist non-PII execution evidence without treating ID lookup as settlement.
+
+    Existing GovStack G2P compatibility semantics continue to expose local ID
+    Mapper validation through ``CreditInstruction``. The durable attempt records
+    whether a provider settlement adapter has supplied financial finality. Until
+    such an adapter is configured, a locally valid instruction is explicitly
+    routed to review rather than silently represented as provider-settled.
+    """
+    if lease_handle is not None:
+        BatchLeaseService.assert_current_owner(lease_handle)
+    attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+        tenant_id="",
+        operation="g2p_bulk_instruction",
+        request_id=f"{batch.request_id}:{instruction.instruction_id}",
+        payload={
+            "batch_pk": str(batch.pk),
+            "instruction_pk": str(instruction.pk),
+            "amount": str(instruction.amount),
+            "currency": instruction.currency,
+        },
+        amount=instruction.amount,
+        currency=instruction.currency,
+        correlation_id=batch.correlation_id,
+        source_bb_id=batch.source_bb_id,
+    )
+    if beneficiary_found:
+        # Local ID Mapper validation remains distinct from settlement.  An
+        # explicitly enabled provider runtime owns the next asynchronous step;
+        # without that deployment configuration we preserve the existing
+        # fail-closed, operator-review behavior.
+        if getattr(settings, "GOVSTACK_PAYMENT_PROVIDER_RUNTIME_ENABLED", False):
+            if lease_handle is not None:
+                BatchLeaseService.assert_current_owner(lease_handle)
+            enqueue_attempt(attempt)
+        else:
+            if lease_handle is not None:
+                BatchLeaseService.assert_current_owner(lease_handle)
+            PaymentLifecycleService.apply_outcome(
+                attempt,
+                PaymentOutcome(
+                    "review",
+                    code="SETTLEMENT_ADAPTER_UNCONFIGURED",
+                    category="configuration",
+                    message="Local account validation completed; settlement verification is required.",  # noqa: E501
+                ),
+            )
+    else:
+        if lease_handle is not None:
+            BatchLeaseService.assert_current_owner(lease_handle)
+        PaymentLifecycleService.apply_outcome(
+            attempt,
+            PaymentOutcome(
+                "invalid_account",
+                code="ID_MAPPER_NOT_FOUND",
+                category="account",
+                message="Destination account could not be validated.",
+            ),
+        )
+    return attempt
+
 
 # Seconds to wait for a callback endpoint to respond before abandoning the POST.
 # Non-fatal either way — this is purely a best-effort delivery.
@@ -99,6 +197,7 @@ _IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
 # process_bulk_payment_batch
 # ---------------------------------------------------------------------------
 
+
 @shared_task(
     bind=True,
     name="payments.process_bulk_payment_batch",
@@ -109,168 +208,243 @@ _IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
     reject_on_worker_lost=True,
     soft_time_limit=120,
 )
-def process_bulk_payment_batch(self, batch_pk: str) -> None:
+def process_bulk_payment_batch(self, batch_pk: str) -> None:  # noqa: ANN001
+    """Materialize child finality, then persist one fenced live policy decision.
+
+    RB-02.3 leaves RB-02.1 lease ownership and RB-02.2 evidence materialization
+    intact.  It persists policy, audit, and outbox side effects atomically; no
+    callback transport or return-funds transfer is executed in this task.
     """
-    Per-instruction ID Mapper lookup: marks each CreditInstruction COMPLETED
-    or FAILED, derives batch status as COMPLETED / PARTIAL / FAILED, updates
-    accounting fields, writes audit entries, and POSTs the result to the
-    X-Callback-URL.
+    lease_handle: BatchLeaseHandle | None = None
+    owner_token = str(getattr(self.request, "id", None) or uuid4())
 
-    ID Mapper rule
-    --------------
-    An instruction is COMPLETED when an active ``GovStackBeneficiary`` exists
-    for its ``payee_functional_id`` (``is_active=True``).  Otherwise it is
-    FAILED and ``failure_reason`` is set to a non-PII string.
+    try:
+        # Commit durable lease admission before any test pause or expensive child
+        # processing. A subsequent worker can therefore observe expiry/takeover
+        # instead of being blocked by this worker's batch-row lock.
+        with transaction.atomic():
+            try:
+                batch = BulkPaymentBatch.objects.select_for_update().get(pk=batch_pk)
+            except BulkPaymentBatch.DoesNotExist:
+                logger.error("process_bulk_payment_batch.not_found batch_pk=%s", batch_pk)
+                return
 
-    Batch status derivation
-    -----------------------
-    - All instructions COMPLETED → ``STATUS_COMPLETED``
-    - Some COMPLETED, some FAILED → ``STATUS_PARTIAL``
-    - All instructions FAILED → ``STATUS_FAILED``
+            if batch.status not in {
+                BulkPaymentBatch.STATUS_RECEIVED,
+                BulkPaymentBatch.STATUS_PROCESSING,
+            }:
+                logger.debug(
+                    "process_bulk_payment_batch.already_terminal batch_pk=%s status=%s",
+                    batch_pk,
+                    batch.status,
+                )
+                return
 
-    Idempotent: exits without modification if ``batch.status`` is not
-    ``STATUS_RECEIVED`` (i.e., already processed or in a terminal state).
+            lease_handle = BatchLeaseService.acquire(batch=batch, owner_token=owner_token)
+            if lease_handle is None:
+                logger.info("process_bulk_payment_batch.lease_busy batch_pk=%s", batch_pk)
+                return
+            BatchLeaseService.heartbeat(lease_handle)
 
-    Args:
-        batch_pk: ``str(batch.pk)`` — UUID string primary key of the
-                  ``BulkPaymentBatch`` to process.
+        assert lease_handle is not None
+        _run_bulk_payment_batch_test_hook(lease_handle)
 
-    Security:
-        ``payee_functional_id`` and ``financial_address`` MUST NOT appear in
-        any log message or callback payload.  Use ``batch.pk`` / ``instr.pk``
-        in logs.
-    """
-    with transaction.atomic():
-        try:
+        with transaction.atomic():
             batch = BulkPaymentBatch.objects.select_for_update().get(pk=batch_pk)
-        except BulkPaymentBatch.DoesNotExist:
-            logger.error(
-                "process_bulk_payment_batch.not_found batch_pk=%s",
-                batch_pk,
+            # This fresh downstream assertion rejects a worker that was paused
+            # across expiry/takeover before it can mutate any child or batch row.
+            BatchLeaseService.assert_current_owner(lease_handle)
+            if batch.status not in {
+                BulkPaymentBatch.STATUS_RECEIVED,
+                BulkPaymentBatch.STATUS_PROCESSING,
+            }:
+                return
+            BatchLeaseService.heartbeat(lease_handle)
+
+            settled_amount = Decimal("0.00")
+            rejected_amount = Decimal("0.00")
+            child_items: list[dict[str, str]] = []
+
+            for instr in (
+                CreditInstruction.objects.filter(batch=batch)
+                .select_for_update()
+                .select_related("payment_attempt")
+            ):
+                BatchLeaseService.heartbeat(lease_handle)
+                BatchLeaseService.assert_current_owner(lease_handle)
+
+                if instr.payment_attempt_id is None and instr.status in {
+                    CreditInstruction.STATUS_COMPLETED,
+                    CreditInstruction.STATUS_FAILED,
+                }:
+                    # A historic terminal-looking row without the RB-02.2
+                    # binding remains non-final and cannot produce a terminal
+                    # policy projection.
+                    child_items.append(
+                        {"id": str(instr.pk), "status": "review", "amount": str(instr.amount)}
+                    )
+                    continue
+
+                if instr.payment_attempt_id is None:
+                    found = GovStackBeneficiary.objects.filter(
+                        payee_functional_id=instr.payee_functional_id,
+                        is_active=True,
+                    ).exists()
+                    attempt = _record_bulk_instruction_lifecycle(
+                        batch,
+                        instr,
+                        beneficiary_found=found,
+                        lease_handle=lease_handle,
+                    )
+                    BatchLeaseService.assert_current_owner(lease_handle)
+                    instr = PaymentLifecycleService.bind_credit_instruction_attempt(instr, attempt)
+
+                finality = PaymentLifecycleService.materialize_credit_instruction_finality(instr)
+                if finality.final and finality.status == "settled":
+                    child_items.append(
+                        {"id": str(instr.pk), "status": "settled", "amount": str(instr.amount)}
+                    )
+                    settled_amount += instr.amount
+                    if instr.status != CreditInstruction.STATUS_COMPLETED:
+                        instr.status = CreditInstruction.STATUS_COMPLETED
+                        instr.failure_reason = ""
+                        BatchLeaseService.assert_current_owner(lease_handle)
+                        instr.save(update_fields=["status", "failure_reason"])
+                elif finality.final and finality.status == "rejected":
+                    child_items.append(
+                        {"id": str(instr.pk), "status": "rejected", "amount": str(instr.amount)}
+                    )
+                    rejected_amount += instr.amount
+                    if instr.status != CreditInstruction.STATUS_FAILED:
+                        instr.status = CreditInstruction.STATUS_FAILED
+                        instr.failure_reason = "Provider evidence rejected the instruction."
+                        BatchLeaseService.assert_current_owner(lease_handle)
+                        instr.save(update_fields=["status", "failure_reason"])
+                else:
+                    non_final_status = "review"
+                    if instr.payment_attempt_id:
+                        attempt_status = instr.payment_attempt.status
+                        if attempt_status in {"retryable", "uncertain", "review"}:
+                            non_final_status = attempt_status
+                    child_items.append(
+                        {
+                            "id": str(instr.pk),
+                            "status": non_final_status,
+                            "amount": str(instr.amount),
+                        }
+                    )
+                    if instr.status == CreditInstruction.STATUS_PENDING:
+                        instr.status = CreditInstruction.STATUS_VALIDATED
+                        instr.failure_reason = ""
+                        BatchLeaseService.assert_current_owner(lease_handle)
+                        instr.save(update_fields=["status", "failure_reason"])
+
+            BatchLeaseService.assert_current_owner(lease_handle)
+            result = BatchDecisionService.decide(
+                batch=batch,
+                lease_handle=lease_handle,
+                items=child_items,
+                failure_threshold=float(getattr(settings, "GOVSTACK_BULK_FAILURE_THRESHOLD", 0.25)),
+                return_funds_enabled=bool(
+                    getattr(settings, "GOVSTACK_BULK_RETURN_FUNDS_ENABLED", False)
+                ),
             )
-            return
+            decision = result.decision
 
-        if batch.status != BulkPaymentBatch.STATUS_RECEIVED:
-            # Already processed — idempotent exit under the row lock.
-            logger.debug(
-                "process_bulk_payment_batch.already_processed batch_pk=%s status=%s",
-                batch_pk,
-                batch.status,
-            )
-            return
-
-        # Per-instruction ID Mapper lookup.
-        # We iterate rather than bulk-update so that each instruction can be
-        # individually COMPLETED or FAILED based on whether an active beneficiary
-        # exists for its payee_functional_id.
-        # select_for_update() on the instruction queryset prevents concurrent
-        # task retries from racing on the same rows.
-        # Security: payee_functional_id is used ONLY as a DB filter key —
-        # NEVER passed to logger or included in any audit details.
-        completed_count: int = 0
-        failed_count: int = 0
-        completed_amount: Decimal = Decimal("0.00")
-        failed_amount: Decimal = Decimal("0.00")
-
-        for instr in (
-            CreditInstruction.objects
-            .filter(batch=batch, status=CreditInstruction.STATUS_PENDING)
-            .select_for_update()
-        ):
-            found: bool = GovStackBeneficiary.objects.filter(
-                payee_functional_id=instr.payee_functional_id,
-                is_active=True,
-            ).exists()
-
-            if found:
-                instr.status = CreditInstruction.STATUS_COMPLETED
-                instr.failure_reason = ""  # clear any stale value from a prior partial run
-                completed_count += 1
-                completed_amount += instr.amount
+            if decision.outcome_action in {
+                GovStackBatchDecision.ACTION_TERMINAL,
+                GovStackBatchDecision.ACTION_RETURN_FUNDS,
+            }:
+                if decision.non_final_count:
+                    raise BatchDecisionConflict(
+                        "terminal projection with non-final child is forbidden"
+                    )
+                if decision.rejected_count == 0:
+                    batch.status = BulkPaymentBatch.STATUS_COMPLETED
+                elif decision.settled_count == 0:
+                    batch.status = BulkPaymentBatch.STATUS_FAILED
+                else:
+                    batch.status = BulkPaymentBatch.STATUS_PARTIAL
+                batch.result_generated_at = timezone.now()
             else:
-                instr.status = CreditInstruction.STATUS_FAILED
-                instr.failure_reason = "PayeeFunctionalID not found in ID Mapper."
-                failed_count += 1
-                failed_amount += instr.amount
-                # Write a per-instruction audit entry for each failure.
-                # Security: failure_reason is a static string — no PII.
+                batch.status = BulkPaymentBatch.STATUS_PROCESSING
+                batch.result_generated_at = None
+
+            batch.completed_amount = settled_amount
+            batch.failed_amount = rejected_amount
+            BatchLeaseService.assert_current_owner(lease_handle)
+            batch.save(
+                update_fields=[
+                    "status",
+                    "completed_amount",
+                    "failed_amount",
+                    "result_generated_at",
+                ]
+            )
+
+            if result.created:
+                BatchLeaseService.assert_current_owner(lease_handle)
                 GovStackPaymentAuditEntry.objects.create(
-                    action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
+                    action=GovStackPaymentAuditEntry.ACTION_BATCH_DECISION_RECORDED,
                     actor_bb_id=batch.source_bb_id,
-                    object_type="instruction",
-                    object_pk=str(instr.pk),
+                    object_type="batch_decision",
+                    object_pk=str(decision.pk),
                     request_id=batch.request_id,
                     details={
-                        "failure_reason": instr.failure_reason,
-                        # NEVER include payee_functional_id or financial_address
+                        "outcome_action": decision.outcome_action,
+                        "policy_state": decision.policy_state,
+                        "fingerprint": decision.fingerprint,
+                        "reason": decision.reason,
+                        "total_count": decision.total_count,
+                        "settled_count": decision.settled_count,
+                        "rejected_count": decision.rejected_count,
+                        "non_final_count": decision.non_final_count,
+                        "lease_generation": decision.lease_generation,
                     },
                 )
-
-            instr.save(update_fields=["status", "failure_reason"])
-
-        # Derive batch outcome from instruction counts.
-        if failed_count == 0:
-            batch.status = BulkPaymentBatch.STATUS_COMPLETED
-            batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_COMPLETED
-        elif completed_count == 0:
-            batch.status = BulkPaymentBatch.STATUS_FAILED
-            batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_FAILED
-        else:
-            batch.status = BulkPaymentBatch.STATUS_PARTIAL
-            batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_PARTIAL
-
-        # result_generated_at timestamps when this Celery task finished so that
-        # monitoring queries can detect stuck batches (result_generated_at IS NULL
-        # after sufficient time would indicate a processing error).
-        batch.completed_amount = completed_amount
-        batch.failed_amount = failed_amount
-        batch.result_generated_at = timezone.now()
-        batch.save(update_fields=[
-            "status",
-            "completed_amount",
-            "failed_amount",
-            "result_generated_at",
-        ])
-
-        GovStackPaymentAuditEntry.objects.create(
-            action=batch_audit_action,
-            actor_bb_id=batch.source_bb_id,
-            object_type="batch",
-            object_pk=str(batch.pk),
-            request_id=batch.request_id,
-            details={
-                "batch_id": batch.batch_id,          # batch_id is not PII
-                "source_bb_id": batch.source_bb_id,
-                "completed_count": completed_count,
-                "failed_count": failed_count,
-                # NEVER include payee_functional_id or financial_address
-            },
-        )
-
-        # Capture callback fields inside the transaction before the lock releases.
-        # batch.status.upper(): "completed"→"COMPLETED", "partial"→"PARTIAL",
-        # "failed"→"FAILED" — matches the GovStack spec callback Status values.
-        callback_url = batch.callback_url
-        callback_status = batch.status.upper()
-
-    # POST callback OUTSIDE the transaction — failure is non-fatal.
-    # The BulkPaymentBatch is already in its terminal state in the database.
-    # A callback failure does NOT retry the task or rollback the status change.
-    if callback_url:
-        _post_callback(
-            url=callback_url,
-            payload={
-                "RequestID": batch.request_id,
-                "BatchID": batch.batch_id,
-                "Status": callback_status,
-                # NEVER include payee_functional_id or financial_address
-            },
-        )
+                if batch.callback_url:
+                    # Preserve the established external callback contract;
+                    # the durable decision/audit rows retain decision identity.
+                    callback_payload = {
+                        "RequestID": batch.request_id,
+                        "BatchID": batch.batch_id,
+                        "Status": decision.outcome_action.upper(),
+                    }
+                    BatchLeaseService.assert_current_owner(lease_handle)
+                    callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+                        tenant_id="",
+                        operation="g2p_bulk_callback",
+                        request_id=f"callback:{batch.request_id}:{batch.batch_id}",
+                        # This is the canonical callback-attempt identity. The
+                        # decision-specific status remains in CallbackDelivery's
+                        # payload hash, allowing later distinct decisions to
+                        # enqueue one delivery without idempotency conflict.
+                        payload={"RequestID": batch.request_id, "BatchID": batch.batch_id},
+                        audit_created=False,
+                        correlation_id=batch.correlation_id,
+                        source_bb_id=batch.source_bb_id,
+                    )
+                    BatchLeaseService.assert_current_owner(lease_handle)
+                    PaymentLifecycleService.queue_callback(
+                        attempt=callback_attempt,
+                        callback_url=batch.callback_url,
+                        payload=callback_payload,
+                    )
+    except (BatchLeaseOwnershipLost, BatchDecisionConflict):
+        logger.info("process_bulk_payment_batch.decision_not_written batch_pk=%s", batch_pk)
+        return
+    finally:
+        if lease_handle is not None:
+            try:
+                BatchLeaseService.release(lease_handle)
+            except BatchLeaseOwnershipLost:
+                logger.info("process_bulk_payment_batch.release_stale batch_pk=%s", batch_pk)
 
 
 # ---------------------------------------------------------------------------
 # validate_prepayment_async
 # ---------------------------------------------------------------------------
+
 
 @shared_task(
     bind=True,
@@ -282,7 +456,7 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
     reject_on_worker_lost=True,
     soft_time_limit=60,
 )
-def validate_prepayment_async(self, pvr_pk: str) -> None:
+def validate_prepayment_async(self, pvr_pk: str) -> None:  # noqa: ANN001
     """
     Validate a PrepaymentValidationRequest against the Beneficiary registry.
 
@@ -366,16 +540,116 @@ def validate_prepayment_async(self, pvr_pk: str) -> None:
             "FailedAccounts": [] if beneficiary_found else [pvr.instruction_id],
         }
 
-    # POST callback OUTSIDE the transaction — failure is non-fatal.
-    # The PrepaymentValidationRequest is already COMPLETED in the database.
+    # Persist callback work before transport. The original validation result is
+    # available for idempotent replay if the source endpoint is unavailable.
     if callback_url:
-        _post_callback(url=callback_url, payload=callback_payload)
+        callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+            tenant_id="",
+            operation="g2p_prepayment_callback",
+            request_id=f"callback:{pvr.request_id}:{pvr.instruction_id}",
+            payload=callback_payload,
+            correlation_id="",
+            source_bb_id=pvr.source_bb_id,
+        )
+        delivery, _ = PaymentLifecycleService.queue_callback(
+            attempt=callback_attempt,
+            callback_url=callback_url,
+            payload=callback_payload,
+        )
+        success, http_status, error_code = _post_callback(
+            url=callback_url,
+            payload=callback_payload,
+        )
+        PaymentLifecycleService.record_callback_result(
+            delivery,
+            http_status=http_status if success else None,
+            error_code=error_code,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Item 02 failure-remediation sweeps
+# ---------------------------------------------------------------------------
+
+
+@shared_task(
+    name="payments.replay_govstack_callbacks",
+    queue="payments",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def replay_govstack_callbacks() -> int:
+    """Replay due non-PII callback outbox records with bounded persistence."""
+    delivered_or_recorded = 0
+    for delivery in PaymentLifecycleService.due_callbacks():
+        success, http_status, error_code = _post_callback(
+            delivery.callback_url,
+            delivery.payload,
+        )
+        PaymentLifecycleService.record_callback_result(
+            delivery,
+            http_status=http_status if success else None,
+            error_code=error_code,
+        )
+        delivered_or_recorded += 1
+    return delivered_or_recorded
+
+
+@shared_task(
+    name="payments.triage_govstack_uncertain_attempts",
+    queue="payments",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def triage_govstack_uncertain_attempts() -> int:
+    """Avoid a blind retry when a provider outcome remains uncertain.
+
+    A production provider adapter may replace this bounded safety net with a
+    status-query result. Until then, the record becomes an auditable review
+    item after an unknown reconciliation result rather than being resubmitted.
+    """
+    triaged = 0
+    for attempt in PaymentLifecycleService.due_uncertain():
+        PaymentLifecycleService.reconcile(attempt, provider_status="unknown")
+        PaymentLifecycleService.apply_outcome(
+            attempt,
+            PaymentOutcome(
+                "review",
+                code="UNCERTAIN_OUTCOME_REQUIRES_REVIEW",
+                category="reconciliation",
+                message="Provider outcome is unresolved; manual reconciliation is required.",
+            ),
+        )
+        triaged += 1
+    return triaged
+
+
+@shared_task(
+    name="payments.triage_govstack_retryable_attempts",
+    queue="payments",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def triage_govstack_retryable_attempts() -> int:
+    """Route due retryable work to review until a provider adapter is configured."""
+    triaged = 0
+    for attempt in PaymentLifecycleService.due_retries():
+        PaymentLifecycleService.apply_outcome(
+            attempt,
+            PaymentOutcome(
+                "review",
+                code="RETRY_ADAPTER_UNCONFIGURED",
+                category="configuration",
+                message="Retry requires a configured provider adapter.",
+            ),
+        )
+        triaged += 1
+    return triaged
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
 def _is_safe_callback_url(url: str) -> bool:
     """
     Defense against SSRF via the caller-supplied ``X-Callback-URL`` header.
@@ -460,11 +734,11 @@ def _is_safe_callback_url(url: str) -> bool:
                 return False
 
         return True
-    except Exception:  # noqa: BLE001 — fail closed on ANY parse/DNS error.
+    except Exception:
         return False
 
 
-def _post_callback(url: str, payload: dict) -> None:
+def _post_callback(url: str, payload: dict) -> tuple[bool, int | None, str]:
     """
     POST a GovStack async result callback to the Source BB.
 
@@ -517,7 +791,7 @@ def _post_callback(url: str, payload: dict) -> None:
             "govstack.callback_post_blocked_unsafe_url url=%s",
             url,
         )
-        return
+        return False, None, "unsafe_callback_url"
 
     try:
         response = requests.post(
@@ -541,7 +815,8 @@ def _post_callback(url: str, payload: dict) -> None:
             url,
             response.status_code,
         )
-    except Exception as exc:  # noqa: BLE001
+        return True, response.status_code, ""
+    except Exception as exc:
         # Non-fatal: log the exception class name (not the message, which may
         # contain the URL parameters or response body) and return normally.
         logger.warning(
@@ -549,3 +824,4 @@ def _post_callback(url: str, payload: dict) -> None:
             url,
             type(exc).__name__,
         )
+        return False, None, type(exc).__name__

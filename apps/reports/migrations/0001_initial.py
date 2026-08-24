@@ -5,12 +5,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = []
+    dependencies = []  # noqa: RUF012
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
             name="ReportSnapshot",
             fields=[
@@ -45,7 +44,7 @@ class Migration(migrations.Migration):
                 (
                     "period_month",
                     models.PositiveSmallIntegerField(
-                        help_text="Calendar month 1–12.",
+                        help_text="Calendar month 1–12.",  # noqa: RUF001
                         verbose_name="Period month",
                     ),
                 ),
@@ -130,9 +129,7 @@ class Migration(migrations.Migration):
                 (
                     "actor_pk",
                     models.UUIDField(
-                        help_text=(
-                            "UUID primary key of the staff user who triggered this export."
-                        ),
+                        help_text=("UUID primary key of the staff user who triggered this export."),
                         verbose_name="Actor PK",
                     ),
                 ),

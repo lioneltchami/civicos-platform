@@ -1,0 +1,25 @@
+CIVICOS_PR_CI_VERIFICATION=READY
+DATE=2026-08-24
+PR_URL=https://github.com/lioneltchami/civicos-platform/pull/1
+RUN_URL=https://github.com/lioneltchami/civicos-platform/actions/runs/32707286531
+RUN_ID=32707286531
+HEAD_SHA=b3bfe1ef77ac7ebb9ec46bb1b688c2ee61fbebc8
+WORKFLOW_CONCLUSION=success
+VISIBILITY=public-confirmed-prior-to-run
+NO_START_BILLING_GATE=cleared-for-this-run
+JOB=Lint|conclusion=success|terminal_work=Ruff format check
+JOB=Frontend lint and build|conclusion=success|terminal_work=Check frontend/API contract
+JOB=Security scan|conclusion=success|terminal_work=Audit production requirements
+JOB=Tests|conclusion=success|terminal_work=Generate and validate OpenAPI schema
+JOB=PostgreSQL Redis Celery contracts|conclusion=success|terminal_work=Run service-backed contract checks
+JOB=Production settings deploy check|conclusion=success|terminal_work=Run production system checks
+JOB=Docker build|conclusion=success|terminal_work=Build production image
+BLIND_REREVIEW=READY
+REPOSITORY_SIDE_ACTIONS_FAILURE=none
+MERGE_AUTHORIZATION=not-granted
+DEPLOYMENT_AUTHORIZATION=not-granted
+STAGING_AUTHORIZATION=not-granted
+PRODUCTION_AUTHORIZATION=not-granted
+SECRET_ACCESS_AUTHORIZATION=not-granted
+OFFICIAL_GOVSTACK_TESTING_OR_SUBMISSION=not-granted
+GOVSTACK_CERTIFICATION_OR_CONFORMANCE_CLAIM=not-authorized

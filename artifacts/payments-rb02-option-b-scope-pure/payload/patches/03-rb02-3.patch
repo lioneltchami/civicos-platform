@@ -1,0 +1,1011 @@
+From 698716908f65d90d84aed607dacb8b8b3815ed51 Mon Sep 17 00:00:00 2001
+From: Lionel Tchami <lioneltchami@gmail.com>
+Date: Fri, 21 Aug 2026 00:31:59 -0600
+Subject: [PATCH] =?UTF-8?q?Item=2002=20=E2=80=93=20RB-02.3=20policy=20and?=
+ =?UTF-8?q?=20decisions?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ apps/payments/govstack_batch_decision.py      | 181 +++++++++++++++
+ apps/payments/govstack_failure_services.py    |  13 +-
+ apps/payments/govstack_models.py              |  63 ++++++
+ apps/payments/govstack_tasks.py               | 205 +++++++++--------
+ ...45_item02_rb023_govstack_batch_decision.py | 123 ++++++++++
+ .../test_item02_rb02_batch_lease_live.py      | 211 +++++++++++++++++-
+ config/settings/base.py                       |   9 +
+ 7 files changed, 707 insertions(+), 98 deletions(-)
+ create mode 100644 apps/payments/govstack_batch_decision.py
+ create mode 100644 apps/payments/migrations/0045_item02_rb023_govstack_batch_decision.py
+
+diff --git a/apps/payments/govstack_batch_decision.py b/apps/payments/govstack_batch_decision.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..6212fcddd0bd5611b4e6e1cd85e1a3d046454a38
+--- /dev/null
++++ b/apps/payments/govstack_batch_decision.py
+@@ -0,0 +1,181 @@
++"""Durable, fenced policy decisions for the live bulk-payment worker.
++
++This module persists an outcome only.  It never submits a provider operation,
++executes a refund, sends a callback, or replaces the RB-02.2 child-finality
++materializer.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++import hashlib
++import json
++from typing import Any, Iterable
++
++from django.db import IntegrityError, transaction
++
++from apps.payments.govstack_batch_lease import BatchLeaseHandle, BatchLeaseService
++from apps.payments.govstack_batch_policy import BatchDecision, evaluate
++from apps.payments.govstack_models import BulkPaymentBatch, GovStackBatchDecision
++
++
++class BatchDecisionConflict(ValueError):
++    """A live lease generation attempted to persist changed policy inputs."""
++
++
++@dataclass(frozen=True)
++class BatchDecisionResult:
++    decision: GovStackBatchDecision
++    created: bool
++    policy: BatchDecision
++
++
++class BatchDecisionService:
++    """Create or replay exactly one logical decision for deterministic inputs."""
++
++    @staticmethod
++    def _canonical_items(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
++        return [
++            {
++                "id": str(item["id"]),
++                "status": str(item["status"]),
++                "amount": str(item.get("amount", "0.00")),
++            }
++            for item in sorted(items, key=lambda value: str(value["id"]))
++        ]
++
++    @classmethod
++    def fingerprint(
++        cls,
++        *,
++        batch: BulkPaymentBatch,
++        items: Iterable[dict[str, Any]],
++        failure_threshold: float,
++        return_funds_enabled: bool,
++    ) -> str:
++        payload = {
++            "batch_pk": str(batch.pk),
++            "items": cls._canonical_items(items),
++            "failure_threshold": str(failure_threshold),
++            "return_funds_enabled": bool(return_funds_enabled),
++        }
++        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
++        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
++
++    @staticmethod
++    def _reason(policy: BatchDecision, *, total_count: int) -> str:
++        if total_count == 0:
++            return "empty_batch"
++        return f"policy_{policy.state}"
++
++    @staticmethod
++    def _action(
++        *,
++        policy: BatchDecision,
++        total_count: int,
++        rejected_count: int,
++        non_final_count: int,
++        return_funds_enabled: bool,
++    ) -> str:
++        if total_count == 0:
++            return GovStackBatchDecision.ACTION_EMPTY
++        if non_final_count:
++            if policy.state == "paused":
++                return GovStackBatchDecision.ACTION_PAUSE
++            if policy.state in {"retryable", "uncertain"}:
++                return GovStackBatchDecision.ACTION_RETRY
++            return GovStackBatchDecision.ACTION_REVIEW
++        if policy.state not in {"completed", "partial"}:
++            # Fail closed if the evaluator ever returns an unknown all-final
++            # state rather than projecting a terminal batch result.
++            return GovStackBatchDecision.ACTION_REVIEW
++        if rejected_count and return_funds_enabled:
++            return GovStackBatchDecision.ACTION_RETURN_FUNDS
++        return GovStackBatchDecision.ACTION_TERMINAL
++
++    @classmethod
++    def decide(
++        cls,
++        *,
++        batch: BulkPaymentBatch,
++        lease_handle: BatchLeaseHandle,
++        items: list[dict[str, Any]],
++        failure_threshold: float,
++        return_funds_enabled: bool,
++    ) -> BatchDecisionResult:
++        """Fence, create, or replay one durable policy decision.
++
++        The fingerprint omits lease generation deliberately: the same logical
++        task redelivery can replay its decision under a later legitimate lease.
++        A changed input set under the same generation is an explicit conflict.
++        """
++        canonical_items = cls._canonical_items(items)
++        policy = evaluate(canonical_items, failure_threshold=failure_threshold)
++        total_count = len(canonical_items)
++        settled_count = sum(item["status"] == "settled" for item in canonical_items)
++        rejected_count = sum(item["status"] == "rejected" for item in canonical_items)
++        non_final_count = total_count - settled_count - rejected_count
++        fingerprint = cls.fingerprint(
++            batch=batch,
++            items=canonical_items,
++            failure_threshold=failure_threshold,
++            return_funds_enabled=return_funds_enabled,
++        )
++        action = cls._action(
++            policy=policy,
++            total_count=total_count,
++            rejected_count=rejected_count,
++            non_final_count=non_final_count,
++            return_funds_enabled=return_funds_enabled,
++        )
++        if non_final_count and action in {
++            GovStackBatchDecision.ACTION_TERMINAL,
++            GovStackBatchDecision.ACTION_RETURN_FUNDS,
++        }:
++            raise BatchDecisionConflict("non-final children cannot produce a terminal decision")
++
++        with transaction.atomic():
++            BatchLeaseService.assert_current_owner(lease_handle)
++            same_generation = (
++                GovStackBatchDecision.objects.select_for_update()
++                .filter(batch=batch, lease_generation=lease_handle.generation)
++                .exclude(fingerprint=fingerprint)
++                .first()
++            )
++            if same_generation is not None:
++                raise BatchDecisionConflict(
++                    "batch lease generation already has a different decision fingerprint"
++                )
++            existing = (
++                GovStackBatchDecision.objects.select_for_update()
++                .filter(batch=batch, fingerprint=fingerprint)
++                .first()
++            )
++            if existing is not None:
++                return BatchDecisionResult(existing, False, policy)
++            try:
++                with transaction.atomic():
++                    decision = GovStackBatchDecision.objects.create(
++                        batch=batch,
++                        fingerprint=fingerprint,
++                        lease_owner_token=lease_handle.owner_token,
++                        lease_generation=lease_handle.generation,
++                        policy_state=policy.state,
++                        outcome_action=action,
++                        total_count=total_count,
++                        settled_count=settled_count,
++                        rejected_count=rejected_count,
++                        non_final_count=non_final_count,
++                        reason=cls._reason(policy, total_count=total_count),
++                        details={
++                            "retry_ids": list(policy.retry_ids),
++                            "settled_ids": list(policy.settled_ids),
++                            "kick_back": policy.kick_back,
++                        },
++                    )
++            except IntegrityError:
++                decision = GovStackBatchDecision.objects.select_for_update().get(
++                    batch=batch,
++                    fingerprint=fingerprint,
++                )
++                return BatchDecisionResult(decision, False, policy)
++            return BatchDecisionResult(decision, True, policy)
+diff --git a/apps/payments/govstack_failure_services.py b/apps/payments/govstack_failure_services.py
+index e5d38e1c7088fcbc752b31ef83119928f76631f5..a155775e54576919b7dca230ee8f285ce35ca3ac 100644
+--- a/apps/payments/govstack_failure_services.py
++++ b/apps/payments/govstack_failure_services.py
+@@ -74,6 +74,7 @@ class PaymentLifecycleService:
+         operation: str,
+         request_id: str,
+         payload: Mapping[str, Any],
++        audit_created: bool = True,
+         **defaults: Any,
+     ) -> tuple[PaymentAttempt, bool]:
+         """Create one scoped attempt or replay the canonical existing attempt.
+@@ -110,11 +111,12 @@ class PaymentLifecycleService:
+                         "idempotency key was reused with a different payload"
+                     )
+                 return attempt, False
+-            cls.audit(
+-                attempt,
+-                GovStackPaymentAuditEntry.ACTION_PAYMENT_ATTEMPT_CREATED,
+-                {"operation": attempt.operation},
+-            )
++            if audit_created:
++                cls.audit(
++                    attempt,
++                    GovStackPaymentAuditEntry.ACTION_PAYMENT_ATTEMPT_CREATED,
++                    {"operation": attempt.operation},
++                )
+             return attempt, True
+ 
+     @staticmethod
+@@ -214,6 +216,7 @@ class PaymentLifecycleService:
+                 payload_hash=digest,
+                 defaults={
+                     "callback_url": callback_url[:500],
++                    "payload": dict(payload),
+                     "status": CallbackDelivery.STATUS_PENDING,
+                     "next_attempt_at": now,
+                 },
+diff --git a/apps/payments/govstack_models.py b/apps/payments/govstack_models.py
+index 1301489f480b624fbea8cdd1831bba8eb3eff95d..61f9bea8cc2f0d4e9b8ce253c71f7200c5df9c9b 100644
+--- a/apps/payments/govstack_models.py
++++ b/apps/payments/govstack_models.py
+@@ -891,6 +891,7 @@ class GovStackPaymentAuditEntry(TimestampedModel):
+     ACTION_CALLBACK_DEAD_LETTERED = "callback_dead_lettered"
+     ACTION_RECONCILIATION_RECORDED = "reconciliation_recorded"
+     ACTION_PAYMENT_REVIEW_REQUIRED = "payment_review_required"
++    ACTION_BATCH_DECISION_RECORDED = "batch_decision_recorded"
+ 
+     ACTION_CHOICES = [
+         (ACTION_BENEFICIARY_REGISTERED, _("Beneficiary Registered")),
+@@ -919,6 +920,7 @@ class GovStackPaymentAuditEntry(TimestampedModel):
+         (ACTION_CALLBACK_DEAD_LETTERED, _("Callback Dead-Lettered")),
+         (ACTION_RECONCILIATION_RECORDED, _("Reconciliation Recorded")),
+         (ACTION_PAYMENT_REVIEW_REQUIRED, _("Payment Review Required")),
++        (ACTION_BATCH_DECISION_RECORDED, _("Batch Decision Recorded")),
+     ]
+ 
+     id = models.UUIDField(
+@@ -1654,6 +1656,67 @@ class IdempotencyLedger(TimestampedModel):
+         indexes = [models.Index(fields=["tenant_id", "created_at"], name="gs_idem_tenant_created_idx")]
+ 
+ 
++class GovStackBatchDecision(TimestampedModel):
++    """Immutable, fenced policy decision for one logical bulk-batch outcome."""
++
++    ACTION_EMPTY = "empty"
++    ACTION_PAUSE = "pause"
++    ACTION_RETRY = "retry"
++    ACTION_REVIEW = "review"
++    ACTION_TERMINAL = "terminal"
++    ACTION_RETURN_FUNDS = "return_funds"
++    ACTION_CHOICES = [
++        (ACTION_EMPTY, "Empty"),
++        (ACTION_PAUSE, "Pause"),
++        (ACTION_RETRY, "Retry"),
++        (ACTION_REVIEW, "Review"),
++        (ACTION_TERMINAL, "Terminal"),
++        (ACTION_RETURN_FUNDS, "Return funds"),
++    ]
++
++    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
++    batch = models.ForeignKey(
++        BulkPaymentBatch,
++        on_delete=models.PROTECT,
++        related_name="decisions",
++    )
++    # The canonical ordered child/policy input; uniqueness makes task delivery
++    # idempotent even when a later valid lease generation replays it.
++    fingerprint = models.CharField(max_length=64)
++    lease_owner_token = models.CharField(max_length=128)
++    lease_generation = models.PositiveIntegerField()
++    policy_state = models.CharField(max_length=20)
++    outcome_action = models.CharField(max_length=20, choices=ACTION_CHOICES)
++    total_count = models.PositiveIntegerField(default=0)
++    settled_count = models.PositiveIntegerField(default=0)
++    rejected_count = models.PositiveIntegerField(default=0)
++    non_final_count = models.PositiveIntegerField(default=0)
++    reason = models.CharField(max_length=100)
++    details = models.JSONField(default=dict)
++
++    class Meta:
++        constraints = [
++            models.UniqueConstraint(
++                fields=["batch", "fingerprint"],
++                name="gs_batch_decision_fingerprint_uniq",
++            ),
++        ]
++        indexes = [
++            models.Index(
++                fields=["batch", "lease_generation"],
++                name="gs_batch_decision_gen_idx",
++            ),
++        ]
++
++    def save(self, *args, **kwargs):
++        if not self._state.adding:
++            raise ValueError("GovStackBatchDecision records are append-only")
++        return super().save(*args, **kwargs)
++
++    def delete(self, *args, **kwargs):
++        raise ValueError("GovStackBatchDecision records are append-only")
++
++
+ class BatchLease(TimestampedModel):
+     """Durable ownership token for batch workers; stale owners cannot renew or commit."""
+     batch = models.OneToOneField(BulkPaymentBatch, on_delete=models.PROTECT, related_name="runtime_lease")
+diff --git a/apps/payments/govstack_tasks.py b/apps/payments/govstack_tasks.py
+index 79d8ecdedfa5e8d36069a4e26082149786a55d87..8a1749c7d5ae0c8a12ead4bec6867e65cc58e1cc 100644
+--- a/apps/payments/govstack_tasks.py
++++ b/apps/payments/govstack_tasks.py
+@@ -66,6 +66,10 @@ from django.conf import settings
+ from django.db import transaction
+ from django.utils import timezone
+ 
++from apps.payments.govstack_batch_decision import (
++    BatchDecisionConflict,
++    BatchDecisionService,
++)
+ from apps.payments.govstack_batch_lease import (
+     BatchLeaseHandle,
+     BatchLeaseOwnershipLost,
+@@ -77,6 +81,7 @@ from apps.payments.govstack_models import (
+     BulkPaymentBatch,
+     CallbackDelivery,
+     CreditInstruction,
++    GovStackBatchDecision,
+     GovStackBeneficiary,
+     GovStackPaymentAuditEntry,
+     PaymentOutcome,
+@@ -190,16 +195,13 @@ _IETF_PROTOCOL_ASSIGNMENTS = ipaddress.ip_network("192.0.0.0/24")
+     soft_time_limit=120,
+ )
+ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+-    """Materialize authoritative bulk-child finality under a durable lease.
++    """Materialize child finality, then persist one fenced live policy decision.
+ 
+-    RB-02.2 preserves mapper eligibility as a local processing gate only.  A
+-    child and batch become financially terminal only through the bound attempt's
+-    verified and reconciled provider evidence.
++    RB-02.3 leaves RB-02.1 lease ownership and RB-02.2 evidence materialization
++    intact.  It persists policy, audit, and outbox side effects atomically; no
++    callback transport or return-funds transfer is executed in this task.
+     """
+     lease_handle: BatchLeaseHandle | None = None
+-    callback_url = ""
+-    callback_status = ""
+-    callback_batch: BulkPaymentBatch | None = None
+     owner_token = str(getattr(self.request, "id", None) or uuid4())
+ 
+     try:
+@@ -227,11 +229,9 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                 return
+             BatchLeaseService.heartbeat(lease_handle)
+ 
+-            settled_count = 0
+-            rejected_count = 0
+-            non_final_count = 0
+             settled_amount = Decimal("0.00")
+             rejected_amount = Decimal("0.00")
++            child_items: list[dict[str, str]] = []
+ 
+             for instr in (
+                 CreditInstruction.objects.filter(batch=batch)
+@@ -246,10 +246,12 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                     and instr.status
+                     in {CreditInstruction.STATUS_COMPLETED, CreditInstruction.STATUS_FAILED}
+                 ):
+-                    # Historic terminal-looking rows without the new durable
+-                    # binding are intentionally not replayed. They remain
+-                    # non-final until an authorised binding/evidence path exists.
+-                    non_final_count += 1
++                    # A historic terminal-looking row without the RB-02.2
++                    # binding remains non-final and cannot produce a terminal
++                    # policy projection.
++                    child_items.append(
++                        {"id": str(instr.pk), "status": "review", "amount": str(instr.amount)}
++                    )
+                     continue
+ 
+                 if instr.payment_attempt_id is None:
+@@ -268,7 +270,9 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+ 
+                 finality = PaymentLifecycleService.materialize_credit_instruction_finality(instr)
+                 if finality.final and finality.status == "settled":
+-                    settled_count += 1
++                    child_items.append(
++                        {"id": str(instr.pk), "status": "settled", "amount": str(instr.amount)}
++                    )
+                     settled_amount += instr.amount
+                     if instr.status != CreditInstruction.STATUS_COMPLETED:
+                         instr.status = CreditInstruction.STATUS_COMPLETED
+@@ -276,7 +280,9 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                         BatchLeaseService.assert_current_owner(lease_handle)
+                         instr.save(update_fields=["status", "failure_reason"])
+                 elif finality.final and finality.status == "rejected":
+-                    rejected_count += 1
++                    child_items.append(
++                        {"id": str(instr.pk), "status": "rejected", "amount": str(instr.amount)}
++                    )
+                     rejected_amount += instr.amount
+                     if instr.status != CreditInstruction.STATUS_FAILED:
+                         instr.status = CreditInstruction.STATUS_FAILED
+@@ -284,42 +290,57 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                         BatchLeaseService.assert_current_owner(lease_handle)
+                         instr.save(update_fields=["status", "failure_reason"])
+                 else:
+-                    non_final_count += 1
++                    non_final_status = "review"
++                    if instr.payment_attempt_id:
++                        attempt_status = instr.payment_attempt.status
++                        if attempt_status in {"retryable", "uncertain", "review"}:
++                            non_final_status = attempt_status
++                    child_items.append(
++                        {
++                            "id": str(instr.pk),
++                            "status": non_final_status,
++                            "amount": str(instr.amount),
++                        }
++                    )
+                     if instr.status == CreditInstruction.STATUS_PENDING:
+                         instr.status = CreditInstruction.STATUS_VALIDATED
+                         instr.failure_reason = ""
+                         BatchLeaseService.assert_current_owner(lease_handle)
+                         instr.save(update_fields=["status", "failure_reason"])
+ 
+-            if non_final_count:
+-                batch.status = BulkPaymentBatch.STATUS_PROCESSING
+-                batch.completed_amount = settled_amount
+-                batch.failed_amount = rejected_amount
+-                batch.result_generated_at = None
+-                BatchLeaseService.assert_current_owner(lease_handle)
+-                batch.save(
+-                    update_fields=[
+-                        "status",
+-                        "completed_amount",
+-                        "failed_amount",
+-                        "result_generated_at",
+-                    ]
+-                )
+-                return
++            BatchLeaseService.assert_current_owner(lease_handle)
++            result = BatchDecisionService.decide(
++                batch=batch,
++                lease_handle=lease_handle,
++                items=child_items,
++                failure_threshold=float(
++                    getattr(settings, "GOVSTACK_BULK_FAILURE_THRESHOLD", 0.25)
++                ),
++                return_funds_enabled=bool(
++                    getattr(settings, "GOVSTACK_BULK_RETURN_FUNDS_ENABLED", False)
++                ),
++            )
++            decision = result.decision
+ 
+-            if rejected_count == 0:
+-                batch.status = BulkPaymentBatch.STATUS_COMPLETED
+-                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_COMPLETED
+-            elif settled_count == 0:
+-                batch.status = BulkPaymentBatch.STATUS_FAILED
+-                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_FAILED
++            if decision.outcome_action in {
++                GovStackBatchDecision.ACTION_TERMINAL,
++                GovStackBatchDecision.ACTION_RETURN_FUNDS,
++            }:
++                if decision.non_final_count:
++                    raise BatchDecisionConflict("terminal projection with non-final child is forbidden")
++                if decision.rejected_count == 0:
++                    batch.status = BulkPaymentBatch.STATUS_COMPLETED
++                elif decision.settled_count == 0:
++                    batch.status = BulkPaymentBatch.STATUS_FAILED
++                else:
++                    batch.status = BulkPaymentBatch.STATUS_PARTIAL
++                batch.result_generated_at = timezone.now()
+             else:
+-                batch.status = BulkPaymentBatch.STATUS_PARTIAL
+-                batch_audit_action = GovStackPaymentAuditEntry.ACTION_BATCH_PARTIAL
++                batch.status = BulkPaymentBatch.STATUS_PROCESSING
++                batch.result_generated_at = None
+ 
+             batch.completed_amount = settled_amount
+             batch.failed_amount = rejected_amount
+-            batch.result_generated_at = timezone.now()
+             BatchLeaseService.assert_current_owner(lease_handle)
+             batch.save(
+                 update_fields=[
+@@ -329,57 +350,57 @@ def process_bulk_payment_batch(self, batch_pk: str) -> None:
+                     "result_generated_at",
+                 ]
+             )
+-            BatchLeaseService.assert_current_owner(lease_handle)
+-            GovStackPaymentAuditEntry.objects.create(
+-                action=batch_audit_action,
+-                actor_bb_id=batch.source_bb_id,
+-                object_type="batch",
+-                object_pk=str(batch.pk),
+-                request_id=batch.request_id,
+-                details={
+-                    "batch_id": batch.batch_id,
+-                    "source_bb_id": batch.source_bb_id,
+-                    "settled_count": settled_count,
+-                    "rejected_count": rejected_count,
+-                },
+-            )
+-            callback_url = batch.callback_url
+-            callback_status = batch.status.upper()
+-            callback_batch = batch
+-
+-        if callback_url and callback_batch is not None:
+-            callback_payload = {
+-                "RequestID": callback_batch.request_id,
+-                "BatchID": callback_batch.batch_id,
+-                "Status": callback_status,
+-            }
+-            BatchLeaseService.assert_current_owner(lease_handle)
+-            callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+-                tenant_id="",
+-                operation="g2p_bulk_callback",
+-                request_id=f"callback:{callback_batch.request_id}:{callback_batch.batch_id}",
+-                payload=callback_payload,
+-                correlation_id=callback_batch.correlation_id,
+-                source_bb_id=callback_batch.source_bb_id,
+-            )
+-            BatchLeaseService.assert_current_owner(lease_handle)
+-            delivery, _ = PaymentLifecycleService.queue_callback(
+-                attempt=callback_attempt,
+-                callback_url=callback_url,
+-                payload=callback_payload,
+-            )
+-            success, http_status, error_code = _post_callback(
+-                url=callback_url,
+-                payload=callback_payload,
+-            )
+-            BatchLeaseService.assert_current_owner(lease_handle)
+-            PaymentLifecycleService.record_callback_result(
+-                delivery,
+-                http_status=http_status if success else None,
+-                error_code=error_code,
+-            )
+-    except BatchLeaseOwnershipLost:
+-        logger.info("process_bulk_payment_batch.stale_lease batch_pk=%s", batch_pk)
++
++            if result.created:
++                BatchLeaseService.assert_current_owner(lease_handle)
++                GovStackPaymentAuditEntry.objects.create(
++                    action=GovStackPaymentAuditEntry.ACTION_BATCH_DECISION_RECORDED,
++                    actor_bb_id=batch.source_bb_id,
++                    object_type="batch_decision",
++                    object_pk=str(decision.pk),
++                    request_id=batch.request_id,
++                    details={
++                        "outcome_action": decision.outcome_action,
++                        "policy_state": decision.policy_state,
++                        "fingerprint": decision.fingerprint,
++                        "reason": decision.reason,
++                        "total_count": decision.total_count,
++                        "settled_count": decision.settled_count,
++                        "rejected_count": decision.rejected_count,
++                        "non_final_count": decision.non_final_count,
++                        "lease_generation": decision.lease_generation,
++                    },
++                )
++                if batch.callback_url:
++                    # Preserve the established external callback contract;
++                    # the durable decision/audit rows retain decision identity.
++                    callback_payload = {
++                        "RequestID": batch.request_id,
++                        "BatchID": batch.batch_id,
++                        "Status": decision.outcome_action.upper(),
++                    }
++                    BatchLeaseService.assert_current_owner(lease_handle)
++                    callback_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
++                        tenant_id="",
++                        operation="g2p_bulk_callback",
++                        request_id=f"callback:{batch.request_id}:{batch.batch_id}",
++                        # This is the canonical callback-attempt identity. The
++                        # decision-specific status remains in CallbackDelivery's
++                        # payload hash, allowing later distinct decisions to
++                        # enqueue one delivery without idempotency conflict.
++                        payload={"RequestID": batch.request_id, "BatchID": batch.batch_id},
++                        audit_created=False,
++                        correlation_id=batch.correlation_id,
++                        source_bb_id=batch.source_bb_id,
++                    )
++                    BatchLeaseService.assert_current_owner(lease_handle)
++                    PaymentLifecycleService.queue_callback(
++                        attempt=callback_attempt,
++                        callback_url=batch.callback_url,
++                        payload=callback_payload,
++                    )
++    except (BatchLeaseOwnershipLost, BatchDecisionConflict):
++        logger.info("process_bulk_payment_batch.decision_not_written batch_pk=%s", batch_pk)
+         return
+     finally:
+         if lease_handle is not None:
+diff --git a/apps/payments/migrations/0045_item02_rb023_govstack_batch_decision.py b/apps/payments/migrations/0045_item02_rb023_govstack_batch_decision.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..657a2c36dca9b091cd91da6f11853fb05005f105
+--- /dev/null
++++ b/apps/payments/migrations/0045_item02_rb023_govstack_batch_decision.py
+@@ -0,0 +1,123 @@
++from django.db import migrations, models
++import django.db.models.deletion
++import uuid
++
++
++class Migration(migrations.Migration):
++    dependencies = [("payments", "0044_item02_rb022_credit_instruction_payment_attempt_binding")]
++
++    operations = [
++        migrations.CreateModel(
++            name="GovStackBatchDecision",
++            fields=[
++                ("id", models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
++                (
++                    "created_at",
++                    models.DateTimeField(
++                        auto_now_add=True,
++                        db_index=True,
++                        verbose_name="Created at",
++                    ),
++                ),
++                (
++                    "updated_at",
++                    models.DateTimeField(auto_now=True, verbose_name="Updated at"),
++                ),
++                ("fingerprint", models.CharField(max_length=64)),
++                ("lease_owner_token", models.CharField(max_length=128)),
++                ("lease_generation", models.PositiveIntegerField()),
++                ("policy_state", models.CharField(max_length=20)),
++                (
++                    "outcome_action",
++                    models.CharField(
++                        choices=[
++                            ("empty", "Empty"),
++                            ("pause", "Pause"),
++                            ("retry", "Retry"),
++                            ("review", "Review"),
++                            ("terminal", "Terminal"),
++                            ("return_funds", "Return funds"),
++                        ],
++                        max_length=20,
++                    ),
++                ),
++                ("total_count", models.PositiveIntegerField(default=0)),
++                ("settled_count", models.PositiveIntegerField(default=0)),
++                ("rejected_count", models.PositiveIntegerField(default=0)),
++                ("non_final_count", models.PositiveIntegerField(default=0)),
++                ("reason", models.CharField(max_length=100)),
++                ("details", models.JSONField(default=dict)),
++                (
++                    "batch",
++                    models.ForeignKey(
++                        on_delete=django.db.models.deletion.PROTECT,
++                        related_name="decisions",
++                        to="payments.bulkpaymentbatch",
++                    ),
++                ),
++            ],
++        ),
++        migrations.AddConstraint(
++            model_name="govstackbatchdecision",
++            constraint=models.UniqueConstraint(
++                fields=("batch", "fingerprint"),
++                name="gs_batch_decision_fingerprint_uniq",
++            ),
++        ),
++        migrations.AddIndex(
++            model_name="govstackbatchdecision",
++            index=models.Index(
++                fields=["batch", "lease_generation"],
++                name="gs_batch_decision_gen_idx",
++            ),
++        ),
++        migrations.AlterField(
++            model_name="creditinstruction",
++            name="payment_attempt",
++            field=models.OneToOneField(
++                blank=True,
++                null=True,
++                on_delete=django.db.models.deletion.PROTECT,
++                related_name="credit_instruction",
++                to="payments.paymentattempt",
++                verbose_name="Payment Attempt",
++            ),
++        ),
++        migrations.AlterField(
++            model_name="govstackpaymentauditentry",
++            name="action",
++            field=models.CharField(
++                choices=[
++                    ("beneficiary_registered", "Beneficiary Registered"),
++                    ("beneficiary_updated", "Beneficiary Updated"),
++                    ("batch_received", "Batch Received"),
++                    ("batch_completed", "Batch Completed"),
++                    ("batch_partial", "Batch Partially Completed"),
++                    ("batch_failed", "Batch Failed"),
++                    ("instruction_completed", "Instruction Completed"),
++                    ("instruction_failed", "Instruction Failed"),
++                    ("validation_requested", "Validation Requested"),
++                    ("validation_completed", "Validation Completed"),
++                    ("voucher_preactivated", "Voucher Preactivated"),
++                    ("voucher_activated", "Voucher Activated"),
++                    ("voucher_redeemed", "Voucher Redeemed"),
++                    ("voucher_cancelled", "Voucher Cancelled"),
++                    ("bill_payment_requested", "Bill Payment Requested"),
++                    ("bill_paid", "Bill Paid"),
++                    ("payment_attempt_created", "Payment Attempt Created"),
++                    ("payment_outcome_recorded", "Payment Outcome Recorded"),
++                    ("payment_retry_scheduled", "Payment Retry Scheduled"),
++                    ("payment_uncertain", "Payment Outcome Uncertain"),
++                    ("callback_queued", "Callback Queued"),
++                    ("callback_delivered", "Callback Delivered"),
++                    ("callback_dead_lettered", "Callback Dead-Lettered"),
++                    ("reconciliation_recorded", "Reconciliation Recorded"),
++                    ("payment_review_required", "Payment Review Required"),
++                    ("batch_decision_recorded", "Batch Decision Recorded"),
++                ],
++                db_index=True,
++                max_length=50,
++                verbose_name="Action",
++            ),
++        ),
++    ]
+diff --git a/apps/payments/tests/test_item02_rb02_batch_lease_live.py b/apps/payments/tests/test_item02_rb02_batch_lease_live.py
+index d66efb703958a132e1f8d2b6f36163942e55002b..befe6674d4249e2db3935f588a197e32a3cf74c4 100644
+--- a/apps/payments/tests/test_item02_rb02_batch_lease_live.py
++++ b/apps/payments/tests/test_item02_rb02_batch_lease_live.py
+@@ -9,7 +9,7 @@ from __future__ import annotations
+ 
+ from datetime import timedelta
+ from decimal import Decimal
+-from django.test import TransactionTestCase
++from django.test import TransactionTestCase, override_settings
+ from django.utils import timezone
+ 
+ from apps.payments.govstack_batch_lease import (
+@@ -23,9 +23,11 @@ from apps.payments.govstack_models import (
+     BulkPaymentBatch,
+     CallbackDelivery,
+     CreditInstruction,
++    GovStackBatchDecision,
+     GovStackBeneficiary,
+     GovStackPaymentAuditEntry,
+     PaymentAttempt,
++    PaymentOutcome,
+ )
+ from apps.payments.govstack_tasks import process_bulk_payment_batch
+ 
+@@ -58,6 +60,27 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
+         )
+         return batch
+ 
++    def _make_empty_batch(self, *, suffix: str, callback_url: str = "") -> BulkPaymentBatch:
++        return BulkPaymentBatch.objects.create(
++            request_id=f"EmptyReq{suffix}",
++            source_bb_id="LeaseSourceBB",
++            batch_id=f"EmptyBatch{suffix}",
++            status=BulkPaymentBatch.STATUS_RECEIVED,
++            callback_url=callback_url,
++            total_amount=Decimal("0.00"),
++        )
++
++    def _set_nonfinal_status(self, attempt: PaymentAttempt, status: str) -> None:
++        PaymentLifecycleService.apply_outcome(
++            attempt,
++            PaymentOutcome(
++                status,
++                code=f"RB023_{status.upper()}",
++                category="rb02_3_test",
++                retryable=status == "retryable",
++            ),
++        )
++
+     def _run_live_task(self, batch: BulkPaymentBatch, *, task_id: str | None = None) -> None:
+         process_bulk_payment_batch.apply(args=[str(batch.pk)], task_id=task_id)
+ 
+@@ -302,3 +325,189 @@ class RB021BatchLeaseLiveTests(TransactionTestCase):
+         self.assertEqual(instruction.payment_attempt_id, attempt.pk)
+         self.assertEqual(instruction.status, CreditInstruction.STATUS_COMPLETED)
+         self.assertEqual(attempt.attempt_count, attempt_count_before)
++
++    def test_threshold_pause_persists_one_idempotent_decision(self):
++        batch = self._make_batch(suffix="pause")
++        settled_instruction = CreditInstruction.objects.get(batch=batch)
++        paused_instruction = CreditInstruction.objects.create(
++            batch=batch,
++            instruction_id="LeaseInstructionPauseTwo",
++            payee_functional_id="LeasePayeePauseTwo",
++            amount=Decimal("50.00"),
++            currency="USD",
++            narration="RB-02.3 threshold pause",
++            status=CreditInstruction.STATUS_PENDING,
++        )
++        batch.total_amount = Decimal("150.00")
++        batch.save(update_fields=["total_amount"])
++        self._bind_final_attempt(
++            batch=batch,
++            instruction=settled_instruction,
++            outcome="settled",
++            observation_id="rb023-pause-settled",
++        )
++        paused_attempt = self._bind_nonfinal_attempt(
++            batch=batch,
++            instruction=paused_instruction,
++        )
++        self._set_nonfinal_status(paused_attempt, "uncertain")
++
++        with override_settings(GOVSTACK_BULK_FAILURE_THRESHOLD=0.4):
++            self._run_live_task(batch)
++            self._run_live_task(batch)
++
++        batch.refresh_from_db()
++        decisions = GovStackBatchDecision.objects.filter(batch=batch)
++        self.assertEqual(decisions.count(), 1)
++        decision = decisions.get()
++        self.assertEqual(decision.policy_state, "paused")
++        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_PAUSE)
++        self.assertEqual(decision.non_final_count, 1)
++        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
++        self.assertEqual(
++            GovStackPaymentAuditEntry.objects.filter(
++                object_type="batch_decision", object_pk=str(decision.pk)
++            ).count(),
++            1,
++        )
++
++    def test_retry_decision_is_durable_and_idempotent(self):
++        batch = self._make_batch(suffix="retry")
++        settled_instruction = CreditInstruction.objects.get(batch=batch)
++        retry_instruction = CreditInstruction.objects.create(
++            batch=batch,
++            instruction_id="LeaseInstructionRetryTwo",
++            payee_functional_id="LeasePayeeRetryTwo",
++            amount=Decimal("50.00"),
++            currency="USD",
++            narration="RB-02.3 retry",
++            status=CreditInstruction.STATUS_PENDING,
++        )
++        batch.total_amount = Decimal("150.00")
++        batch.save(update_fields=["total_amount"])
++        self._bind_final_attempt(
++            batch=batch,
++            instruction=settled_instruction,
++            outcome="settled",
++            observation_id="rb023-retry-settled",
++        )
++        retry_attempt = self._bind_nonfinal_attempt(batch=batch, instruction=retry_instruction)
++        self._set_nonfinal_status(retry_attempt, "retryable")
++
++        with override_settings(GOVSTACK_BULK_FAILURE_THRESHOLD=1.0):
++            self._run_live_task(batch)
++            self._run_live_task(batch)
++
++        batch.refresh_from_db()
++        decision = GovStackBatchDecision.objects.get(batch=batch)
++        self.assertEqual(decision.policy_state, "retryable")
++        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_RETRY)
++        self.assertEqual(decision.non_final_count, 1)
++        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
++        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
++
++    def test_review_decision_is_durable_and_idempotent(self):
++        batch = self._make_batch(suffix="review")
++        settled_instruction = CreditInstruction.objects.get(batch=batch)
++        review_instruction = CreditInstruction.objects.create(
++            batch=batch,
++            instruction_id="LeaseInstructionReviewTwo",
++            payee_functional_id="LeasePayeeReviewTwo",
++            amount=Decimal("50.00"),
++            currency="USD",
++            narration="RB-02.3 review",
++            status=CreditInstruction.STATUS_PENDING,
++        )
++        batch.total_amount = Decimal("150.00")
++        batch.save(update_fields=["total_amount"])
++        self._bind_final_attempt(
++            batch=batch,
++            instruction=settled_instruction,
++            outcome="settled",
++            observation_id="rb023-review-settled",
++        )
++        review_attempt = self._bind_nonfinal_attempt(batch=batch, instruction=review_instruction)
++        self._set_nonfinal_status(review_attempt, "review")
++
++        with override_settings(GOVSTACK_BULK_FAILURE_THRESHOLD=1.0):
++            self._run_live_task(batch)
++            self._run_live_task(batch)
++
++        batch.refresh_from_db()
++        decision = GovStackBatchDecision.objects.get(batch=batch)
++        self.assertEqual(decision.policy_state, "review")
++        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_REVIEW)
++        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
++        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
++
++    @override_settings(GOVSTACK_BULK_RETURN_FUNDS_ENABLED=True)
++    def test_configured_return_funds_is_explicit_and_idempotent(self):
++        batch = self._make_batch(suffix="return")
++        instruction = CreditInstruction.objects.get(batch=batch)
++        self._bind_final_attempt(
++            batch=batch,
++            instruction=instruction,
++            outcome="rejected",
++            observation_id="rb023-return-rejected",
++        )
++
++        self._run_live_task(batch)
++        self._run_live_task(batch)
++
++        batch.refresh_from_db()
++        decision = GovStackBatchDecision.objects.get(batch=batch)
++        self.assertEqual(decision.policy_state, "partial")
++        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_RETURN_FUNDS)
++        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_FAILED)
++        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
++        self.assertFalse(PaymentAttempt.objects.filter(operation="g2p_return_funds").exists())
++
++    def test_empty_batch_has_one_durable_outcome(self):
++        batch = self._make_empty_batch(suffix="empty")
++
++        self._run_live_task(batch)
++        self._run_live_task(batch)
++
++        batch.refresh_from_db()
++        decision = GovStackBatchDecision.objects.get(batch=batch)
++        self.assertEqual(decision.outcome_action, GovStackBatchDecision.ACTION_EMPTY)
++        self.assertEqual(decision.total_count, 0)
++        self.assertEqual(decision.non_final_count, 0)
++        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_PROCESSING)
++        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
++        self.assertEqual(
++            GovStackPaymentAuditEntry.objects.filter(
++                object_type="batch_decision", object_pk=str(decision.pk)
++            ).count(),
++            1,
++        )
++
++    def test_duplicate_finalization_creates_one_decision_audit_and_callback(self):
++        batch = self._make_batch(
++            suffix="duplicate",
++            callback_url="https://example.com/callback",
++        )
++        instruction = CreditInstruction.objects.get(batch=batch)
++        self._bind_final_attempt(
++            batch=batch,
++            instruction=instruction,
++            outcome="settled",
++            observation_id="rb023-duplicate-settled",
++        )
++
++        self._run_live_task(batch)
++        self._run_live_task(batch)
++
++        decision = GovStackBatchDecision.objects.get(batch=batch)
++        self.assertEqual(GovStackBatchDecision.objects.filter(batch=batch).count(), 1)
++        self.assertEqual(
++            GovStackPaymentAuditEntry.objects.filter(
++                object_type="batch_decision", object_pk=str(decision.pk)
++            ).count(),
++            1,
++        )
++        callback_attempt = PaymentAttempt.objects.get(
++            operation="g2p_bulk_callback",
++            request_id=f"callback:{batch.request_id}:{batch.batch_id}",
++        )
++        self.assertEqual(CallbackDelivery.objects.filter(attempt=callback_attempt).count(), 1)
+diff --git a/config/settings/base.py b/config/settings/base.py
+index d4632e47a7050287f0981e0cf88f55b84be7434d..efa9d6d2590092f82d771e49dabb5f07b5332b8d 100644
+--- a/config/settings/base.py
++++ b/config/settings/base.py
+@@ -924,3 +924,12 @@ GOVSTACK_VOUCHER_REQUIRE_JWT = env.bool("GOVSTACK_VOUCHER_REQUIRE_JWT", default=
+ GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB = env.bool(
+     "GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB", default=False
+ )
++
++# RB-02.3: controls only the persisted batch-decision action for an all-final
++# rejected/partial batch. The worker never executes a refund in this increment.
++GOVSTACK_BULK_RETURN_FUNDS_ENABLED = env.bool(
++    "GOVSTACK_BULK_RETURN_FUNDS_ENABLED", default=False
++)
++GOVSTACK_BULK_FAILURE_THRESHOLD = env.float(
++    "GOVSTACK_BULK_FAILURE_THRESHOLD", default=0.25
++)

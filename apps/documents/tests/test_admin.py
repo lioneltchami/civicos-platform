@@ -216,7 +216,6 @@ class DocumentAdminPermissionTests(TestCase):
 
 
 class DocumentAdminListDisplayTests(TestCase):
-
     def setUp(self):
         self.site = AdminSite()
         self.admin = DocumentAdmin(Document, self.site)
@@ -243,7 +242,6 @@ class DocumentAdminListDisplayTests(TestCase):
 
 
 class DocumentAdminFieldsetTests(TestCase):
-
     def setUp(self):
         self.site = AdminSite()
         self.admin = DocumentAdmin(Document, self.site)
@@ -275,7 +273,6 @@ class DocumentAdminFieldsetTests(TestCase):
 
 
 class DocumentCategoryAdminPermissionTests(TestCase):
-
     def setUp(self):
         self.site = AdminSite()
         self.admin = DocumentCategoryAdmin(DocumentCategory, self.site)
@@ -297,7 +294,6 @@ class DocumentCategoryAdminPermissionTests(TestCase):
 
 
 class DocumentAccessTokenAdminPermissionTests(TestCase):
-
     def setUp(self):
         self.site = AdminSite()
         self.admin = DocumentAccessTokenAdmin(
@@ -306,6 +302,7 @@ class DocumentAccessTokenAdminPermissionTests(TestCase):
         )
         # Re-create with correct model
         from apps.documents.models import DocumentAccessToken
+
         self.admin = DocumentAccessTokenAdmin(DocumentAccessToken, self.site)
         self.superuser = _make_superuser()
         self.request = _make_request(self.superuser)
@@ -326,10 +323,10 @@ class DocumentAccessTokenAdminPermissionTests(TestCase):
 
 
 class DocumentAttachmentAdminPermissionTests(TestCase):
-
     def setUp(self):
         self.site = AdminSite()
         from apps.documents.models import DocumentAttachment
+
         self.admin = DocumentAttachmentAdmin(DocumentAttachment, self.site)
         self.superuser = _make_superuser()
         self.request = _make_request(self.superuser)

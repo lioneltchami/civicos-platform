@@ -1,0 +1,10 @@
+services:
+  web:
+    # Scheduler API preparation does not upload documents, so avoid the root
+    # development dependency on a ClamAV image unavailable for this host.
+    depends_on: !reset null
+    environment:
+      GOVSTACK_CANDIDATE_ID: civicos-scheduler-testing
+      GOVSTACK_CANDIDATE_BUILDING_BLOCK: scheduler
+      GOVSTACK_TEST_TARGET: ${GOVSTACK_TEST_TARGET:-local}
+      GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE: single-government

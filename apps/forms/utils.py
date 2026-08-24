@@ -1,7 +1,6 @@
 """
 Shared utility functions for the Forms building block.
 """
-import ipaddress
 
 
 def _mask_ip(ip: str) -> str:
@@ -17,7 +16,7 @@ def _mask_ip(ip: str) -> str:
     import ipaddress as _ipaddress
 
     if not ip:
-        return "0.0.0.0"
+        return "0.0.0.0"  # noqa: S104
     try:
         addr = _ipaddress.ip_address(ip.strip())
         if isinstance(addr, _ipaddress.IPv4Address):
@@ -27,4 +26,4 @@ def _mask_ip(ip: str) -> str:
             network = _ipaddress.ip_network(f"{addr}/32", strict=False)
             return str(network.network_address)
     except ValueError:
-        return "0.0.0.0"
+        return "0.0.0.0"  # noqa: S104

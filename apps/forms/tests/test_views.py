@@ -1,8 +1,9 @@
 """Tests for the Forms building block staff views."""
+
 import uuid
-from unittest.mock import patch, MagicMock
-from django.test import TestCase
+
 from django.contrib.auth import get_user_model
+from django.test import TestCase
 from django.utils import timezone
 from wagtail.models import Page
 
@@ -24,6 +25,7 @@ def make_user(email=None, is_staff=False, is_superuser=False):
 
 def make_form_page():
     from apps.forms.models import FormPage
+
     root_page = Page.objects.filter(depth=1).first()
     if root_page is None:
         root_page = Page.add_root(title="Root", slug="root")
@@ -40,15 +42,20 @@ def make_form_page():
 
 def make_form_field(page, label="Name", is_pii=False):
     from apps.forms.models import FormField
+
     return FormField.objects.create(
-        page=page, label=label, field_type="singleline",
-        required=True, is_pii=is_pii,
+        page=page,
+        label=label,
+        field_type="singleline",
+        required=True,
+        is_pii=is_pii,
         sort_order=FormField.objects.filter(page=page).count(),
     )
 
 
 def make_submission(page, form_data=None, consent_given=True):
     from apps.forms.models import FormSubmission
+
     return FormSubmission.objects.create(
         page=page,
         form_data=form_data or {"name": "Test"},
@@ -256,6 +263,7 @@ class SubmissionExportViewTest(TestCase):
 
     def test_export_masks_last_two_ip_octets(self):
         from apps.forms.models import FormSubmission
+
         FormSubmission.objects.filter(page=self.page).update(submitter_ip="192.168.10.25")
         response = self.client.get(self.url)
         content = response.content.decode("utf-8-sig")
@@ -281,18 +289,18 @@ class SubmissionExportViewTest(TestCase):
 
     def test_export_empty_page_has_only_header(self):
         """A form page with no submissions produces a CSV with just the header row."""
-        from apps.forms.models import FormSubmission
         empty_page = make_form_page()
         response = self.client.get(f"/forms/submissions/{empty_page.pk}/export/")
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8-sig")
         # Only the header row, no data rows
-        lines = [l for l in content.splitlines() if l.strip()]
+        lines = [l for l in content.splitlines() if l.strip()]  # noqa: E741
         self.assertEqual(len(lines), 1)
 
     def test_export_ip_is_empty_when_submitter_ip_is_none(self):
         """Submission with no IP should produce an empty cell, not 'masked' or a crash."""
         from apps.forms.models import FormSubmission
+
         FormSubmission.objects.filter(page=self.page).update(submitter_ip=None)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
@@ -365,6 +373,7 @@ class SubmissionRedactViewTest(TestCase):
     def test_redact_writes_audit_log_entry(self):
         """A successful redaction must create an AuditLogEntry for compliance."""
         from apps.audit.models import AuditLogEntry
+
         before_count = AuditLogEntry.objects.filter(event_type="admin.pii.redacted").count()
         self.client.post(self.url)
         after_count = AuditLogEntry.objects.filter(event_type="admin.pii.redacted").count()
@@ -373,8 +382,7 @@ class SubmissionRedactViewTest(TestCase):
     def test_redact_leaves_non_pii_fields_intact(self):
         make_form_field(self.page, label="Issue description", is_pii=False)
         sub = make_submission(
-            self.page,
-            form_data={"name": "Bob", "issue_description": "Broken sidewalk"}
+            self.page, form_data={"name": "Bob", "issue_description": "Broken sidewalk"}
         )
         url = f"/forms/submissions/{self.page.pk}/{sub.pk}/redact/"
         self.client.post(url)
@@ -395,6 +403,7 @@ class SubmissionDeleteViewTest(TestCase):
 
     def test_superuser_can_delete(self):
         from apps.forms.models import FormSubmission
+
         self.client.force_login(self.superuser)
         pk = self.sub.pk
         self.client.post(self.url)

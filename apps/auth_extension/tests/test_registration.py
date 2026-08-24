@@ -1,6 +1,7 @@
 """Tests for the citizen registration flow."""
-from django.test import TestCase, override_settings
+
 from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
 
 User = get_user_model()
 VALID_PASSWORD = "SecureTestPass123!"

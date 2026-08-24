@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.http import Http404
@@ -156,9 +156,7 @@ def make_active_token(
         expires_at=expires_at,
     )
     if used:
-        DocumentAccessToken.objects.filter(pk=token.pk).update(
-            used_at=timezone.now()
-        )
+        DocumentAccessToken.objects.filter(pk=token.pk).update(used_at=timezone.now())
         token.refresh_from_db()
     return token
 
@@ -347,9 +345,7 @@ class IssueAccessTokenTests(TestCase):
 
     def test_ip_address_is_masked(self):
         """IPv4 address is masked (last octet zeroed) in the stored token."""
-        token = issue_access_token(
-            user=self.user, document=self.doc, ip_address="203.0.113.42"
-        )
+        token = issue_access_token(user=self.user, document=self.doc, ip_address="203.0.113.42")
         self.assertEqual(token.ip_address, "203.0.113.0")
 
     def test_ip_address_none_stored_as_none(self):
@@ -361,7 +357,8 @@ class IssueAccessTokenTests(TestCase):
 
     def test_pending_upload_raises_404(self):
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.PENDING_UPLOAD,
         )
         with self.assertRaises(Http404):
@@ -369,7 +366,8 @@ class IssueAccessTokenTests(TestCase):
 
     def test_scanning_raises_404(self):
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.SCANNING,
         )
         with self.assertRaises(Http404):
@@ -377,7 +375,8 @@ class IssueAccessTokenTests(TestCase):
 
     def test_quarantined_raises_404(self):
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.QUARANTINED,
         )
         with self.assertRaises(Http404):
@@ -385,7 +384,8 @@ class IssueAccessTokenTests(TestCase):
 
     def test_deleted_scan_status_raises_404(self):
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.DELETED,
         )
         with self.assertRaises(Http404):
@@ -399,7 +399,8 @@ class IssueAccessTokenTests(TestCase):
         PIPEDA: soft-deleted documents are inaccessible regardless of scan status.
         """
         doc = make_document(
-            self.user, self.category,
+            self.user,
+            self.category,
             scan_status=Document.ScanStatus.ACTIVE,
             deleted_at=timezone.now(),
         )
@@ -441,15 +442,19 @@ class IssueAccessTokenTests(TestCase):
 
     def test_audit_event_written_on_token_issuance(self):
         """An audit log entry must be written when a token is issued."""
-        from apps.audit.models import AuditLogEntry, AuditEventType
+        from apps.audit.models import AuditEventType, AuditLogEntry
 
-        before = timezone.now()
+        timezone.now()
         issue_access_token(user=self.user, document=self.doc)
-        entry = AuditLogEntry.objects.filter(
-            actor_id=str(self.user.pk),
-            resource_type="documents.Document",
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                actor_id=str(self.user.pk),
+                resource_type="documents.Document",
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         self.assertEqual(entry.event_type, AuditEventType.RECORD_VIEWED)
 
@@ -458,9 +463,13 @@ class IssueAccessTokenTests(TestCase):
         from apps.audit.models import AuditLogEntry
 
         issue_access_token(user=self.user, document=self.doc)
-        entry = AuditLogEntry.objects.filter(
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         detail_str = str(entry.event_detail)
         self.assertNotIn("report.pdf", detail_str)
@@ -471,9 +480,13 @@ class IssueAccessTokenTests(TestCase):
         from apps.audit.models import AuditLogEntry
 
         issue_access_token(user=self.user, document=self.doc)
-        entry = AuditLogEntry.objects.filter(
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         detail_str = str(entry.event_detail)
         self.assertNotIn("storage_key", detail_str)
@@ -485,9 +498,13 @@ class IssueAccessTokenTests(TestCase):
         from apps.audit.models import AuditLogEntry
 
         token = issue_access_token(user=self.user, document=self.doc)
-        entry = AuditLogEntry.objects.filter(
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         self.assertEqual(entry.event_detail.get("token_pk"), str(token.pk))
 
@@ -496,9 +513,13 @@ class IssueAccessTokenTests(TestCase):
         from apps.audit.models import AuditLogEntry
 
         issue_access_token(user=self.user, document=self.doc)
-        entry = AuditLogEntry.objects.filter(
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         self.assertEqual(entry.event_detail.get("action"), "token_issued")
 
@@ -556,9 +577,7 @@ class ConsumeAccessTokenTests(TestCase):
     def test_valid_token_returns_document(self):
         """Redeeming a valid token must return the linked Document."""
         token = make_active_token(self.doc, self.user)
-        returned_doc = consume_access_token(
-            token_value=token.token, user=self.user
-        )
+        returned_doc = consume_access_token(token_value=token.token, user=self.user)
         self.assertEqual(returned_doc.pk, self.doc.pk)
 
     def test_valid_token_marks_used_at(self):
@@ -651,14 +670,18 @@ class ConsumeAccessTokenTests(TestCase):
 
     def test_audit_event_written_on_token_redemption(self):
         """Consuming a valid token must write a data.viewed audit log entry."""
-        from apps.audit.models import AuditLogEntry, AuditEventType
+        from apps.audit.models import AuditEventType, AuditLogEntry
 
         token = make_active_token(self.doc, self.user)
         consume_access_token(token_value=token.token, user=self.user)
-        entry = AuditLogEntry.objects.filter(
-            actor_id=str(self.user.pk),
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                actor_id=str(self.user.pk),
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         self.assertEqual(entry.event_type, AuditEventType.RECORD_VIEWED)
 
@@ -668,9 +691,13 @@ class ConsumeAccessTokenTests(TestCase):
 
         token = make_active_token(self.doc, self.user)
         consume_access_token(token_value=token.token, user=self.user)
-        entry = AuditLogEntry.objects.filter(
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         self.assertEqual(entry.event_detail.get("action"), "token_redeemed")
 
@@ -680,9 +707,13 @@ class ConsumeAccessTokenTests(TestCase):
 
         token = make_active_token(self.doc, self.user)
         consume_access_token(token_value=token.token, user=self.user)
-        entry = AuditLogEntry.objects.filter(
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         detail_str = str(entry.event_detail)
         self.assertNotIn("report.pdf", detail_str)
@@ -694,9 +725,13 @@ class ConsumeAccessTokenTests(TestCase):
 
         token = make_active_token(self.doc, self.user)
         consume_access_token(token_value=token.token, user=self.user)
-        entry = AuditLogEntry.objects.filter(
-            resource_id=str(self.doc.pk),
-        ).order_by("-timestamp").first()
+        entry = (
+            AuditLogEntry.objects.filter(
+                resource_id=str(self.doc.pk),
+            )
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry)
         detail_str = str(entry.event_detail)
         self.assertNotIn("storage_key", detail_str)
@@ -936,12 +971,12 @@ class GeneratePresignedDownloadUrlTests(TestCase):
 
     def setUp(self):
         from apps.documents.services.download import generate_presigned_download_url
+
         self.generate_url = generate_presigned_download_url
 
     def test_returns_presigned_url_string(self):
         """Happy path: boto3 returns a URL string."""
         import sys
-        from unittest.mock import MagicMock
 
         # boto3/botocore cannot be imported in the CI sandbox (pyopenssl conflict),
         # so we inject a fake boto3 module into sys.modules before the function runs.
@@ -967,7 +1002,6 @@ class GeneratePresignedDownloadUrlTests(TestCase):
     def test_client_error_propagates(self):
         """ClientError from boto3 should propagate (not swallowed)."""
         import sys
-        from unittest.mock import MagicMock
 
         # Use a real exception class without needing a real boto3 import.
         class _FakeClientError(Exception):

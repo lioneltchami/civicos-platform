@@ -15,29 +15,30 @@ from wagtail.snippets.views.snippets import SnippetViewSet, SnippetViewSetGroup
 
 from .models import NavigationMenu, SiteAlert
 
-
 # ---------------------------------------------------------------------------
 # Snippet ViewSets — registers snippets in the Wagtail admin sidebar
 # ---------------------------------------------------------------------------
+
 
 class SiteAlertViewSet(SnippetViewSet):
     model = SiteAlert
     menu_label = _("Site alerts")
     icon = "warning"
-    list_display = ["__str__", "alert_type", "is_active"]
-    list_filter = ["alert_type", "is_active"]
+    list_display = ["__str__", "alert_type", "is_active"]  # noqa: RUF012
+    list_filter = ["alert_type", "is_active"]  # noqa: RUF012
 
 
 class NavigationMenuViewSet(SnippetViewSet):
     model = NavigationMenu
     menu_label = _("Navigation menus")
     icon = "list-ul"
-    list_display = ["name"]
+    list_display = ["name"]  # noqa: RUF012
 
 
 @register_snippet
 class CMSSnippetGroup(SnippetViewSetGroup):
     """Groups CMS snippets under a single 'Site content' menu section."""
+
     menu_label = _("Site content")
     menu_icon = "site"
     menu_order = 200
@@ -48,8 +49,9 @@ class CMSSnippetGroup(SnippetViewSetGroup):
 # Admin UI hooks
 # ---------------------------------------------------------------------------
 
+
 @hooks.register("construct_main_menu")
-def reorder_main_menu(request, menu_items):
+def reorder_main_menu(request, menu_items) -> None:  # noqa: ANN001
     """
     Set a consistent menu order in the Wagtail admin:
       1. Explorer (pages)
@@ -75,7 +77,7 @@ def reorder_main_menu(request, menu_items):
 
 
 @hooks.register("insert_global_admin_css")
-def global_admin_css():
+def global_admin_css() -> str:
     """Inject minimal CSS tweaks into the Wagtail admin."""
     return """
     <style>

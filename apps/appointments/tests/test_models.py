@@ -50,7 +50,8 @@ Coverage:
 PIPEDA constraints:
   - StaffProfile.__str__ must not contain email address or full name.
   - No model __str__ may contain an email address field value.
-"""
+"""  # noqa: RUF002
+
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
@@ -79,6 +80,7 @@ User = get_user_model()
 # Factories
 # ---------------------------------------------------------------------------
 
+
 def make_user(email: str = "user@example.com", is_staff: bool = False) -> User:
     return User.objects.create_user(email=email, password="testpass123!", is_staff=is_staff)
 
@@ -99,7 +101,9 @@ def make_service_type(slug: str = "gov-service", **kwargs) -> ServiceType:
     return ServiceType.objects.create(slug=slug, **kwargs)
 
 
-def make_appt_type(service_type: ServiceType | None = None, slug: str = "consult", **kwargs) -> AppointmentType:
+def make_appt_type(
+    service_type: ServiceType | None = None, slug: str = "consult", **kwargs
+) -> AppointmentType:
     if service_type is None:
         service_type = make_service_type()
     kwargs.setdefault("name_en", "Consultation")
@@ -111,7 +115,9 @@ def make_appt_type(service_type: ServiceType | None = None, slug: str = "consult
     )
 
 
-def make_location(organization: Organization | None = None, slug: str = "main-office", **kwargs) -> Location:
+def make_location(
+    organization: Organization | None = None, slug: str = "main-office", **kwargs
+) -> Location:
     if organization is None:
         organization = make_org()
     kwargs.setdefault("name_en", "Main Office")
@@ -144,8 +150,8 @@ def make_staff_profile(location: Location | None = None, suffix: str = "") -> St
 # Organization
 # ---------------------------------------------------------------------------
 
-class OrganizationTests(TestCase):
 
+class OrganizationTests(TestCase):
     def test_str_uses_name_en(self):
         org = make_org(name_en="City of Waterloo", slug="city-waterloo")
         self.assertIn("City of Waterloo", str(org))
@@ -172,7 +178,14 @@ class OrganizationTests(TestCase):
 
     def test_organization_type_choices_valid(self):
         """Valid organization_type passes full_clean()."""
-        for org_type in ["government_federal", "government_provincial", "government_municipal", "ngo", "health", "other"]:
+        for org_type in [
+            "government_federal",
+            "government_provincial",
+            "government_municipal",
+            "ngo",
+            "health",
+            "other",
+        ]:
             org = make_org(slug=f"org-type-{org_type}")
             org.organization_type = org_type
             org.full_clean()  # must not raise
@@ -180,6 +193,7 @@ class OrganizationTests(TestCase):
     def test_organization_type_choices_invalid(self):
         """Invalid organization_type raises ValidationError."""
         from django.core.exceptions import ValidationError
+
         org = make_org(slug="org-type-invalid")
         org.organization_type = "not_a_real_type"
         with self.assertRaises(ValidationError):
@@ -203,8 +217,8 @@ class OrganizationTests(TestCase):
 # SchedulingPolicy
 # ---------------------------------------------------------------------------
 
-class SchedulingPolicyTests(TestCase):
 
+class SchedulingPolicyTests(TestCase):
     def test_str_uses_name(self):
         policy = make_policy("Standard Booking Policy")
         self.assertIn("Standard Booking Policy", str(policy))
@@ -267,6 +281,7 @@ class SchedulingPolicyTests(TestCase):
     def test_buffer_minutes_max_value_validator(self):
         """buffer_before/after_minutes must not exceed 240 minutes."""
         from django.core.exceptions import ValidationError
+
         # MaxValueValidator runs at full_clean() (Python-level) — no DB save needed.
         policy = SchedulingPolicy(
             name="test-buffer-max",
@@ -279,6 +294,7 @@ class SchedulingPolicyTests(TestCase):
     def test_buffer_after_minutes_max_value_validator(self):
         """buffer_after_minutes must not exceed 240."""
         from django.core.exceptions import ValidationError
+
         # MaxValueValidator runs at full_clean() (Python-level) — no DB save needed.
         policy = SchedulingPolicy(
             name="test-buffer-after-max",
@@ -340,8 +356,8 @@ class SchedulingPolicyTests(TestCase):
 # ServiceType
 # ---------------------------------------------------------------------------
 
-class ServiceTypeTests(TestCase):
 
+class ServiceTypeTests(TestCase):
     def test_slug_unique(self):
         make_service_type(slug="svc-slug")
         with self.assertRaises(IntegrityError):
@@ -391,6 +407,7 @@ class ServiceTypeTests(TestCase):
     def test_privacy_sensitivity_invalid_choice_raises(self):
         """An unrecognised privacy_sensitivity value must fail full_clean()."""
         from django.core.exceptions import ValidationError
+
         svc = make_service_type(slug="bad-sensitivity")
         svc.privacy_sensitivity = "top_secret"  # not a valid choice
         with self.assertRaises(ValidationError):
@@ -405,8 +422,8 @@ class ServiceTypeTests(TestCase):
 # AppointmentType
 # ---------------------------------------------------------------------------
 
-class AppointmentTypeTests(TestCase):
 
+class AppointmentTypeTests(TestCase):
     def setUp(self):
         self.service_type = make_service_type(slug="health-svc", category="health")
 
@@ -574,13 +591,17 @@ class AppointmentTypeTests(TestCase):
 
     def test_allow_anonymous_booking_can_be_set(self):
         """allow_anonymous_booking can be explicitly enabled."""
-        at = make_appt_type(service_type=self.service_type, slug="anon-enabled", allow_anonymous_booking=True)
+        at = make_appt_type(
+            service_type=self.service_type, slug="anon-enabled", allow_anonymous_booking=True
+        )
         self.assertTrue(at.allow_anonymous_booking)
         at.full_clean()  # must not raise
 
     def test_str_does_not_traverse_fk(self):
         """AppointmentType.__str__ must return name_en without a DB query."""
-        at = make_appt_type(service_type=self.service_type, slug="str-no-fk", name_en="Tax Filing Appointment")
+        at = make_appt_type(
+            service_type=self.service_type, slug="str-no-fk", name_en="Tax Filing Appointment"
+        )
         # After loading from DB, str() should not cause an additional query
         # (service_type should NOT be fetched)
         at_fresh = AppointmentType.objects.get(pk=at.pk)
@@ -645,8 +666,8 @@ class AppointmentTypeTests(TestCase):
 # Location
 # ---------------------------------------------------------------------------
 
-class LocationTests(TestCase):
 
+class LocationTests(TestCase):
     def setUp(self):
         self.org = make_org(slug="test-loc-org")
 
@@ -730,6 +751,7 @@ class LocationTests(TestCase):
     def test_get_effective_policy_returns_policy(self):
         """Location.get_effective_policy() returns the attached policy."""
         from apps.appointments.models import SchedulingPolicy
+
         policy = SchedulingPolicy.objects.create(name="loc-policy-test")
         loc = make_location(
             organization=self.org,
@@ -748,8 +770,8 @@ class LocationTests(TestCase):
 # Resource
 # ---------------------------------------------------------------------------
 
-class ResourceTests(TestCase):
 
+class ResourceTests(TestCase):
     def setUp(self):
         self.location = make_location()
 
@@ -796,9 +818,9 @@ class ResourceTests(TestCase):
 
     def test_ordering_by_name_en(self):
         """Resources are ordered by name_en ascending."""
-        r1 = make_resource(location=self.location, name_en="Aardvark Room")
-        r2 = make_resource(location=self.location, name_en="Zebra Room")
-        r3 = make_resource(location=self.location, name_en="Mango Room")
+        make_resource(location=self.location, name_en="Aardvark Room")
+        make_resource(location=self.location, name_en="Zebra Room")
+        make_resource(location=self.location, name_en="Mango Room")
         qs = Resource.objects.filter(location=self.location).order_by("name_en")
         names = list(qs.values_list("name_en", flat=True))
         self.assertEqual(names, ["Aardvark Room", "Mango Room", "Zebra Room"])
@@ -820,8 +842,8 @@ class ResourceTests(TestCase):
 # StaffProfile — PIPEDA
 # ---------------------------------------------------------------------------
 
-class StaffProfileTests(TestCase):
 
+class StaffProfileTests(TestCase):
     def setUp(self):
         self.location = make_location()
         self.staff_user = make_user(email="coordinator@example.com", is_staff=True)
@@ -947,6 +969,7 @@ class StaffProfileTests(TestCase):
     def test_clean_rejects_non_staff_user(self):
         """StaffProfile.clean() must raise ValidationError when user.is_staff=False."""
         from django.core.exceptions import ValidationError
+
         non_staff_user = make_user(email="notstaff@example.com", is_staff=False)
         profile = StaffProfile(user=non_staff_user, location=self.location)
         with self.assertRaises(ValidationError) as cm:
@@ -956,6 +979,7 @@ class StaffProfileTests(TestCase):
     def test_get_display_name_returns_en_by_default(self):
         """get_display_name() returns EN display name when language is English."""
         from django.utils.translation import override
+
         profile = self.profile  # use setUp profile
         profile.display_name_en = "Dr. Smith"
         profile.display_name_fr = "Dr Tremblay"
@@ -966,6 +990,7 @@ class StaffProfileTests(TestCase):
     def test_get_display_name_returns_fr_when_active(self):
         """get_display_name() returns FR display name when language is French."""
         from django.utils.translation import override
+
         profile = self.profile
         profile.display_name_en = "Dr. Smith"
         profile.display_name_fr = "Dr Tremblay"
@@ -976,6 +1001,7 @@ class StaffProfileTests(TestCase):
     def test_get_display_name_falls_back_to_en(self):
         """get_display_name() falls back to EN if FR is blank."""
         from django.utils.translation import override
+
         profile = self.profile
         profile.display_name_en = "Dr. Smith"
         profile.display_name_fr = ""
@@ -996,8 +1022,8 @@ class StaffProfileTests(TestCase):
 # Cross-model: service_type → appointment_type → staff M2M chain
 # ---------------------------------------------------------------------------
 
-class CrossModelTests(TestCase):
 
+class CrossModelTests(TestCase):
     def test_staff_profile_m2m_via_appointment_type(self):
         """StaffProfile.appointment_types links to AppointmentType.staff_members."""
         svc = make_service_type(slug="cm-svc")
@@ -1037,12 +1063,14 @@ class CrossModelTests(TestCase):
 # Settings
 # ---------------------------------------------------------------------------
 
+
 class SettingsTests(TestCase):
     """Verify settings for the Appointments BB are correctly typed."""
 
     def test_reminder_hours_are_integers(self):
         """APPOINTMENTS_REMINDER_HOURS must be a list of ints (not strings)."""
         from django.conf import settings
+
         hours = settings.CIVICOS.get("APPOINTMENTS", {}).get("REMINDER_HOURS", [])
         self.assertIsInstance(hours, list)
         self.assertTrue(len(hours) > 0)
@@ -1053,6 +1081,7 @@ class SettingsTests(TestCase):
 # ---------------------------------------------------------------------------
 # PolicyCascadeTests
 # ---------------------------------------------------------------------------
+
 
 class PolicyCascadeTests(TestCase):
     """
@@ -1070,6 +1099,7 @@ class PolicyCascadeTests(TestCase):
 
     def setUp(self):
         from apps.appointments.models import SchedulingPolicy
+
         self.org = make_org(slug="cascade-org")
         self.service_type = make_service_type(slug="cascade-svc")
         self.appt_policy = SchedulingPolicy.objects.create(name="appt-policy")
@@ -1121,9 +1151,9 @@ class PolicyCascadeTests(TestCase):
 # Wave 2 Model Tests
 # ===========================================================================
 
-import uuid as _uuid_module
-from datetime import date, time, timedelta, datetime
-from zoneinfo import ZoneInfo
+import uuid as _uuid_module  # noqa: E402
+from datetime import date, datetime, time, timedelta  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
 
 _UTC = ZoneInfo("UTC")
 
@@ -1131,6 +1161,7 @@ _UTC = ZoneInfo("UTC")
 # ---------------------------------------------------------------------------
 # Wave 2 Factories (local to this section)
 # ---------------------------------------------------------------------------
+
 
 def _make_wave2_staff(location=None, suffix: str = "") -> StaffProfile:
     """Create a StaffProfile linked to a staff user."""
@@ -1141,7 +1172,9 @@ def _make_wave2_staff(location=None, suffix: str = "") -> StaffProfile:
     )
     if location is None:
         org = Organization.objects.create(
-            slug=f"w2org{suffix}", name_en="W2 Org", name_fr="Org W2",
+            slug=f"w2org{suffix}",
+            name_en="W2 Org",
+            name_fr="Org W2",
         )
         location = Location.objects.create(
             organization=org,
@@ -1157,7 +1190,9 @@ def _make_wave2_slot(staff=None, suffix: str = "") -> Slot:
     if staff is None:
         staff = _make_wave2_staff(suffix=suffix)
     org = Organization.objects.create(
-        slug=f"slotorg{suffix}", name_en="Slot Org", name_fr="Org Slot",
+        slug=f"slotorg{suffix}",
+        name_en="Slot Org",
+        name_fr="Org Slot",
     )
     loc = Location.objects.create(
         organization=org,
@@ -1166,7 +1201,9 @@ def _make_wave2_slot(staff=None, suffix: str = "") -> Slot:
         name_fr="Loc Slot",
     )
     svc = ServiceType.objects.create(
-        slug=f"slotsvc{suffix}", name_en="Slot SVC", name_fr="SVC Slot",
+        slug=f"slotsvc{suffix}",
+        name_en="Slot SVC",
+        name_fr="SVC Slot",
     )
     appt_type = AppointmentType.objects.create(
         service_type=svc,
@@ -1193,6 +1230,7 @@ def _make_wave2_slot(staff=None, suffix: str = "") -> Slot:
 # ---------------------------------------------------------------------------
 # Wave 2: AvailabilityTemplate model tests
 # ---------------------------------------------------------------------------
+
 
 class AvailabilityTemplateTests(TestCase):
     """
@@ -1293,6 +1331,7 @@ class AvailabilityTemplateTests(TestCase):
         must explicitly decommission the records first.
         """
         from django.db.models import ProtectedError
+
         AvailabilityTemplate.objects.create(
             staff=self.staff,
             day_of_week=4,
@@ -1308,16 +1347,25 @@ class AvailabilityTemplateTests(TestCase):
     def test_ordering_day_of_week_then_start_time(self):
         """Templates ordered by day_of_week ASC then start_time ASC."""
         AvailabilityTemplate.objects.create(
-            staff=self.staff, day_of_week=3,
-            start_time=time(14, 0), end_time=time(15, 0), valid_from=date(2026, 1, 1),
+            staff=self.staff,
+            day_of_week=3,
+            start_time=time(14, 0),
+            end_time=time(15, 0),
+            valid_from=date(2026, 1, 1),
         )
         AvailabilityTemplate.objects.create(
-            staff=self.staff, day_of_week=1,
-            start_time=time(10, 0), end_time=time(11, 0), valid_from=date(2026, 1, 1),
+            staff=self.staff,
+            day_of_week=1,
+            start_time=time(10, 0),
+            end_time=time(11, 0),
+            valid_from=date(2026, 1, 1),
         )
         AvailabilityTemplate.objects.create(
-            staff=self.staff, day_of_week=1,
-            start_time=time(9, 0), end_time=time(10, 0), valid_from=date(2026, 1, 1),
+            staff=self.staff,
+            day_of_week=1,
+            start_time=time(9, 0),
+            end_time=time(10, 0),
+            valid_from=date(2026, 1, 1),
         )
         templates = list(AvailabilityTemplate.objects.filter(staff=self.staff))
         self.assertEqual(templates[0].day_of_week, 1)
@@ -1329,6 +1377,7 @@ class AvailabilityTemplateTests(TestCase):
 # ---------------------------------------------------------------------------
 # Wave 2: StaffException model tests
 # ---------------------------------------------------------------------------
+
 
 class StaffExceptionModelConstraintTests(TestCase):
     """
@@ -1441,6 +1490,7 @@ class StaffExceptionModelConstraintTests(TestCase):
         and must survive staff deletion for auditability.
         """
         from django.db.models import ProtectedError
+
         StaffException.objects.create(
             staff=self.staff,
             exception_date=date(2026, 7, 10),
@@ -1469,7 +1519,7 @@ class StaffExceptionModelConstraintTests(TestCase):
             staff=self.staff,
             exception_date=date.today() + timedelta(days=1),
             exception_type="override",
-            override_start_time=time(0, 0),   # midnight — falsy but valid
+            override_start_time=time(0, 0),  # midnight — falsy but valid
             override_end_time=time(8, 0),
         )
         # Should not raise ValidationError — absence of exception IS the assertion
@@ -1479,6 +1529,7 @@ class StaffExceptionModelConstraintTests(TestCase):
 # ---------------------------------------------------------------------------
 # Wave 2: StaffExceptionAdmin.save_model() tests
 # ---------------------------------------------------------------------------
+
 
 class StaffExceptionAdminSaveModelTests(TestCase):
     """Tests for StaffExceptionAdmin.save_model() append-only note behaviour."""
@@ -1504,19 +1555,23 @@ class StaffExceptionAdminSaveModelTests(TestCase):
 
     def _make_request(self):
         from django.test import RequestFactory
+
         request = RequestFactory().post("/")
         request.user = self.admin_user
         return request
 
     def _make_admin(self):
-        from apps.appointments.admin import StaffExceptionAdmin
         from django.contrib.admin import site
+
+        from apps.appointments.admin import StaffExceptionAdmin
+
         return StaffExceptionAdmin(StaffException, site)
 
     def test_note_addition_appended_with_timestamp_and_actor_pk(self):
         """note_addition is appended to internal_note with [timestamp — admin #pk] prefix."""
-        from apps.appointments.admin import StaffExceptionAdminForm
         from unittest.mock import MagicMock
+
+        from apps.appointments.admin import StaffExceptionAdminForm
 
         admin_instance = self._make_admin()
         request = self._make_request()
@@ -1537,8 +1592,9 @@ class StaffExceptionAdminSaveModelTests(TestCase):
 
     def test_empty_note_addition_leaves_internal_note_unchanged(self):
         """If note_addition is blank, internal_note must not be modified."""
-        from apps.appointments.admin import StaffExceptionAdminForm
         from unittest.mock import MagicMock
+
+        from apps.appointments.admin import StaffExceptionAdminForm
 
         # Pre-set a known internal_note value.
         self.exc.internal_note = "Pre-existing note"
@@ -1559,8 +1615,9 @@ class StaffExceptionAdminSaveModelTests(TestCase):
 
     def test_second_note_addition_appends_not_overwrites(self):
         """Two note additions must produce two entries in internal_note."""
-        from apps.appointments.admin import StaffExceptionAdminForm
         from unittest.mock import MagicMock
+
+        from apps.appointments.admin import StaffExceptionAdminForm
 
         admin_instance = self._make_admin()
         request = self._make_request()
@@ -1588,6 +1645,7 @@ class StaffExceptionAdminSaveModelTests(TestCase):
 # Wave 2: Slot model constraint tests
 # ---------------------------------------------------------------------------
 
+
 class SlotModelConstraintTests(TestCase):
     """
     Model-level constraint tests for Slot.
@@ -1596,36 +1654,44 @@ class SlotModelConstraintTests(TestCase):
 
     def setUp(self):
         org = Organization.objects.create(
-            slug="slot-test-org", name_en="Slot Org", name_fr="Org Slot",
+            slug="slot-test-org",
+            name_en="Slot Org",
+            name_fr="Org Slot",
         )
         self.location = Location.objects.create(
-            organization=org, slug="slot-test-loc",
-            name_en="Slot Loc", name_fr="Loc Slot",
+            organization=org,
+            slug="slot-test-loc",
+            name_en="Slot Loc",
+            name_fr="Loc Slot",
         )
         svc = ServiceType.objects.create(
-            slug="slot-test-svc", name_en="SVC", name_fr="SVC",
+            slug="slot-test-svc",
+            name_en="SVC",
+            name_fr="SVC",
         )
         self.appt_type = AppointmentType.objects.create(
-            service_type=svc, slug="slot-test-at",
-            name_en="AT", name_fr="AT",
+            service_type=svc,
+            slug="slot-test-at",
+            name_en="AT",
+            name_fr="AT",
         )
         self.staff = _make_wave2_staff(suffix="-slt")
         self.now = datetime(2026, 9, 15, 14, 0, tzinfo=_UTC)
         self.end = self.now + timedelta(minutes=30)
 
     def _valid_slot(self, **overrides):
-        defaults = dict(
-            appointment_type=self.appt_type,
-            staff=self.staff,
-            location=self.location,
-            start_datetime=self.now,
-            end_datetime=self.end,
-            effective_start=self.now,
-            effective_end=self.end,
-            capacity=1,
-            spaces_used=0,
-            status="available",
-        )
+        defaults = {
+            "appointment_type": self.appt_type,
+            "staff": self.staff,
+            "location": self.location,
+            "start_datetime": self.now,
+            "end_datetime": self.end,
+            "effective_start": self.now,
+            "effective_end": self.end,
+            "capacity": 1,
+            "spaces_used": 0,
+            "status": "available",
+        }
         defaults.update(overrides)
         return Slot.objects.create(**defaults)
 
@@ -1676,6 +1742,7 @@ class SlotModelConstraintTests(TestCase):
         s = str(slot)
         # Must not look like an email address
         import re
+
         self.assertIsNone(
             re.search(r"@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", s),
             f"Email address found in Slot.__str__: {s!r}",
@@ -1711,7 +1778,8 @@ class SlotModelConstraintTests(TestCase):
         """Deleting a Resource sets slot.resource to NULL."""
         resource = Resource.objects.create(
             location=self.location,
-            name_en="Room", name_fr="Salle",
+            name_en="Room",
+            name_fr="Salle",
             resource_type="room",
         )
         slot = self._valid_slot(resource=resource)
@@ -1745,10 +1813,18 @@ class SlotModelConstraintTests(TestCase):
     def test_ordering_by_start_datetime(self):
         t1 = self.now
         t2 = self.now + timedelta(hours=1)
-        self._valid_slot(start_datetime=t2, end_datetime=t2 + timedelta(minutes=30),
-                         effective_start=t2, effective_end=t2 + timedelta(minutes=30))
-        self._valid_slot(start_datetime=t1, end_datetime=t1 + timedelta(minutes=30),
-                         effective_start=t1, effective_end=t1 + timedelta(minutes=30))
+        self._valid_slot(
+            start_datetime=t2,
+            end_datetime=t2 + timedelta(minutes=30),
+            effective_start=t2,
+            effective_end=t2 + timedelta(minutes=30),
+        )
+        self._valid_slot(
+            start_datetime=t1,
+            end_datetime=t1 + timedelta(minutes=30),
+            effective_start=t1,
+            effective_end=t1 + timedelta(minutes=30),
+        )
         slots = list(Slot.objects.filter(appointment_type=self.appt_type))
         self.assertEqual(slots[0].start_datetime, t1)
         self.assertEqual(slots[1].start_datetime, t2)
@@ -1779,23 +1855,32 @@ class SlotModelConstraintTests(TestCase):
 # Wave 2: SlotAdminForm.clean_capacity() tests
 # ---------------------------------------------------------------------------
 
+
 class SlotAdminFormTests(TestCase):
     """Tests for SlotAdminForm.clean_capacity() validation."""
 
     def setUp(self):
         org = Organization.objects.create(
-            slug="saf-org", name_en="SAF Org", name_fr="Org SAF",
+            slug="saf-org",
+            name_en="SAF Org",
+            name_fr="Org SAF",
         )
         self.location = Location.objects.create(
-            organization=org, slug="saf-loc",
-            name_en="SAF Loc", name_fr="Loc SAF",
+            organization=org,
+            slug="saf-loc",
+            name_en="SAF Loc",
+            name_fr="Loc SAF",
         )
         svc = ServiceType.objects.create(
-            slug="saf-svc", name_en="SAF SVC", name_fr="SVC SAF",
+            slug="saf-svc",
+            name_en="SAF SVC",
+            name_fr="SVC SAF",
         )
         self.appt_type = AppointmentType.objects.create(
-            service_type=svc, slug="saf-at",
-            name_en="SAF AT", name_fr="AT SAF",
+            service_type=svc,
+            slug="saf-at",
+            name_en="SAF AT",
+            name_fr="AT SAF",
         )
         self.staff = _make_wave2_staff(suffix="-saf")
         now = datetime(2026, 9, 1, 14, 0, tzinfo=_UTC)
@@ -1817,6 +1902,7 @@ class SlotAdminFormTests(TestCase):
     def test_new_slot_any_capacity_passes(self):
         """New slot (no pk) — clean_capacity() should not raise for any capacity."""
         from apps.appointments.admin import SlotAdminForm
+
         form = SlotAdminForm(instance=Slot())
         form.instance = Slot()  # no pk
         form.cleaned_data = {"capacity": 1}
@@ -1826,6 +1912,7 @@ class SlotAdminFormTests(TestCase):
     def test_existing_slot_capacity_gte_spaces_used_passes(self):
         """Existing slot where new capacity >= spaces_used — should pass."""
         from apps.appointments.admin import SlotAdminForm
+
         form = SlotAdminForm(instance=self.slot)
         form.instance = self.slot
         form.cleaned_data = {"capacity": 5}  # same as current, >= spaces_used=2
@@ -1834,8 +1921,10 @@ class SlotAdminFormTests(TestCase):
 
     def test_existing_slot_capacity_below_spaces_used_raises(self):
         """Existing slot where new capacity < spaces_used — must raise ValidationError."""
-        from apps.appointments.admin import SlotAdminForm
         from django.core.exceptions import ValidationError as CoreValidationError
+
+        from apps.appointments.admin import SlotAdminForm
+
         form = SlotAdminForm(instance=self.slot)
         form.instance = self.slot
         form.cleaned_data = {"capacity": 1}  # 1 < spaces_used=2 — must fail
@@ -1846,6 +1935,7 @@ class SlotAdminFormTests(TestCase):
 # ---------------------------------------------------------------------------
 # Wave 2: Slot.clean() unit tests
 # ---------------------------------------------------------------------------
+
 
 class SlotCleanMethodTests(TestCase):
     """
@@ -1864,36 +1954,44 @@ class SlotCleanMethodTests(TestCase):
 
     def setUp(self):
         org = Organization.objects.create(
-            slug="scm-org", name_en="SCM Org", name_fr="Org SCM",
+            slug="scm-org",
+            name_en="SCM Org",
+            name_fr="Org SCM",
         )
         self.location = Location.objects.create(
-            organization=org, slug="scm-loc",
-            name_en="SCM Loc", name_fr="Loc SCM",
+            organization=org,
+            slug="scm-loc",
+            name_en="SCM Loc",
+            name_fr="Loc SCM",
         )
         svc = ServiceType.objects.create(
-            slug="scm-svc", name_en="SCM SVC", name_fr="SVC SCM",
+            slug="scm-svc",
+            name_en="SCM SVC",
+            name_fr="SVC SCM",
         )
         self.appt_type = AppointmentType.objects.create(
-            service_type=svc, slug="scm-at",
-            name_en="SCM AT", name_fr="AT SCM",
+            service_type=svc,
+            slug="scm-at",
+            name_en="SCM AT",
+            name_fr="AT SCM",
         )
         self.staff = _make_wave2_staff(suffix="-scm")
 
     def _valid_slot_kwargs(self) -> dict:
         """Return kwargs that produce a slot passing all clean() checks."""
         now = datetime(2026, 7, 6, 9, 0, tzinfo=_UTC)
-        return dict(
-            appointment_type=self.appt_type,
-            staff=self.staff,
-            location=self.location,
-            start_datetime=now,
-            end_datetime=now + timedelta(minutes=30),
-            effective_start=now - timedelta(minutes=5),
-            effective_end=now + timedelta(minutes=35),
-            capacity=2,
-            spaces_used=0,
-            status="available",
-        )
+        return {
+            "appointment_type": self.appt_type,
+            "staff": self.staff,
+            "location": self.location,
+            "start_datetime": now,
+            "end_datetime": now + timedelta(minutes=30),
+            "effective_start": now - timedelta(minutes=5),
+            "effective_end": now + timedelta(minutes=35),
+            "capacity": 2,
+            "spaces_used": 0,
+            "status": "available",
+        }
 
     def test_clean_passes_for_valid_slot(self):
         """A properly constructed slot should pass all clean() checks without raising."""
@@ -1920,7 +2018,7 @@ class SlotCleanMethodTests(TestCase):
         self.assertIn("spaces_used", ctx.exception.message_dict)
 
     def test_clean_raises_for_effective_start_after_start_datetime(self):
-        """effective_start > start_datetime must raise ValidationError with key 'effective_start'."""
+        """effective_start > start_datetime must raise ValidationError with key 'effective_start'."""  # noqa: E501
         kwargs = self._valid_slot_kwargs()
         now = datetime(2026, 7, 6, 9, 0, tzinfo=_UTC)
         kwargs["start_datetime"] = now
@@ -1968,6 +2066,7 @@ class SlotCleanMethodTests(TestCase):
 # Wave 2: SlotAdmin.save_model() tests
 # ---------------------------------------------------------------------------
 
+
 class SlotAdminSaveModelTests(TestCase):
     """
     Verify SlotAdmin.save_model() invokes Slot.clean() so that CheckConstraint
@@ -1976,18 +2075,26 @@ class SlotAdminSaveModelTests(TestCase):
 
     def setUp(self):
         org = Organization.objects.create(
-            slug="sam-org", name_en="SAM Org", name_fr="Org SAM",
+            slug="sam-org",
+            name_en="SAM Org",
+            name_fr="Org SAM",
         )
         self.location = Location.objects.create(
-            organization=org, slug="sam-loc",
-            name_en="SAM Loc", name_fr="Loc SAM",
+            organization=org,
+            slug="sam-loc",
+            name_en="SAM Loc",
+            name_fr="Loc SAM",
         )
         svc = ServiceType.objects.create(
-            slug="sam-svc", name_en="SAM SVC", name_fr="SVC SAM",
+            slug="sam-svc",
+            name_en="SAM SVC",
+            name_fr="SVC SAM",
         )
         self.appt_type = AppointmentType.objects.create(
-            service_type=svc, slug="sam-at",
-            name_en="SAM AT", name_fr="AT SAM",
+            service_type=svc,
+            slug="sam-at",
+            name_en="SAM AT",
+            name_fr="AT SAM",
         )
         self.staff = _make_wave2_staff(suffix="-sam")
         self.admin_user = User.objects.create_user(
@@ -2001,36 +2108,40 @@ class SlotAdminSaveModelTests(TestCase):
         self.end = end
 
     def _make_admin(self):
-        from apps.appointments.admin import SlotAdmin
         from django.contrib.admin import site
+
+        from apps.appointments.admin import SlotAdmin
+
         return SlotAdmin(Slot, site)
 
     def _make_request(self):
         from django.test import RequestFactory
+
         request = RequestFactory().post("/")
         request.user = self.admin_user
         return request
 
     def _valid_slot_in_db(self, **overrides):
         """Create and persist a valid Slot, then return it."""
-        defaults = dict(
-            appointment_type=self.appt_type,
-            staff=self.staff,
-            location=self.location,
-            start_datetime=self.now,
-            end_datetime=self.end,
-            effective_start=self.now,
-            effective_end=self.end,
-            capacity=5,
-            spaces_used=0,
-            status="available",
-        )
+        defaults = {
+            "appointment_type": self.appt_type,
+            "staff": self.staff,
+            "location": self.location,
+            "start_datetime": self.now,
+            "end_datetime": self.end,
+            "effective_start": self.now,
+            "effective_end": self.end,
+            "capacity": 5,
+            "spaces_used": 0,
+            "status": "available",
+        }
         defaults.update(overrides)
         return Slot.objects.create(**defaults)
 
     def test_save_model_succeeds_for_valid_slot(self):
         """save_model() must not raise for a slot that passes all constraints."""
         from unittest.mock import MagicMock
+
         slot = self._valid_slot_in_db()
         admin_instance = self._make_admin()
         request = self._make_request()
@@ -2046,8 +2157,9 @@ class SlotAdminSaveModelTests(TestCase):
         Without this, the DB raises an IntegrityError (500 in admin) instead
         of a friendly ValidationError.
         """
-        from django.core.exceptions import ValidationError as CoreValidationError
         from unittest.mock import MagicMock
+
+        from django.core.exceptions import ValidationError as CoreValidationError
 
         slot = self._valid_slot_in_db()
         # Manipulate in-memory only — do not bypass DB constraint by saving.
@@ -2064,8 +2176,9 @@ class SlotAdminSaveModelTests(TestCase):
 
         Slot.clean() mirrors the appt_slot_spaces_lte_capacity CheckConstraint.
         """
-        from django.core.exceptions import ValidationError as CoreValidationError
         from unittest.mock import MagicMock
+
+        from django.core.exceptions import ValidationError as CoreValidationError
 
         slot = self._valid_slot_in_db(capacity=2, spaces_used=2)
         # In-memory mutation: push spaces_used above capacity.

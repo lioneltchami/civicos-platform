@@ -70,6 +70,7 @@ message raised by this module. Log statements and ValueError messages use
 PKs only; participant_entity_id validation errors use a static message (no
 raw input echoed back).
 """
+
 from __future__ import annotations
 
 import logging
@@ -123,7 +124,7 @@ _LIST_PAGE_CAP = 500
 # ---------------------------------------------------------------------------
 
 
-def _get_or_create_govstack_organizer_actor():
+def _get_or_create_govstack_organizer_actor():  # noqa: ANN202
     """
     Lazily seed a system User (is_staff=True) to serve as the audit-trail
     actor for GovStack-driven staff/organizer actions (confirm, reject)
@@ -146,7 +147,7 @@ def _get_or_create_govstack_organizer_actor():
     PIPEDA: email is an internal system identifier, never returned in
     any API response.
     """
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     try:
         user, created = User.objects.get_or_create(
             email=_GOVSTACK_ORGANIZER_EMAIL,
@@ -167,7 +168,7 @@ def _get_or_create_govstack_organizer_actor():
 # ---------------------------------------------------------------------------
 
 
-def _resolve_subscriber(participant_type: str, participant_id: str):
+def _resolve_subscriber(participant_type: str, participant_id: str):  # noqa: ANN202
     """
     Resolve (participant_type, participant_id) to a citizen User.
 
@@ -197,7 +198,7 @@ def _resolve_subscriber(participant_type: str, participant_id: str):
     except (ValueError, TypeError) as exc:
         raise ValueError("participant_id must be an integer User primary key.") from exc
 
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     return User.objects.get(pk=user_pk, is_staff=False, is_active=True)
 
 
@@ -245,7 +246,7 @@ def _derive_appointment_mode(slot: Slot) -> str:
     return mode
 
 
-def _parse_datetime_str(value: str):
+def _parse_datetime_str(value: str):  # noqa: ANN202
     """
     Parse an ISO 8601 datetime string used by appointment_filter's from/to
     keys, requiring timezone awareness. Mirrors govstack_event's identical
@@ -265,7 +266,7 @@ def _parse_datetime_str(value: str):
     return dt
 
 
-def _lock_slot(slot_pk) -> None:
+def _lock_slot(slot_pk) -> None:  # noqa: ANN001
     """
     Set Slot.status = "blocked" under select_for_update(), implementing the
     GovStack "exclusive" flag. Must be called inside an enclosing
@@ -277,7 +278,7 @@ def _lock_slot(slot_pk) -> None:
     slot.save(update_fields=["status", "updated_at"])
 
 
-def _unlock_slot(slot_pk) -> None:
+def _unlock_slot(slot_pk) -> None:  # noqa: ANN001
     """
     Recompute Slot.status from spaces_used/capacity under select_for_update(),
     reversing a prior _lock_slot() call. Reimplements the identical 3-line
@@ -465,7 +466,9 @@ def appointment_create(
             booking.govstack_participant_entity_id = entity_id_to_store
             booking.save(
                 update_fields=[
-                    "govstack_exclusive", "govstack_participant_entity_id", "updated_at",
+                    "govstack_exclusive",
+                    "govstack_participant_entity_id",
+                    "updated_at",
                 ]
             )
             if exclusive:
@@ -473,7 +476,9 @@ def appointment_create(
 
     logger.info(
         "appointment_create: created %d booking(s) citizen_id=%s exclusive=%s",
-        len(created_bookings), citizen.pk, exclusive,
+        len(created_bookings),
+        citizen.pk,
+        exclusive,
     )
     return created_bookings
 
@@ -598,14 +603,18 @@ def appointment_modify(
             # row) below.
             old_booking = booking
             booking = reschedule_booking(
-                booking=booking, new_slot=new_slot, actor=booking.citizen,
+                booking=booking,
+                new_slot=new_slot,
+                actor=booking.citizen,
             )
             # Carry forward GovStack-specific fields onto the NEW row.
             booking.govstack_exclusive = carried_exclusive
             booking.govstack_participant_entity_id = carried_entity_id
             booking.save(
                 update_fields=[
-                    "govstack_exclusive", "govstack_participant_entity_id", "updated_at",
+                    "govstack_exclusive",
+                    "govstack_participant_entity_id",
+                    "updated_at",
                 ]
             )
 
@@ -667,7 +676,9 @@ def appointment_modify(
 
     logger.info(
         "appointment_modify: appointment_id=%s -> booking_id=%s status=%s",
-        appointment_id, booking.pk, booking.status,
+        appointment_id,
+        booking.pk,
+        booking.status,
     )
     return booking
 

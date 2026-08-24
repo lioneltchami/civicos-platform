@@ -15,12 +15,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("reports", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ── 1. Drop redundant snapshot index ─────────────────────────────────
         migrations.RemoveIndex(
             model_name="reportsnapshot",
@@ -31,7 +30,7 @@ class Migration(migrations.Migration):
             model_name="reportsnapshot",
             name="period_month",
             field=models.PositiveSmallIntegerField(
-                help_text="Calendar month 1–12.",
+                help_text="Calendar month 1–12.",  # noqa: RUF001
                 validators=[
                     django.core.validators.MinValueValidator(1),
                     django.core.validators.MaxValueValidator(12),

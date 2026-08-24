@@ -22,8 +22,9 @@ Covers:
 - Zero / positive values pass through unchanged
 - Task-level eligible_amount floor guard: max(0.00, ...) is applied before save()
 """
+
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -35,7 +36,6 @@ from apps.payments.models import (
     DonationCampaign,
     Payment,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
 from apps.payments.tasks import _handle_one_time_donation
 
@@ -45,6 +45,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_user(**kwargs):
     email = kwargs.pop("email", f"donor_{uuid.uuid4().hex[:6]}@example.com")
@@ -87,7 +88,7 @@ def _make_payment(intent, amount_paid=Decimal("100.00")):
         amount_paid=amount_paid,
         processor_fee=Decimal("0.00"),
         payment_method_type="card",
-        paid_at=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        paid_at=datetime(2024, 6, 1, tzinfo=UTC),
     )
 
 
@@ -100,6 +101,7 @@ def _make_webhook_event():
 # ---------------------------------------------------------------------------
 # M-K tests: advantage_amount floor guard (primary risk)
 # ---------------------------------------------------------------------------
+
 
 class AdvantageAmountNegativeFloorTests(TestCase):
     """
@@ -122,7 +124,7 @@ class AdvantageAmountNegativeFloorTests(TestCase):
             self.donor,
             metadata={
                 "is_recurring": "0",
-                "advantage_amount": "-5.00",   # tampered / buggy upstream value
+                "advantage_amount": "-5.00",  # tampered / buggy upstream value
                 "eligible_amount": "100.00",
                 "donor_legal_name": "Test Donor",
             },
@@ -231,6 +233,7 @@ class AdvantageAmountNegativeFloorTests(TestCase):
 # ---------------------------------------------------------------------------
 # M-K tests: eligible_amount task-level floor guard (defence-in-depth)
 # ---------------------------------------------------------------------------
+
 
 class EligibleAmountTaskLevelFloorTests(TestCase):
     """

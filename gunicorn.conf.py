@@ -7,6 +7,7 @@ Worker tuning:
 - threads=2 provides concurrency without asyncio overhead
 - timeout=120s accommodates file uploads and slow external APIs
 """
+
 import multiprocessing
 import os
 
@@ -24,8 +25,8 @@ graceful_timeout = int(os.environ.get("GUNICORN_GRACEFUL_TIMEOUT", "30"))
 keepalive = int(os.environ.get("GUNICORN_KEEPALIVE", "5"))
 
 # ---- Logging ----
-accesslog = "-"   # stdout — collected by container runtime
-errorlog = "-"    # stderr
+accesslog = "-"  # stdout — collected by container runtime
+errorlog = "-"  # stderr
 loglevel = os.environ.get("GUNICORN_LOG_LEVEL", "info")
 access_log_format = (
     '{"remote_addr":"%(h)s","method":"%(m)s","path":"%(U)s",'

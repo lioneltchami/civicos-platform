@@ -5,16 +5,22 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('consent', '0005_drop_data_export_request_storage_path'),
-        ('documents', '0007_seed_document_categories'),
+    dependencies = [  # noqa: RUF012
+        ("consent", "0005_drop_data_export_request_storage_path"),
+        ("documents", "0007_seed_document_categories"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='dataexportrequest',
-            name='document',
-            field=models.OneToOneField(blank=True, help_text='Documents BB record for the export archive. PIPEDA transitory — disposed after delivery.', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='data_export', to='documents.document'),
+            model_name="dataexportrequest",
+            name="document",
+            field=models.OneToOneField(
+                blank=True,
+                help_text="Documents BB record for the export archive. PIPEDA transitory — disposed after delivery.",
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="data_export",
+                to="documents.document",
+            ),
         ),
     ]

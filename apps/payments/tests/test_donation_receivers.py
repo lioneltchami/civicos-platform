@@ -3,6 +3,7 @@ Wave 4 — test_donation_receivers.py
 
 Tests for apps/payments/receivers.py signal receivers.
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -12,15 +13,15 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
     CharitySettings,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     Payment,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
-from apps.payments.signals import donation_completed, receipt_issued
+from apps.payments.signals import donation_completed
 
 User = get_user_model()
 
@@ -28,6 +29,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -98,6 +100,7 @@ def make_donation(donor, payment_intent, eligible_amount=Decimal("100.00"), **kw
 
 def make_payment(intent, **kwargs):
     from django.utils import timezone
+
     defaults = {
         "intent": intent,
         "gateway_charge_id": f"ch_{uuid.uuid4().hex[:8]}",
@@ -115,8 +118,8 @@ def make_payment(intent, **kwargs):
 # on_donation_completed receiver tests
 # ---------------------------------------------------------------------------
 
-class OnDonationCompletedTests(TestCase):
 
+class OnDonationCompletedTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.campaign = make_campaign()
@@ -126,9 +129,10 @@ class OnDonationCompletedTests(TestCase):
         self.payment = make_payment(self.intent)
 
     def _fire_signal(self, donation=None, payment=None):
+        from apps.payments.models import OfficialDonationReceipt
         from apps.payments.receivers import on_donation_completed
         from apps.payments.tasks_receipts import generate_and_send_receipt
-        from apps.payments.models import OfficialDonationReceipt
+
         d = donation or self.donation
         p = payment or self.payment
 
@@ -139,6 +143,7 @@ class OnDonationCompletedTests(TestCase):
                 _counter[0] += 1
                 receipt_instance.serial_number = f"2026-{str(_counter[0]).zfill(6)}"
             from django.db.models import Model
+
             Model.save(receipt_instance, *args, **kwargs)
 
         # generate_and_send_receipt is a Celery task — patch .delay directly
@@ -158,7 +163,8 @@ class OnDonationCompletedTests(TestCase):
         # Create a donation with eligible_amount = 0
         intent = make_payment_intent(self.user)
         donation = make_donation(
-            self.user, intent,
+            self.user,
+            intent,
             eligible_amount=Decimal("0.00"),
             amount=Decimal("100.00"),
             advantage_amount=Decimal("100.00"),
@@ -181,9 +187,9 @@ class OnDonationCompletedTests(TestCase):
 
     # 5. Queues generate_and_send_receipt Celery task
     def test_queues_celery_task(self):
+        from apps.payments.models import OfficialDonationReceipt as ODR  # noqa: N817
         from apps.payments.receivers import on_donation_completed
         from apps.payments.tasks_receipts import generate_and_send_receipt
-        from apps.payments.models import OfficialDonationReceipt as ODR
 
         _counter = [0]
 
@@ -192,6 +198,7 @@ class OnDonationCompletedTests(TestCase):
                 _counter[0] += 1
                 receipt_instance.serial_number = f"2026-{str(_counter[0]).zfill(6)}"
             from django.db.models import Model
+
             Model.save(receipt_instance, *args, **kwargs)
 
         delay_calls = []
@@ -215,8 +222,10 @@ class OnDonationCompletedTests(TestCase):
     # 6. Does NOT raise on any exception — exceptions are swallowed
     def test_does_not_raise_on_exception(self):
         from apps.payments.receivers import on_donation_completed
-        with patch("apps.payments.models.OfficialDonationReceipt.save",
-                   side_effect=Exception("DB error")):
+
+        with patch(
+            "apps.payments.models.OfficialDonationReceipt.save", side_effect=Exception("DB error")
+        ):
             # Should not raise — receiver swallows exceptions
             try:
                 on_donation_completed(
@@ -244,8 +253,9 @@ class OnDonationCompletedTests(TestCase):
         self._fire_signal()
         receipt = OfficialDonationReceipt.objects.get()
         self.assertEqual(receipt.charity_legal_name, self.charity.charity_legal_name)
-        self.assertEqual(receipt.charity_registration_number,
-                         self.charity.charity_registration_number)
+        self.assertEqual(
+            receipt.charity_registration_number, self.charity.charity_registration_number
+        )
 
     # 10. Receipt has correct donor snapshot data
     def test_receipt_has_correct_donor_snapshot(self):
@@ -264,8 +274,8 @@ class OnDonationCompletedTests(TestCase):
 # on_receipt_issued receiver tests
 # ---------------------------------------------------------------------------
 
-class OnReceiptIssuedTests(TestCase):
 
+class OnReceiptIssuedTests(TestCase):
     def setUp(self):
         self.user = make_user()
         self.intent = make_payment_intent(self.user)
@@ -303,6 +313,7 @@ class OnReceiptIssuedTests(TestCase):
     # 12. on_receipt_issued logs serial number
     def test_on_receipt_issued_logs_serial_number(self):
         from apps.payments.receivers import on_receipt_issued
+
         receipt = self._make_receipt()
         with self.assertLogs("apps.payments.receivers", level="INFO") as log_ctx:
             on_receipt_issued(
@@ -316,6 +327,7 @@ class OnReceiptIssuedTests(TestCase):
     # 13. on_receipt_issued does NOT log donor name
     def test_on_receipt_issued_does_not_log_donor_name(self):
         from apps.payments.receivers import on_receipt_issued
+
         receipt = self._make_receipt()
         donor_name = receipt.donor_legal_name
         with self.assertLogs("apps.payments.receivers", level="INFO") as log_ctx:
@@ -344,10 +356,13 @@ class OnReceiptIssuedTests(TestCase):
         _fake_recv.on_receipt_issued = MagicMock()
 
         # Re-calling ready() should not double-register (dispatch_uid prevents it)
-        with patch.dict("sys.modules", {
-            "apps.payments.signals": _fake_sig,
-            "apps.payments.receivers": _fake_recv,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "apps.payments.signals": _fake_sig,
+                "apps.payments.receivers": _fake_recv,
+            },
+        ):
             PaymentsConfig("payments", __import__("apps.payments")).ready()
             PaymentsConfig("payments", __import__("apps.payments")).ready()
 
@@ -358,9 +373,10 @@ class OnReceiptIssuedTests(TestCase):
                 _counter[0] += 1
                 receipt_instance.serial_number = f"2026-{str(_counter[0]).zfill(6)}"
             from django.db.models import Model
+
             Model.save(receipt_instance, *args, **kwargs)
 
-        charity = make_charity_settings()
+        make_charity_settings()
         with patch.object(OfficialDonationReceipt, "save", _fake_receipt_save):
             with patch.object(generate_and_send_receipt, "delay", return_value=None):
                 donation_completed.send(
@@ -375,7 +391,8 @@ class OnReceiptIssuedTests(TestCase):
     # 15. Error logged with donation_pk only — not donor_name
     def test_error_logged_without_donor_name(self):
         from apps.payments.receivers import on_donation_completed
-        charity = make_charity_settings()
+
+        make_charity_settings()
         donor_name = self.donation.donor_name_snapshot
 
         with patch(
@@ -398,6 +415,7 @@ class OnReceiptIssuedTests(TestCase):
 # ---------------------------------------------------------------------------
 # H6 — Idempotency race-condition fix (get_or_create replaces TOCTOU pattern)
 # ---------------------------------------------------------------------------
+
 
 class IdempotencyRaceConditionTests(TestCase):
     """
@@ -429,6 +447,7 @@ class IdempotencyRaceConditionTests(TestCase):
                 _counter[0] += 1
                 receipt_instance.serial_number = f"2026-{str(_counter[0]).zfill(6)}"
             from django.db.models import Model
+
             Model.save(receipt_instance, *args, **kwargs)
 
         d = donation or self.donation
@@ -465,6 +484,7 @@ class IdempotencyRaceConditionTests(TestCase):
         The receiver must log receipt_already_issued and return without error.
         """
         from datetime import date
+
         from apps.payments.receivers import on_donation_completed
         from apps.payments.tasks_receipts import generate_and_send_receipt
 

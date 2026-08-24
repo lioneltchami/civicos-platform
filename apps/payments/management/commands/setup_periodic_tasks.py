@@ -33,6 +33,7 @@ Why 02:00 America/Toronto for monthly snapshots?
   - By 02:00 all midnight Celery tasks from the previous day have completed,
     so the previous month's source data is fully settled before aggregation.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,7 +47,7 @@ logger = logging.getLogger("apps.payments.management.setup_periodic_tasks")
 class Command(BaseCommand):
     help = "Register Celery Beat periodic tasks via django-celery-beat (idempotent)."
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser) -> None:  # noqa: ANN001
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -63,7 +64,7 @@ class Command(BaseCommand):
             ),
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         dry_run = options["dry_run"]
         static_year = options["static_year"]
 
@@ -126,6 +127,45 @@ class Command(BaseCommand):
                 "calendar month.  Runs at 02:00 Toronto time on the 2nd of each month."
             ),
         )
+
+        # ── Item 02: GovStack Payments failure remediation ─────────────────
+        # These tasks deliberately do not submit or retry provider payments.
+        # They persist callback delivery outcomes and route unresolved provider
+        # states to an auditable review path until a provider adapter is wired.
+        remediation_schedule = {
+            "minute": "*/5",
+            "hour": "*",
+            "day_of_week": "*",
+            "day_of_month": "*",
+            "month_of_year": "*",
+            "timezone": "UTC",
+        }
+        for task_name, task_path, description in (
+            (
+                "payments.replay_govstack_callbacks",
+                "apps.payments.govstack_tasks.replay_govstack_callbacks",
+                "Replay due GovStack Payments callback outbox records with bounded backoff and dead-letter tracking.",  # noqa: E501
+            ),
+            (
+                "payments.triage_govstack_uncertain_attempts",
+                "apps.payments.govstack_tasks.triage_govstack_uncertain_attempts",
+                "Reconcile unresolved GovStack payment attempts and route unknown outcomes to review without blind resubmission.",  # noqa: E501
+            ),
+            (
+                "payments.triage_govstack_retryable_attempts",
+                "apps.payments.govstack_tasks.triage_govstack_retryable_attempts",
+                "Route due retryable GovStack payment attempts to audited review while no provider adapter is configured.",  # noqa: E501
+            ),
+        ):
+            self._register_task(
+                dry_run=dry_run,
+                task_name=task_name,
+                task_path=task_path,
+                schedule_kwargs=remediation_schedule,
+                task_args="[]",
+                task_kwargs_str="{}",
+                description=description,
+            )
 
         self.stdout.write(self.style.SUCCESS("\nsetup_periodic_tasks complete.\n"))
 

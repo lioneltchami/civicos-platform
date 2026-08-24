@@ -38,7 +38,7 @@ class StaffNotificationListView(StaffRequiredMixin, ListView):
     context_object_name = "notifications"
     paginate_by = 25
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         qs = Notification.objects.select_related("recipient").order_by("-created_at")
 
         # --- channel filter ---
@@ -58,13 +58,11 @@ class StaffNotificationListView(StaffRequiredMixin, ListView):
         # --- free-text search (recipient email or subject) ---
         q = self.request.GET.get("q", "").strip()
         if q:
-            qs = qs.filter(
-                Q(recipient__email__icontains=q) | Q(subject__icontains=q)
-            )
+            qs = qs.filter(Q(recipient__email__icontains=q) | Q(subject__icontains=q))
 
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         ctx["channel_choices"] = NotificationChannel.choices
         ctx["status_choices"] = NotificationStatus.choices
@@ -94,11 +92,11 @@ class StaffNotificationSendView(StaffRequiredMixin, View):
 
     template_name = "backoffice/staff_notifications/send.html"
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         form = StaffNotificationSendForm()
         return render(request, self.template_name, {"form": form})
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         form = StaffNotificationSendForm(request.POST)
         if not form.is_valid():
             return render(request, self.template_name, {"form": form})

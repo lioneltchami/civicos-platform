@@ -6,6 +6,7 @@ Tests for three model-layer changes:
 - Item 14: PaymentIntent.reference (collision-safe 16-char hex)
 - Item 17: TenantPaymentConfig.webhook_endpoint_secret (Fernet-encrypted at rest)
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -30,6 +31,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers (mirrors test_receipt_services.py conventions)
 # ---------------------------------------------------------------------------
+
 
 def _make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -115,6 +117,7 @@ def _make_receipt(donation, **kwargs):
 # Item 17 — Webhook secret encryption
 # ---------------------------------------------------------------------------
 
+
 class WebhookSecretEncryptionTest(TestCase):
     """TenantPaymentConfig.webhook_endpoint_secret must be Fernet-encrypted at rest."""
 
@@ -197,6 +200,7 @@ class WebhookSecretEncryptionTest(TestCase):
 # Item 14 — Payment reference collision safety
 # ---------------------------------------------------------------------------
 
+
 class PaymentReferenceTest(TestCase):
     """PaymentIntent.reference must be a collision-safe 16-char hex string."""
 
@@ -234,6 +238,7 @@ class PaymentReferenceTest(TestCase):
 # Item 13 — email_sent dedup guard
 # ---------------------------------------------------------------------------
 
+
 class EmailSentFlagTest(TestCase):
     """OfficialDonationReceipt.email_sent must default to False."""
 
@@ -262,7 +267,9 @@ class EmailSentFlagTest(TestCase):
     def test_email_sent_is_boolean_field(self):
         """Confirm the field type is BooleanField (not NullBooleanField)."""
         field = OfficialDonationReceipt._meta.get_field("email_sent")
-        self.assertIsInstance(field, __import__("django.db.models", fromlist=["BooleanField"]).BooleanField)
+        self.assertIsInstance(
+            field, __import__("django.db.models", fromlist=["BooleanField"]).BooleanField
+        )
         self.assertFalse(field.null, "email_sent must not be nullable")
 
 
@@ -270,22 +277,26 @@ class EmailSentFlagTest(TestCase):
 # H3 — _get_fernet() lru_cache behaviour
 # ---------------------------------------------------------------------------
 
+
 class FernetCacheTest(TestCase):
     """_get_fernet() must be cached at module level (lru_cache)."""
 
     def setUp(self):
         from apps.payments.models import _get_fernet
+
         # Always start each test with a clean cache so tests are independent.
         _get_fernet.cache_clear()
 
     def tearDown(self):
         from apps.payments.models import _get_fernet
+
         # Restore a clean cache so later tests don't see a stale MultiFernet.
         _get_fernet.cache_clear()
 
     def test_get_fernet_is_cached(self):
         """_get_fernet() must return the same MultiFernet object on repeated calls."""
         from apps.payments.models import _get_fernet
+
         f1 = _get_fernet()
         f2 = _get_fernet()
         self.assertIs(f1, f2, "_get_fernet() must return the cached instance, not reconstruct")
@@ -293,6 +304,7 @@ class FernetCacheTest(TestCase):
     def test_cache_clear_rebuilds_fernet(self):
         """cache_clear() forces reconstruction on the next call."""
         from apps.payments.models import _get_fernet
+
         f1 = _get_fernet()
         _get_fernet.cache_clear()
         f2 = _get_fernet()

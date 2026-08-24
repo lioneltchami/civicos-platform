@@ -38,12 +38,12 @@ PIPEDA invariants:
   - actor_pk is BigIntegerField — never stores email or name
   - actor_ip nullable — masked before storage
 """
+
 from __future__ import annotations
 
 import re
-import time
 import uuid
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import UTC, date, datetime
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -62,10 +62,10 @@ from apps.reports.exports.csv_export import (
 from apps.reports.models import ExportRecord, ReportSnapshot
 from apps.reports.tasks import _compute_all_snapshots, _compute_single_snapshot
 
-
 # ---------------------------------------------------------------------------
 # ReportSnapshot model tests
 # ---------------------------------------------------------------------------
+
 
 class ReportSnapshotStrTest(TestCase):
     """__str__ returns 'Financial YYYY-MM' style string."""
@@ -175,9 +175,7 @@ class ReportSnapshotUniqueTogetherTest(TestCase):
             period_month=6,
             data={},
         )
-        self.assertEqual(
-            ReportSnapshot.objects.filter(period_year=2025, period_month=6).count(), 2
-        )
+        self.assertEqual(ReportSnapshot.objects.filter(period_year=2025, period_month=6).count(), 2)
 
 
 class ReportSnapshotUpsertIdempotencyTest(TestCase):
@@ -215,8 +213,8 @@ class ReportSnapshotUpsertIdempotencyTest(TestCase):
         on each save.  We freeze time to a known later instant so the assertion
         is deterministic — no sleep, no timestamp-resolution dependency.
         """
-        t1 = datetime(2025, 6, 1, 10, 0, 0, tzinfo=dt_timezone.utc)
-        t2 = datetime(2025, 6, 1, 10, 0, 1, tzinfo=dt_timezone.utc)  # strictly later
+        t1 = datetime(2025, 6, 1, 10, 0, 0, tzinfo=UTC)
+        t2 = datetime(2025, 6, 1, 10, 0, 1, tzinfo=UTC)  # strictly later
 
         with patch("django.utils.timezone.now", return_value=t1):
             snap, created = ReportSnapshot.objects.update_or_create(
@@ -314,6 +312,7 @@ class ReportSnapshotOrderingTest(TestCase):
 # ExportRecord model tests
 # ---------------------------------------------------------------------------
 
+
 class ExportRecordStrTest(TestCase):
     """__str__ returns export type display + format + period range."""
 
@@ -402,8 +401,8 @@ class ExportRecordFieldsTest(TestCase):
         each insert so the two records have distinct, known timestamps — avoids
         flakiness when both rows land in the same DB microsecond on fast CI.
         """
-        t1 = datetime(2025, 3, 1, 9, 0, 0, tzinfo=dt_timezone.utc)
-        t2 = datetime(2025, 3, 1, 9, 0, 1, tzinfo=dt_timezone.utc)  # strictly later
+        t1 = datetime(2025, 3, 1, 9, 0, 0, tzinfo=UTC)
+        t2 = datetime(2025, 3, 1, 9, 0, 1, tzinfo=UTC)  # strictly later
 
         with patch("django.utils.timezone.now", return_value=t1):
             ExportRecord.objects.create(
@@ -457,12 +456,14 @@ class ExportRecordChoicesTest(TestCase):
         """actor_pk must be BigIntegerField — not ForeignKey, not email, not CharField."""
         field = ExportRecord._meta.get_field("actor_pk")
         from django.db.models import BigIntegerField
+
         self.assertIsInstance(field, BigIntegerField)
 
 
 # ---------------------------------------------------------------------------
 # _EchoBuffer tests
 # ---------------------------------------------------------------------------
+
 
 class EchoBufferTest(TestCase):
     """_EchoBuffer.write() is a passthrough — returns the value it receives."""
@@ -482,6 +483,7 @@ class EchoBufferTest(TestCase):
 # ---------------------------------------------------------------------------
 # _sanitize_csv_cell tests
 # ---------------------------------------------------------------------------
+
 
 class SanitizeCsvCellTest(TestCase):
     """_sanitize_csv_cell neutralises all six CSV formula-injection triggers."""
@@ -534,6 +536,7 @@ class SanitizeCsvCellTest(TestCase):
 
     def test_decimal_coerced_to_str(self):
         from decimal import Decimal
+
         result = _sanitize_csv_cell(Decimal("100.50"))
         self.assertEqual(result, "100.50")
 
@@ -543,6 +546,7 @@ class SanitizeCsvCellTest(TestCase):
 
     def test_non_string_with_injection_trigger_sanitized(self):
         """A formula trigger on a value that was coerced from non-string is still blocked."""
+
         # Simulate a value whose str() starts with '='
         class FakeVal:
             def __str__(self):
@@ -555,6 +559,7 @@ class SanitizeCsvCellTest(TestCase):
     def test_all_six_triggers_are_in_frozenset(self):
         """All six documented triggers are present in _FORMULA_TRIGGERS."""
         from apps.reports.exports.csv_export import _FORMULA_TRIGGERS
+
         for trigger in ("=", "+", "-", "@", "\t", "\r"):
             self.assertIn(trigger, _FORMULA_TRIGGERS)
 
@@ -563,11 +568,11 @@ class SanitizeCsvCellTest(TestCase):
 # streaming_csv_response tests
 # ---------------------------------------------------------------------------
 
+
 def _consume_streaming_response(response) -> bytes:
     """Collect all chunks from a StreamingHttpResponse into bytes."""
     return b"".join(
-        chunk.encode() if isinstance(chunk, str) else chunk
-        for chunk in response.streaming_content
+        chunk.encode() if isinstance(chunk, str) else chunk for chunk in response.streaming_content
     )
 
 
@@ -579,7 +584,7 @@ class StreamingCsvResponseColumnWhitelistTest(TestCase):
             {
                 "amount": "100.00",
                 "payer_email": "secret@example.com",  # must be dropped
-                "donor_name": "Jane Doe",             # must be dropped
+                "donor_name": "Jane Doe",  # must be dropped
                 "reference": "REF-001",
             }
         ]
@@ -691,7 +696,7 @@ class StreamingCsvResponseRowStreamingTest(TestCase):
             [], ["col_a", "col_b"], "empty_test", date(2025, 1, 1), date(2025, 1, 31)
         )
         content = _consume_streaming_response(response).decode("utf-8-sig")
-        lines = [l for l in content.splitlines() if l]
+        lines = [l for l in content.splitlines() if l]  # noqa: E741
         self.assertEqual(len(lines), 1)  # header only
         self.assertEqual(lines[0], "col_a,col_b")
 
@@ -728,14 +733,14 @@ class StreamingCsvResponseRowStreamingTest(TestCase):
 # Task tests — recompute_snapshot (financial and donations)
 # ---------------------------------------------------------------------------
 
+
 class RecomputeSnapshotFinancialTaskTest(TestCase):
     """recompute_snapshot dispatches correctly for REPORT_TYPE_FINANCIAL."""
 
     def test_financial_snapshot_written(self):
         from apps.reports.tasks import recompute_snapshot
-        result = recompute_snapshot.apply(
-            args=[ReportSnapshot.REPORT_TYPE_FINANCIAL, 2025, 6]
-        )
+
+        result = recompute_snapshot.apply(args=[ReportSnapshot.REPORT_TYPE_FINANCIAL, 2025, 6])
         self.assertTrue(result.successful())
         ret = result.get()
         self.assertEqual(ret["report_type"], ReportSnapshot.REPORT_TYPE_FINANCIAL)
@@ -754,12 +759,9 @@ class RecomputeSnapshotFinancialTaskTest(TestCase):
     def test_financial_snapshot_idempotent(self):
         """Running recompute_snapshot twice for the same period must not duplicate rows."""
         from apps.reports.tasks import recompute_snapshot
-        recompute_snapshot.apply(
-            args=[ReportSnapshot.REPORT_TYPE_FINANCIAL, 2025, 7]
-        )
-        recompute_snapshot.apply(
-            args=[ReportSnapshot.REPORT_TYPE_FINANCIAL, 2025, 7]
-        )
+
+        recompute_snapshot.apply(args=[ReportSnapshot.REPORT_TYPE_FINANCIAL, 2025, 7])
+        recompute_snapshot.apply(args=[ReportSnapshot.REPORT_TYPE_FINANCIAL, 2025, 7])
         self.assertEqual(
             ReportSnapshot.objects.filter(
                 report_type=ReportSnapshot.REPORT_TYPE_FINANCIAL,
@@ -775,9 +777,8 @@ class RecomputeSnapshotDonationsTaskTest(TestCase):
 
     def test_donations_snapshot_written(self):
         from apps.reports.tasks import recompute_snapshot
-        result = recompute_snapshot.apply(
-            args=[ReportSnapshot.REPORT_TYPE_DONATIONS, 2025, 4]
-        )
+
+        result = recompute_snapshot.apply(args=[ReportSnapshot.REPORT_TYPE_DONATIONS, 2025, 4])
         self.assertTrue(result.successful())
         ret = result.get()
         self.assertEqual(ret["report_type"], ReportSnapshot.REPORT_TYPE_DONATIONS)
@@ -794,12 +795,9 @@ class RecomputeSnapshotDonationsTaskTest(TestCase):
 
     def test_donations_snapshot_idempotent(self):
         from apps.reports.tasks import recompute_snapshot
-        recompute_snapshot.apply(
-            args=[ReportSnapshot.REPORT_TYPE_DONATIONS, 2025, 5]
-        )
-        recompute_snapshot.apply(
-            args=[ReportSnapshot.REPORT_TYPE_DONATIONS, 2025, 5]
-        )
+
+        recompute_snapshot.apply(args=[ReportSnapshot.REPORT_TYPE_DONATIONS, 2025, 5])
+        recompute_snapshot.apply(args=[ReportSnapshot.REPORT_TYPE_DONATIONS, 2025, 5])
         self.assertEqual(
             ReportSnapshot.objects.filter(
                 report_type=ReportSnapshot.REPORT_TYPE_DONATIONS,
@@ -814,27 +812,22 @@ class RecomputeSnapshotDonationsTaskTest(TestCase):
 # _compute_single_snapshot dispatch and ValueError tests
 # ---------------------------------------------------------------------------
 
+
 class ComputeSingleSnapshotTest(TestCase):
     """_compute_single_snapshot dispatches to the correct service function."""
 
     def test_financial_dispatches(self):
-        data, row_count = _compute_single_snapshot(
-            ReportSnapshot.REPORT_TYPE_FINANCIAL, 2025, 1
-        )
+        data, row_count = _compute_single_snapshot(ReportSnapshot.REPORT_TYPE_FINANCIAL, 2025, 1)
         self.assertIsInstance(data, dict)
         self.assertIsInstance(row_count, int)
 
     def test_donations_dispatches(self):
-        data, row_count = _compute_single_snapshot(
-            ReportSnapshot.REPORT_TYPE_DONATIONS, 2025, 1
-        )
+        data, row_count = _compute_single_snapshot(ReportSnapshot.REPORT_TYPE_DONATIONS, 2025, 1)
         self.assertIsInstance(data, dict)
         self.assertIsInstance(row_count, int)
 
     def test_operational_dispatches(self):
-        data, row_count = _compute_single_snapshot(
-            ReportSnapshot.REPORT_TYPE_OPERATIONAL, 2025, 1
-        )
+        data, row_count = _compute_single_snapshot(ReportSnapshot.REPORT_TYPE_OPERATIONAL, 2025, 1)
         self.assertIsInstance(data, dict)
         self.assertIsInstance(row_count, int)
 
@@ -859,12 +852,17 @@ class ComputeSingleSnapshotTest(TestCase):
 # _compute_all_snapshots integration tests
 # ---------------------------------------------------------------------------
 
+
 class ComputeAllSnapshotsIntegrationTest(TestCase):
     """_compute_all_snapshots writes all four snapshot types."""
 
     def test_writes_all_three_types(self):
         written = _compute_all_snapshots(2025, 3)
-        self.assertEqual(written, 4, "Expected 4 snapshots written (financial, donations, operational, volunteers)")
+        self.assertEqual(
+            written,
+            4,
+            "Expected 4 snapshots written (financial, donations, operational, volunteers)",
+        )
 
         for report_type in (
             ReportSnapshot.REPORT_TYPE_FINANCIAL,
@@ -918,6 +916,7 @@ class ComputeAllSnapshotsIntegrationTest(TestCase):
 # MonthlySummaryPdfView — ExportRecord created AFTER PDF (regression)
 # ---------------------------------------------------------------------------
 
+
 class MonthlySummaryPdfExportRecordOrderTest(TestCase):
     """
     Regression: ExportRecord must be created AFTER PDF generation succeeds.
@@ -928,7 +927,7 @@ class MonthlySummaryPdfExportRecordOrderTest(TestCase):
     """
 
     def setUp(self):
-        User = get_user_model()
+        User = get_user_model()  # noqa: N806
         self.user = User.objects.create_user(
             email=f"pdftest_{uuid.uuid4().hex[:6]}@example.com",
             password="testpass123",

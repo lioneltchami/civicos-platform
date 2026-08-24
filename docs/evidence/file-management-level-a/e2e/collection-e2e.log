@@ -1,0 +1,322 @@
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_shows_20_docs_per_page
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pending_upload_doc_excluded_from_list
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_quarantined_doc_excluded_from_list
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_storage_key_deferred_in_list_queryset
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_total_count_in_context_matches_active_doc_count
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_total_count_zero_when_no_active_docs
+apps/documents/tests/test_views_citizen.py::DocumentDetailViewEdgeCaseTests::test_legal_hold_active_document_is_downloadable
+apps/documents/tests/test_views_citizen.py::DocumentDetailViewEdgeCaseTests::test_pending_upload_document_is_visible_but_not_downloadable
+apps/documents/tests/test_views_citizen.py::DocumentDetailViewEdgeCaseTests::test_purged_document_returns_404
+apps/documents/tests/test_views_citizen.py::DocumentDetailViewEdgeCaseTests::test_storage_key_deferred_in_detail_queryset
+apps/documents/tests/test_views_citizen.py::DocumentDetailViewEdgeCaseTests::test_storage_key_key_absent_from_template_context
+apps/documents/tests/test_views_citizen.py::DocumentUploadInitViewEdgeCaseTests::test_get_does_not_contain_quarantine_path_in_html
+apps/documents/tests/test_views_citizen.py::DocumentUploadInitViewEdgeCaseTests::test_post_presign_context_contains_confirm_url
+apps/documents/tests/test_views_citizen.py::DocumentUploadInitViewEdgeCaseTests::test_post_presign_context_does_not_contain_storage_key_key
+apps/documents/tests/test_views_citizen.py::DocumentUploadInitViewEdgeCaseTests::test_post_presign_context_threads_description_through
+apps/documents/tests/test_views_citizen.py::DocumentUploadInitViewEdgeCaseTests::test_post_unexpected_exception_returns_500
+apps/documents/tests/test_views_citizen.py::DocumentUploadConfirmViewEdgeCaseTests::test_confirm_already_scanning_doc_still_redirects_to_list
+apps/documents/tests/test_views_citizen.py::DocumentUploadConfirmViewEdgeCaseTests::test_confirm_passes_str_of_pk_to_service
+apps/documents/tests/test_views_citizen.py::DocumentUploadConfirmViewEdgeCaseTests::test_confirm_success_adds_success_message
+apps/documents/tests/test_views_citizen.py::DocumentUploadConfirmViewEdgeCaseTests::test_confirm_unexpected_exception_redirects_to_upload_init
+apps/documents/tests/test_views_citizen.py::DocumentUploadConfirmViewEdgeCaseTests::test_confirm_validation_error_adds_error_message
+apps/documents/tests/test_views_citizen.py::DocumentDownloadViewEdgeCaseTests::test_pending_upload_doc_returns_404
+apps/documents/tests/test_views_citizen.py::DocumentDownloadViewEdgeCaseTests::test_quarantined_doc_returns_404
+apps/documents/tests/test_views_citizen.py::DocumentDownloadViewEdgeCaseTests::test_soft_deleted_active_doc_returns_404
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemViewEdgeCaseTests::test_content_disposition_uses_document_pk_bin_format
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemViewEdgeCaseTests::test_large_file_raw_storage_key_not_in_location_header
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemViewEdgeCaseTests::test_large_file_uses_default_storage_url_method
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemViewEdgeCaseTests::test_small_file_content_type_matches_doc_mime_type
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemViewEdgeCaseTests::test_small_file_storage_key_not_in_any_response_header
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemViewEdgeCaseTests::test_storage_key_not_in_small_file_response_body
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemViewEdgeCaseTests::test_token_redeem_requires_login
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemViewEdgeCaseTests::test_unexpected_exception_in_consume_returns_404
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemPostRedemptionGateTests::test_deleted_at_set_but_status_still_active_is_not_served
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemPostRedemptionGateTests::test_document_quarantined_after_token_issue_is_not_served
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemPostRedemptionGateTests::test_document_soft_deleted_after_token_issue_is_not_served
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemPostRedemptionGateTests::test_large_file_redirect_uses_short_presigned_ttl_on_s3
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemPostRedemptionGateTests::test_non_s3_backend_still_uses_default_storage_url
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemPostRedemptionGateTests::test_presigned_ttl_matches_configured_setting
+apps/documents/tests/test_views_citizen.py::DocumentTokenRedeemPostRedemptionGateTests::test_still_active_document_is_served
+apps/documents/tests/test_views_http_contract.py::CitizenUnauthenticatedTests::test_confirm_unauthenticated_returns_302
+apps/documents/tests/test_views_http_contract.py::CitizenUnauthenticatedTests::test_detail_unauthenticated_returns_302
+apps/documents/tests/test_views_http_contract.py::CitizenUnauthenticatedTests::test_download_unauthenticated_returns_302
+apps/documents/tests/test_views_http_contract.py::CitizenUnauthenticatedTests::test_list_unauthenticated_returns_302
+apps/documents/tests/test_views_http_contract.py::CitizenUnauthenticatedTests::test_token_redeem_unauthenticated_returns_302
+apps/documents/tests/test_views_http_contract.py::CitizenUnauthenticatedTests::test_upload_init_unauthenticated_returns_302
+apps/documents/tests/test_views_http_contract.py::UploadInitHttpTests::test_get_returns_200_html
+apps/documents/tests/test_views_http_contract.py::UploadInitHttpTests::test_post_invalid_form_returns_422
+apps/documents/tests/test_views_http_contract.py::UploadInitHttpTests::test_post_permission_denied_returns_403
+apps/documents/tests/test_views_http_contract.py::UploadInitHttpTests::test_post_unexpected_error_returns_500
+apps/documents/tests/test_views_http_contract.py::UploadConfirmHttpTests::test_post_http404_from_service_returns_404
+apps/documents/tests/test_views_http_contract.py::UploadConfirmHttpTests::test_post_success_returns_302_to_list
+apps/documents/tests/test_views_http_contract.py::UploadConfirmHttpTests::test_post_validation_error_returns_302_to_upload_init
+apps/documents/tests/test_views_http_contract.py::DownloadHttpTests::test_302_location_does_not_contain_storage_key
+apps/documents/tests/test_views_http_contract.py::DownloadHttpTests::test_get_active_doc_returns_302_to_token_redeem
+apps/documents/tests/test_views_http_contract.py::DownloadHttpTests::test_get_scanning_doc_returns_404
+apps/documents/tests/test_views_http_contract.py::DownloadHttpTests::test_get_wrong_user_doc_returns_404
+apps/documents/tests/test_views_http_contract.py::TokenRedeemHttpTests::test_content_disposition_uses_pk_not_original_filename
+apps/documents/tests/test_views_http_contract.py::TokenRedeemHttpTests::test_invalid_token_returns_404
+apps/documents/tests/test_views_http_contract.py::TokenRedeemHttpTests::test_large_file_returns_302_redirect
+apps/documents/tests/test_views_http_contract.py::TokenRedeemHttpTests::test_small_file_returns_200_with_content_disposition
+apps/documents/tests/test_views_http_contract.py::TokenRedeemHttpTests::test_storage_key_not_in_response_content
+apps/documents/tests/test_views_http_contract.py::StaffHttpContractTests::test_audit_log_no_perm_returns_403
+apps/documents/tests/test_views_http_contract.py::StaffHttpContractTests::test_legal_hold_view_no_perm_returns_403
+apps/documents/tests/test_views_http_contract.py::StaffHttpContractTests::test_quarantine_list_no_perm_returns_403
+apps/documents/tests/test_views_http_contract.py::StaffHttpContractTests::test_staff_detail_authenticated_no_perm_returns_403
+apps/documents/tests/test_views_http_contract.py::StaffHttpContractTests::test_staff_list_authenticated_no_perm_returns_403
+apps/documents/tests/test_views_http_contract.py::LegalHoldHttpTests::test_post_apply_returns_302
+apps/documents/tests/test_views_http_contract.py::LegalHoldHttpTests::test_post_missing_action_returns_422
+apps/documents/tests/test_views_http_contract.py::LegalHoldHttpTests::test_post_missing_reason_returns_422
+apps/documents/tests/test_views_http_contract.py::LegalHoldHttpTests::test_post_permission_denied_returns_403
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_categories_in_context
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_filter_by_category_slug
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_filter_by_date_from
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_filter_by_date_to
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_filter_by_legal_hold_no
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_filter_by_legal_hold_yes
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_filter_by_scan_status_quarantined
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_filter_with_no_match_returns_empty_list
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_search_by_category_slug_fragment
+apps/documents/tests/test_views_staff.py::StaffListFilterTests::test_total_count_in_context
+apps/documents/tests/test_views_staff.py::StaffDetailViewTests::test_can_view_quarantine_details_false_without_perm
+apps/documents/tests/test_views_staff.py::StaffDetailViewTests::test_can_view_quarantine_details_true_with_perm
+apps/documents/tests/test_views_staff.py::StaffDetailViewTests::test_soft_deleted_document_accessible_to_staff
+apps/documents/tests/test_views_staff.py::StaffDetailViewTests::test_storage_key_absent_from_queryset
+apps/documents/tests/test_views_staff.py::LegalHoldViewEdgeCaseTests::test_get_shows_release_action_when_hold_active
+apps/documents/tests/test_views_staff.py::LegalHoldViewEdgeCaseTests::test_post_invalid_action_returns_422
+apps/documents/tests/test_views_staff.py::LegalHoldViewEdgeCaseTests::test_post_permission_denied_from_service_returns_403
+apps/documents/tests/test_views_staff.py::LegalHoldViewEdgeCaseTests::test_post_release_success_redirects_to_staff_detail
+apps/documents/tests/test_views_staff.py::LegalHoldViewEdgeCaseTests::test_post_unexpected_error_returns_500
+apps/documents/tests/test_views_staff.py::LegalHoldViewEdgeCaseTests::test_post_validation_error_from_service_returns_422
+apps/documents/tests/test_views_staff.py::QuarantineListViewTests::test_authenticated_without_perm_returns_403
+apps/documents/tests/test_views_staff.py::QuarantineListViewTests::test_only_quarantined_documents_shown
+apps/documents/tests/test_views_staff.py::QuarantineListViewTests::test_pagination_25_per_page
+apps/documents/tests/test_views_staff.py::AuditLogViewTests::test_authenticated_without_perm_returns_403
+apps/documents/tests/test_views_staff.py::AuditLogViewTests::test_entries_ordered_newest_first
+apps/documents/tests/test_views_staff.py::AuditLogViewTests::test_no_entries_shows_empty_list
+apps/documents/tests/test_views_staff.py::AuditLogViewTests::test_nonexistent_document_returns_404
+apps/documents/tests/test_views_staff.py::AuditLogViewTests::test_pagination_50_per_page
+apps/documents/tests/test_wave5_views.py::CitizenAuthTests::test_detail_requires_login
+apps/documents/tests/test_wave5_views.py::CitizenAuthTests::test_download_requires_login
+apps/documents/tests/test_wave5_views.py::CitizenAuthTests::test_list_requires_login
+apps/documents/tests/test_wave5_views.py::CitizenAuthTests::test_upload_init_requires_login
+apps/documents/tests/test_wave5_views.py::CitizenDocumentListTests::test_list_200_empty
+apps/documents/tests/test_wave5_views.py::CitizenDocumentListTests::test_list_excludes_other_users_docs
+apps/documents/tests/test_wave5_views.py::CitizenDocumentListTests::test_list_excludes_soft_deleted
+apps/documents/tests/test_wave5_views.py::CitizenDocumentListTests::test_list_shows_latest_versions_only
+apps/documents/tests/test_wave5_views.py::CitizenDocumentListTests::test_list_shows_own_documents
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_404_for_nonexistent
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_active_doc_can_download_true
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_does_not_expose_storage_key
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_other_user_doc_404
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_other_user_doc_writes_access_denied_audit_event
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_own_doc_200
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_quarantined_doc_can_download_false
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_scanning_doc_can_download_false
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_shows_filename_escaped
+apps/documents/tests/test_wave5_views.py::CitizenDocumentDetailTests::test_detail_soft_deleted_doc_returns_404
+apps/documents/tests/test_wave5_views.py::CitizenUploadInitTests::test_get_upload_form_200
+apps/documents/tests/test_wave5_views.py::CitizenUploadInitTests::test_post_calls_validate_upload_request
+apps/documents/tests/test_wave5_views.py::CitizenUploadInitTests::test_post_no_storage_key_in_response
+apps/documents/tests/test_wave5_views.py::CitizenUploadInitTests::test_post_permission_denied_shows_error
+apps/documents/tests/test_wave5_views.py::CitizenUploadInitTests::test_post_validation_error_shows_form
+apps/documents/tests/test_wave5_views.py::CitizenUploadConfirmTests::test_post_calls_confirm_upload
+apps/documents/tests/test_wave5_views.py::CitizenUploadConfirmTests::test_post_http404_from_service
+apps/documents/tests/test_wave5_views.py::CitizenUploadConfirmTests::test_post_redirects_to_list
+apps/documents/tests/test_wave5_views.py::CitizenUploadConfirmTests::test_post_validation_error_shows_error
+apps/documents/tests/test_wave5_views.py::CitizenUploadConfirmTests::test_post_wrong_user_404
+apps/documents/tests/test_wave5_views.py::CitizenDownloadTests::test_download_active_doc_redirects_to_token
+apps/documents/tests/test_wave5_views.py::CitizenDownloadTests::test_download_non_active_doc_404
+apps/documents/tests/test_wave5_views.py::CitizenDownloadTests::test_download_nonexistent_doc_404
+apps/documents/tests/test_wave5_views.py::CitizenDownloadTests::test_download_other_user_doc_404
+apps/documents/tests/test_wave5_views.py::CitizenDownloadTests::test_download_other_user_doc_writes_access_denied_audit_event
+apps/documents/tests/test_wave5_views.py::CitizenTokenRedeemTests::test_redeem_expired_token_404
+apps/documents/tests/test_wave5_views.py::CitizenTokenRedeemTests::test_redeem_invalid_token_404
+apps/documents/tests/test_wave5_views.py::CitizenTokenRedeemTests::test_redeem_other_user_token_404
+apps/documents/tests/test_wave5_views.py::CitizenTokenRedeemTests::test_redeem_storage_key_not_in_response_headers
+apps/documents/tests/test_wave5_views.py::CitizenTokenRedeemTests::test_redeem_valid_token_large_file_redirects
+apps/documents/tests/test_wave5_views.py::CitizenTokenRedeemTests::test_redeem_valid_token_serves_file
+apps/documents/tests/test_wave5_views.py::StaffAuthTests::test_audit_log_requires_permission
+apps/documents/tests/test_wave5_views.py::StaffAuthTests::test_legal_hold_requires_permission
+apps/documents/tests/test_wave5_views.py::StaffAuthTests::test_quarantine_requires_permission
+apps/documents/tests/test_wave5_views.py::StaffAuthTests::test_staff_detail_requires_permission
+apps/documents/tests/test_wave5_views.py::StaffAuthTests::test_staff_list_requires_permission
+apps/documents/tests/test_wave5_views.py::AnonymousStaffViewRedirectTests::test_anonymous_cannot_access_audit_log
+apps/documents/tests/test_wave5_views.py::AnonymousStaffViewRedirectTests::test_anonymous_cannot_access_legal_hold
+apps/documents/tests/test_wave5_views.py::AnonymousStaffViewRedirectTests::test_anonymous_cannot_access_quarantine_list
+apps/documents/tests/test_wave5_views.py::AnonymousStaffViewRedirectTests::test_anonymous_cannot_access_staff_detail
+apps/documents/tests/test_wave5_views.py::AnonymousStaffViewRedirectTests::test_anonymous_cannot_access_staff_list
+apps/documents/tests/test_wave5_views.py::StaffDocumentListTests::test_staff_list_200
+apps/documents/tests/test_wave5_views.py::StaffDocumentListTests::test_staff_list_filter_by_legal_hold
+apps/documents/tests/test_wave5_views.py::StaffDocumentListTests::test_staff_list_filter_by_scan_status
+apps/documents/tests/test_wave5_views.py::StaffDocumentListTests::test_staff_list_no_storage_key_in_context
+apps/documents/tests/test_wave5_views.py::StaffDocumentListTests::test_staff_list_shows_all_users_docs
+apps/documents/tests/test_wave5_views.py::StaffDocumentDetailTests::test_staff_detail_200
+apps/documents/tests/test_wave5_views.py::StaffDocumentDetailTests::test_staff_detail_no_storage_key
+apps/documents/tests/test_wave5_views.py::StaffDocumentDetailTests::test_staff_detail_shows_scan_engine_result_only_with_perm
+apps/documents/tests/test_wave5_views.py::LegalHoldViewTests::test_apply_hold
+apps/documents/tests/test_wave5_views.py::LegalHoldViewTests::test_apply_hold_missing_confirm
+apps/documents/tests/test_wave5_views.py::LegalHoldViewTests::test_apply_hold_missing_reason
+apps/documents/tests/test_wave5_views.py::LegalHoldViewTests::test_get_legal_hold_form_200
+apps/documents/tests/test_wave5_views.py::LegalHoldViewTests::test_permission_denied_from_service
+apps/documents/tests/test_wave5_views.py::LegalHoldViewTests::test_release_hold
+apps/documents/tests/test_wave5_views.py::QuarantineListTests::test_quarantine_list_200
+apps/documents/tests/test_wave5_views.py::QuarantineListTests::test_quarantine_list_no_scan_engine_result
+apps/documents/tests/test_wave5_views.py::QuarantineListTests::test_quarantine_list_shows_only_quarantined
+apps/documents/tests/test_wave5_views.py::AuditLogViewTests::test_audit_log_200
+apps/documents/tests/test_wave5_views.py::AuditLogViewTests::test_audit_log_shows_entries
+apps/documents/tests/test_wave5_views.py::PIPEDAInvariantTests::test_idor_404_not_403_for_citizen
+apps/documents/tests/test_wave5_views.py::PIPEDAInvariantTests::test_scan_engine_result_never_in_citizen_response
+apps/documents/tests/test_wave5_views.py::PIPEDAInvariantTests::test_storage_key_never_in_any_citizen_response
+apps/documents/tests/test_wave5_views.py::PIPEDAInvariantTests::test_uploaded_by_email_never_in_staff_list
+apps/documents/tests/test_wcag.py::MainLandmarkTests::test_document_detail_has_main
+apps/documents/tests/test_wcag.py::MainLandmarkTests::test_document_list_has_main
+apps/documents/tests/test_wcag.py::MainLandmarkTests::test_upload_init_has_main
+apps/documents/tests/test_wcag.py::HeadingTests::test_document_detail_has_one_h1
+apps/documents/tests/test_wcag.py::HeadingTests::test_document_list_has_one_h1
+apps/documents/tests/test_wcag.py::HeadingTests::test_upload_form_has_one_h1
+apps/documents/tests/test_wcag.py::FormAriaDescribedByTests::test_upload_form_category_error_has_role_alert
+apps/documents/tests/test_wcag.py::FormAriaDescribedByTests::test_upload_form_file_input_has_aria_describedby
+apps/documents/tests/test_wcag.py::FormAriaDescribedByTests::test_upload_form_inputs_have_id_attributes
+apps/documents/tests/test_wcag.py::XSSEscapingTests::test_xss_in_description_is_escaped
+apps/documents/tests/test_wcag.py::XSSEscapingTests::test_xss_payload_in_filename_is_escaped_in_detail
+apps/documents/tests/test_wcag.py::XSSEscapingTests::test_xss_payload_in_filename_is_escaped_in_list
+apps/documents/tests/test_wcag.py::StorageKeyNotInHTMLTests::test_storage_key_not_in_document_detail
+apps/documents/tests/test_wcag.py::StorageKeyNotInHTMLTests::test_storage_key_not_in_document_list
+apps/documents/tests/test_wcag.py::StorageKeyNotInHTMLTests::test_storage_key_not_in_upload_form
+apps/documents/tests/test_wcag.py::ErrorRoleAlertTests::test_upload_form_non_field_error_has_role_alert
+apps/documents/tests/test_wcag.py::SkipNavigationTests::test_document_detail_has_skip_nav
+apps/documents/tests/test_wcag.py::SkipNavigationTests::test_document_list_has_skip_nav
+apps/documents/tests/test_wcag.py::PaginationAriaTests::test_pagination_nav_has_aria_label
+apps/documents/tests/test_wcag.py::BreadcrumbAriaTests::test_document_detail_breadcrumb_has_aria_label
+apps/documents/tests/test_wcag.py::CSRFTokenTests::test_upload_form_has_csrf_token
+apps/documents/tests/test_wcag.py::CSRFTokenTests::test_upload_form_method_is_post
+apps/documents/tests/test_wcag.py::TableCaptionTests::test_document_list_table_has_caption
+apps/documents/tests/test_wcag.py::SectionAriaLabelledByTests::test_document_detail_section_aria_labelledby
+apps/documents/tests/test_wcag.py::SectionAriaLabelledByTests::test_document_list_section_aria_labelledby
+apps/documents/tests/test_wcag.py::SectionAriaLabelledByTests::test_upload_form_section_aria_labelledby
+apps/documents/tests/test_wcag.py::RequiredFieldAriaTests::test_required_asterisk_is_aria_hidden
+apps/documents/tests/test_wcag.py::RequiredFieldAriaTests::test_upload_form_category_is_aria_required
+apps/documents/tests/test_wcag.py::AuthRedirectTests::test_document_detail_redirects_anon
+apps/documents/tests/test_wcag.py::AuthRedirectTests::test_document_list_redirects_anon
+apps/documents/tests/test_wcag.py::AuthRedirectTests::test_upload_form_redirects_anon
+apps/documents/tests/test_wcag.py::TimeElementTests::test_document_detail_time_has_datetime_attr
+apps/documents/tests/test_wcag.py::TimeElementTests::test_document_list_time_has_datetime_attr
+
+=============================== warnings summary ===============================
+apps/payments/models.py:195
+  <workspace>/apps/payments/models.py:195: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:199
+  <workspace>/apps/payments/models.py:199: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:352
+  <workspace>/apps/payments/models.py:352: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:356
+  <workspace>/apps/payments/models.py:356: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:360
+  <workspace>/apps/payments/models.py:360: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:364
+  <workspace>/apps/payments/models.py:364: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:500
+  <workspace>/apps/payments/models.py:500: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:700
+  <workspace>/apps/payments/models.py:700: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1013
+  <workspace>/apps/payments/models.py:1013: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1017
+  <workspace>/apps/payments/models.py:1017: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1205
+  <workspace>/apps/payments/models.py:1205: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1209
+  <workspace>/apps/payments/models.py:1209: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1591
+  <workspace>/apps/payments/models.py:1591: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1595
+  <workspace>/apps/payments/models.py:1595: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1599
+  <workspace>/apps/payments/models.py:1599: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1603
+  <workspace>/apps/payments/models.py:1603: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1607
+  <workspace>/apps/payments/models.py:1607: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1847
+  <workspace>/apps/payments/models.py:1847: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1851
+  <workspace>/apps/payments/models.py:1851: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1860
+  <workspace>/apps/payments/models.py:1860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:547
+  <workspace>/apps/volunteers/models.py:547: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:860
+  <workspace>/apps/volunteers/models.py:860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1084
+  <workspace>/apps/volunteers/models.py:1084: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1588
+  <workspace>/apps/volunteers/models.py:1588: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1796
+  <workspace>/apps/volunteers/models.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1136
+  <workspace>/apps/payments/govstack_models.py:1136: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1281
+  <workspace>/apps/payments/govstack_models.py:1281: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    return form_class(**defaults)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+205 tests collected in 0.13s

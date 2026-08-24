@@ -1,4 +1,5 @@
 """Tests for the workflows staff queue views."""
+
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -52,8 +53,8 @@ def make_work_item(**kwargs):
 # Queue view
 # ---------------------------------------------------------------------------
 
-class WorkItemQueueViewTest(TestCase):
 
+class WorkItemQueueViewTest(TestCase):
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -105,9 +106,9 @@ class WorkItemQueueViewTest(TestCase):
     def test_context_my_items_count_reflects_assigned_items(self):
         """my_items_count must count only items assigned to the current user."""
         other = make_staff("other@gov.ca")
-        make_work_item(assigned_to=self.staff)   # mine
-        make_work_item(assigned_to=other)         # not mine
-        make_work_item()                          # unassigned
+        make_work_item(assigned_to=self.staff)  # mine
+        make_work_item(assigned_to=other)  # not mine
+        make_work_item()  # unassigned
         response = self.client.get(QUEUE_URL)
         self.assertEqual(response.context["my_items_count"], 1)
 
@@ -116,8 +117,8 @@ class WorkItemQueueViewTest(TestCase):
 # Detail view
 # ---------------------------------------------------------------------------
 
-class WorkItemDetailViewTest(TestCase):
 
+class WorkItemDetailViewTest(TestCase):
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -159,8 +160,8 @@ class WorkItemDetailViewTest(TestCase):
 # Claim view
 # ---------------------------------------------------------------------------
 
-class ClaimWorkItemViewTest(TestCase):
 
+class ClaimWorkItemViewTest(TestCase):
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -199,6 +200,7 @@ class ClaimWorkItemViewTest(TestCase):
 
     def test_csrf_required(self):
         from django.test import Client
+
         c = Client(enforce_csrf_checks=True)
         c.force_login(self.staff)
         response = c.post(self.claim_url())
@@ -214,6 +216,7 @@ class CsrfEnforcementTest(TestCase):
 
     def _csrf_client(self):
         from django.test import Client
+
         c = Client(enforce_csrf_checks=True)
         c.force_login(self.staff)
         return c
@@ -249,8 +252,8 @@ class CsrfEnforcementTest(TestCase):
 # Advance status view
 # ---------------------------------------------------------------------------
 
-class AdvanceStatusViewTest(TestCase):
 
+class AdvanceStatusViewTest(TestCase):
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -266,7 +269,7 @@ class AdvanceStatusViewTest(TestCase):
 
     def test_invalid_transition_shows_error_and_does_not_change_status(self):
         # PENDING → COMPLETED is invalid per state machine
-        response = self.client.post(
+        self.client.post(
             self.advance_url(),
             {"new_status": WorkItemStatus.COMPLETED},
             follow=True,
@@ -275,9 +278,7 @@ class AdvanceStatusViewTest(TestCase):
         self.assertEqual(self.item.status, WorkItemStatus.PENDING)
 
     def test_redirects_to_detail(self):
-        response = self.client.post(
-            self.advance_url(), {"new_status": WorkItemStatus.IN_PROGRESS}
-        )
+        response = self.client.post(self.advance_url(), {"new_status": WorkItemStatus.IN_PROGRESS})
         self.assertRedirects(
             response,
             reverse("workflows:detail", kwargs={"pk": self.item.pk}),
@@ -291,9 +292,7 @@ class AdvanceStatusViewTest(TestCase):
     def test_requires_staff(self):
         citizen = make_citizen()
         self.client.force_login(citizen)
-        response = self.client.post(
-            self.advance_url(), {"new_status": WorkItemStatus.IN_PROGRESS}
-        )
+        response = self.client.post(self.advance_url(), {"new_status": WorkItemStatus.IN_PROGRESS})
         self.assertEqual(response.status_code, 403)
 
 
@@ -301,8 +300,8 @@ class AdvanceStatusViewTest(TestCase):
 # Escalate view
 # ---------------------------------------------------------------------------
 
-class EscalateWorkItemViewTest(TestCase):
 
+class EscalateWorkItemViewTest(TestCase):
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -335,8 +334,8 @@ class EscalateWorkItemViewTest(TestCase):
 # Add comment view
 # ---------------------------------------------------------------------------
 
-class AddCommentViewTest(TestCase):
 
+class AddCommentViewTest(TestCase):
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -351,7 +350,7 @@ class AddCommentViewTest(TestCase):
         self.assertEqual(self.item.comments.first().body, "Internal note")
 
     def test_empty_body_shows_error(self):
-        response = self.client.post(self.comment_url(), {"body": ""}, follow=True)
+        self.client.post(self.comment_url(), {"body": ""}, follow=True)
         self.item.refresh_from_db()
         self.assertEqual(self.item.comments.count(), 0)
 
@@ -366,8 +365,8 @@ class AddCommentViewTest(TestCase):
 # Assign view
 # ---------------------------------------------------------------------------
 
-class AssignWorkItemViewTest(TestCase):
 
+class AssignWorkItemViewTest(TestCase):
     def setUp(self):
         self.supervisor = make_staff("super@gov.ca")
         self.assignee = make_staff("worker@gov.ca")
@@ -383,7 +382,7 @@ class AssignWorkItemViewTest(TestCase):
         self.assertEqual(self.item.assigned_to, self.assignee)
 
     def test_invalid_form_shows_error(self):
-        response = self.client.post(self.assign_url(), {"assignee": ""}, follow=True)
+        self.client.post(self.assign_url(), {"assignee": ""}, follow=True)
         # Status should not have changed
         self.item.refresh_from_db()
         self.assertIsNone(self.item.assigned_to)

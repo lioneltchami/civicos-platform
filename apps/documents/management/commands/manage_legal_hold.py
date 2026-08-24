@@ -36,7 +36,6 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
 from apps.documents.models import Document
 from apps.documents.services.retention import apply_legal_hold, release_legal_hold
@@ -53,7 +52,7 @@ class Command(BaseCommand):
         "All changes are fully audited per PIPEDA clause 4.5.3."
     )
 
-    def add_arguments(self, parser) -> None:
+    def add_arguments(self, parser) -> None:  # noqa: ANN001
         parser.add_argument(
             "--action",
             choices=["apply", "release"],
@@ -89,7 +88,7 @@ class Command(BaseCommand):
             help="Skip interactive confirmation prompt (for scripted use).",
         )
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         action: str = options["action"]
         doc_pk: int = options["document_pk"]
         reason: str = options["reason"].strip()
@@ -106,15 +105,13 @@ class Command(BaseCommand):
         try:
             actor = User.objects.get(username=actor_username)
         except User.DoesNotExist:
-            raise CommandError(
-                f"User with username {actor_username!r} does not exist."
-            )
+            raise CommandError(f"User with username {actor_username!r} does not exist.")  # noqa: B904
 
         # ── Resolve document ─────────────────────────────────────────────────
         try:
             doc = Document.objects.get(pk=doc_pk)
         except Document.DoesNotExist:
-            raise CommandError(f"Document with pk={doc_pk} does not exist.")
+            raise CommandError(f"Document with pk={doc_pk} does not exist.")  # noqa: B904
 
         # ── Summarise current state (no PII, no filename) ────────────────────
         current_hold = "HELD" if doc.legal_hold else "NOT HELD"
@@ -126,9 +123,11 @@ class Command(BaseCommand):
 
         # ── Interactive confirmation (skippable for scripts) ─────────────────
         if not skip_confirm:
-            confirm = input(
-                f"\nProceed to {action.upper()} legal hold on document pk={doc_pk}? [yes/N] "
-            ).strip().lower()
+            confirm = (
+                input(f"\nProceed to {action.upper()} legal hold on document pk={doc_pk}? [yes/N] ")
+                .strip()
+                .lower()
+            )
             if confirm != "yes":
                 self.stdout.write(self.style.WARNING("Aborted — no changes made."))
                 return
@@ -139,8 +138,7 @@ class Command(BaseCommand):
                 apply_legal_hold(document=doc, set_by=actor, reason=reason)
                 self.stdout.write(
                     self.style.SUCCESS(
-                        f"Legal hold APPLIED on document pk={doc_pk} "
-                        f"by actor pk={actor.pk}."
+                        f"Legal hold APPLIED on document pk={doc_pk} " f"by actor pk={actor.pk}."
                     )
                 )
                 logger.info(
@@ -152,8 +150,7 @@ class Command(BaseCommand):
                 release_legal_hold(document=doc, released_by=actor, reason=reason)
                 self.stdout.write(
                     self.style.SUCCESS(
-                        f"Legal hold RELEASED on document pk={doc_pk} "
-                        f"by actor pk={actor.pk}."
+                        f"Legal hold RELEASED on document pk={doc_pk} " f"by actor pk={actor.pk}."
                     )
                 )
                 logger.info(

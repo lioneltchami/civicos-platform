@@ -6,6 +6,7 @@ URL layout (from apps/notifications/urls.py, mounted at /notifications/):
   POST /notifications/mark-all-read/    → MarkAllReadView
   GET  /notifications/unread-count/     → UnreadCountView
 """
+
 import uuid
 
 from django.contrib.auth import get_user_model
@@ -52,8 +53,8 @@ def mark_read_url(pk):
 # NotificationListView
 # ---------------------------------------------------------------------------
 
-class NotificationListViewTest(TestCase):
 
+class NotificationListViewTest(TestCase):
     def setUp(self):
         self.citizen = make_user()
         self.client.force_login(self.citizen)
@@ -136,8 +137,8 @@ class NotificationListViewTest(TestCase):
 # MarkNotificationReadView
 # ---------------------------------------------------------------------------
 
-class MarkNotificationReadTest(TestCase):
 
+class MarkNotificationReadTest(TestCase):
     def setUp(self):
         self.citizen = make_user()
         self.client.force_login(self.citizen)
@@ -223,8 +224,8 @@ class MarkNotificationReadTest(TestCase):
 # MarkAllReadView
 # ---------------------------------------------------------------------------
 
-class MarkAllReadTest(TestCase):
 
+class MarkAllReadTest(TestCase):
     def setUp(self):
         self.citizen = make_user()
         self.client.force_login(self.citizen)
@@ -286,8 +287,8 @@ class MarkAllReadTest(TestCase):
 # UnreadCountView
 # ---------------------------------------------------------------------------
 
-class UnreadCountViewTest(TestCase):
 
+class UnreadCountViewTest(TestCase):
     def setUp(self):
         self.citizen = make_user()
         self.client.force_login(self.citizen)
@@ -334,6 +335,7 @@ class UnreadCountViewTest(TestCase):
 # ---------------------------------------------------------------------------
 # Cross-cutting security / isolation tests
 # ---------------------------------------------------------------------------
+
 
 class NotificationIsolationTest(TestCase):
     """Ensure one citizen cannot ever touch another citizen's notifications."""

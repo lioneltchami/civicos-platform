@@ -1,0 +1,8 @@
+LEVEL_A_VALIDATION=PASS
+CANONICAL_PAYLOAD_SHA256=3fb5a4327e3ce5b0b9c076f3d2426d4e663ae178f7091ed6c19515c8c5b4ddca
+MANIFEST_SHA256=15b56e3bc3caf858522ce5196c70b61cc32efa476411455df367560a8d653ff9
+ALLOWLIST_INVENTORY=PASS
+EXCLUSION_SCAN=PASS
+FOCUSED_RB02_TEST_LOG=PASS (12 tests)
+NON_CLAIMS=LEVEL_A_ONLY; NO_STAGING; NO_OFFICIAL_SUITE; NO_CERTIFICATION; NO_SUBMISSION; NO_RELEASE; NO_PROD_AUTHORIZATION
+NOTE=The focused test log was executed in the retained isolated Django environment because the connected desktop-local interpreter lacks Django; the RB-02 test module and core lease/task/policy/failure sources match that isolated environment except for the separately verified explicit BatchLease UUID schema-drift repair in govstack_models.py.

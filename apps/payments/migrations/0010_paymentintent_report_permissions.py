@@ -4,14 +4,25 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0009_add_refund_and_servicefeepayment_constraints'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0009_add_refund_and_servicefeepayment_constraints"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterModelOptions(
-            name='paymentintent',
-            options={'ordering': ['-created_at'], 'permissions': [('view_financialreport', 'Can view financial reports'), ('export_financialreport', 'Can export financial reports'), ('view_donationreport', 'Can view donation & CRA reports'), ('export_donationreport', 'Can export donation & CRA reports'), ('view_operationalreport', 'Can view operational reports'), ('export_operationalreport', 'Can export operational reports')], 'verbose_name': 'Payment Intent', 'verbose_name_plural': 'Payment Intents'},
+            name="paymentintent",
+            options={
+                "ordering": ["-created_at"],
+                "permissions": [
+                    ("view_financialreport", "Can view financial reports"),
+                    ("export_financialreport", "Can export financial reports"),
+                    ("view_donationreport", "Can view donation & CRA reports"),
+                    ("export_donationreport", "Can export donation & CRA reports"),
+                    ("view_operationalreport", "Can view operational reports"),
+                    ("export_operationalreport", "Can export operational reports"),
+                ],
+                "verbose_name": "Payment Intent",
+                "verbose_name_plural": "Payment Intents",
+            },
         ),
     ]

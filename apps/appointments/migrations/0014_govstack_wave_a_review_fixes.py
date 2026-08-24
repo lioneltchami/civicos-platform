@@ -26,6 +26,7 @@ Code-only fixes (no migration needed):
   infra-M-4  request_token removed from request.META
   infra-M-5  GovStackSchedulerRolePermission — DEBUG guard when _gs_actor_role absent
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,7 +41,8 @@ logger = logging.getLogger(__name__)
 # RunPython: backfill actor_role on existing BookingAuditLog rows
 # ---------------------------------------------------------------------------
 
-def backfill_actor_role(apps, schema_editor):
+
+def backfill_actor_role(apps, schema_editor) -> None:  # noqa: ANN001
     """
     Derive actor_role for every existing BookingAuditLog row.
 
@@ -58,8 +60,7 @@ def backfill_actor_role(apps, schema_editor):
 
     # Build is_staff lookup for all user PKs referenced in audit logs.
     actor_ids_raw = (
-        BookingAuditLog.objects
-        .exclude(actor_id="system")
+        BookingAuditLog.objects.exclude(actor_id="system")
         .exclude(actor_id="")
         .values_list("actor_id", flat=True)
         .distinct()
@@ -74,13 +75,14 @@ def backfill_actor_role(apps, schema_editor):
             pass
 
     staff_ids = set(
-        User.objects.filter(pk__in=numeric_ids, is_staff=True)
-        .values_list("pk", flat=True)
+        User.objects.filter(pk__in=numeric_ids, is_staff=True).values_list("pk", flat=True)
     )
 
     updated = 0
     # Batch update in chunks to avoid locking large tables.
-    for log in BookingAuditLog.objects.only("pk", "actor_id", "actor_role").iterator(chunk_size=500):
+    for log in BookingAuditLog.objects.only("pk", "actor_id", "actor_role").iterator(
+        chunk_size=500
+    ):
         if log.actor_role:
             # Already set (e.g. if migration is re-run on partial data).
             continue
@@ -98,17 +100,16 @@ def backfill_actor_role(apps, schema_editor):
     logger.info("backfill_actor_role: updated %d BookingAuditLog rows", updated)
 
 
-def noop(apps, schema_editor):
+def noop(apps, schema_editor) -> None:  # noqa: ANN001
     pass
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0013_govstack_wave_a"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ── M-1: actor_role max_length 20 → 30 ──────────────────────────────
         migrations.AlterField(
             model_name="bookingauditlog",
@@ -127,16 +128,13 @@ class Migration(migrations.Migration):
                 verbose_name="Actor role",
             ),
         ),
-
         # ── M-7: backfill actor_role for existing BookingAuditLog rows ───────
         migrations.RunPython(backfill_actor_role, reverse_code=noop),
-
         # ── M-2: GovStackAffiliation — remove deprecated unique_together ─────
         migrations.AlterUniqueTogether(
             name="govstackaffiliation",
             unique_together=set(),
         ),
-
         # ── M-2: GovStackAffiliation — add UniqueConstraint (modern style) ───
         migrations.AddConstraint(
             model_name="govstackaffiliation",
@@ -145,7 +143,6 @@ class Migration(migrations.Migration):
                 name="appt_gs_aff_resource_entity_uniq",
             ),
         ),
-
         # ── M-3: GovStackSubscriberProfile — add ordering + created_at index ─
         migrations.AlterModelOptions(
             name="govstacksubscriberprofile",
@@ -162,7 +159,6 @@ class Migration(migrations.Migration):
                 name="appt_gs_subprofile_created",
             ),
         ),
-
         # ── M-6: GovStackMessage.entity — CASCADE → PROTECT ──────────────────
         migrations.AlterField(
             model_name="govstackmessage",
@@ -174,7 +170,6 @@ class Migration(migrations.Migration):
                 verbose_name="Entity (Organization)",
             ),
         ),
-
         # ── C-2: StaffProfile — add GovStack Resource callback fields ─────────
         migrations.AddField(
             model_name="staffprofile",

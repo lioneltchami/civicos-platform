@@ -24,6 +24,7 @@ the request are otherwise silently dropped) wrap the request in
 self.captureOnCommitCallbacks(execute=True) — the established convention
 already used across apps/payments/tests/test_donation_views.py etc.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,6 +47,8 @@ from apps.appointments.models import (
     Location,
     Organization,
     Resource,
+    SchedulerOutbox,
+    SchedulerRecipientDelivery,
     ServiceType,
     Slot,
     StaffProfile,
@@ -76,6 +79,7 @@ _PAST_DT = "2020-01-01T09:00:00Z"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _qs(**extra):
     params = {**_AUTH, **extra}
     return "?" + urlencode(params)
@@ -89,7 +93,11 @@ def _qry_qs(qry_dict, **extra):
 def _create_org(name="Test Org"):
     slug = f"test-org-{uuid.uuid4().hex[:10]}"
     return Organization.objects.create(
-        slug=slug, name_en=name, name_fr=name, organization_type="other", is_active=True,
+        slug=slug,
+        name_en=name,
+        name_fr=name,
+        organization_type="other",
+        is_active=True,
     )
 
 
@@ -133,9 +141,11 @@ def _create_full_slot(
     own alert_* fields — needed for dispatch_alert_schedule tests, which
     event_create()'s shared GovStack-system staff cannot provide.
     """
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     unique = uuid.uuid4().hex[:10]
-    user = User.objects.create(email=f"as-staff-{unique}@civicos.internal", is_staff=True, is_active=True)
+    user = User.objects.create(
+        email=f"as-staff-{unique}@civicos.internal", is_staff=True, is_active=True
+    )
     staff = StaffProfile.objects.create(
         user=user,
         display_name_en="AS Staff",
@@ -156,8 +166,10 @@ def _create_full_slot(
     service_type, _ = ServiceType.objects.get_or_create(
         slug="as-native-service",
         defaults={
-            "name_en": "AS Native Service", "name_fr": "Service Natif AS",
-            "category": "government", "is_active": True,
+            "name_en": "AS Native Service",
+            "name_fr": "Service Natif AS",
+            "category": "government",
+            "is_active": True,
         },
     )
     appt_type = AppointmentType.objects.create(
@@ -201,7 +213,7 @@ def _create_full_slot(
 
 
 def _create_citizen(email=None):
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     email = email or f"as-citizen-{uuid.uuid4().hex[:10]}@example.com"
     user = User.objects.create(email=email, is_staff=False, is_active=True)
     user.set_unusable_password()
@@ -209,9 +221,13 @@ def _create_citizen(email=None):
     return user
 
 
-def _create_subscriber_profile(user, alert_preference="push", alert_url="https://example.com/alert"):
+def _create_subscriber_profile(
+    user, alert_preference="push", alert_url="https://example.com/alert"
+):
     return GovStackSubscriberProfile.objects.create(
-        user=user, alert_preference=alert_preference, alert_url=alert_url,
+        user=user,
+        alert_preference=alert_preference,
+        alert_url=alert_url,
     )
 
 
@@ -222,6 +238,7 @@ def _create_booking(slot, citizen, status=Booking.STATUS_CONFIRMED):
 # ===========================================================================
 # Base test case
 # ===========================================================================
+
 
 class AlertScheduleBaseTestCase(TestCase):
     """Shared HTTP helpers for all alert_schedule endpoint tests."""
@@ -247,6 +264,7 @@ class AlertScheduleBaseTestCase(TestCase):
 # AS1-AS10: POST /alert_schedule/new
 # ===========================================================================
 
+
 @mock.patch("apps.appointments.govstack_views.dispatch_alert_schedule.apply_async")
 class AlertScheduleNewTests(AlertScheduleBaseTestCase):
     """AS1-AS10: POST /alert_schedule/new"""
@@ -255,10 +273,14 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
         mock_apply_async.return_value = mock.Mock(id="celery-task-id-1")
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"alert_schedule_details": {
-            "event_id": str(slot.pk), "message_id": str(msg.pk),
-            "target_category": "subscriber", "alert_datetime": _FUTURE_DT,
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": str(slot.pk),
+                "message_id": str(msg.pk),
+                "target_category": "subscriber",
+                "alert_datetime": _FUTURE_DT,
+            }
+        }
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
@@ -284,18 +306,26 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
 
     def test_as3_nonexistent_event_id_returns_404(self, mock_apply_async):
         msg = _create_message()
-        qry = {"alert_schedule_details": {
-            "event_id": str(uuid.uuid4()), "message_id": str(msg.pk), "alert_datetime": _FUTURE_DT,
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": str(uuid.uuid4()),
+                "message_id": str(msg.pk),
+                "alert_datetime": _FUTURE_DT,
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "EVENT_NOT_FOUND")
 
     def test_as4_malformed_event_id_returns_404(self, mock_apply_async):
         msg = _create_message()
-        qry = {"alert_schedule_details": {
-            "event_id": "not-a-uuid", "message_id": str(msg.pk), "alert_datetime": _FUTURE_DT,
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": "not-a-uuid",
+                "message_id": str(msg.pk),
+                "alert_datetime": _FUTURE_DT,
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "EVENT_NOT_FOUND")
@@ -309,9 +339,13 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
 
     def test_as6_nonexistent_message_id_returns_404(self, mock_apply_async):
         slot = _create_event_slot()
-        qry = {"alert_schedule_details": {
-            "event_id": str(slot.pk), "message_id": "999999", "alert_datetime": _FUTURE_DT,
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": str(slot.pk),
+                "message_id": "999999",
+                "alert_datetime": _FUTURE_DT,
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "MESSAGE_NOT_FOUND")
@@ -319,10 +353,14 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
     def test_as7_invalid_target_category_returns_400(self, mock_apply_async):
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"alert_schedule_details": {
-            "event_id": str(slot.pk), "message_id": str(msg.pk),
-            "target_category": "not-a-real-category", "alert_datetime": _FUTURE_DT,
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": str(slot.pk),
+                "message_id": str(msg.pk),
+                "target_category": "not-a-real-category",
+                "alert_datetime": _FUTURE_DT,
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "ALERT_SCHEDULE_CREATE_FAILED")
@@ -330,9 +368,13 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
     def test_as8_past_alert_datetime_returns_400(self, mock_apply_async):
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"alert_schedule_details": {
-            "event_id": str(slot.pk), "message_id": str(msg.pk), "alert_datetime": _PAST_DT,
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": str(slot.pk),
+                "message_id": str(msg.pk),
+                "alert_datetime": _PAST_DT,
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "ALERT_SCHEDULE_CREATE_FAILED")
@@ -347,10 +389,13 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
     def test_as10_naive_alert_datetime_returns_400(self, mock_apply_async):
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"alert_schedule_details": {
-            "event_id": str(slot.pk), "message_id": str(msg.pk),
-            "alert_datetime": "2027-06-01T09:00:00",  # no tz offset
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": str(slot.pk),
+                "message_id": str(msg.pk),
+                "alert_datetime": "2027-06-01T09:00:00",  # no tz offset
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
 
@@ -358,6 +403,7 @@ class AlertScheduleNewTests(AlertScheduleBaseTestCase):
 # ===========================================================================
 # AS11-AS20: PUT /alert_schedule/modifications
 # ===========================================================================
+
 
 @mock.patch("apps.appointments.govstack_views.dispatch_alert_schedule.apply_async")
 @mock.patch("celery.result.AsyncResult.revoke")
@@ -368,15 +414,20 @@ class AlertScheduleModificationsTests(AlertScheduleBaseTestCase):
         slot = _create_event_slot()
         msg = _create_message()
         return alert_schedule_create(
-            event_id=str(slot.pk), message_id=str(msg.pk),
-            target_category=target_category, alert_datetime=alert_datetime,
+            event_id=str(slot.pk),
+            message_id=str(msg.pk),
+            target_category=target_category,
+            alert_datetime=alert_datetime,
         )
 
-    def test_as11_happy_path_updates_target_category_no_reschedule(self, mock_revoke, mock_apply_async):
+    def test_as11_happy_path_updates_target_category_no_reschedule(
+        self, mock_revoke, mock_apply_async
+    ):
         alert_schedule = self._create_alert_schedule()
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._put(
-                {"details": {"target_category": "resource"}}, alert_schedule_id=str(alert_schedule.pk)
+                {"details": {"target_category": "resource"}},
+                alert_schedule_id=str(alert_schedule.pk),
             )
         self.assertEqual(resp.status_code, 200)
         alert_schedule.refresh_from_db()
@@ -391,7 +442,8 @@ class AlertScheduleModificationsTests(AlertScheduleBaseTestCase):
         alert_schedule.save(update_fields=["celery_task_id"])
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._put(
-                {"details": {"alert_datetime": _FUTURE_DT_2}}, alert_schedule_id=str(alert_schedule.pk)
+                {"details": {"alert_datetime": _FUTURE_DT_2}},
+                alert_schedule_id=str(alert_schedule.pk),
             )
         self.assertEqual(resp.status_code, 200)
         mock_revoke.assert_called_once()
@@ -406,7 +458,8 @@ class AlertScheduleModificationsTests(AlertScheduleBaseTestCase):
         new_msg = _create_message()
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._put(
-                {"details": {"message_id": str(new_msg.pk)}}, alert_schedule_id=str(alert_schedule.pk)
+                {"details": {"message_id": str(new_msg.pk)}},
+                alert_schedule_id=str(alert_schedule.pk),
             )
         self.assertEqual(resp.status_code, 200)
         mock_apply_async.assert_called_once()
@@ -454,7 +507,9 @@ class AlertScheduleModificationsTests(AlertScheduleBaseTestCase):
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json()["code"], "EVENT_NOT_FOUND")
 
-    def test_as20_rearm_already_dispatched_row_on_future_datetime_change(self, mock_revoke, mock_apply_async):
+    def test_as20_rearm_already_dispatched_row_on_future_datetime_change(
+        self, mock_revoke, mock_apply_async
+    ):
         """AS20: dispatched=True + alert_datetime changed to a new future value → re-armed."""
         mock_apply_async.return_value = mock.Mock(id="rearm-task-id")
         alert_schedule = self._create_alert_schedule()
@@ -462,7 +517,8 @@ class AlertScheduleModificationsTests(AlertScheduleBaseTestCase):
         alert_schedule.save(update_fields=["dispatched"])
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._put(
-                {"details": {"alert_datetime": _FUTURE_DT_2}}, alert_schedule_id=str(alert_schedule.pk)
+                {"details": {"alert_datetime": _FUTURE_DT_2}},
+                alert_schedule_id=str(alert_schedule.pk),
             )
         self.assertEqual(resp.status_code, 200)
         alert_schedule.refresh_from_db()
@@ -474,6 +530,7 @@ class AlertScheduleModificationsTests(AlertScheduleBaseTestCase):
 # AS21-AS24: DELETE /alert_schedule
 # ===========================================================================
 
+
 class AlertScheduleDeleteTests(AlertScheduleBaseTestCase):
     """AS21-AS24: DELETE /alert_schedule"""
 
@@ -482,7 +539,9 @@ class AlertScheduleDeleteTests(AlertScheduleBaseTestCase):
         slot = _create_event_slot()
         msg = _create_message()
         alert_schedule = alert_schedule_create(
-            event_id=str(slot.pk), message_id=str(msg.pk), alert_datetime=_FUTURE_DT,
+            event_id=str(slot.pk),
+            message_id=str(msg.pk),
+            alert_datetime=_FUTURE_DT,
         )
         alert_schedule.celery_task_id = "task-to-revoke"
         alert_schedule.save(update_fields=["celery_task_id"])
@@ -509,6 +568,7 @@ class AlertScheduleDeleteTests(AlertScheduleBaseTestCase):
 # ===========================================================================
 # AS25-AS30: GET /alert_schedule/list_details
 # ===========================================================================
+
 
 class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
     """AS25-AS30: GET /alert_schedule/list_details"""
@@ -553,11 +613,13 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
         alert_schedule1, _ = self._create_alert_schedule()
         alert_schedule2, _ = self._create_alert_schedule()
         self._create_alert_schedule()  # not in the filter — must be excluded
-        resp = self._get({
-            "alert_schedule_filter": {
-                "alert_schedule_id": [str(alert_schedule1.pk), str(alert_schedule2.pk)]
+        resp = self._get(
+            {
+                "alert_schedule_filter": {
+                    "alert_schedule_id": [str(alert_schedule1.pk), str(alert_schedule2.pk)]
+                }
             }
-        })
+        )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(
@@ -584,7 +646,14 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
         """
         in_range, _ = self._create_alert_schedule(alert_datetime=_FUTURE_DT)
         out_of_range, _ = self._create_alert_schedule(alert_datetime="2027-12-25T00:00:00Z")
-        resp = self._get({"alert_schedule_filter": {"from": "2027-05-01T00:00:00Z", "to": "2027-06-15T00:00:00Z"}})
+        resp = self._get(
+            {
+                "alert_schedule_filter": {
+                    "from": "2027-05-01T00:00:00Z",
+                    "to": "2027-06-15T00:00:00Z",
+                }
+            }
+        )
         data = resp.json()
         ids = [item["alert_schedule_id"] for item in data]
         self.assertIn(str(in_range.pk), ids)
@@ -611,6 +680,7 @@ class AlertScheduleListDetailsTests(AlertScheduleBaseTestCase):
 # AS31-AS33: Auth / role enforcement
 # ===========================================================================
 
+
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
     """
@@ -630,7 +700,9 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
         correct plaintext secret. Finding #1 fix: request_token must never equal
         bb_id — it must verify against a separate hashed secret.
         """
-        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id=_AUTH["requestor_id"], is_active=True, role=role
+        )
         token = GovStackBBCredential.generate_plaintext_token()
         credential = GovStackBBCredential(bb=bb)
         credential.set_token(token)
@@ -643,9 +715,13 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
         self._make_role_bb("resource")
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"alert_schedule_details": {
-            "event_id": str(slot.pk), "message_id": str(msg.pk), "alert_datetime": _FUTURE_DT,
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": str(slot.pk),
+                "message_id": str(msg.pk),
+                "alert_datetime": _FUTURE_DT,
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 403)
 
@@ -655,9 +731,13 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
         self._make_role_bb("admin")
         slot = _create_event_slot()
         msg = _create_message()
-        qry = {"alert_schedule_details": {
-            "event_id": str(slot.pk), "message_id": str(msg.pk), "alert_datetime": _FUTURE_DT,
-        }}
+        qry = {
+            "alert_schedule_details": {
+                "event_id": str(slot.pk),
+                "message_id": str(msg.pk),
+                "alert_datetime": _FUTURE_DT,
+            }
+        }
         with self.captureOnCommitCallbacks(execute=True):
             resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
@@ -673,7 +753,9 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
         slot = _create_event_slot()
         msg = _create_message()
         alert_schedule = alert_schedule_create(
-            event_id=str(slot.pk), message_id=str(msg.pk), alert_datetime=_FUTURE_DT,
+            event_id=str(slot.pk),
+            message_id=str(msg.pk),
+            alert_datetime=_FUTURE_DT,
         )
         resp = self._put(
             {"details": {"target_category": "resource"}}, alert_schedule_id=str(alert_schedule.pk)
@@ -685,7 +767,9 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
         slot = _create_event_slot()
         msg = _create_message()
         alert_schedule = alert_schedule_create(
-            event_id=str(slot.pk), message_id=str(msg.pk), alert_datetime=_FUTURE_DT,
+            event_id=str(slot.pk),
+            message_id=str(msg.pk),
+            alert_datetime=_FUTURE_DT,
         )
         resp = self._delete(alert_schedule_id=str(alert_schedule.pk))
         self.assertEqual(resp.status_code, 403)
@@ -695,6 +779,7 @@ class AlertScheduleRoleEnforcementTests(AlertScheduleBaseTestCase):
 # AS36: spec-literal wire format (the `qry` query PARAMETER's JSON value,
 # single-nested — no additional outer wrapper key)
 # ===========================================================================
+
 
 @mock.patch("apps.appointments.govstack_views.dispatch_alert_schedule.apply_async")
 class AlertScheduleSpecWireFormatTests(AlertScheduleBaseTestCase):
@@ -735,6 +820,7 @@ class AlertScheduleSpecWireFormatTests(AlertScheduleBaseTestCase):
 # ===========================================================================
 # SSRF1-SSRF7: _is_safe_outbound_url
 # ===========================================================================
+
 
 class SafeOutboundUrlTests(TestCase):
     """SSRF1-SSRF7: apps.appointments.tasks._is_safe_outbound_url"""
@@ -791,67 +877,82 @@ class SafeOutboundUrlTests(TestCase):
 # DISP1-DISP8: dispatch_alert_schedule task
 # ===========================================================================
 
+
 class DispatchAlertScheduleTaskTests(TestCase):
-    """DISP1-DISP8: apps.appointments.tasks.dispatch_alert_schedule"""
+    """Compatibility tests for durable live task admission; no direct transport."""
 
     def _make_alert_schedule(self, target_category="", **slot_kwargs):
         slot, staff, resource, org = _create_full_slot(**slot_kwargs)
-        msg = _create_message(entity_id=org.pk, category="reminder", message_body="Your appt is soon.")
+        msg = _create_message(
+            entity_id=org.pk, category="reminder", message_body="Your appt is soon."
+        )
         alert_schedule = GovStackAlertSchedule.objects.create(
-            slot=slot, message=msg, target_category=target_category,
+            slot=slot,
+            message=msg,
+            target_category=target_category,
             alert_datetime=timezone.now() + timedelta(hours=1),
         )
         return alert_schedule, slot, staff, resource
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=True)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp1_delivers_to_subscriber_with_push_preference(self, mock_post, mock_safe):
-        mock_post.return_value = mock.Mock(status_code=200, raise_for_status=mock.Mock())
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(target_category="subscriber")
+    def test_disp1_delivers_to_subscriber_with_push_preference(self, mock_post):
+        alert_schedule, slot, _, _ = self._make_alert_schedule(target_category="subscriber")
         citizen = _create_citizen()
-        _create_subscriber_profile(citizen, alert_preference="push", alert_url="https://citizen.example.com/hook")
+        _create_subscriber_profile(
+            citizen, alert_preference="push", alert_url="https://citizen.example.com/hook"
+        )
         _create_booking(slot, citizen)
 
         result = dispatch_alert_schedule(str(alert_schedule.pk))
 
-        mock_post.assert_called_once()
-        call_args, call_kwargs = mock_post.call_args
-        self.assertEqual(call_args[0], "https://citizen.example.com/hook")
-        self.assertEqual(call_kwargs["json"]["alert_schedule_id"], str(alert_schedule.pk))
-        self.assertEqual(call_kwargs["json"]["message_body"], "Your appt is soon.")
-        self.assertEqual(result["attempted"], 1)
+        self.assertEqual(result["materialized"], 1)
+        self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule).count(), 1
+        )
+        self.assertEqual(
+            SchedulerOutbox.objects.filter(delivery__schedule=alert_schedule).count(), 1
+        )
+        mock_post.assert_not_called()
         alert_schedule.refresh_from_db()
-        self.assertTrue(alert_schedule.dispatched)
+        self.assertFalse(alert_schedule.dispatched)
 
     @mock.patch("apps.appointments.tasks.requests.post")
     def test_disp2_skips_subscriber_with_non_push_preference(self, mock_post):
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(target_category="subscriber")
+        alert_schedule, slot, _, _ = self._make_alert_schedule(target_category="subscriber")
         citizen = _create_citizen()
-        _create_subscriber_profile(citizen, alert_preference="poll", alert_url="https://citizen.example.com/hook")
+        _create_subscriber_profile(
+            citizen, alert_preference="poll", alert_url="https://citizen.example.com/hook"
+        )
         _create_booking(slot, citizen)
 
-        dispatch_alert_schedule(str(alert_schedule.pk))
+        result = dispatch_alert_schedule(str(alert_schedule.pk))
 
+        self.assertEqual(result["materialized"], 0)
+        self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS)
+        self.assertFalse(
+            SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule).exists()
+        )
         mock_post.assert_not_called()
-        alert_schedule.refresh_from_db()
-        self.assertTrue(alert_schedule.dispatched)
 
     @mock.patch("apps.appointments.tasks.requests.post")
     def test_disp3_skips_cancelled_booking(self, mock_post):
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(target_category="subscriber")
+        alert_schedule, slot, _, _ = self._make_alert_schedule(target_category="subscriber")
         citizen = _create_citizen()
-        _create_subscriber_profile(citizen, alert_preference="push", alert_url="https://citizen.example.com/hook")
+        _create_subscriber_profile(
+            citizen, alert_preference="push", alert_url="https://citizen.example.com/hook"
+        )
         _create_booking(slot, citizen, status=Booking.STATUS_CANCELLED)
 
-        dispatch_alert_schedule(str(alert_schedule.pk))
+        result = dispatch_alert_schedule(str(alert_schedule.pk))
 
+        self.assertEqual(result["materialized"], 0)
+        self.assertEqual(result["outcome"], GovStackAlertSchedule.ADMISSION_ZERO_RECIPIENTS)
         mock_post.assert_not_called()
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=True)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp4_delivers_to_staff_resource(self, mock_post, mock_safe):
-        mock_post.return_value = mock.Mock(status_code=200, raise_for_status=mock.Mock())
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(
+    def test_disp4_delivers_to_staff_resource(self, mock_post):
+        alert_schedule, _, _, _ = self._make_alert_schedule(
             target_category="resource",
             gs_alert_preference="push",
             gs_alert_url="https://staff.example.com/hook",
@@ -859,15 +960,18 @@ class DispatchAlertScheduleTaskTests(TestCase):
 
         result = dispatch_alert_schedule(str(alert_schedule.pk))
 
-        mock_post.assert_called_once()
-        self.assertEqual(mock_post.call_args[0][0], "https://staff.example.com/hook")
-        self.assertEqual(result["attempted"], 1)
+        self.assertEqual(result["materialized"], 1)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(
+                schedule=alert_schedule, recipient_kind="staff"
+            ).count(),
+            1,
+        )
+        mock_post.assert_not_called()
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=True)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp5_delivers_to_physical_resource(self, mock_post, mock_safe):
-        mock_post.return_value = mock.Mock(status_code=200, raise_for_status=mock.Mock())
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(
+    def test_disp5_delivers_to_physical_resource(self, mock_post):
+        alert_schedule, _, _, _ = self._make_alert_schedule(
             target_category="resource",
             with_resource=True,
             resource_alert_preference="push",
@@ -876,14 +980,18 @@ class DispatchAlertScheduleTaskTests(TestCase):
 
         result = dispatch_alert_schedule(str(alert_schedule.pk))
 
-        mock_post.assert_called_once()
-        self.assertEqual(mock_post.call_args[0][0], "https://room.example.com/hook")
-        self.assertEqual(result["attempted"], 1)
+        self.assertEqual(result["materialized"], 1)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(
+                schedule=alert_schedule, recipient_kind="resource"
+            ).count(),
+            1,
+        )
+        mock_post.assert_not_called()
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=False)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp6_unsafe_url_is_skipped_not_posted(self, mock_post, mock_safe):
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(
+    def test_disp6_unsafe_url_is_skipped_not_posted(self, mock_post):
+        alert_schedule, _, _, _ = self._make_alert_schedule(
             target_category="resource",
             gs_alert_preference="push",
             gs_alert_url="https://169-254-169-254.example.com/hook",
@@ -891,32 +999,37 @@ class DispatchAlertScheduleTaskTests(TestCase):
 
         result = dispatch_alert_schedule(str(alert_schedule.pk))
 
+        self.assertEqual(result["materialized"], 1)
+        self.assertEqual(result["skipped_unsafe"], 0)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule).count(), 1
+        )
         mock_post.assert_not_called()
-        self.assertEqual(result["skipped_unsafe"], 1)
-        self.assertEqual(result["attempted"], 0)
-        alert_schedule.refresh_from_db()
-        self.assertTrue(alert_schedule.dispatched)  # still marked dispatched — best-effort
 
-    @mock.patch("apps.appointments.tasks._is_safe_outbound_url", return_value=True)
     @mock.patch("apps.appointments.tasks.requests.post")
-    def test_disp7_idempotent_noop_on_second_run(self, mock_post, mock_safe):
-        mock_post.return_value = mock.Mock(status_code=200, raise_for_status=mock.Mock())
-        alert_schedule, slot, staff, resource = self._make_alert_schedule(
+    def test_disp7_idempotent_noop_on_second_run(self, mock_post):
+        alert_schedule, _, _, _ = self._make_alert_schedule(
             target_category="resource",
             gs_alert_preference="push",
             gs_alert_url="https://staff.example.com/hook",
         )
 
         first = dispatch_alert_schedule(str(alert_schedule.pk))
-        self.assertEqual(first["attempted"], 1)
-        mock_post.reset_mock()
-
         second = dispatch_alert_schedule(str(alert_schedule.pk))
-        self.assertEqual(second.get("already_dispatched"), True)
+
+        self.assertEqual(first["outcome"], GovStackAlertSchedule.ADMISSION_CREATED)
+        self.assertEqual(first["materialized"], 1)
+        self.assertEqual(second["outcome"], GovStackAlertSchedule.ADMISSION_DUPLICATE)
+        self.assertEqual(second["materialized"], 0)
+        self.assertEqual(
+            SchedulerRecipientDelivery.objects.filter(schedule=alert_schedule).count(), 1
+        )
         mock_post.assert_not_called()
 
     @mock.patch("apps.appointments.tasks.requests.post")
     def test_disp8_nonexistent_alert_schedule_pk_is_a_safe_noop(self, mock_post):
         result = dispatch_alert_schedule("999999")
-        self.assertEqual(result, {"attempted": 0, "skipped_unsafe": 0})
+        self.assertEqual(result["outcome"], "not_found")
+        self.assertEqual(result["attempted"], 0)
+        self.assertEqual(result["skipped_unsafe"], 0)
         mock_post.assert_not_called()

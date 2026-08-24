@@ -24,6 +24,7 @@ Policy PK scheme, and no other Policy should ever carry a harness_alias_id.
 Usage:
     python manage.py seed_consent_policy
 """
+
 from django.core.management.base import BaseCommand
 
 from apps.consent.models import ConsentPolicy
@@ -48,7 +49,7 @@ _HARNESS_POLICY_DEFAULTS = {
 class Command(BaseCommand):
     help = "Seed the well-known GovStack harness-compatibility ConsentPolicy (idempotent)."
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         verbosity = options.get("verbosity", 1)
 
         existing = ConsentPolicy.objects.filter(harness_alias_id=_HARNESS_POLICY_ALIAS).first()
@@ -71,6 +72,4 @@ class Command(BaseCommand):
                     f"revision {revision.pk}"
                 )
             )
-        self.stdout.write(
-            self.style.SUCCESS("seed_consent_policy: 1 created, 0 already existed.")
-        )
+        self.stdout.write(self.style.SUCCESS("seed_consent_policy: 1 created, 0 already existed."))

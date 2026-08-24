@@ -13,6 +13,8 @@ Page hierarchy:
 All pages use TranslatableMixin for bilingual (EN/FR) support.
 """
 
+from typing import ClassVar
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel, ObjectList, TabbedInterface
@@ -21,12 +23,13 @@ from wagtail.fields import RichTextField, StreamField
 from wagtail.images.models import AbstractImage, AbstractRendition, Image
 from wagtail.models import Page
 from wagtail.search import index
-from .blocks import ContentStreamBlock
 
+from .blocks import ContentStreamBlock
 
 # ---------------------------------------------------------------------------
 # Custom media models
 # ---------------------------------------------------------------------------
+
 
 class CustomImage(AbstractImage):
     """
@@ -47,7 +50,7 @@ class CustomImage(AbstractImage):
         ),
     )
 
-    admin_form_fields = Image.admin_form_fields + ("alt_text",)
+    admin_form_fields = (*Image.admin_form_fields, "alt_text")
 
     class Meta(AbstractImage.Meta):
         verbose_name = _("Image")
@@ -79,6 +82,7 @@ class CustomDocument(AbstractDocument):
 # Snippets — reusable non-page content managed in the Wagtail admin
 # ---------------------------------------------------------------------------
 
+
 class SiteAlert(models.Model):
     """
     A site-wide alert banner (e.g. service outage, important notice).
@@ -105,7 +109,7 @@ class SiteAlert(models.Model):
         help_text=_("Uncheck to hide this alert without deleting it."),
     )
 
-    panels = [
+    panels = [  # noqa: RUF012
         FieldPanel("alert_type"),
         FieldPanel("message"),
         FieldPanel("is_active"),
@@ -133,7 +137,7 @@ class NavigationMenu(models.Model):
         help_text=_('Internal name, e.g. "header" or "footer".'),
     )
 
-    panels = [FieldPanel("name")]
+    panels = [FieldPanel("name")]  # noqa: RUF012
 
     class Meta:
         verbose_name = _("Navigation menu")
@@ -146,6 +150,7 @@ class NavigationMenu(models.Model):
 # ---------------------------------------------------------------------------
 # Page models
 # ---------------------------------------------------------------------------
+
 
 class HomePage(Page):
     """
@@ -197,7 +202,8 @@ class HomePage(Page):
     )
 
     # ---- Wagtail admin panels ----
-    content_panels = Page.content_panels + [
+    content_panels: ClassVar[list] = [
+        *Page.content_panels,
         MultiFieldPanel(
             [
                 FieldPanel("hero_heading"),
@@ -220,7 +226,8 @@ class HomePage(Page):
         ]
     )
 
-    search_fields = Page.search_fields + [
+    search_fields: ClassVar[list] = [
+        *Page.search_fields,
         index.SearchField("hero_heading"),
         index.SearchField("hero_subheading"),
         index.SearchField("body"),
@@ -231,8 +238,8 @@ class HomePage(Page):
     class Meta:
         verbose_name = _("Home page")
 
-    parent_page_types = ["wagtailcore.Page"]
-    subpage_types = [
+    parent_page_types = ["wagtailcore.Page"]  # noqa: RUF012
+    subpage_types = [  # noqa: RUF012
         "cms.GenericPage",
         "cms.ServiceIndexPage",
         "cms.NewsIndexPage",
@@ -249,7 +256,9 @@ class GenericPage(Page):
         blank=True,
         max_length=500,
         verbose_name=_("Introduction"),
-        help_text=_("Short summary used in search results and social media previews (max 500 chars)."),
+        help_text=_(
+            "Short summary used in search results and social media previews (max 500 chars)."
+        ),
     )
     body = StreamField(
         ContentStreamBlock(),
@@ -258,10 +267,7 @@ class GenericPage(Page):
     )
     show_in_menus_default = True
 
-    content_panels = Page.content_panels + [
-        FieldPanel("intro"),
-        FieldPanel("body"),
-    ]
+    content_panels: ClassVar[list] = [*Page.content_panels, FieldPanel("intro"), FieldPanel("body")]
 
     promote_panels = Page.promote_panels
 
@@ -272,7 +278,8 @@ class GenericPage(Page):
         ]
     )
 
-    search_fields = Page.search_fields + [
+    search_fields: ClassVar[list] = [
+        *Page.search_fields,
         index.SearchField("intro"),
         index.SearchField("body"),
     ]
@@ -282,8 +289,8 @@ class GenericPage(Page):
     class Meta:
         verbose_name = _("Page")
 
-    parent_page_types = ["cms.HomePage", "cms.GenericPage"]
-    subpage_types = ["cms.GenericPage", "forms.FormPage"]
+    parent_page_types = ["cms.HomePage", "cms.GenericPage"]  # noqa: RUF012
+    subpage_types = ["cms.GenericPage", "forms.FormPage"]  # noqa: RUF012
 
 
 class ServiceIndexPage(Page):
@@ -297,32 +304,24 @@ class ServiceIndexPage(Page):
         verbose_name=_("Introduction"),
     )
 
-    content_panels = Page.content_panels + [
-        FieldPanel("intro"),
-    ]
+    content_panels: ClassVar[list] = [*Page.content_panels, FieldPanel("intro")]
 
-    search_fields = Page.search_fields + [
-        index.SearchField("intro"),
-    ]
+    search_fields: ClassVar[list] = [*Page.search_fields, index.SearchField("intro")]
 
     template = "cms/pages/service_index_page.html"
 
     class Meta:
         verbose_name = _("Services index")
 
-    parent_page_types = ["cms.HomePage"]
-    subpage_types = ["cms.ServicePage"]
+    parent_page_types = ["cms.HomePage"]  # noqa: RUF012
+    subpage_types = ["cms.ServicePage"]  # noqa: RUF012
     max_count_per_parent = 1
 
-    def get_context(self, request, *args, **kwargs) -> dict:
+    def get_context(self, request, *args, **kwargs) -> dict:  # noqa: ANN001, ANN002, ANN003
         from django.core.paginator import Paginator
 
         ctx = super().get_context(request, *args, **kwargs)
-        services = (
-            ServicePage.objects.live()
-            .in_locale(self.locale)
-            .order_by("category", "title")
-        )
+        services = ServicePage.objects.live().in_locale(self.locale).order_by("category", "title")
         # Optional category filter from query string (?category=permits)
         # Validate against known choices to avoid silently returning empty results
         # for arbitrary strings and to prevent unexpected ORM behaviour.
@@ -344,7 +343,7 @@ class ServicePage(Page):
     how to apply, and links to an online form if available.
     """
 
-    SERVICE_CATEGORIES = [
+    SERVICE_CATEGORIES = [  # noqa: RUF012
         ("permits", _("Permits & licences")),
         ("infrastructure", _("Roads & infrastructure")),
         ("recreation", _("Parks & recreation")),
@@ -357,7 +356,9 @@ class ServicePage(Page):
     summary = models.TextField(
         max_length=300,
         verbose_name=_("Summary"),
-        help_text=_("One or two sentences describing this service. Shown in the services directory."),
+        help_text=_(
+            "One or two sentences describing this service. Shown in the services directory."
+        ),
     )
     category = models.CharField(
         max_length=32,
@@ -398,7 +399,7 @@ class ServicePage(Page):
         max_length=100,
         blank=True,
         verbose_name=_("Typical processing time"),
-        help_text=_('Plain language estimate, e.g. "5–10 business days".'),
+        help_text=_('Plain language estimate, e.g. "5–10 business days".'),  # noqa: RUF001
     )
     fee = models.CharField(
         max_length=100,
@@ -407,7 +408,8 @@ class ServicePage(Page):
         help_text=_('e.g. "Free", "$50", "Varies — see fee schedule".'),
     )
 
-    content_panels = Page.content_panels + [
+    content_panels: ClassVar[list] = [
+        *Page.content_panels,
         MultiFieldPanel(
             [
                 FieldPanel("summary"),
@@ -438,7 +440,8 @@ class ServicePage(Page):
         ]
     )
 
-    search_fields = Page.search_fields + [
+    search_fields: ClassVar[list] = [
+        *Page.search_fields,
         index.SearchField("summary"),
         index.SearchField("body"),
         index.FilterField("category"),
@@ -450,8 +453,8 @@ class ServicePage(Page):
     class Meta:
         verbose_name = _("Service page")
 
-    parent_page_types = ["cms.ServiceIndexPage"]
-    subpage_types = []
+    parent_page_types = ["cms.ServiceIndexPage"]  # noqa: RUF012
+    subpage_types = []  # noqa: RUF012
 
 
 class NewsIndexPage(Page):
@@ -462,28 +465,23 @@ class NewsIndexPage(Page):
         verbose_name=_("Introduction"),
     )
 
-    content_panels = Page.content_panels + [
-        FieldPanel("intro"),
-    ]
+    content_panels: ClassVar[list] = [*Page.content_panels, FieldPanel("intro")]
 
     template = "cms/pages/news_index_page.html"
 
     class Meta:
         verbose_name = _("News index")
 
-    parent_page_types = ["cms.HomePage"]
-    subpage_types = ["cms.NewsPage"]
+    parent_page_types = ["cms.HomePage"]  # noqa: RUF012
+    subpage_types = ["cms.NewsPage"]  # noqa: RUF012
     max_count_per_parent = 1
 
-    def get_context(self, request, *args, **kwargs) -> dict:
+    def get_context(self, request, *args, **kwargs) -> dict:  # noqa: ANN001, ANN002, ANN003
         ctx = super().get_context(request, *args, **kwargs)
-        news = (
-            NewsPage.objects.live()
-            .in_locale(self.locale)
-            .order_by("-publication_date")
-        )
+        news = NewsPage.objects.live().in_locale(self.locale).order_by("-publication_date")
         # Simple pagination — 10 per page
         from django.core.paginator import Paginator
+
         paginator = Paginator(news, 10)
         page_number = request.GET.get("page", 1)
         ctx["news_items"] = paginator.get_page(page_number)
@@ -520,7 +518,8 @@ class NewsPage(Page):
         use_json_field=True,
     )
 
-    content_panels = Page.content_panels + [
+    content_panels: ClassVar[list] = [
+        *Page.content_panels,
         MultiFieldPanel(
             [
                 FieldPanel("publication_date"),
@@ -542,7 +541,8 @@ class NewsPage(Page):
         ]
     )
 
-    search_fields = Page.search_fields + [
+    search_fields: ClassVar[list] = [
+        *Page.search_fields,
         index.SearchField("summary"),
         index.SearchField("body"),
         index.FilterField("publication_date"),
@@ -554,5 +554,5 @@ class NewsPage(Page):
     class Meta:
         verbose_name = _("News article")
 
-    parent_page_types = ["cms.NewsIndexPage"]
-    subpage_types = []
+    parent_page_types = ["cms.NewsIndexPage"]  # noqa: RUF012
+    subpage_types = []  # noqa: RUF012

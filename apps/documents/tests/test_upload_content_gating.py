@@ -37,8 +37,8 @@ import zipfile
 from unittest.mock import patch
 
 from django.conf import settings as django_settings
-from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 
 from apps.documents.models import Document, DocumentCategory
@@ -137,7 +137,7 @@ def _docx_zip(*, bomb: bool = False) -> bytes:
             "[Content_Types].xml",
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'  # noqa: E501
             '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-'
             'officedocument.wordprocessingml.document.main+xml"/></Types>',
         )
@@ -355,9 +355,11 @@ class ConfirmUploadDetectedMimeGatingTests(TestCase):
             original_filename="rows.csv",
             declared_mime="text/csv",
         )
-        with patch("apps.documents.tasks.scan_document.apply_async"), patch.object(
-            upload_service, "_check_pdf_encryption"
-        ) as mock_pdf, patch.object(upload_service, "_check_zip_bomb") as mock_zip:
+        with (
+            patch("apps.documents.tasks.scan_document.apply_async"),
+            patch.object(upload_service, "_check_pdf_encryption") as mock_pdf,
+            patch.object(upload_service, "_check_zip_bomb") as mock_zip,
+        ):
             result = confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         self.assertEqual(result.scan_status, Document.ScanStatus.SCANNING)
@@ -440,9 +442,11 @@ class ConfirmUploadDetectedMimeGatingTests(TestCase):
             original_filename="notes.csv",
             declared_mime="text/csv",
         )
-        with patch("apps.documents.tasks.scan_document.apply_async"), patch.object(
-            upload_service, "_check_pdf_encryption"
-        ) as mock_pdf, patch.object(upload_service, "_check_zip_bomb") as mock_zip:
+        with (
+            patch("apps.documents.tasks.scan_document.apply_async"),
+            patch.object(upload_service, "_check_pdf_encryption") as mock_pdf,
+            patch.object(upload_service, "_check_zip_bomb") as mock_zip,
+        ):
             confirm_upload(user=self.user, doc_id=str(doc.pk))
 
         mock_pdf.assert_called_once()

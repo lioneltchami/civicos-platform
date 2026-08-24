@@ -6,15 +6,14 @@ Covers three issues (PIPEDA compliance):
   Item 11 — rate-limit initialisation must use atomic cache.add+incr (not TOCTOU set).
   Item 12 — anonymous donation rate-limit cache key must not contain raw IP.
 """
+
 import hashlib
 import uuid
-from datetime import date
-from decimal import Decimal
-from unittest.mock import call, patch, MagicMock
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase, RequestFactory
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from apps.payments.views.donation import _check_donation_rate_limit
@@ -22,13 +21,14 @@ from apps.payments.views.fee_payment import _check_rate_limit
 
 User = get_user_model()
 
-TEST_IP = "203.0.113.42"   # RFC 5737 documentation address — clearly fake
+TEST_IP = "203.0.113.42"  # RFC 5737 documentation address — clearly fake
 MASKED_IP = "203.0.113.0"  # expected masked form (last octet zeroed)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_anon_request(ip=TEST_IP):
     """Return an unauthenticated RequestFactory request with REMOTE_ADDR set."""
@@ -37,6 +37,7 @@ def _make_anon_request(ip=TEST_IP):
     request.META["REMOTE_ADDR"] = ip
     # Mark as anonymous
     from django.contrib.auth.models import AnonymousUser
+
     request.user = AnonymousUser()
     return request
 
@@ -54,6 +55,7 @@ def _make_auth_request(user, ip=TEST_IP):
 # Item 10 — raw IP must not appear in logs (fee_payment)
 # ---------------------------------------------------------------------------
 
+
 class FeePaymentIPMaskingInLogsTest(TestCase):
     """Verify that a session-expired warning in create_payment_intent_api
     logs the masked IP, not the raw address."""
@@ -65,6 +67,7 @@ class FeePaymentIPMaskingInLogsTest(TestCase):
         )
         # Minimal TenantPaymentConfig (uses get_solo — create if absent)
         from apps.payments.models import TenantPaymentConfig
+
         TenantPaymentConfig.objects.get_or_create(
             defaults={"stripe_publishable_key": "pk_test_dummy"}
         )
@@ -101,6 +104,7 @@ class FeePaymentIPMaskingInLogsTest(TestCase):
 # Item 10 — raw IP must not appear in logs (donation)
 # ---------------------------------------------------------------------------
 
+
 class DonationIPMaskingInLogsTest(TestCase):
     """Verify that a session-expired warning in create_donation_intent_api
     logs the masked IP, not the raw address."""
@@ -111,6 +115,7 @@ class DonationIPMaskingInLogsTest(TestCase):
             password="testpass123",
         )
         from apps.payments.models import TenantPaymentConfig
+
         TenantPaymentConfig.objects.get_or_create(
             defaults={"stripe_publishable_key": "pk_test_dummy"}
         )
@@ -143,6 +148,7 @@ class DonationIPMaskingInLogsTest(TestCase):
 # ---------------------------------------------------------------------------
 # Item 12 — donation rate-limit cache key must NOT contain raw IP
 # ---------------------------------------------------------------------------
+
 
 class DonationRateLimitCacheKeyTest(TestCase):
     """Verify the anonymous rate-limit cache key is keyed on a SHA-256 hash
@@ -231,6 +237,7 @@ class DonationRateLimitCacheKeyTest(TestCase):
 # Item 11 — atomic init: cache.add+incr pattern (no TOCTOU set)
 # ---------------------------------------------------------------------------
 
+
 class FeeRateLimitAtomicInitTest(TestCase):
     """Verify _check_rate_limit uses the atomic cache.add + cache.incr pattern
     and does NOT fall back to cache.set(key, 1, ...) on first call."""
@@ -256,7 +263,9 @@ class FeeRateLimitAtomicInitTest(TestCase):
 
             result = _check_rate_limit("user-pk-123")
 
-        self.assertFalse(result, "First call should be within rate limit (returns False = not exceeded)")
+        self.assertFalse(
+            result, "First call should be within rate limit (returns False = not exceeded)"
+        )
         self.assertEqual(len(call_order), 2)
         self.assertEqual(call_order[0][0], "add", "cache.add must be called first")
         self.assertEqual(call_order[1][0], "incr", "cache.incr must be called second")

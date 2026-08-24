@@ -10,7 +10,8 @@ Covers 4 endpoints:
 Tests are numbered EV1–EV45 matching the original Wave D specification, plus
 EV46–EV53 added for the deep adversarial review fixes (see module docstring
 in services/govstack_event.py for the FIX 1..10 numbering referenced below).
-"""
+"""  # noqa: RUF002
+
 from __future__ import annotations
 
 import json
@@ -58,6 +59,7 @@ _SLOT_2 = {"from": "2026-08-02T09:00:00Z", "to": "2026-08-02T10:00:00Z"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _qs(**extra):
     """Build a URL query string with GovStack auth + any extras."""
     params = {**_AUTH, **extra}
@@ -88,12 +90,14 @@ def _create_event(name="Test Event", slots=None, status="available", **kwargs):
     )
 
 
-def _create_native_appointment_type(slug: str, is_govstack_managed: bool = False) -> tuple[AppointmentType, Slot]:
+def _create_native_appointment_type(
+    slug: str, is_govstack_managed: bool = False
+) -> tuple[AppointmentType, Slot]:
     """
     Factory: create a native CivicOS AppointmentType + Slot directly (bypassing
     the GovStack service layer entirely), for FIX 9 boundary tests.
     """
-    User = get_user_model()
+    User = get_user_model()  # noqa: N806
     user, _ = User.objects.get_or_create(
         email="native-staff@civicos.internal",
         defaults={"is_staff": True, "is_active": True},
@@ -168,6 +172,7 @@ def _create_native_appointment_type(slug: str, is_govstack_managed: bool = False
 # Base test case
 # ===========================================================================
 
+
 class EventBaseTestCase(TestCase):
     """Shared HTTP helpers for all event endpoint tests."""
 
@@ -189,11 +194,12 @@ class EventBaseTestCase(TestCase):
 
 
 # ===========================================================================
-# EV1–EV11: POST /event/new
+# EV1–EV11: POST /event/new  # noqa: RUF003
 # ===========================================================================
 
+
 class EventNewTests(EventBaseTestCase):
-    """EV1–EV11: POST /event/new"""
+    """EV1–EV11: POST /event/new"""  # noqa: RUF002
 
     def _valid_qry(self, name="Test Event", slots=None, **extra_details):
         if slots is None:
@@ -215,7 +221,7 @@ class EventNewTests(EventBaseTestCase):
 
     # EV2
     def test_ev2_post_new_two_slots_returns_two_event_ids(self):
-        """EV2: POST with 2 slots returns 200 (Bug 2 fix: was 201) with event_ids containing 2 entries."""
+        """EV2: POST with 2 slots returns 200 (Bug 2 fix: was 201) with event_ids containing 2 entries."""  # noqa: E501
         resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -281,9 +287,15 @@ class EventNewTests(EventBaseTestCase):
 
     # EV9
     def test_ev9_post_new_subscriber_limit_sets_capacity_per_slot(self):
-        """EV9: POST with subscriber_limit='5' creates AppointmentType with capacity_per_slot == 5."""
-        qry = {"details": {"name": "Limited Event", "slots": [_SLOT_1],
-                                    "status": "available", "subscriber_limit": "5"}}
+        """EV9: POST with subscriber_limit='5' creates AppointmentType with capacity_per_slot == 5."""  # noqa: E501
+        qry = {
+            "details": {
+                "name": "Limited Event",
+                "slots": [_SLOT_1],
+                "status": "available",
+                "subscriber_limit": "5",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         event_id = resp.json()["event_ids"][0]
@@ -293,9 +305,14 @@ class EventNewTests(EventBaseTestCase):
     # EV10
     def test_ev10_post_new_venue_city_sets_location_city(self):
         """EV10: POST with venue.city='Ottawa' creates Location with city == 'Ottawa'."""
-        qry = {"details": {"name": "Ottawa Event", "slots": [_SLOT_1],
-                                    "status": "available",
-                                    "venue": {"city": "Ottawa", "country": "Canada"}}}
+        qry = {
+            "details": {
+                "name": "Ottawa Event",
+                "slots": [_SLOT_1],
+                "status": "available",
+                "venue": {"city": "Ottawa", "country": "Canada"},
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         event_id = resp.json()["event_ids"][0]
@@ -314,7 +331,7 @@ class EventNewTests(EventBaseTestCase):
 
     # EV47 (FIX 2)
     def test_ev47_post_new_response_includes_singular_event_id(self):
-        """EV47 (FIX 2): response includes singular event_id == event_ids[0], plus full event_ids list."""
+        """EV47 (FIX 2): response includes singular event_id == event_ids[0], plus full event_ids list."""  # noqa: E501
         resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -325,7 +342,7 @@ class EventNewTests(EventBaseTestCase):
 
     # EV48 (FIX 1)
     def test_ev48_multi_slot_batch_creates_distinct_appointment_types(self):
-        """EV48 (FIX 1): each slot in a multi-slot POST batch gets its OWN AppointmentType, not a shared one."""
+        """EV48 (FIX 1): each slot in a multi-slot POST batch gets its OWN AppointmentType, not a shared one."""  # noqa: E501
         resp = self._post(self._valid_qry(slots=[_SLOT_1, _SLOT_2]))
         self.assertEqual(resp.status_code, 200)
         event_ids = resp.json()["event_ids"]
@@ -335,11 +352,12 @@ class EventNewTests(EventBaseTestCase):
 
 
 # ===========================================================================
-# EV12–EV17: PUT /event/modifications
+# EV12–EV17: PUT /event/modifications  # noqa: RUF003
 # ===========================================================================
 
+
 class EventModificationsTests(EventBaseTestCase):
-    """EV12–EV17: PUT /event/modifications"""
+    """EV12–EV17: PUT /event/modifications"""  # noqa: RUF002
 
     def setUp(self):
         created = _create_event(name="Original Event")
@@ -411,7 +429,7 @@ class EventModificationsTests(EventBaseTestCase):
     # EV49 (FIX 1)
     def test_ev49_modify_one_event_in_multi_slot_batch_does_not_affect_siblings(self):
         """EV49 (FIX 1): modifying one event_id from a multi-slot batch must NOT rename/alter siblings
-        created in the same original POST call — each event_id owns an exclusive AppointmentType."""
+        created in the same original POST call — each event_id owns an exclusive AppointmentType."""  # noqa: E501
         created = _create_event(name="Batch Event", slots=[_SLOT_1, _SLOT_2])
         slot_a, slot_b = created
         event_id_a = str(slot_a.pk)
@@ -451,7 +469,7 @@ class EventModificationsTests(EventBaseTestCase):
 
     # EV51 (FIX 6)
     def test_ev51_put_new_venue_updates_slot_location_in_db(self):
-        """EV51 (FIX 6): PUT with a new venue actually updates Slot.location fields (previously a no-op)."""
+        """EV51 (FIX 6): PUT with a new venue actually updates Slot.location fields (previously a no-op)."""  # noqa: E501
         created = _create_event(name="Venue Event")
         slot = created[0]
         event_id = str(slot.pk)
@@ -483,11 +501,12 @@ class EventModificationsTests(EventBaseTestCase):
 
 
 # ===========================================================================
-# EV18–EV23: DELETE /event
+# EV18–EV23: DELETE /event  # noqa: RUF003
 # ===========================================================================
 
+
 class EventDeleteTests(EventBaseTestCase):
-    """EV18–EV23: DELETE /event"""
+    """EV18–EV23: DELETE /event"""  # noqa: RUF002
 
     def setUp(self):
         created = _create_event(name="Delete Me Event")
@@ -548,11 +567,12 @@ class EventDeleteTests(EventBaseTestCase):
 
 
 # ===========================================================================
-# EV24–EV33: GET /event/list_details
+# EV24–EV33: GET /event/list_details  # noqa: RUF003
 # ===========================================================================
 
+
 class EventListDetailsTests(EventBaseTestCase):
-    """EV24–EV33: GET /event/list_details"""
+    """EV24–EV33: GET /event/list_details"""  # noqa: RUF002
 
     def setUp(self):
         self.created = _create_event(name="TestEvent")
@@ -625,8 +645,13 @@ class EventListDetailsTests(EventBaseTestCase):
         """EV29: event_details_required.name=false → 'name' NOT in each result."""
         qry = {
             "event_filter": {"event_id": self.event_id},
-            "event_details_required": {"name": False, "event_id": True, "status": True,
-                                        "category": True, "host_entity_id": True},
+            "event_details_required": {
+                "name": False,
+                "event_id": True,
+                "status": True,
+                "category": True,
+                "host_entity_id": True,
+            },
         }
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
@@ -719,7 +744,7 @@ class EventListDetailsTests(EventBaseTestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertGreater(len(data), 0)
-        for record in data:
+        for _record in data:
             self.assertIn(self.event_id, [r["event_id"] for r in data])
         # OtherEvent should not appear
         ids = [r["event_id"] for r in data]
@@ -785,20 +810,18 @@ class EventListDetailsTests(EventBaseTestCase):
         qry = {"event_filter": {"category": "legal"}}
         resp = self._get(qry)
         self.assertEqual(resp.status_code, 200)
-        names = {
-            Slot.objects.get(pk=r["event_id"]).appointment_type.name_en
-            for r in resp.json()
-        }
+        names = {Slot.objects.get(pk=r["event_id"]).appointment_type.name_en for r in resp.json()}
         self.assertIn("Legal Clinic", names)
         self.assertNotIn("Health Clinic", names)
 
 
 # ===========================================================================
-# EV34–EV37: Wrong HTTP method tests
+# EV34–EV37: Wrong HTTP method tests  # noqa: RUF003
 # ===========================================================================
 
+
 class EventViewMethodTests(TestCase):
-    """EV34–EV37: Wrong HTTP methods return 405."""
+    """EV34–EV37: Wrong HTTP methods return 405."""  # noqa: RUF002
 
     # EV34
     def test_ev34_get_on_event_new_returns_405(self):
@@ -826,11 +849,12 @@ class EventViewMethodTests(TestCase):
 
 
 # ===========================================================================
-# EV38–EV45: Service-level tests (direct service imports)
+# EV38–EV45: Service-level tests (direct service imports)  # noqa: RUF003
 # ===========================================================================
 
+
 class EventServiceTests(TestCase):
-    """EV38–EV45: Direct service layer tests."""
+    """EV38–EV45: Direct service layer tests."""  # noqa: RUF002
 
     # EV38
     def test_ev38_event_create_empty_slots_raises_value_error(self):
@@ -912,8 +936,9 @@ class EventServiceTests(TestCase):
 
     # EV45
     def test_ev45_event_delete_invalid_uuid_string_raises_exception(self):
-        """EV45: event_delete with invalid UUID string raises an exception (ValidationError, ValueError, or DoesNotExist)."""
+        """EV45: event_delete with invalid UUID string raises an exception (ValidationError, ValueError, or DoesNotExist)."""  # noqa: E501
         from django.core.exceptions import ValidationError as DjangoValidationError
+
         with self.assertRaises((ValueError, Slot.DoesNotExist, DjangoValidationError)):
             event_delete(event_id="not-a-valid-uuid")
 
@@ -1008,7 +1033,7 @@ class EventServiceTests(TestCase):
 
 
 # ===========================================================================
-# EV47–EV58: Auth / role enforcement (final certifiability review FIX 5c)
+# EV47–EV58: Auth / role enforcement (final certifiability review FIX 5c)  # noqa: RUF003
 # ===========================================================================
 #
 # Before this fix, test_govstack_event.py had zero 401/403/unauthenticated
@@ -1023,9 +1048,10 @@ class EventServiceTests(TestCase):
 # be allowed through; and a caller supplying NO requestor_id/request_token
 # at all must be rejected with 401/403 before ever reaching the handler.
 
+
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class EventRoleEnforcementTests(EventBaseTestCase):
-    """EV47–EV58: role / auth enforcement on all 4 Event endpoints."""
+    """EV47–EV58: role / auth enforcement on all 4 Event endpoints."""  # noqa: RUF002
 
     def _valid_new_qry(self):
         return {"details": {"name": "Auth Test Event", "slots": [_SLOT_1], "status": "available"}}
@@ -1037,7 +1063,9 @@ class EventRoleEnforcementTests(EventBaseTestCase):
         correct plaintext secret. Finding #1 fix: request_token must never equal
         bb_id — it must verify against a separate hashed secret.
         """
-        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id=_AUTH["requestor_id"], is_active=True, role=role
+        )
         token = GovStackBBCredential.generate_plaintext_token()
         credential = GovStackBBCredential(bb=bb)
         credential.set_token(token)

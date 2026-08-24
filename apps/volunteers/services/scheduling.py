@@ -29,6 +29,7 @@ Permission model:
   - complete_booking() — actor must hold volunteers.change_shiftbooking.
   - cancel_shift()   — actor must hold volunteers.change_shift.
 """
+
 from __future__ import annotations
 
 import logging
@@ -60,11 +61,12 @@ _REASON_MAX = 300  # ShiftBooking.cancellation_reason max_length
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _assert_is_volunteer_actor(
     *,
-    booking,  # may be None (book_shift pre-check)
-    actor,
-    volunteer_profile,
+    booking,  # may be None (book_shift pre-check)  # noqa: ANN001
+    actor,  # noqa: ANN001
+    volunteer_profile,  # noqa: ANN001
 ) -> None:
     """
     Raise PermissionDenied if actor is not the volunteer's own User.
@@ -83,12 +85,13 @@ def _assert_is_volunteer_actor(
 # book_shift()
 # ---------------------------------------------------------------------------
 
+
 def book_shift(
     *,
-    shift,
-    volunteer_profile,
-    actor,
-) -> "ShiftBooking":
+    shift,  # noqa: ANN001
+    volunteer_profile,  # noqa: ANN001
+    actor,  # noqa: ANN001
+) -> ShiftBooking:  # noqa: F821
     """
     Volunteer books a confirmed slot (or joins the waitlist) on a shift.
 
@@ -128,14 +131,10 @@ def book_shift(
     )
 
     if shift.is_cancelled:
-        raise ValidationError(
-            {"shift": _("This shift has been cancelled.")}
-        )
+        raise ValidationError({"shift": _("This shift has been cancelled.")})
 
     if shift.start_datetime <= timezone.now():
-        raise ValidationError(
-            {"shift": _("You cannot book a shift that has already started.")}
-        )
+        raise ValidationError({"shift": _("You cannot book a shift that has already started.")})
 
     # Volunteer must hold an approved application for the parent opportunity.
     has_approved = VolunteerApplication.objects.filter(
@@ -147,8 +146,7 @@ def book_shift(
         raise ValidationError(
             {
                 "volunteer": _(
-                    "You must have an approved application for this opportunity "
-                    "to book a shift."
+                    "You must have an approved application for this opportunity " "to book a shift."
                 )
             }
         )
@@ -164,9 +162,7 @@ def book_shift(
         # Re-validate cancellation status (another request may have cancelled
         # the shift between the pre-check above and acquiring the lock).
         if shift_locked.is_cancelled:
-            raise ValidationError(
-                {"shift": _("This shift has been cancelled.")}
-            )
+            raise ValidationError({"shift": _("This shift has been cancelled.")})
 
         # Count confirmed bookings to determine if capacity remains.
         confirmed_count = ShiftBooking.objects.filter(
@@ -196,16 +192,11 @@ def book_shift(
                 shift_locked.waitlist_cap is not None
                 and waitlisted_qs.count() >= shift_locked.waitlist_cap
             ):
-                raise ValidationError(
-                    {"shift": _("The waitlist for this shift is full.")}
-                )
+                raise ValidationError({"shift": _("The waitlist for this shift is full.")})
 
             # Assign the next sequential waitlist position.
             next_pos = (
-                waitlisted_qs.aggregate(
-                    Max("waitlist_position")
-                )["waitlist_position__max"]
-                or 0
+                waitlisted_qs.aggregate(Max("waitlist_position"))["waitlist_position__max"] or 0
             ) + 1
 
             booking = ShiftBooking(
@@ -216,9 +207,7 @@ def book_shift(
             )
         else:
             # Full and no waitlist.
-            raise ValidationError(
-                {"shift": _("This shift is fully booked.")}
-            )
+            raise ValidationError({"shift": _("This shift is fully booked.")})
 
         try:
             booking.full_clean()
@@ -226,21 +215,20 @@ def book_shift(
         except IntegrityError:
             # Lost the race — another concurrent request already booked this
             # (shift, volunteer) pair.
-            raise ValidationError(
-                {"shift": _("You are already booked for this shift.")}
-            )
+            raise ValidationError({"shift": _("You are already booked for this shift.")})  # noqa: B904
 
         # Register post-commit signal.  Capture the PK so the closure does
         # not hold a reference to the booking model instance (avoids stale-
         # state issues if the instance is mutated later in the request).
         _booking_pk = booking.pk
 
-        def _post_commit_booked():
-            from apps.volunteers.models import ShiftBooking as _SB
+        def _post_commit_booked() -> None:
+            from apps.volunteers.models import ShiftBooking as _SB  # noqa: N814
             from apps.volunteers.signals import shift_booked
-            b = _SB.objects.select_related(
-                "shift__opportunity", "volunteer__user"
-            ).get(pk=_booking_pk)
+
+            b = _SB.objects.select_related("shift__opportunity", "volunteer__user").get(
+                pk=_booking_pk
+            )
             shift_booked.send_robust(
                 sender=_SB,
                 instance=b,
@@ -264,12 +252,13 @@ def book_shift(
 # cancel_booking()
 # ---------------------------------------------------------------------------
 
+
 def cancel_booking(
     *,
-    booking,
-    actor,
+    booking,  # noqa: ANN001
+    actor,  # noqa: ANN001
     reason: str = "",
-) -> "ShiftBooking":
+) -> ShiftBooking:  # noqa: F821
     """
     Volunteer cancels their own booking, OR a coordinator cancels it on their
     behalf.  If the cancelled booking was confirmed and the shift has a
@@ -299,14 +288,10 @@ def cancel_booking(
     is_coordinator = actor.has_perm("volunteers.change_shiftbooking")
 
     if not (is_self or is_coordinator):
-        raise PermissionDenied(
-            f"User #{actor.pk} may not cancel booking #{booking.pk}."
-        )
+        raise PermissionDenied(f"User #{actor.pk} may not cancel booking #{booking.pk}.")
 
     if booking.status not in _CANCELLABLE:
-        raise ValidationError(
-            {"status": _("This booking cannot be cancelled.")}
-        )
+        raise ValidationError({"status": _("This booking cannot be cancelled.")})
 
     # -----------------------------------------------------------------------
     # Mutating work.
@@ -316,6 +301,7 @@ def cancel_booking(
         # setting is_cancelled=True between our pre-check and the waitlist
         # promotion below.
         from apps.volunteers.models import Shift
+
         shift_locked = Shift.objects.select_for_update().get(pk=booking.shift_id)
         if shift_locked.is_cancelled:
             raise ValidationError(
@@ -324,17 +310,14 @@ def cancel_booking(
 
         # Re-fetch with lock + related objects needed for signal / promotion.
         booking = (
-            ShiftBooking.objects
-            .select_for_update(of=("self",))
+            ShiftBooking.objects.select_for_update(of=("self",))
             .select_related("shift", "volunteer__user")
             .get(pk=booking.pk)
         )
 
         # Re-validate status after acquiring lock (race-condition guard).
         if booking.status not in _CANCELLABLE:
-            raise ValidationError(
-                {"status": _("This booking cannot be cancelled.")}
-            )
+            raise ValidationError({"status": _("This booking cannot be cancelled.")})
 
         was_confirmed = booking.status == ShiftBooking.STATUS_CONFIRMED
 
@@ -354,8 +337,7 @@ def cancel_booking(
         # ---- Waitlist promotion ----
         if was_confirmed and shift_locked.waitlist_enabled:
             next_up = (
-                ShiftBooking.objects
-                .select_for_update()
+                ShiftBooking.objects.select_for_update()
                 .filter(
                     shift=booking.shift,
                     status=ShiftBooking.STATUS_WAITLISTED,
@@ -368,18 +350,17 @@ def cancel_booking(
                 next_up.status = ShiftBooking.STATUS_CONFIRMED
                 next_up.waitlist_position = None
                 next_up.full_clean()
-                next_up.save(
-                    update_fields=["status", "waitlist_position", "updated_at"]
-                )
+                next_up.save(update_fields=["status", "waitlist_position", "updated_at"])
 
                 _promoted_pk = next_up.pk
 
-                def _post_commit_promoted():
-                    from apps.volunteers.models import ShiftBooking as _SB
+                def _post_commit_promoted() -> None:
+                    from apps.volunteers.models import ShiftBooking as _SB  # noqa: N814
                     from apps.volunteers.signals import shift_booked
-                    b = _SB.objects.select_related(
-                        "shift__opportunity", "volunteer__user"
-                    ).get(pk=_promoted_pk)
+
+                    b = _SB.objects.select_related("shift__opportunity", "volunteer__user").get(
+                        pk=_promoted_pk
+                    )
                     shift_booked.send_robust(
                         sender=_SB,
                         instance=b,
@@ -393,12 +374,13 @@ def cancel_booking(
         _cancelled_pk = booking.pk
         _reason = reason
 
-        def _post_commit_cancelled():
-            from apps.volunteers.models import ShiftBooking as _SB
+        def _post_commit_cancelled() -> None:
+            from apps.volunteers.models import ShiftBooking as _SB  # noqa: N814
             from apps.volunteers.signals import shift_booking_cancelled
-            b = _SB.objects.select_related(
-                "shift__opportunity", "volunteer__user"
-            ).get(pk=_cancelled_pk)
+
+            b = _SB.objects.select_related("shift__opportunity", "volunteer__user").get(
+                pk=_cancelled_pk
+            )
             shift_booking_cancelled.send_robust(
                 sender=_SB,
                 instance=b,
@@ -423,11 +405,12 @@ def cancel_booking(
 # mark_no_show()
 # ---------------------------------------------------------------------------
 
+
 def mark_no_show(
     *,
-    booking,
-    actor,
-) -> "ShiftBooking":
+    booking,  # noqa: ANN001
+    actor,  # noqa: ANN001
+) -> ShiftBooking:  # noqa: F821
     """
     Coordinator marks a confirmed volunteer as a no-show after the shift
     start time has passed.
@@ -452,35 +435,20 @@ def mark_no_show(
     # -----------------------------------------------------------------------
 
     if not actor.has_perm("volunteers.change_shiftbooking"):
-        raise PermissionDenied(
-            f"User #{actor.pk} does not have 'volunteers.change_shiftbooking'."
-        )
+        raise PermissionDenied(f"User #{actor.pk} does not have 'volunteers.change_shiftbooking'.")
 
     if booking.status != ShiftBooking.STATUS_CONFIRMED:
-        raise ValidationError(
-            {
-                "status": _(
-                    "Only confirmed bookings can be marked as no-show."
-                )
-            }
-        )
+        raise ValidationError({"status": _("Only confirmed bookings can be marked as no-show.")})
 
     if booking.shift.start_datetime > timezone.now():
-        raise ValidationError(
-            {
-                "shift": _(
-                    "Cannot mark a no-show before the shift starts."
-                )
-            }
-        )
+        raise ValidationError({"shift": _("Cannot mark a no-show before the shift starts.")})
 
     # -----------------------------------------------------------------------
     # Mutating work.
     # -----------------------------------------------------------------------
     with transaction.atomic():
         booking = (
-            ShiftBooking.objects
-            .select_for_update(of=("self",))
+            ShiftBooking.objects.select_for_update(of=("self",))
             .select_related("shift")
             .get(pk=booking.pk)
         )
@@ -488,11 +456,7 @@ def mark_no_show(
         # Re-validate after lock (race-condition guard).
         if booking.status != ShiftBooking.STATUS_CONFIRMED:
             raise ValidationError(
-                {
-                    "status": _(
-                        "Only confirmed bookings can be marked as no-show."
-                    )
-                }
+                {"status": _("Only confirmed bookings can be marked as no-show.")}
             )
 
         booking.status = ShiftBooking.STATUS_NO_SHOW
@@ -513,11 +477,12 @@ def mark_no_show(
 # complete_booking()
 # ---------------------------------------------------------------------------
 
+
 def complete_booking(
     *,
-    booking,
-    actor,
-) -> "ShiftBooking":
+    booking,  # noqa: ANN001
+    actor,  # noqa: ANN001
+) -> ShiftBooking:  # noqa: F821
     """
     Coordinator marks a confirmed booking as completed after the shift ends.
     If no HoursLog row exists for this (volunteer, shift) pair an HoursLog in
@@ -544,35 +509,20 @@ def complete_booking(
     # -----------------------------------------------------------------------
 
     if not actor.has_perm("volunteers.change_shiftbooking"):
-        raise PermissionDenied(
-            f"User #{actor.pk} does not have 'volunteers.change_shiftbooking'."
-        )
+        raise PermissionDenied(f"User #{actor.pk} does not have 'volunteers.change_shiftbooking'.")
 
     if booking.status != ShiftBooking.STATUS_CONFIRMED:
-        raise ValidationError(
-            {
-                "status": _(
-                    "Only confirmed bookings can be marked as completed."
-                )
-            }
-        )
+        raise ValidationError({"status": _("Only confirmed bookings can be marked as completed.")})
 
     if booking.shift.end_datetime > timezone.now():
-        raise ValidationError(
-            {
-                "shift": _(
-                    "Cannot mark complete before the shift ends."
-                )
-            }
-        )
+        raise ValidationError({"shift": _("Cannot mark complete before the shift ends.")})
 
     # -----------------------------------------------------------------------
     # Mutating work.
     # -----------------------------------------------------------------------
     with transaction.atomic():
         booking = (
-            ShiftBooking.objects
-            .select_for_update(of=("self",))
+            ShiftBooking.objects.select_for_update(of=("self",))
             .select_related("shift__opportunity", "volunteer")
             .get(pk=booking.pk)
         )
@@ -580,11 +530,7 @@ def complete_booking(
         # Re-validate after lock.
         if booking.status != ShiftBooking.STATUS_CONFIRMED:
             raise ValidationError(
-                {
-                    "status": _(
-                        "Only confirmed bookings can be marked as completed."
-                    )
-                }
+                {"status": _("Only confirmed bookings can be marked as completed.")}
             )
 
         booking.status = ShiftBooking.STATUS_COMPLETED
@@ -626,12 +572,13 @@ def complete_booking(
 # cancel_shift()
 # ---------------------------------------------------------------------------
 
+
 def cancel_shift(
     *,
-    shift,
-    actor,
+    shift,  # noqa: ANN001
+    actor,  # noqa: ANN001
     reason: str,
-) -> "Shift":
+) -> Shift:  # noqa: F821
     """
     Coordinator cancels an entire shift.
 
@@ -658,19 +605,13 @@ def cancel_shift(
     # -----------------------------------------------------------------------
 
     if not actor.has_perm("volunteers.change_shift"):
-        raise PermissionDenied(
-            f"User #{actor.pk} does not have 'volunteers.change_shift'."
-        )
+        raise PermissionDenied(f"User #{actor.pk} does not have 'volunteers.change_shift'.")
 
     if shift.is_cancelled:
-        raise ValidationError(
-            {"shift": _("This shift is already cancelled.")}
-        )
+        raise ValidationError({"shift": _("This shift is already cancelled.")})
 
     if not reason or not reason.strip():
-        raise ValidationError(
-            {"reason": _("A cancellation reason is required.")}
-        )
+        raise ValidationError({"reason": _("A cancellation reason is required.")})
 
     # -----------------------------------------------------------------------
     # Mutating work.
@@ -680,9 +621,7 @@ def cancel_shift(
 
         # Re-validate cancellation (race-condition guard).
         if shift.is_cancelled:
-            raise ValidationError(
-                {"shift": _("This shift is already cancelled.")}
-            )
+            raise ValidationError({"shift": _("This shift is already cancelled.")})
 
         shift.is_cancelled = True
         shift.cancelled_at = timezone.now()
@@ -721,14 +660,13 @@ def cancel_shift(
         _actor_pk = actor.pk
         _reason_stripped = reason.strip()
 
-        def _post_commit_shift_cancelled():
-            from apps.volunteers.models import Shift as _Shift
-            from apps.volunteers.signals import shift_cancelled as _sig
+        def _post_commit_shift_cancelled() -> None:
             from django.contrib.auth import get_user_model
 
-            s = _Shift.objects.select_related(
-                "opportunity__program"
-            ).get(pk=_shift_pk)
+            from apps.volunteers.models import Shift as _Shift
+            from apps.volunteers.signals import shift_cancelled as _sig
+
+            s = _Shift.objects.select_related("opportunity__program").get(pk=_shift_pk)
             a = get_user_model().objects.get(pk=_actor_pk)
             _sig.send_robust(
                 sender=_Shift,

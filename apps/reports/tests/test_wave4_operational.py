@@ -23,22 +23,22 @@ PIPEDA invariants verified:
   - actor_pk stores integer PK — no email or name stored in ExportRecord
   - actor_ip masked before storage
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.urls import reverse
 
 from apps.payments.models import WebhookEvent
 from apps.reports.models import ExportRecord, ReportSnapshot
 from apps.reports.services.operational import (
     _safe_first_line,
-    _utc_since,
     compute_operational_snapshot,
     get_celery_beat_status,
     get_celery_task_summary,
@@ -55,8 +55,10 @@ _LOGIN_URL = "/account/login/"
 # Factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(*, is_staff=True, perms=None):
     from django.contrib.auth.models import Permission
+
     u = User.objects.create_user(
         email=f"user_{uuid.uuid4().hex[:8]}@example.com",
         password="testpass123",
@@ -82,15 +84,16 @@ def _make_task_result(
     traceback=None,
 ):
     from django_celery_results.models import TaskResult
+
     if date_done is None:
-        date_done = datetime.now(tz=dt_timezone.utc)
+        date_done = datetime.now(tz=UTC)
     return TaskResult.objects.create(
         task_id=uuid.uuid4().hex,
         task_name=task_name,
         status=status,
         date_done=date_done,
         traceback=traceback or "",
-        result='null',
+        result="null",
         content_type="application/json",
         content_encoding="utf-8",
     )
@@ -104,7 +107,7 @@ def _make_webhook_event(
     created_at=None,
 ):
     if created_at is None:
-        created_at = datetime.now(tz=dt_timezone.utc)
+        created_at = datetime.now(tz=UTC)
     ev = WebhookEvent(
         gateway="stripe",
         event_type=event_type,
@@ -121,11 +124,11 @@ def _make_webhook_event(
 
 
 def _make_periodic_task(name="test.beat.task", enabled=True):
-    from django_celery_beat.models import IntervalSchedule, PeriodicTask
     import json
-    sched, _ = IntervalSchedule.objects.get_or_create(
-        every=1, period=IntervalSchedule.HOURS
-    )
+
+    from django_celery_beat.models import IntervalSchedule, PeriodicTask
+
+    sched, _ = IntervalSchedule.objects.get_or_create(every=1, period=IntervalSchedule.HOURS)
     return PeriodicTask.objects.create(
         name=name,
         task="apps.test.task",
@@ -140,8 +143,8 @@ def _make_periodic_task(name="test.beat.task", enabled=True):
 # _safe_first_line helper
 # ---------------------------------------------------------------------------
 
-class SafeFirstLineTests(TestCase):
 
+class SafeFirstLineTests(TestCase):
     def test_empty_returns_empty(self):
         self.assertEqual(_safe_first_line(None), "")
         self.assertEqual(_safe_first_line(""), "")
@@ -165,8 +168,8 @@ class SafeFirstLineTests(TestCase):
 # get_celery_task_summary
 # ---------------------------------------------------------------------------
 
-class CeleryTaskSummaryTests(TestCase):
 
+class CeleryTaskSummaryTests(TestCase):
     def test_empty_returns_zero_totals(self):
         result = get_celery_task_summary(days=30)
         self.assertEqual(result["total_tasks"], 0)
@@ -240,8 +243,8 @@ class CeleryTaskSummaryTests(TestCase):
 # get_webhook_processing_summary
 # ---------------------------------------------------------------------------
 
-class WebhookSummaryTests(TestCase):
 
+class WebhookSummaryTests(TestCase):
     def test_empty_returns_zeros(self):
         result = get_webhook_processing_summary(days=30)
         self.assertEqual(result["total_events"], 0)
@@ -289,13 +292,15 @@ class WebhookSummaryTests(TestCase):
         _make_webhook_event(event_type="payment_intent.succeeded", processed=True)
         _make_webhook_event(event_type="payment_intent.succeeded", processed=False, error="")
         result = get_webhook_processing_summary(days=30)
-        row = next(r for r in result["by_event_type"] if r["event_type"] == "payment_intent.succeeded")
+        row = next(
+            r for r in result["by_event_type"] if r["event_type"] == "payment_intent.succeeded"
+        )
         self.assertIn("other_count", row)
         self.assertEqual(row["other_count"], row["count"] - row["processed_count"])
         self.assertEqual(row["other_count"], 1)
 
     def test_days_window_excludes_old_events(self):
-        old = datetime(2020, 1, 1, tzinfo=dt_timezone.utc)
+        old = datetime(2020, 1, 1, tzinfo=UTC)
         _make_webhook_event(created_at=old)
         result = get_webhook_processing_summary(days=30)
         self.assertEqual(result["total_events"], 0)
@@ -315,8 +320,8 @@ class WebhookSummaryTests(TestCase):
 # get_celery_beat_status
 # ---------------------------------------------------------------------------
 
-class CeleryBeatStatusTests(TestCase):
 
+class CeleryBeatStatusTests(TestCase):
     def test_returns_tasks_list(self):
         result = get_celery_beat_status()
         self.assertIn("tasks", result)
@@ -352,8 +357,8 @@ class CeleryBeatStatusTests(TestCase):
 # get_task_failure_details
 # ---------------------------------------------------------------------------
 
-class TaskFailureDetailTests(TestCase):
 
+class TaskFailureDetailTests(TestCase):
     def test_empty_when_no_failures(self):
         result = get_task_failure_details()
         self.assertEqual(result, [])
@@ -423,8 +428,8 @@ class TaskFailureDetailTests(TestCase):
 # compute_operational_snapshot
 # ---------------------------------------------------------------------------
 
-class ComputeOperationalSnapshotTests(TestCase):
 
+class ComputeOperationalSnapshotTests(TestCase):
     def test_returns_expected_keys(self):
         result = compute_operational_snapshot(2024, 3)
         for key in ("task_summary", "webhook_summary", "row_count"):
@@ -456,8 +461,8 @@ class ComputeOperationalSnapshotTests(TestCase):
         """Webhook events from a later month are excluded from an earlier month's snapshot.
         (WebhookEvent.created_at is auto_now_add so we test via month anchoring)."""
         # Create an old webhook event (2020) — won't appear in any 30-day window
-        old = datetime(2020, 1, 1, tzinfo=dt_timezone.utc)
-        ev = _make_webhook_event(created_at=old)
+        old = datetime(2020, 1, 1, tzinfo=UTC)
+        _make_webhook_event(created_at=old)
         # snapshot for March 2020 — the webhook was on Jan 1 2020, which is >30 days before
         # March 31 2020. So it should NOT appear.
         result = compute_operational_snapshot(2020, 3)
@@ -468,8 +473,8 @@ class ComputeOperationalSnapshotTests(TestCase):
 # OperationalDashboardView
 # ---------------------------------------------------------------------------
 
-class OperationalDashboardViewTests(TestCase):
 
+class OperationalDashboardViewTests(TestCase):
     def setUp(self):
         self.url = reverse("reports:operational-dashboard")
         self.user = _make_user(perms=["payments.view_operationalreport"])
@@ -539,16 +544,19 @@ class OperationalDashboardViewTests(TestCase):
         # "sin" alone is too broad — it matches "processing", "using", etc.
         # Check for "social insurance" which is the actual PII phrase we protect.
         for pii_token in ("card_number", "donor_name", "social insurance", "payer_email"):
-            self.assertNotIn(pii_token, content.lower(),
-                             msg=f"Donor/payer PII token '{pii_token}' found in rendered HTML")
+            self.assertNotIn(
+                pii_token,
+                content.lower(),
+                msg=f"Donor/payer PII token '{pii_token}' found in rendered HTML",
+            )
 
 
 # ---------------------------------------------------------------------------
 # TaskFailureDetailView
 # ---------------------------------------------------------------------------
 
-class TaskFailureDetailViewTests(TestCase):
 
+class TaskFailureDetailViewTests(TestCase):
     def setUp(self):
         self.url = reverse("reports:task-failures")
         self.user = _make_user(perms=["payments.view_operationalreport"])
@@ -593,7 +601,7 @@ class TaskFailureDetailViewTests(TestCase):
         """Full tracebacks MUST NOT appear in the rendered page."""
         _make_task_result(
             status="FAILURE",
-            traceback="Traceback (most recent call last):\n  File 'checkout.py', line 42\nValueError: SUPERSECRET_CARD_DATA",
+            traceback="Traceback (most recent call last):\n  File 'checkout.py', line 42\nValueError: SUPERSECRET_CARD_DATA",  # noqa: E501
         )
         self.client.force_login(self.user)
         response = self.client.get(self.url)
@@ -632,6 +640,7 @@ class MonthlySummaryPdfTests(TestCase):
         self.url_name = "reports:monthly-summary-pdf"
         self.user = _make_user(perms=["payments.export_financialreport"])
         from django.http import HttpResponse
+
         self._fake_pdf_response = HttpResponse(
             _FAKE_PDF_RESPONSE_BYTES,
             content_type="application/pdf",
@@ -697,9 +706,7 @@ class MonthlySummaryPdfTests(TestCase):
         # The view validates month before calling export_monthly_summary_pdf,
         # so no patch is needed here.
         self.client.force_login(self.user)
-        response = self.client.get(
-            reverse(self.url_name, kwargs={"year": 2024, "month": 13})
-        )
+        response = self.client.get(reverse(self.url_name, kwargs={"year": 2024, "month": 13}))
         self.assertEqual(response.status_code, 400)
 
     def test_cache_control_no_store(self):
@@ -728,20 +735,24 @@ class ExportMonthlySummaryPdfFunctionTests(TestCase):
         return patch(self._WEASYPRINT_HTML, mock_html_cls)
 
     def test_returns_http_response(self):
-        from apps.reports.exports.pdf_export import export_monthly_summary_pdf
         from django.http import HttpResponse
+
+        from apps.reports.exports.pdf_export import export_monthly_summary_pdf
+
         with self._make_html_mock():
             response = export_monthly_summary_pdf(2024, 3)
         self.assertIsInstance(response, HttpResponse)
 
     def test_content_type_is_pdf(self):
         from apps.reports.exports.pdf_export import export_monthly_summary_pdf
+
         with self._make_html_mock():
             response = export_monthly_summary_pdf(2024, 3)
         self.assertEqual(response["Content-Type"], "application/pdf")
 
     def test_pdf_starts_with_magic_bytes(self):
         from apps.reports.exports.pdf_export import export_monthly_summary_pdf
+
         with self._make_html_mock():
             response = export_monthly_summary_pdf(2024, 3)
         # All valid PDFs start with %PDF-
@@ -750,10 +761,12 @@ class ExportMonthlySummaryPdfFunctionTests(TestCase):
     def test_no_individual_pii_in_template_context(self):
         """Verify the HTML template renders without individual donor/payer PII."""
         from django.template.loader import render_to_string
+
         html = render_to_string(
             "reports/financial/monthly_summary_pdf.html",
             {
-                "year": 2024, "month": 3,
+                "year": 2024,
+                "month": 3,
                 "month_label": "March 2024",
                 "period_start": "2024-03-01",
                 "period_end": "2024-03-31",
@@ -779,18 +792,18 @@ class ExportMonthlySummaryPdfFunctionTests(TestCase):
         # Note: "address" legitimately appears in the PIPEDA notice; we check for
         # card_number, SIN, and concrete donor identifiers instead.
         for pii in ("card_number", "social insurance", "donor_name", "john.doe", "jane.doe"):
-            self.assertNotIn(pii, html.lower(),
-                             msg=f"PII token '{pii}' found in PDF template")
+            self.assertNotIn(pii, html.lower(), msg=f"PII token '{pii}' found in PDF template")
 
 
 # ---------------------------------------------------------------------------
 # Celery tasks: _compute_all_snapshots includes operational
 # ---------------------------------------------------------------------------
 
-class ComputeAllSnapshotsOperationalTests(TestCase):
 
+class ComputeAllSnapshotsOperationalTests(TestCase):
     def test_operational_snapshot_written(self):
         from apps.reports.tasks import _compute_all_snapshots
+
         count = _compute_all_snapshots(2024, 3)
         # At least financial + donations + operational = 3 snapshots
         self.assertGreaterEqual(count, 1)
@@ -804,6 +817,7 @@ class ComputeAllSnapshotsOperationalTests(TestCase):
 
     def test_operational_snapshot_idempotent(self):
         from apps.reports.tasks import _compute_all_snapshots
+
         _compute_all_snapshots(2024, 4)
         _compute_all_snapshots(2024, 4)  # second run — must not duplicate
         count = ReportSnapshot.objects.filter(
@@ -815,6 +829,7 @@ class ComputeAllSnapshotsOperationalTests(TestCase):
 
     def test_operational_snapshot_data_shape(self):
         from apps.reports.tasks import _compute_all_snapshots
+
         _compute_all_snapshots(2024, 5)
         snap = ReportSnapshot.objects.get(
             report_type=ReportSnapshot.REPORT_TYPE_OPERATIONAL,
@@ -826,6 +841,7 @@ class ComputeAllSnapshotsOperationalTests(TestCase):
 
     def test_recompute_snapshot_dispatches_operational(self):
         from apps.reports.tasks import recompute_snapshot
+
         result = recompute_snapshot.apply(
             args=[ReportSnapshot.REPORT_TYPE_OPERATIONAL, 2024, 6]
         ).get()

@@ -21,12 +21,13 @@ What is mocked:
   - apps.payments.gateway.get_gateway       → parse_webhook_event returns fixture data
   All DB writes are real; no Stripe HTTP calls are made.
 """
+
 import json
 import uuid
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-from django.test import TransactionTestCase, override_settings
+from django.test import TransactionTestCase
 from django.urls import reverse
 
 from apps.payments.models import (
@@ -37,14 +38,15 @@ from apps.payments.models import (
     WebhookEvent,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_user(email=None):
     from django.contrib.auth import get_user_model
-    User = get_user_model()
+
+    User = get_user_model()  # noqa: N806
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
     return User.objects.create_user(email=email, password="TestPass123!")
 
@@ -101,6 +103,7 @@ def _build_webhook_payload(event_id, event_type, gateway_intent_id):
 # Integration tests
 # ---------------------------------------------------------------------------
 
+
 class WebhookTaskIntegrationTest(TransactionTestCase):
     """
     End-to-end: stripe_webhook view → process_stripe_webhook task.
@@ -142,12 +145,14 @@ class WebhookTaskIntegrationTest(TransactionTestCase):
             """Side-effect: run the task synchronously instead of via broker."""
             process_stripe_webhook(webhook_event_pk)
 
-        with patch("apps.payments.views.webhook.get_gateway") as mock_view_gw, \
-             patch("apps.payments.gateway.get_gateway") as mock_task_gw, \
-             patch(
-                 "apps.payments.tasks.process_stripe_webhook.delay",
-                 side_effect=_run_task_synchronously,
-             ):
+        with (
+            patch("apps.payments.views.webhook.get_gateway") as mock_view_gw,
+            patch("apps.payments.gateway.get_gateway") as mock_task_gw,
+            patch(
+                "apps.payments.tasks.process_stripe_webhook.delay",
+                side_effect=_run_task_synchronously,
+            ),
+        ):
             # View gateway: only verify_webhook_signature is called
             mock_view_instance = MagicMock()
             mock_view_instance.verify_webhook_signature.return_value = True
@@ -179,7 +184,9 @@ class WebhookTaskIntegrationTest(TransactionTestCase):
         event_id = f"evt_integ_{uuid.uuid4().hex[:8]}"
         pi = _make_payment_intent(user=self.user)
         payload = _build_webhook_payload(event_id, "payment_intent.succeeded", pi.gateway_intent_id)
-        parse_return = _make_succeeded_parse_return(pi.gateway_intent_id, f"ch_{uuid.uuid4().hex[:8]}")
+        parse_return = _make_succeeded_parse_return(
+            pi.gateway_intent_id, f"ch_{uuid.uuid4().hex[:8]}"
+        )
 
         response = self._post_webhook(payload, mock_parse_return=parse_return)
         self.assertEqual(response.status_code, 200)
@@ -319,8 +326,10 @@ class WebhookTaskIntegrationTest(TransactionTestCase):
         payload = _build_webhook_payload(event_id, "payment_intent.succeeded", pi.gateway_intent_id)
         body = json.dumps(payload).encode()
 
-        with patch("apps.payments.views.webhook.get_gateway") as mock_view_gw, \
-             patch("apps.payments.tasks.process_stripe_webhook.delay") as mock_delay:
+        with (
+            patch("apps.payments.views.webhook.get_gateway") as mock_view_gw,
+            patch("apps.payments.tasks.process_stripe_webhook.delay") as mock_delay,
+        ):
             mock_view_instance = MagicMock()
             mock_view_instance.verify_webhook_signature.return_value = False
             mock_view_gw.return_value = mock_view_instance

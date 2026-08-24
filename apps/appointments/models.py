@@ -29,6 +29,7 @@ Security invariants:
   - Citizens receive 404 (not 403) for booking PKs they do not own (Wave 5).
   - LoginRequiredMixin ALWAYS before PermissionRequiredMixin in view MRO (Wave 5).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -41,10 +42,10 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import TimestampedModel
 
-
 # ---------------------------------------------------------------------------
 # Organization
 # ---------------------------------------------------------------------------
+
 
 class Organization(TimestampedModel):
     """
@@ -115,7 +116,7 @@ class Organization(TimestampedModel):
     website = models.URLField(blank=True, verbose_name=_("Website"))
 
     class Meta:
-        ordering = ["name_en"]
+        ordering = ["name_en"]  # noqa: RUF012
         verbose_name = _("Organization")
         verbose_name_plural = _("Organizations")
 
@@ -125,6 +126,7 @@ class Organization(TimestampedModel):
     def get_name(self) -> str:
         """Return name in the currently active language."""
         from django.utils.translation import get_language
+
         lang = get_language() or "en"
         return self.name_fr if lang.startswith("fr") else self.name_en
 
@@ -132,6 +134,7 @@ class Organization(TimestampedModel):
 # ---------------------------------------------------------------------------
 # SchedulingPolicy
 # ---------------------------------------------------------------------------
+
 
 class SchedulingPolicy(TimestampedModel):
     """
@@ -291,7 +294,7 @@ class SchedulingPolicy(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["name"]  # noqa: RUF012
         verbose_name = _("Scheduling policy")
         verbose_name_plural = _("Scheduling policies")
 
@@ -302,6 +305,7 @@ class SchedulingPolicy(TimestampedModel):
 # ---------------------------------------------------------------------------
 # ServiceType
 # ---------------------------------------------------------------------------
+
 
 class ServiceType(TimestampedModel):
     """
@@ -401,10 +405,10 @@ class ServiceType(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["sort_order", "name_en"]
+        ordering = ["sort_order", "name_en"]  # noqa: RUF012
         verbose_name = _("Service type")
         verbose_name_plural = _("Service types")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["category", "is_active"], name="appt_servicetype_cat_active"),
         ]
 
@@ -414,6 +418,7 @@ class ServiceType(TimestampedModel):
     def get_name(self) -> str:
         """Return name in the currently active language."""
         from django.utils.translation import get_language
+
         lang = get_language() or "en"
         return self.name_fr if lang.startswith("fr") else self.name_en
 
@@ -421,6 +426,7 @@ class ServiceType(TimestampedModel):
 # ---------------------------------------------------------------------------
 # AppointmentType
 # ---------------------------------------------------------------------------
+
 
 class AppointmentType(TimestampedModel):
     """
@@ -528,7 +534,9 @@ class AppointmentType(TimestampedModel):
         max_length=80,
         blank=True,
         verbose_name=_("Required document category slug"),
-        help_text=_("Slug of the DocumentCategory required. Only relevant if requires_document_upload=True."),
+        help_text=_(
+            "Slug of the DocumentCategory required. Only relevant if requires_document_upload=True."
+        ),
     )
     requires_payment = models.BooleanField(
         default=False,
@@ -655,10 +663,10 @@ class AppointmentType(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["sort_order", "name_en"]
+        ordering = ["sort_order", "name_en"]  # noqa: RUF012
         verbose_name = _("Appointment type")
         verbose_name_plural = _("Appointment types")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["service_type", "is_active"], name="appt_appttype_stype_active"),
             models.Index(fields=["mode", "is_active"], name="appt_appttype_mode_active"),
         ]
@@ -669,6 +677,7 @@ class AppointmentType(TimestampedModel):
     def get_name(self) -> str:
         """Return name in the currently active language."""
         from django.utils.translation import get_language
+
         lang = get_language() or "en"
         return self.name_fr if lang.startswith("fr") else self.name_en
 
@@ -688,6 +697,7 @@ class AppointmentType(TimestampedModel):
 # ---------------------------------------------------------------------------
 # Location
 # ---------------------------------------------------------------------------
+
 
 class Location(TimestampedModel):
     """
@@ -718,7 +728,9 @@ class Location(TimestampedModel):
     is_virtual = models.BooleanField(
         default=False,
         verbose_name=_("Virtual location"),
-        help_text=_("If True, this location has no physical address — it is a virtual meeting room pool."),
+        help_text=_(
+            "If True, this location has no physical address — it is a virtual meeting room pool."
+        ),
     )
 
     # Physical address (blank for virtual locations)
@@ -734,7 +746,9 @@ class Location(TimestampedModel):
     accessibility_features_en = models.TextField(
         blank=True,
         verbose_name=_("Accessibility features (EN)"),
-        help_text=_("Describe physical accessibility: wheelchair access, elevator, TTY, parking. Shown to citizens."),
+        help_text=_(
+            "Describe physical accessibility: wheelchair access, elevator, TTY, parking. Shown to citizens."  # noqa: E501
+        ),
     )
     accessibility_features_fr = models.TextField(
         blank=True,
@@ -762,7 +776,7 @@ class Location(TimestampedModel):
         verbose_name=_("Business hours"),
         help_text=_(
             "JSON array of weekly business hours for display purposes. "
-            "Format: [{\"day_of_week\": 1, \"open\": \"09:00\", \"close\": \"17:00\"}] "
+            'Format: [{"day_of_week": 1, "open": "09:00", "close": "17:00"}] '
             "where day_of_week follows ISO 8601 (1=Monday, 7=Sunday). "
             "This is for public display only — staff availability is configured "
             "via AvailabilityTemplate (Wave 2)."
@@ -818,10 +832,10 @@ class Location(TimestampedModel):
     email = models.EmailField(blank=True, verbose_name=_("Contact email"))
 
     class Meta:
-        ordering = ["name_en"]
+        ordering = ["name_en"]  # noqa: RUF012
         verbose_name = _("Location")
         verbose_name_plural = _("Locations")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["organization", "is_active"], name="appt_location_org_active"),
         ]
 
@@ -831,6 +845,7 @@ class Location(TimestampedModel):
     def get_name(self) -> str:
         """Return name in the currently active language."""
         from django.utils.translation import get_language
+
         lang = get_language() or "en"
         return self.name_fr if lang.startswith("fr") else self.name_en
 
@@ -852,6 +867,7 @@ class Location(TimestampedModel):
 # ---------------------------------------------------------------------------
 # Resource
 # ---------------------------------------------------------------------------
+
 
 class Resource(TimestampedModel):
     """
@@ -921,7 +937,9 @@ class Resource(TimestampedModel):
         max_length=200,
         blank=True,
         verbose_name=_("External calendar ID"),
-        help_text=_("Calendar ID in the external provider. Used only when calendar_provider is set."),
+        help_text=_(
+            "Calendar ID in the external provider. Used only when calendar_provider is set."
+        ),
     )
 
     is_active = models.BooleanField(default=True, db_index=True, verbose_name=_("Active"))
@@ -949,14 +967,16 @@ class Resource(TimestampedModel):
     status_poll_url = models.URLField(
         blank=True,
         verbose_name=_("Status poll URL"),
-        help_text=_("GovStack Scheduler BB: URL that the scheduler polls for this resource's availability status."),
+        help_text=_(
+            "GovStack Scheduler BB: URL that the scheduler polls for this resource's availability status."  # noqa: E501
+        ),
     )
 
     class Meta:
-        ordering = ["name_en"]
+        ordering = ["name_en"]  # noqa: RUF012
         verbose_name = _("Resource")
         verbose_name_plural = _("Resources")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["location", "resource_type", "is_active"],
                 name="appt_resource_loc_type_active",
@@ -969,6 +989,7 @@ class Resource(TimestampedModel):
     def get_name(self) -> str:
         """Return name in the currently active language."""
         from django.utils.translation import get_language
+
         lang = get_language() or "en"
         return self.name_fr if lang.startswith("fr") else self.name_en
 
@@ -976,6 +997,7 @@ class Resource(TimestampedModel):
 # ---------------------------------------------------------------------------
 # StaffProfile
 # ---------------------------------------------------------------------------
+
 
 class StaffProfile(TimestampedModel):
     """
@@ -1141,14 +1163,16 @@ class StaffProfile(TimestampedModel):
     gs_status_poll_url = models.URLField(
         blank=True,
         verbose_name=_("GovStack status poll URL"),
-        help_text=_("URL the GovStack Scheduler polls for this staff member's availability. HTTPS only."),
+        help_text=_(
+            "URL the GovStack Scheduler polls for this staff member's availability. HTTPS only."
+        ),
     )
 
     class Meta:
-        ordering = ["user_id"]
+        ordering = ["user_id"]  # noqa: RUF012
         verbose_name = _("Staff profile")
         verbose_name_plural = _("Staff profiles")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["location", "is_accepting_bookings"],
                 name="appt_staff_loc_accepting",
@@ -1168,6 +1192,7 @@ class StaffProfile(TimestampedModel):
         hide the staff member identity per service policy).
         """
         from django.utils.translation import get_language
+
         lang = get_language() or "en"
         if lang.startswith("fr"):
             return self.display_name_fr or self.display_name_en
@@ -1175,12 +1200,18 @@ class StaffProfile(TimestampedModel):
 
     def clean(self) -> None:
         from django.core.exceptions import ValidationError
+
         super().clean()
-        if self.user_id and not self.user.__class__.objects.filter(
-            pk=self.user_id, is_staff=True
-        ).exists():
+        if (
+            self.user_id
+            and not self.user.__class__.objects.filter(pk=self.user_id, is_staff=True).exists()
+        ):
             raise ValidationError(
-                {"user": _("The selected user must have is_staff=True to be assigned as a staff profile.")}
+                {
+                    "user": _(
+                        "The selected user must have is_staff=True to be assigned as a staff profile."  # noqa: E501
+                    )
+                }
             )
 
 
@@ -1188,8 +1219,9 @@ class StaffProfile(TimestampedModel):
 # AvailabilityTemplate
 # ---------------------------------------------------------------------------
 
+
 class AvailabilityTemplateQuerySet(models.QuerySet):
-    def active_on(self, date) -> "AvailabilityTemplateQuerySet":
+    def active_on(self, date) -> AvailabilityTemplateQuerySet:  # noqa: ANN001
         """
         Return templates whose date range covers `date`.
 
@@ -1218,7 +1250,7 @@ class AvailabilityTemplate(TimestampedModel):
     date.isoweekday().
     """
 
-    DAYS_OF_WEEK = [
+    DAYS_OF_WEEK = [  # noqa: RUF012
         (1, _("Monday")),
         (2, _("Tuesday")),
         (3, _("Wednesday")),
@@ -1239,7 +1271,9 @@ class AvailabilityTemplate(TimestampedModel):
     day_of_week = models.PositiveSmallIntegerField(
         choices=DAYS_OF_WEEK,
         verbose_name=_("Day of week"),
-        help_text=_("ISO 8601 weekday: 1=Monday, 7=Sunday. Consistent with Python date.isoweekday()."),
+        help_text=_(
+            "ISO 8601 weekday: 1=Monday, 7=Sunday. Consistent with Python date.isoweekday()."
+        ),
     )
     start_time = models.TimeField(
         verbose_name=_("Start time"),
@@ -1272,17 +1306,17 @@ class AvailabilityTemplate(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["day_of_week", "start_time"]
+        ordering = ["day_of_week", "start_time"]  # noqa: RUF012
         verbose_name = _("Availability template")
         verbose_name_plural = _("Availability templates")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["staff", "day_of_week", "valid_from"],
                 name="appt_avail_staff_dow_from",
             ),
             models.Index(fields=["created_at"], name="appt_availtpl_created_at_idx"),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 condition=models.Q(end_time__gt=models.F("start_time")),
                 name="appt_avail_end_after_start",
@@ -1305,20 +1339,17 @@ class AvailabilityTemplate(TimestampedModel):
         return (
             f"StaffProfile #{self.staff_id} — "
             f"{self.get_day_of_week_display()} "
-            f"{self.start_time}–{self.end_time}"
+            f"{self.start_time}–{self.end_time}"  # noqa: RUF001
         )
 
     def clean(self) -> None:
         from django.core.exceptions import ValidationError
+
         super().clean()
         if self.start_time and self.end_time and self.end_time <= self.start_time:
-            raise ValidationError(
-                {"end_time": _("End time must be after start time.")}
-            )
+            raise ValidationError({"end_time": _("End time must be after start time.")})
         if self.valid_from and self.valid_until and self.valid_until < self.valid_from:
-            raise ValidationError(
-                {"valid_until": _("Valid until must be on or after valid from.")}
-            )
+            raise ValidationError({"valid_until": _("Valid until must be on or after valid from.")})
 
         # H-5: Prevent overlapping date ranges for the same (staff, day_of_week).
         # Two templates overlap if: self.valid_from <= other.valid_until AND
@@ -1334,7 +1365,7 @@ class AvailabilityTemplate(TimestampedModel):
 
             for other in qs:
                 other_end = other.valid_until  # None = open-ended (infinity)
-                self_end = self.valid_until    # None = open-ended (infinity)
+                self_end = self.valid_until  # None = open-ended (infinity)
 
                 # Overlap: Start A <= End B  AND  Start B <= End A (None = infinity)
                 a_start_lte_b_end = (other_end is None) or (self.valid_from <= other_end)
@@ -1345,8 +1376,9 @@ class AvailabilityTemplate(TimestampedModel):
                         {
                             "valid_from": _(
                                 "This template's date range overlaps with an existing template "
-                                "for the same staff member and day of week (%(other_from)s – %(other_until)s)."
-                            ) % {
+                                "for the same staff member and day of week (%(other_from)s – %(other_until)s)."  # noqa: E501, RUF001
+                            )
+                            % {
                                 "other_from": other.valid_from,
                                 "other_until": other.valid_until or _("open-ended"),
                             }
@@ -1357,6 +1389,7 @@ class AvailabilityTemplate(TimestampedModel):
 # ---------------------------------------------------------------------------
 # StaffException
 # ---------------------------------------------------------------------------
+
 
 class StaffException(TimestampedModel):
     """
@@ -1379,7 +1412,7 @@ class StaffException(TimestampedModel):
     PRIVACY: internal_note is staff/admin-only and MUST NEVER be shown to citizens.
     """
 
-    EXCEPTION_TYPE_CHOICES = [
+    EXCEPTION_TYPE_CHOICES = [  # noqa: RUF012
         ("holiday", _("Public Holiday / Day Off")),
         ("leave", _("Sick / Personal Leave")),
         ("override", _("Override Hours")),
@@ -1436,13 +1469,13 @@ class StaffException(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["exception_date"]
+        ordering = ["exception_date"]  # noqa: RUF012
         verbose_name = _("Staff exception")
         verbose_name_plural = _("Staff exceptions")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["created_at"], name="appt_staffexc_created_at_idx"),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             # H-2: DB-level guarantee that override exceptions always have both times set.
             # Mirrors the Python-layer check in clean(). Prevents direct SQL from creating
             # a broken override record that would crash the slot generator on None access.
@@ -1471,11 +1504,16 @@ class StaffException(TimestampedModel):
 
     def clean(self) -> None:
         from django.core.exceptions import ValidationError
+
         super().clean()
         if self.exception_type == "override":
             if self.override_start_time is None or self.override_end_time is None:
                 raise ValidationError(
-                    {"override_start_time": _("Both override_start_time and override_end_time are required when exception_type is 'override'.")}
+                    {
+                        "override_start_time": _(
+                            "Both override_start_time and override_end_time are required when exception_type is 'override'."  # noqa: E501
+                        )
+                    }
                 )
             if self.override_end_time <= self.override_start_time:
                 raise ValidationError(
@@ -1518,7 +1556,7 @@ class Slot(TimestampedModel):
     spaces_used ≤ capacity is enforced by DB CheckConstraint.
     """
 
-    SLOT_STATUS_CHOICES = [
+    SLOT_STATUS_CHOICES = [  # noqa: RUF012
         ("available", _("Available")),
         ("partial", _("Partially Booked")),
         ("full", _("Fully Booked")),
@@ -1629,7 +1667,7 @@ class Slot(TimestampedModel):
         db_index=True,
         verbose_name=_("Status"),
         help_text=_(
-            "Slot availability status. Transitions: available→partial→full (as bookings are added); "
+            "Slot availability status. Transitions: available→partial→full (as bookings are added); "  # noqa: E501
             "full/partial→available/partial (as bookings are cancelled); "
             "any→blocked (admin action); any→cancelled (admin action); "
             "any→completed (end-of-day batch for past slots)."
@@ -1671,7 +1709,9 @@ class Slot(TimestampedModel):
         max_length=200,
         blank=True,
         verbose_name=_("Video meeting ID"),
-        help_text=_("Platform-specific meeting ID (e.g., Zoom meeting ID, Teams thread ID). Wave 7+."),
+        help_text=_(
+            "Platform-specific meeting ID (e.g., Zoom meeting ID, Teams thread ID). Wave 7+."
+        ),
     )
     video_provider = models.CharField(
         max_length=20,
@@ -1690,10 +1730,10 @@ class Slot(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["start_datetime"]
+        ordering = ["start_datetime"]  # noqa: RUF012
         verbose_name = _("Slot")
         verbose_name_plural = _("Slots")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["appointment_type", "start_datetime", "status"],
                 name="appt_slot_appttype_dt_status",
@@ -1711,7 +1751,7 @@ class Slot(TimestampedModel):
                 name="appt_slot_eff_start_end",
             ),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 condition=models.Q(end_datetime__gt=models.F("start_datetime")),
                 name="appt_slot_end_after_start",
@@ -1733,7 +1773,7 @@ class Slot(TimestampedModel):
                 name="appt_slot_capacity_gte_1",
             ),
         ]
-        permissions = [
+        permissions = [  # noqa: RUF012
             # H-6: Custom permission to view restricted video join URLs.
             # Without this permission, the video fieldset is hidden in the admin
             # and the URL is never serialized into citizen/staff-facing responses.
@@ -1748,15 +1788,14 @@ class Slot(TimestampedModel):
         """Python-layer validation mirroring DB CheckConstraints for friendly admin errors."""
         super().clean()
         from django.core.exceptions import ValidationError
+
         errors = {}
         if (
             self.end_datetime is not None
             and self.start_datetime is not None
             and self.end_datetime <= self.start_datetime
         ):
-            errors["end_datetime"] = _(
-                "End datetime must be after start_datetime."
-            )
+            errors["end_datetime"] = _("End datetime must be after start_datetime.")
         if self.capacity is not None and self.capacity < 1:
             errors["capacity"] = _("Capacity must be at least 1.")
         if (
@@ -1780,9 +1819,7 @@ class Slot(TimestampedModel):
             and self.end_datetime is not None
             and self.effective_end < self.end_datetime
         ):
-            errors["effective_end"] = _(
-                "Effective end must be after or equal to end_datetime."
-            )
+            errors["effective_end"] = _("Effective end must be after or equal to end_datetime.")
         if errors:
             raise ValidationError(errors)
 
@@ -1837,7 +1874,7 @@ class Booking(TimestampedModel):
     STATUS_REJECTED = "rejected"
     STATUS_CANCELLED = "cancelled"
     STATUS_COMPLETED = "completed"
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_PENDING, _("Pending Staff Confirmation")),
         (STATUS_CONFIRMED, _("Confirmed")),
         (STATUS_REJECTED, _("Rejected")),
@@ -1905,7 +1942,7 @@ class Booking(TimestampedModel):
     CHANNEL_WALK_IN = "walk_in"
     CHANNEL_STAFF_PORTAL = "staff_portal"
     CHANNEL_API = "api"
-    CHANNEL_CHOICES = [
+    CHANNEL_CHOICES = [  # noqa: RUF012
         (CHANNEL_ONLINE, _("Online Self-Service")),
         (CHANNEL_PHONE, _("Phone (Staff-Assisted)")),
         (CHANNEL_WALK_IN, _("Walk-In")),
@@ -1941,7 +1978,9 @@ class Booking(TimestampedModel):
         default=dict,
         blank=True,
         verbose_name=_("Form responses"),
-        help_text=_("Intake form answers. May contain Protected B data — access gated by permission."),
+        help_text=_(
+            "Intake form answers. May contain Protected B data — access gated by permission."
+        ),
     )
 
     # Interpreter
@@ -1968,15 +2007,23 @@ class Booking(TimestampedModel):
     )
 
     # Confirmation / reminder tracking
-    confirmation_sent_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Confirmation sent at"))
+    confirmation_sent_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Confirmation sent at")
+    )
     reminder_72h_sent = models.BooleanField(default=False, verbose_name=_("72h reminder sent"))
     reminder_24h_sent = models.BooleanField(default=False, verbose_name=_("24h reminder sent"))
     reminder_2h_sent = models.BooleanField(default=False, verbose_name=_("2h reminder sent"))
 
     # Celery task IDs for revocation
-    reminder_72h_task_id = models.CharField(max_length=100, blank=True, verbose_name=_("72h reminder task ID"))
-    reminder_24h_task_id = models.CharField(max_length=100, blank=True, verbose_name=_("24h reminder task ID"))
-    reminder_2h_task_id = models.CharField(max_length=100, blank=True, verbose_name=_("2h reminder task ID"))
+    reminder_72h_task_id = models.CharField(
+        max_length=100, blank=True, verbose_name=_("72h reminder task ID")
+    )
+    reminder_24h_task_id = models.CharField(
+        max_length=100, blank=True, verbose_name=_("24h reminder task ID")
+    )
+    reminder_2h_task_id = models.CharField(
+        max_length=100, blank=True, verbose_name=_("2h reminder task ID")
+    )
 
     # Plain UUID references (no FK — avoids circular import)
     work_item_id = models.UUIDField(
@@ -2017,7 +2064,9 @@ class Booking(TimestampedModel):
     )
 
     # Consent
-    consent_recorded_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Consent recorded at"))
+    consent_recorded_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Consent recorded at")
+    )
     consent_version = models.CharField(max_length=20, blank=True, verbose_name=_("Consent version"))
 
     # Document attachments (GenericRelation — no schema change to documents app)
@@ -2027,17 +2076,20 @@ class Booking(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = _("Booking")
         verbose_name_plural = _("Bookings")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["citizen", "status"], name="appt_booking_citizen_status"),
             models.Index(fields=["slot", "status"], name="appt_booking_slot_status"),
             models.Index(fields=["status", "no_show"], name="appt_booking_status_noshow"),
             models.Index(fields=["citizen", "created_at"], name="appt_booking_citizen_created"),
         ]
-        permissions = [
-            ("view_booking_form_responses", "Can view booking intake form responses (Protected B gate)"),
+        permissions = [  # noqa: RUF012
+            (
+                "view_booking_form_responses",
+                "Can view booking intake form responses (Protected B gate)",
+            ),
             ("manage_no_shows", "Can manage citizen no-show records"),
             ("view_internal_notes", "Can view staff-only internal booking notes"),
         ]
@@ -2082,10 +2134,12 @@ class Attendee(TimestampedModel):
     )
     no_show = models.BooleanField(default=False, verbose_name=_("No-show"))
     timezone = models.CharField(max_length=64, blank=True, verbose_name=_("Timezone"))
-    preferred_language = models.CharField(max_length=5, blank=True, verbose_name=_("Preferred language"))
+    preferred_language = models.CharField(
+        max_length=5, blank=True, verbose_name=_("Preferred language")
+    )
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["name"]  # noqa: RUF012
         verbose_name = _("Attendee")
         verbose_name_plural = _("Attendees")
 
@@ -2137,7 +2191,7 @@ class BookingAuditLog(models.Model):
     ACTION_ADMIN_AFFILIATION_MUTATED = "admin_affiliation_mutated"
     ACTION_ADMIN_CREDENTIAL_MUTATED = "admin_credential_mutated"
 
-    ACTION_CHOICES = [
+    ACTION_CHOICES = [  # noqa: RUF012
         (ACTION_CREATED, _("Booking Created")),
         (ACTION_CONFIRMED, _("Confirmed")),
         (ACTION_REJECTED, _("Rejected")),
@@ -2217,21 +2271,23 @@ class BookingAuditLog(models.Model):
             ("system", _("System")),
         ],
         verbose_name=_("Actor role"),
-        help_text=_("GovStack Scheduler BB log field: role of the actor who triggered this audit event."),
+        help_text=_(
+            "GovStack Scheduler BB log field: role of the actor who triggered this audit event."
+        ),
     )
 
     class Meta:
-        ordering = ["-timestamp"]
+        ordering = ["-timestamp"]  # noqa: RUF012
         verbose_name = _("Booking Audit Log Entry")
         verbose_name_plural = _("Booking Audit Log Entries")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["booking", "timestamp"], name="appt_bookingaudit_booking_ts"),
         ]
 
     def __str__(self) -> str:
         return f"BookingAuditLog {self.pk} ({self.action}, booking={self.booking_id})"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Immutability guard — audit records are append-only."""
         if self.pk and BookingAuditLog.objects.filter(pk=self.pk).exists():
             raise ValueError(
@@ -2239,7 +2295,7 @@ class BookingAuditLog(models.Model):
             )
         super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs) -> None:
+    def delete(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         """Audit records can never be deleted — ATIA retention requirement."""
         raise ValueError(
             f"BookingAuditLog {self.pk} cannot be deleted. "
@@ -2309,8 +2365,12 @@ class WaitlistEntry(TimestampedModel):
         default="waiting",
         verbose_name=_("Status"),
     )
-    notification_sent_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Notification sent at"))
-    acceptance_deadline = models.DateTimeField(null=True, blank=True, verbose_name=_("Acceptance deadline"))
+    notification_sent_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Notification sent at")
+    )
+    acceptance_deadline = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Acceptance deadline")
+    )
     notification_channel = models.CharField(
         max_length=10,
         choices=[
@@ -2324,17 +2384,19 @@ class WaitlistEntry(TimestampedModel):
     joined_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Joined at"))
 
     class Meta:
-        ordering = ["position"]
+        ordering = ["position"]  # noqa: RUF012
         verbose_name = _("Waitlist Entry")
         verbose_name_plural = _("Waitlist Entries")
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["slot", "citizen"],
                 name="appt_waitlist_slot_citizen_uniq",
             ),
         ]
-        indexes = [
-            models.Index(fields=["slot", "status", "position"], name="appt_waitlist_slot_status_pos"),
+        indexes = [  # noqa: RUF012
+            models.Index(
+                fields=["slot", "status", "position"], name="appt_waitlist_slot_status_pos"
+            ),
             models.Index(fields=["citizen", "status"], name="appt_waitlist_citizen_status"),
         ]
 
@@ -2406,21 +2468,27 @@ class QueueEntry(TimestampedModel):
         verbose_name=_("Assigned staff"),
     )
     called_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Called at"))
-    service_started_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Service started at"))
-    service_completed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Service completed at"))
-    wait_time_minutes = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Wait time (minutes)"))
+    service_started_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Service started at")
+    )
+    service_completed_at = models.DateTimeField(
+        null=True, blank=True, verbose_name=_("Service completed at")
+    )
+    wait_time_minutes = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name=_("Wait time (minutes)")
+    )
 
     class Meta:
-        ordering = ["queue_type", "created_at"]
+        ordering = ["queue_type", "created_at"]  # noqa: RUF012
         verbose_name = _("Queue Entry")
         verbose_name_plural = _("Queue Entries")
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["location", "queue_date", "queue_number"],
                 name="appt_queue_location_date_number_uniq",
             ),
         ]
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["location", "queue_date", "status"],
                 name="appt_queue_loc_date_status",
@@ -2448,8 +2516,12 @@ class ClientNoShowRecord(TimestampedModel):
         verbose_name=_("Citizen"),
     )
     no_show_count = models.PositiveIntegerField(default=0, verbose_name=_("No-show count"))
-    late_cancellation_count = models.PositiveIntegerField(default=0, verbose_name=_("Late cancellation count"))
-    total_appointments = models.PositiveIntegerField(default=0, verbose_name=_("Total appointments"))
+    late_cancellation_count = models.PositiveIntegerField(
+        default=0, verbose_name=_("Late cancellation count")
+    )
+    total_appointments = models.PositiveIntegerField(
+        default=0, verbose_name=_("Total appointments")
+    )
     last_no_show_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Last no-show at"))
 
     # Escalation flags
@@ -2471,10 +2543,10 @@ class ClientNoShowRecord(TimestampedModel):
     suspension_note = models.TextField(blank=True, verbose_name=_("Suspension note"))
 
     class Meta:
-        ordering = ["-updated_at"]
+        ordering = ["-updated_at"]  # noqa: RUF012
         verbose_name = _("Client No-Show Record")
         verbose_name_plural = _("Client No-Show Records")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["is_flagged"], name="appt_noshowrec_flagged"),
             models.Index(fields=["is_suspended"], name="appt_noshowrec_suspended"),
         ]
@@ -2494,6 +2566,7 @@ class ClientNoShowRecord(TimestampedModel):
 # GovStack Scheduler BB — supplementary models
 # ---------------------------------------------------------------------------
 
+
 class GovStackSubscriberProfile(TimestampedModel):
     """
     GovStack Scheduler BB Subscriber extension.
@@ -2505,6 +2578,7 @@ class GovStackSubscriberProfile(TimestampedModel):
     One-to-one with AUTH_USER_MODEL. Optional — citizens without a profile
     are treated as having blank alert preferences.
     """
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -2541,10 +2615,10 @@ class GovStackSubscriberProfile(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = _("GovStack Subscriber Profile")
         verbose_name_plural = _("GovStack Subscriber Profiles")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["created_at"], name="appt_gs_subprofile_created"),
         ]
 
@@ -2564,6 +2638,7 @@ class GovStackMessage(TimestampedModel):
     rows first. This gives a clear, actionable error rather than a confusing
     cascade through GovStackAlertSchedule.
     """
+
     entity = models.ForeignKey(
         Organization,
         on_delete=models.PROTECT,
@@ -2582,10 +2657,10 @@ class GovStackMessage(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["entity", "category"]
+        ordering = ["entity", "category"]  # noqa: RUF012
         verbose_name = _("GovStack Message")
         verbose_name_plural = _("GovStack Messages")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["entity", "category"], name="appt_gs_msg_entity_cat"),
         ]
 
@@ -2603,6 +2678,7 @@ class GovStackAffiliation(TimestampedModel):
     Replaces the implicit StaffProfile → Location → Organization chain for
     GovStack API purposes; does not modify the underlying scheduling logic.
     """
+
     resource = models.ForeignKey(
         Resource,
         on_delete=models.CASCADE,
@@ -2631,16 +2707,16 @@ class GovStackAffiliation(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["entity", "resource"]
+        ordering = ["entity", "resource"]  # noqa: RUF012
         verbose_name = _("GovStack Affiliation")
         verbose_name_plural = _("GovStack Affiliations")
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["resource", "entity"],
                 name="appt_gs_aff_resource_entity_uniq",
             ),
         ]
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["entity", "resource_category"], name="appt_gs_aff_entity_cat"),
         ]
 
@@ -2656,6 +2732,7 @@ class GovStackAlertSchedule(TimestampedModel):
     at a specific datetime. The Celery task ID is stored so the alert can be
     revoked on DELETE.
     """
+
     slot = models.ForeignKey(
         "Slot",
         on_delete=models.CASCADE,
@@ -2672,7 +2749,9 @@ class GovStackAlertSchedule(TimestampedModel):
         max_length=50,
         blank=True,
         verbose_name=_("Target category"),
-        help_text=_("Which participant category to notify: 'subscriber', 'resource', or blank for all."),
+        help_text=_(
+            "Which participant category to notify: 'subscriber', 'resource', or blank for all."
+        ),
     )
     alert_datetime = models.DateTimeField(
         db_index=True,
@@ -2690,17 +2769,54 @@ class GovStackAlertSchedule(TimestampedModel):
         verbose_name=_("Dispatched"),
         help_text=_("True once the Celery task has fired and delivered the alert."),
     )
+    delivery_generation = models.PositiveIntegerField(
+        default=1,
+        verbose_name=_("Delivery generation"),
+        help_text=_("Incremented when an alert is re-armed or superseded to fence stale work."),
+    )
+    delivery_admittable = models.BooleanField(
+        default=True,
+        verbose_name=_("Delivery admittable"),
+        help_text=_("False after durable cancellation; blocks new recipient/outbox admission."),
+    )
+    ADMISSION_CREATED = "created"
+    ADMISSION_DUPLICATE = "duplicate"
+    ADMISSION_STALE_GENERATION = "stale_generation"
+    ADMISSION_ZERO_RECIPIENTS = "zero_recipients"
+    ADMISSION_OUTCOME_CHOICES = [  # noqa: RUF012
+        ("", "Not admitted"),
+        (ADMISSION_CREATED, "Created"),
+        (ADMISSION_DUPLICATE, "Duplicate"),
+        (ADMISSION_STALE_GENERATION, "Stale generation"),
+        (ADMISSION_ZERO_RECIPIENTS, "Zero recipients"),
+    ]
+    admitted_generation = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Admitted generation"),
+        help_text=_(
+            "The delivery generation durably admitted by the authoritative scheduler admission service."  # noqa: E501
+        ),
+    )
+    admission_outcome = models.CharField(
+        max_length=32,
+        choices=ADMISSION_OUTCOME_CHOICES,
+        default="",
+        blank=True,
+        verbose_name=_("Admission outcome"),
+        help_text=_("Durable outcome of the current authoritative scheduler admission."),
+    )
 
     class Meta:
-        ordering = ["alert_datetime"]
+        ordering = ["alert_datetime"]  # noqa: RUF012
         verbose_name = _("GovStack Alert Schedule")
         verbose_name_plural = _("GovStack Alert Schedules")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["slot", "alert_datetime"], name="appt_gs_alert_slot_dt"),
             models.Index(fields=["alert_datetime", "dispatched"], name="appt_gs_alert_dt_disp"),
         ]
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         """
         Revoke the Celery ETA task before deleting the schedule row.
 
@@ -2709,8 +2825,10 @@ class GovStackAlertSchedule(TimestampedModel):
         up by a worker. The Wave F dispatch task should guard against
         GovStackAlertSchedule.DoesNotExist before sending any alert.
         """
-        from celery import current_app as celery_app
         import logging as _logging
+
+        from celery import current_app as celery_app
+
         _log = _logging.getLogger("civicos.appointments")
         if self.celery_task_id:
             try:
@@ -2719,7 +2837,9 @@ class GovStackAlertSchedule(TimestampedModel):
                 _log.warning(
                     "GovStackAlertSchedule.delete: could not revoke Celery task %s "
                     "for schedule pk=%s: %s",
-                    self.celery_task_id, self.pk, type(exc).__name__,
+                    self.celery_task_id,
+                    self.pk,
+                    type(exc).__name__,
                 )
         super().delete(*args, **kwargs)
 
@@ -2819,21 +2939,125 @@ class GovStackBBCredential(TimestampedModel):
     @staticmethod
     def generate_plaintext_token() -> str:
         """Return a new high-entropy secret. Never store this return value directly."""
-        import secrets  # noqa: PLC0415
+        import secrets
 
         return secrets.token_urlsafe(32)
 
     def set_token(self, plaintext: str) -> None:
         """Hash and store `plaintext`, plus a short display-only prefix."""
-        from django.contrib.auth.hashers import make_password  # noqa: PLC0415
+        from django.contrib.auth.hashers import make_password
 
         self.token_hash = make_password(plaintext)
         self.token_prefix = plaintext[:8]
 
     def check_token(self, plaintext: str) -> bool:
         """Constant-time-safe verification of `plaintext` against the stored hash."""
-        from django.contrib.auth.hashers import check_password  # noqa: PLC0415
+        from django.contrib.auth.hashers import check_password
 
         if not plaintext or not self.token_hash:
             return False
         return check_password(plaintext, self.token_hash)
+
+
+class SchedulerRecipientDelivery(TimestampedModel):
+    PENDING = "pending"
+    IN_FLIGHT = "in_flight"
+    RETRY = "retry"
+    DELIVERED = "delivered"
+    ACKNOWLEDGED = "acknowledged"
+    CANCELLED = "cancelled"
+    DEAD_LETTER = "dead_letter"
+    STATUS_CHOICES = [  # noqa: RUF012
+        (v, v.replace("_", " ").title())
+        for v in (PENDING, IN_FLIGHT, RETRY, DELIVERED, ACKNOWLEDGED, CANCELLED, DEAD_LETTER)
+    ]
+    schedule = models.ForeignKey(
+        GovStackAlertSchedule,
+        on_delete=models.CASCADE,
+        related_name="recipient_deliveries",
+    )
+    dispatch_generation = models.PositiveIntegerField(default=1)
+    recipient_kind = models.CharField(max_length=30)
+    idempotency_key = models.CharField(max_length=180, unique=True)
+    correlation_id = models.CharField(max_length=180, db_index=True)
+    owner_key = models.CharField(max_length=180, db_index=True)
+    recipient_ref = models.CharField(max_length=180)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PENDING, db_index=True)
+    attempts = models.PositiveIntegerField(default=0)
+    max_attempts = models.PositiveIntegerField(default=3)
+    next_attempt_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    lease_token = models.CharField(max_length=180, null=True, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    last_error = models.CharField(max_length=240, blank=True, default="")
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    dead_lettered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                fields=["schedule", "dispatch_generation", "recipient_kind", "recipient_ref"],
+                name="appt_sched_delivery_generation_recipient_uniq",
+            ),
+        ]
+        indexes = [  # noqa: RUF012
+            models.Index(fields=["status", "next_attempt_at"], name="appt_sched_due_idx"),
+            models.Index(fields=["status", "lease_expires_at"], name="appt_sched_lease_idx"),
+            models.Index(fields=["owner_key", "status"], name="appt_sched_owner_status_idx"),
+        ]
+
+
+class SchedulerOutbox(TimestampedModel):
+    """Durable publisher intent with finite, fenced recovery state."""
+
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    LOCAL_FAILURE = "local_failure"
+    UNKNOWN_HANDOFF = "unknown_handoff"
+    PUBLISHED = "published"
+    EXHAUSTED = "exhausted"
+    CANCELLED = "cancelled"
+    PUBLISHER_STATE_CHOICES = [  # noqa: RUF012
+        (state, state.replace("_", " ").title())
+        for state in (
+            PENDING,
+            CLAIMED,
+            LOCAL_FAILURE,
+            UNKNOWN_HANDOFF,
+            PUBLISHED,
+            EXHAUSTED,
+            CANCELLED,
+        )
+    ]
+
+    delivery = models.OneToOneField(
+        SchedulerRecipientDelivery, on_delete=models.CASCADE, related_name="outbox"
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    available_at = models.DateTimeField(db_index=True)
+    publish_attempts = models.PositiveIntegerField(default=0)
+    publisher_state = models.CharField(
+        max_length=32, choices=PUBLISHER_STATE_CHOICES, default=PENDING, db_index=True
+    )
+    publisher_failure_class = models.CharField(max_length=32, blank=True, default="")
+    publisher_state_changed_at = models.DateTimeField(null=True, blank=True)
+    exhausted_at = models.DateTimeField(null=True, blank=True)
+    publisher_generation = models.PositiveIntegerField(default=0)
+    publisher_token = models.CharField(max_length=64, null=True, blank=True)
+    publisher_owner = models.CharField(max_length=120, blank=True, default="")
+    publisher_lease_expires_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=240, blank=True, default="")
+
+    class Meta:
+        indexes = [  # noqa: RUF012
+            models.Index(fields=["published_at", "available_at"], name="appt_sched_outbox_idx"),
+            models.Index(
+                fields=["published_at", "publisher_lease_expires_at"],
+                name="appt_sched_pub_lease_idx",
+            ),
+            models.Index(
+                fields=["publisher_state", "available_at"], name="appt_sched_pub_state_due_idx"
+            ),
+        ]

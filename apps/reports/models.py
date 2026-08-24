@@ -14,6 +14,7 @@ PIPEDA note: neither model stores any personal information. All donor/payer data
 aggregated before storage; individual-level detail is only ever streamed transiently
 during an export response.
 """
+
 from __future__ import annotations
 
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -54,7 +55,7 @@ class ReportSnapshot(models.Model):
     REPORT_TYPE_DONATIONS = "donations"
     REPORT_TYPE_OPERATIONAL = "operational"
     REPORT_TYPE_VOLUNTEERS = "volunteers"
-    REPORT_TYPE_CHOICES = [
+    REPORT_TYPE_CHOICES = [  # noqa: RUF012
         (REPORT_TYPE_FINANCIAL, _("Financial")),
         (REPORT_TYPE_DONATIONS, _("Donations & CRA")),
         (REPORT_TYPE_OPERATIONAL, _("Operational")),
@@ -72,7 +73,7 @@ class ReportSnapshot(models.Model):
     )
     period_month = models.PositiveSmallIntegerField(
         verbose_name=_("Period month"),
-        help_text=_("Calendar month 1–12."),
+        help_text=_("Calendar month 1–12."),  # noqa: RUF001
         validators=[MinValueValidator(1), MaxValueValidator(12)],
     )
     data = models.JSONField(
@@ -95,23 +96,21 @@ class ReportSnapshot(models.Model):
     class Meta:
         verbose_name = _("Report snapshot")
         verbose_name_plural = _("Report snapshots")
-        unique_together = [("report_type", "period_year", "period_month")]
+        unique_together = [("report_type", "period_year", "period_month")]  # noqa: RUF012
         # No additional index on (report_type, period_year, period_month) —
         # the unique_together constraint above already creates an implicit B-tree
         # index on these three columns. A second explicit index would be redundant
         # and waste write overhead on every snapshot upsert.
-        ordering = ["-period_year", "-period_month", "report_type"]
+        ordering = ["-period_year", "-period_month", "report_type"]  # noqa: RUF012
 
     def __str__(self) -> str:
-        return (
-            f"{self.get_report_type_display()} "
-            f"{self.period_year}-{self.period_month:02d}"
-        )
+        return f"{self.get_report_type_display()} " f"{self.period_year}-{self.period_month:02d}"
 
     @property
     def period_label(self) -> str:
         """Human-readable period label, e.g. 'March 2025'."""
         import calendar
+
         return f"{calendar.month_name[self.period_month]} {self.period_year}"
 
 
@@ -138,7 +137,7 @@ class ExportRecord(models.Model):
     EXPORT_TYPE_REFUNDS = "refunds"
     EXPORT_TYPE_VOLUNTEER_HOURS = "volunteer_hours"
     EXPORT_TYPE_VOLUNTEER_T3010 = "volunteer_t3010"
-    EXPORT_TYPE_CHOICES = [
+    EXPORT_TYPE_CHOICES = [  # noqa: RUF012
         (EXPORT_TYPE_RECONCILIATION, _("Payment reconciliation")),
         (EXPORT_TYPE_T3010, _("T3010 preparatory data")),
         (EXPORT_TYPE_RECEIPTS, _("Donation receipts list")),
@@ -151,7 +150,7 @@ class ExportRecord(models.Model):
     FORMAT_CSV = "csv"
     FORMAT_EXCEL = "xlsx"
     FORMAT_PDF = "pdf"
-    FORMAT_CHOICES = [
+    FORMAT_CHOICES = [  # noqa: RUF012
         (FORMAT_CSV, "CSV"),
         (FORMAT_EXCEL, "Excel (.xlsx)"),
         (FORMAT_PDF, "PDF"),
@@ -199,7 +198,7 @@ class ExportRecord(models.Model):
     class Meta:
         verbose_name = _("Export record")
         verbose_name_plural = _("Export records")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["export_type", "created_at"],
                 name="rpt_exp_type_ts_idx",
@@ -209,11 +208,11 @@ class ExportRecord(models.Model):
                 name="rpt_exp_actor_ts_idx",
             ),
         ]
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
 
     def __str__(self) -> str:
         return (
             f"{self.get_export_type_display()} "
             f"({self.format.upper()}) "
-            f"{self.period_start}–{self.period_end}"
+            f"{self.period_start}–{self.period_end}"  # noqa: RUF001
         )

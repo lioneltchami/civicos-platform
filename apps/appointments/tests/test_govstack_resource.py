@@ -25,6 +25,7 @@ codebase additionally double-wrapping that JSON value in an extra outer
 "qry" key — was fixed later; these tests use the correct, single-nested
 shape throughout.)
 """
+
 from __future__ import annotations
 
 import json
@@ -56,6 +57,7 @@ _AUTH = {"requestor_id": "test-bb", "request_token": "test-token"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _qs(**extra):
     params = {**_AUTH, **extra}
     return "?" + urlencode(params)
@@ -80,7 +82,9 @@ def _create_resource(name="Test Room", category="room", **kwargs):
 
 def _create_slot_for_resource(resource, start="2027-06-01T09:00:00Z", end="2027-06-01T10:00:00Z"):
     """Factory: create a Slot (via event_create) and attach it to `resource`."""
-    slots = event_create(name="Resource Availability Test Event", slots=[{"from": start, "to": end}])
+    slots = event_create(
+        name="Resource Availability Test Event", slots=[{"from": start, "to": end}]
+    )
     slot = slots[0]
     slot.resource = resource
     slot.save(update_fields=["resource"])
@@ -90,6 +94,7 @@ def _create_slot_for_resource(resource, start="2027-06-01T09:00:00Z", end="2027-
 # ===========================================================================
 # Base test case
 # ===========================================================================
+
 
 class ResourceBaseTestCase(TestCase):
     """Shared HTTP helpers for all resource endpoint tests."""
@@ -120,6 +125,7 @@ class ResourceBaseTestCase(TestCase):
 # R1-R8: POST /resource/new
 # ===========================================================================
 
+
 class ResourceNewTests(ResourceBaseTestCase):
     """R1-R8: POST /resource/new"""
 
@@ -130,13 +136,17 @@ class ResourceNewTests(ResourceBaseTestCase):
         PARAMETER's JSON value (single-nested; the double-nested
         {"qry": {"resource_details": {...}}} shape was this codebase's own
         bug, now fixed)."""
-        qry = {"resource_details": {
-            "name": "Exam Room 1", "category": "room",
-            "phone": "+15005550001", "email": "room1@example.gov",
-            "alert_url": "https://example.gov/alerts/room1",
-            "alert_preference": "push",
-            "status_poll_url": "https://example.gov/poll/room1",
-        }}
+        qry = {
+            "resource_details": {
+                "name": "Exam Room 1",
+                "category": "room",
+                "phone": "+15005550001",
+                "email": "room1@example.gov",
+                "alert_url": "https://example.gov/alerts/room1",
+                "alert_preference": "push",
+                "status_poll_url": "https://example.gov/poll/room1",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -224,6 +234,7 @@ class ResourceNewTests(ResourceBaseTestCase):
 # R9-R15: PUT /resource/modifications
 # ===========================================================================
 
+
 class ResourceModificationsTests(ResourceBaseTestCase):
     """R9-R15: PUT /resource/modifications (real spec key "details" — unchanged by FIX 1)"""
 
@@ -268,7 +279,9 @@ class ResourceModificationsTests(ResourceBaseTestCase):
 
     def test_r15_missing_auth_params_returns_401_or_403(self):
         resource = _create_resource()
-        params = urlencode({"resource_id": resource.pk, "qry": json.dumps({"details": {"name": "X"}})})
+        params = urlencode(
+            {"resource_id": resource.pk, "qry": json.dumps({"details": {"name": "X"}})}
+        )
         resp = self.client.put(MODIFICATIONS_URL + "?" + params)
         self.assertIn(resp.status_code, (401, 403))
 
@@ -276,6 +289,7 @@ class ResourceModificationsTests(ResourceBaseTestCase):
 # ===========================================================================
 # R16-R21: DELETE /resource
 # ===========================================================================
+
 
 class ResourceDeleteTests(ResourceBaseTestCase):
     """R16-R21: DELETE /resource"""
@@ -317,6 +331,7 @@ class ResourceDeleteTests(ResourceBaseTestCase):
 # ===========================================================================
 # R22-R28: GET /resource/list_details
 # ===========================================================================
+
 
 class ResourceListDetailsTests(ResourceBaseTestCase):
     """R22-R28: GET /resource/list_details"""
@@ -391,7 +406,9 @@ class ResourceListDetailsTests(ResourceBaseTestCase):
         valid entries in the array still match.
         """
         resource = _create_resource(name="Valid Entry")
-        resp = self._get({"resource_filter": {"resource_id": [f"R-{resource.pk}", "R-not-a-number"]}})
+        resp = self._get(
+            {"resource_filter": {"resource_id": [f"R-{resource.pk}", "R-not-a-number"]}}
+        )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(len(data), 1)
@@ -406,10 +423,12 @@ class ResourceListDetailsTests(ResourceBaseTestCase):
 
     def test_r26_email_included_when_required_flag_true(self):
         resource = _create_resource(email="show@example.gov")
-        resp = self._get({
-            "resource_filter": {"resource_id": f"R-{resource.pk}"},
-            "resource_details_required": {"email": True},
-        })
+        resp = self._get(
+            {
+                "resource_filter": {"resource_id": f"R-{resource.pk}"},
+                "resource_details_required": {"email": True},
+            }
+        )
         item = resp.json()[0]
         self.assertEqual(item["email"], "show@example.gov")
 
@@ -426,6 +445,7 @@ class ResourceListDetailsTests(ResourceBaseTestCase):
 # ===========================================================================
 # R29-R35: GET /resource/availability
 # ===========================================================================
+
 
 class ResourceAvailabilityTests(ResourceBaseTestCase):
     """R29-R35: GET /resource/availability"""
@@ -462,10 +482,15 @@ class ResourceAvailabilityTests(ResourceBaseTestCase):
         out_of_range = _create_slot_for_resource(
             resource, start="2020-01-01T09:00:00Z", end="2020-01-01T10:00:00Z"
         )
-        resp = self._availability({"free_resource_filter": {
-            "resource_id": f"R-{resource.pk}",
-            "from": "2027-01-01T00:00:00Z", "to": "2027-12-31T00:00:00Z",
-        }})
+        resp = self._availability(
+            {
+                "free_resource_filter": {
+                    "resource_id": f"R-{resource.pk}",
+                    "from": "2027-01-01T00:00:00Z",
+                    "to": "2027-12-31T00:00:00Z",
+                }
+            }
+        )
         slot_ids = [item["slot_id"] for item in resp.json()]
         self.assertIn(str(in_range.id), slot_ids)
         self.assertNotIn(str(out_of_range.id), slot_ids)
@@ -493,6 +518,7 @@ class ResourceAvailabilityTests(ResourceBaseTestCase):
 # R36-R45: Auth / role enforcement
 # ===========================================================================
 
+
 @override_settings(GOVSTACK_SCHEDULER_REQUIRE_TOKEN=True)
 class ResourceRoleEnforcementTests(ResourceBaseTestCase):
     """
@@ -515,7 +541,9 @@ class ResourceRoleEnforcementTests(ResourceBaseTestCase):
         correct plaintext secret. Finding #1 fix: request_token must never equal
         bb_id — it must verify against a separate hashed secret.
         """
-        bb = GovStackRegisteredBB.objects.create(bb_id=_AUTH["requestor_id"], is_active=True, role=role)
+        bb = GovStackRegisteredBB.objects.create(
+            bb_id=_AUTH["requestor_id"], is_active=True, role=role
+        )
         token = GovStackBBCredential.generate_plaintext_token()
         credential = GovStackBBCredential(bb=bb)
         credential.set_token(token)
@@ -590,6 +618,7 @@ class ResourceRoleEnforcementTests(ResourceBaseTestCase):
 # R46-R50: Finding #3 — cross-endpoint resource_id format round-trips
 # ===========================================================================
 
+
 class ResourceIdRoundTripTests(ResourceBaseTestCase):
     """
     R46-R50: all 5 Resource endpoints must emit/accept the SAME resource_id
@@ -663,6 +692,7 @@ class ResourceIdRoundTripTests(ResourceBaseTestCase):
 # R51-R56: Finding #6 — SSRF hardening on alert_url / status_poll_url
 # ===========================================================================
 
+
 class ResourceSsrfHardeningTests(ResourceBaseTestCase):
     """
     R51-R56: registration-time HTTPS-only validation of alert_url and
@@ -682,24 +712,36 @@ class ResourceSsrfHardeningTests(ResourceBaseTestCase):
     """
 
     def test_r51_plain_http_alert_url_rejected_on_create(self):
-        qry = {"resource_details": {"name": "Insecure Room", "alert_url": "http://insecure.example.gov/hook"}}
+        qry = {
+            "resource_details": {
+                "name": "Insecure Room",
+                "alert_url": "http://insecure.example.gov/hook",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "CREATE_FAILED")
         self.assertFalse(Resource.objects.filter(name_en="Insecure Room").exists())
 
     def test_r52_plain_http_status_poll_url_rejected_on_create(self):
-        qry = {"resource_details": {"name": "Insecure Poll", "status_poll_url": "http://insecure.example.gov/poll"}}
+        qry = {
+            "resource_details": {
+                "name": "Insecure Poll",
+                "status_poll_url": "http://insecure.example.gov/poll",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "CREATE_FAILED")
 
     def test_r53_valid_https_urls_still_succeed_on_create(self):
-        qry = {"resource_details": {
-            "name": "Secure Room",
-            "alert_url": "https://secure.example.gov/hook",
-            "status_poll_url": "https://secure.example.gov/poll",
-        }}
+        qry = {
+            "resource_details": {
+                "name": "Secure Room",
+                "alert_url": "https://secure.example.gov/hook",
+                "status_poll_url": "https://secure.example.gov/poll",
+            }
+        }
         resp = self._post(qry)
         self.assertEqual(resp.status_code, 200)
         resource_id = resp.json()["resource_id"]
@@ -709,7 +751,9 @@ class ResourceSsrfHardeningTests(ResourceBaseTestCase):
 
     def test_r54_plain_http_alert_url_rejected_on_modifications(self):
         resource = _create_resource()
-        resp = self._put({"details": {"alert_url": "http://insecure.example.gov/hook"}}, resource_id=resource.pk)
+        resp = self._put(
+            {"details": {"alert_url": "http://insecure.example.gov/hook"}}, resource_id=resource.pk
+        )
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "MODIFY_FAILED")
         resource.refresh_from_db()
@@ -717,7 +761,10 @@ class ResourceSsrfHardeningTests(ResourceBaseTestCase):
 
     def test_r55_plain_http_status_poll_url_rejected_on_modifications(self):
         resource = _create_resource()
-        resp = self._put({"details": {"status_poll_url": "http://insecure.example.gov/poll"}}, resource_id=resource.pk)
+        resp = self._put(
+            {"details": {"status_poll_url": "http://insecure.example.gov/poll"}},
+            resource_id=resource.pk,
+        )
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["code"], "MODIFY_FAILED")
         resource.refresh_from_db()

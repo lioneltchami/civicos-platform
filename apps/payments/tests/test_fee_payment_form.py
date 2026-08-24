@@ -4,7 +4,7 @@ Wave 3 — test_fee_payment_form.py
 Tests for FeePaymentForm.  All amount derivation happens server-side;
 the form never trusts client-submitted monetary values.
 """
-import uuid
+
 from datetime import date
 from decimal import Decimal
 
@@ -13,10 +13,10 @@ from django.test import TestCase
 from apps.payments.forms import FeePaymentForm
 from apps.payments.models import FeeSchedule, TaxRate
 
-
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_fee_schedule(**kwargs):
     defaults = {
@@ -62,6 +62,7 @@ def _valid_data(**overrides):
 # ---------------------------------------------------------------------------
 # FeePaymentForm tests
 # ---------------------------------------------------------------------------
+
 
 class FeePaymentFormValidTests(TestCase):
     """Happy-path and boundary tests."""
@@ -113,8 +114,12 @@ class FeePaymentFormValidTests(TestCase):
 
     def test_province_with_no_tax_rate_gives_zero_tax(self):
         """Province with no TaxRate row → tax_amount=0.00, total=subtotal."""
-        make_fee_schedule(fee_code="PERMIT-TEST", province="NT", amount=Decimal("50.00"),
-                          effective_date=date(2020, 1, 2))
+        make_fee_schedule(
+            fee_code="PERMIT-TEST",
+            province="NT",
+            amount=Decimal("50.00"),
+            effective_date=date(2020, 1, 2),
+        )
         form = FeePaymentForm(data=_valid_data(province="NT"))
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["tax_amount"], Decimal("0.00"))

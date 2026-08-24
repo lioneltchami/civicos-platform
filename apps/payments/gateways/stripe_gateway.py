@@ -11,11 +11,13 @@ payment method tokens and PaymentIntent client_secrets.
 Stripe pricing for Canadian non-profits: 2.2% + $0.30 (Stripe.org discount).
 Apply via Stripe dashboard — no code change required.
 """
+
 import datetime
 import logging
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Never
 
+from apps.payments.gateway import PaymentGateway
 from apps.payments.gateways.exceptions import (
     GatewayAuthError,
     GatewayCardError,
@@ -25,7 +27,6 @@ from apps.payments.gateways.exceptions import (
     GatewayRateLimitError,
     GatewayWebhookError,
 )
-from apps.payments.gateway import PaymentGateway
 
 logger = logging.getLogger(__name__)
 
@@ -74,28 +75,30 @@ class StripeGateway(PaymentGateway):
         from django.core.exceptions import ImproperlyConfigured
 
         try:
-            from apps.payments.models import TenantPaymentConfig  # noqa: F401 — import verifies model exists
+            from apps.payments.models import (
+                TenantPaymentConfig,  # noqa: F401 — import verifies model exists
+            )
             # TenantPaymentConfig stores publishable key, not secret key.
             # Secret key always comes from environment for security.
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
         key = getattr(settings, "STRIPE_SECRET_KEY", "")
         if not key:
             raise ImproperlyConfigured(
-                "STRIPE_SECRET_KEY is not configured. "
-                "Set it as an environment variable."
+                "STRIPE_SECRET_KEY is not configured. " "Set it as an environment variable."
             )
         return key
 
-    def _get_connect_account(self) -> Optional[str]:
+    def _get_connect_account(self) -> str | None:
         """Return the Stripe Connect account ID if use_connect=True, else None."""
         try:
             from apps.payments.models import TenantPaymentConfig
+
             config = TenantPaymentConfig.get_solo()
             if config.use_connect and config.stripe_connect_account_id:
                 return config.stripe_connect_account_id
-        except Exception:
+        except Exception:  # noqa: S110
             pass
         return None
 
@@ -107,7 +110,7 @@ class StripeGateway(PaymentGateway):
         """
         return self._get_api_key()
 
-    def _stripe(self):
+    def _stripe(self):  # noqa: ANN202
         """
         Return the stripe module without mutating any global state.
 
@@ -119,14 +122,15 @@ class StripeGateway(PaymentGateway):
         """
         try:
             import stripe as _stripe_module
+
             return _stripe_module
         except ImportError:
-            raise ImportError(
+            raise ImportError(  # noqa: B904
                 "The 'stripe' package is required for StripeGateway. "
                 "Install it: pip install stripe"
             )
 
-    def _handle_stripe_error(self, exc):
+    def _handle_stripe_error(self, exc) -> Never:  # noqa: ANN001
         """
         Convert stripe.error.* exceptions to GatewayError subclasses.
         Logs error TYPE only — never the full message, which may contain PII.
@@ -169,7 +173,7 @@ class StripeGateway(PaymentGateway):
         idempotency_key: str,
         metadata: dict,
         description: str = "",
-        connect_account_id: Optional[str] = None,
+        connect_account_id: str | None = None,
     ) -> dict:
         stripe = self._stripe()
         kwargs = {
@@ -266,12 +270,13 @@ class StripeGateway(PaymentGateway):
                 paid_at_ts = charge.get("created")
                 if paid_at_ts:
                     import datetime as _dt
-                    paid_at = _dt.datetime.fromtimestamp(paid_at_ts, tz=_dt.timezone.utc)
+
+                    paid_at = _dt.datetime.fromtimestamp(paid_at_ts, tz=_dt.UTC)
 
                 raw_received = charge.get("amount_received") or charge.get("amount") or 0
-                amount_received = int(raw_received) if isinstance(raw_received, (int, float)) else 0
+                amount_received = int(raw_received) if isinstance(raw_received, int | float) else 0
 
-            elif raw_charge is not None and not isinstance(raw_charge, (str, dict)):
+            elif raw_charge is not None and not isinstance(raw_charge, str | dict):
                 # Stripe object that didn't serialise to a dict — extract id via attribute
                 raw_id = getattr(raw_charge, "id", None)
                 if raw_id and isinstance(raw_id, str):
@@ -288,9 +293,7 @@ class StripeGateway(PaymentGateway):
             "paid_at": paid_at,
             "amount_received": _from_cents(amount_received) if amount_received else Decimal("0.00"),
             "failure_reason": (
-                intent.last_payment_error.code
-                if intent.last_payment_error
-                else None
+                intent.last_payment_error.code if intent.last_payment_error else None
             ),
         }
 
@@ -358,6 +361,7 @@ class StripeGateway(PaymentGateway):
             # "payment_intent_unexpected_state" is the documented code Stripe raises
             # when a PaymentIntent is already in a terminal state (canceled/succeeded).
             import stripe as _stripe
+
             if isinstance(exc, _stripe.error.InvalidRequestError):
                 if exc.code == "payment_intent_unexpected_state":
                     return False
@@ -370,7 +374,7 @@ class StripeGateway(PaymentGateway):
         payment_method_id: str,
         idempotency_key: str,
         metadata: dict,
-        connect_account_id: Optional[str] = None,
+        connect_account_id: str | None = None,
     ) -> dict:
         stripe = self._stripe()
         kwargs = {
@@ -398,9 +402,7 @@ class StripeGateway(PaymentGateway):
             "gateway_subscription_id": sub.id,
             "status": sub.status,
             "current_period_end": (
-                datetime.datetime.fromtimestamp(
-                    sub.current_period_end, tz=datetime.timezone.utc
-                ).isoformat()
+                datetime.datetime.fromtimestamp(sub.current_period_end, tz=datetime.UTC).isoformat()
                 if sub.current_period_end
                 else None
             ),
@@ -440,6 +442,7 @@ class StripeGateway(PaymentGateway):
             # which Stripe can change between API versions.
             # "resource_missing" is the documented code for "No such subscription".
             import stripe as _stripe
+
             if isinstance(exc, _stripe.error.InvalidRequestError):
                 if exc.code == "resource_missing":
                     return False  # subscription already cancelled or never existed
@@ -464,13 +467,11 @@ class StripeGateway(PaymentGateway):
         """
         if not webhook_secret:
             # Secret not configured — reject all webhooks
-            logger.error(
-                "payments.gateway.webhook_secret_missing "
-                "rejecting_webhook=True"
-            )
+            logger.error("payments.gateway.webhook_secret_missing " "rejecting_webhook=True")
             return False
         try:
             import stripe as _stripe_module
+
             _stripe_module.WebhookSignature.verify_header(
                 payload_bytes,
                 signature_header,
@@ -547,7 +548,7 @@ class StripeGateway(PaymentGateway):
             # We accept empty card fields here; the reconciliation task fills them in.
             latest_charge_obj = obj.get("latest_charge_expanded") or {}
             if isinstance(latest_charge_obj, dict) and latest_charge_obj:
-                pm_details = (latest_charge_obj.get("payment_method_details") or {})
+                pm_details = latest_charge_obj.get("payment_method_details") or {}
                 card_info = pm_details.get("card") or {}
             else:
                 card_info = {}
@@ -630,9 +631,7 @@ class StripeGateway(PaymentGateway):
         """Parse customer.subscription.* events."""
         raw_period_end = obj.get("current_period_end")
         current_period_end = (
-            datetime.datetime.fromtimestamp(
-                raw_period_end, tz=datetime.timezone.utc
-            ).isoformat()
+            datetime.datetime.fromtimestamp(raw_period_end, tz=datetime.UTC).isoformat()
             if raw_period_end
             else None
         )

@@ -31,13 +31,14 @@ Security invariants tested:
 Governing law: PIPEDA 4.5.3, Privacy Act s.6(1), LAC DA #2016/001,
 OWASP A01 Broken Access Control.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import date
 from decimal import Decimal
 from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
@@ -128,9 +129,7 @@ class TestDocumentCategorySeed(TestCase):
         from apps.documents.models import DocumentCategory
 
         # Migration filename starts with a digit; use importlib to load it.
-        m = importlib.import_module(
-            "apps.documents.migrations.0007_seed_document_categories"
-        )
+        m = importlib.import_module("apps.documents.migrations.0007_seed_document_categories")
 
         # The migration's forwards function uses apps.get_model(); we pass a
         # thin adapter that delegates straight to the real Django model class.
@@ -146,9 +145,7 @@ class TestDocumentCategorySeed(TestCase):
 
         self._run_seed()
         existing = set(
-            DocumentCategory.objects.filter(slug__in=EXPECTED_SLUGS).values_list(
-                "slug", flat=True
-            )
+            DocumentCategory.objects.filter(slug__in=EXPECTED_SLUGS).values_list("slug", flat=True)
         )
         self.assertEqual(existing, set(EXPECTED_SLUGS))
 
@@ -198,17 +195,13 @@ class TestDocumentCategorySeed(TestCase):
 # Import shim for migration module (dotted name has a leading digit in filename).
 # Django already imports these migration modules at startup using importlib with
 # an underscore prefix. We just make the alias accessible for the test helper above.
-import importlib
-import sys
+import importlib  # noqa: E402
+import sys  # noqa: E402
 
 try:
-    _seed_mod = importlib.import_module(
-        "apps.documents.migrations.0007_seed_document_categories"
-    )
+    _seed_mod = importlib.import_module("apps.documents.migrations.0007_seed_document_categories")
     # Store under the alias the TestDocumentCategorySeed._run_seed() references.
-    sys.modules.setdefault(
-        "apps.documents.migrations._0007_seed_document_categories", _seed_mod
-    )
+    sys.modules.setdefault("apps.documents.migrations._0007_seed_document_categories", _seed_mod)
 except ImportError:
     _seed_mod = None
 
@@ -236,7 +229,7 @@ class TestCertificationDocumentIntegration(TestCase):
             name_fr="Prog",
             slug=f"prog-{uuid.uuid4().hex[:6]}",
         )
-        opp = Opportunity.objects.create(
+        Opportunity.objects.create(
             program=prog,
             title_en="T",
             title_fr="T",
@@ -294,7 +287,7 @@ class TestHonorariumT4ADocumentIntegration(TestCase):
     """Verify Honorarium.t4a_document OneToOneField."""
 
     def _make_honorarium(self, created_by=None):
-        from apps.volunteers.models import Honorarium, Program, VolunteerProfile
+        from apps.volunteers.models import Honorarium, VolunteerProfile
 
         if created_by is None:
             created_by = _make_user()
@@ -484,9 +477,7 @@ class TestOfficialDonationReceiptDocumentIntegration(TestCase):
         # Use _base_manager to bypass append-only guard on direct field update
         from apps.payments.models import OfficialDonationReceipt
 
-        OfficialDonationReceipt._base_manager.filter(pk=receipt.pk).update(
-            document_id=doc.pk
-        )
+        OfficialDonationReceipt._base_manager.filter(pk=receipt.pk).update(document_id=doc.pk)
         receipt.refresh_from_db()
         self.assertTrue(receipt.has_pdf)
 
@@ -686,20 +677,16 @@ class TestWorkItemGenericRelation(TestCase):
         from apps.workflows.models import WorkItemComment
 
         wi, user = self._make_work_item()
-        comment = WorkItemComment.objects.create(
-            work_item=wi, author=user, body="Review note"
-        )
+        comment = WorkItemComment.objects.create(work_item=wi, author=user, body="Review note")
         self.assertTrue(hasattr(comment, "document_attachments"))
 
     def test_can_attach_document_to_work_item_comment(self):
         """Creating a DocumentAttachment for a WorkItemComment is queryable."""
         from apps.documents.models import DocumentAttachment
-        from apps.workflows.models import WorkItem, WorkItemComment
+        from apps.workflows.models import WorkItemComment
 
         wi, user = self._make_work_item(user=_make_user())
-        comment = WorkItemComment.objects.create(
-            work_item=wi, author=user, body="Evidence note"
-        )
+        comment = WorkItemComment.objects.create(work_item=wi, author=user, body="Evidence note")
         doc = _make_document(user=user)
         ct = ContentType.objects.get_for_model(WorkItemComment)
 
@@ -815,7 +802,7 @@ class TestTransitoryDocumentDisposal(TestCase):
         )
         doc = _make_document(user=user, category=transitory_cat)
 
-        result = mark_purpose_fulfilled(document=doc, actor=user)
+        mark_purpose_fulfilled(document=doc, actor=user)
 
         doc.refresh_from_db()
         self.assertIsNotNone(doc.deleted_at, "deleted_at must be set after purpose fulfilled.")
@@ -916,7 +903,7 @@ class TestDataExportTaskDocumentBBIntegration(TestCase):
         from apps.documents.models import Document
 
         # Seed the required category.
-        cat = _make_category(
+        _make_category(
             slug="pipeda-data-export",
             is_transitory=True,
             min_retention_days=0,
@@ -927,13 +914,13 @@ class TestDataExportTaskDocumentBBIntegration(TestCase):
         req = DataExportRequest.objects.create(citizen=user)
         doc_count_before = Document.objects.count()
 
-        with patch(
-            "django.core.files.storage.default_storage.save",
-            return_value="exports/test.json",
-        ), patch(
-            "django.core.files.storage.default_storage.delete"
-        ), patch(
-            "apps.consent.tasks._notify_export_ready"
+        with (
+            patch(
+                "django.core.files.storage.default_storage.save",
+                return_value="exports/test.json",
+            ),
+            patch("django.core.files.storage.default_storage.delete"),
+            patch("apps.consent.tasks._notify_export_ready"),
         ):
             result = process_data_export(str(req.pk))
 
@@ -956,13 +943,13 @@ class TestDataExportTaskDocumentBBIntegration(TestCase):
         user = _make_user()
         req = DataExportRequest.objects.create(citizen=user)
 
-        with patch(
-            "django.core.files.storage.default_storage.save",
-            return_value="exports/test.json",
-        ), patch(
-            "django.core.files.storage.default_storage.delete"
-        ), patch(
-            "apps.consent.tasks._notify_export_ready"
+        with (
+            patch(
+                "django.core.files.storage.default_storage.save",
+                return_value="exports/test.json",
+            ),
+            patch("django.core.files.storage.default_storage.delete"),
+            patch("apps.consent.tasks._notify_export_ready"),
         ):
             result = process_data_export(str(req.pk))
 
@@ -995,15 +982,12 @@ class TestDataExportTaskDocumentBBIntegration(TestCase):
             captured_storage_keys.append(path)
             return path
 
-        with patch(
-            "django.core.files.storage.default_storage.save", side_effect=_mock_save
-        ), patch(
-            "django.core.files.storage.default_storage.delete"
-        ), patch(
-            "apps.consent.tasks._notify_export_ready"
-        ), self.assertLogs(
-            "apps.consent", level="DEBUG"
-        ) as log_ctx:
+        with (
+            patch("django.core.files.storage.default_storage.save", side_effect=_mock_save),
+            patch("django.core.files.storage.default_storage.delete"),
+            patch("apps.consent.tasks._notify_export_ready"),
+            self.assertLogs("apps.consent", level="DEBUG") as log_ctx,
+        ):
             process_data_export(str(req.pk))
 
         all_log_text = "\n".join(log_ctx.output)
@@ -1025,16 +1009,15 @@ class TestDataExportTaskDocumentBBIntegration(TestCase):
         email = user.email
         req = DataExportRequest.objects.create(citizen=user)
 
-        with patch(
-            "django.core.files.storage.default_storage.save",
-            return_value="exports/test.json",
-        ), patch(
-            "django.core.files.storage.default_storage.delete"
-        ), patch(
-            "apps.consent.tasks._notify_export_ready"
-        ), self.assertLogs(
-            "apps.consent", level="DEBUG"
-        ) as log_ctx:
+        with (
+            patch(
+                "django.core.files.storage.default_storage.save",
+                return_value="exports/test.json",
+            ),
+            patch("django.core.files.storage.default_storage.delete"),
+            patch("apps.consent.tasks._notify_export_ready"),
+            self.assertLogs("apps.consent", level="DEBUG") as log_ctx,
+        ):
             process_data_export(str(req.pk))
 
         all_log_text = "\n".join(log_ctx.output)
@@ -1061,13 +1044,17 @@ class TestDataExportTaskDocumentBBIntegration(TestCase):
         req = DataExportRequest.objects.create(citizen=user)
         deleted_paths = []
 
-        with patch(
-            "django.core.files.storage.default_storage.save",
-            return_value="exports/test.json",
-        ), patch(
-            "django.core.files.storage.default_storage.delete",
-            side_effect=lambda p: deleted_paths.append(p),
-        ), patch("apps.consent.tasks._notify_export_ready"):
+        with (
+            patch(
+                "django.core.files.storage.default_storage.save",
+                return_value="exports/test.json",
+            ),
+            patch(
+                "django.core.files.storage.default_storage.delete",
+                side_effect=lambda p: deleted_paths.append(p),
+            ),
+            patch("apps.consent.tasks._notify_export_ready"),
+        ):
             process_data_export(str(req.pk))
 
         # The legacy exports/ file must have been deleted after DB save succeeded.
@@ -1101,6 +1088,7 @@ class TestCorrectiveMigration0008(TestCase):
     def _run_corrective(self):
         """Run the 0008 corrective migration function directly."""
         import importlib
+
         from apps.documents.models import DocumentCategory
 
         m = importlib.import_module(
@@ -1246,6 +1234,7 @@ class TestCorrectiveMigration0008(TestCase):
     def test_noop_reverse_does_not_raise(self):
         """Reverse function (noop) must not raise."""
         import importlib
+
         from apps.documents.models import DocumentCategory
 
         m = importlib.import_module(
@@ -1397,7 +1386,12 @@ class TestVolunteerApplicationGenericRelation(TestCase):
     """
 
     def _make_application(self):
-        from apps.volunteers.models import Opportunity, Program, VolunteerApplication, VolunteerProfile
+        from apps.volunteers.models import (
+            Opportunity,
+            Program,
+            VolunteerApplication,
+            VolunteerProfile,
+        )
 
         user = _make_user()
         vol = VolunteerProfile.objects.create(user=user)
@@ -1520,7 +1514,7 @@ class TestCleanupExportFilesActorFix(TestCase):
 
         # Should not raise AttributeError ("NoneType has no attribute 'pk'").
         with patch("django.core.files.storage.default_storage.delete"):
-            result = cleanup_export_files()
+            cleanup_export_files()
 
         # Verify the request was expired.
         req.refresh_from_db()

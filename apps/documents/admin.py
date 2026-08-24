@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 @admin.register(DocumentCategory)
 class DocumentCategoryAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "slug",
         "name_en",
         "security_classification",
@@ -43,13 +43,13 @@ class DocumentCategoryAdmin(admin.ModelAdmin):
         "is_transitory",
         "created_at",
     ]
-    list_filter = ["security_classification", "is_transitory"]
-    search_fields = ["slug", "name_en", "name_fr"]
-    ordering = ["name_en"]
-    readonly_fields = ["created_at", "updated_at"]
-    prepopulated_fields = {"slug": ("name_en",)}
+    list_filter = ["security_classification", "is_transitory"]  # noqa: RUF012
+    search_fields = ["slug", "name_en", "name_fr"]  # noqa: RUF012
+    ordering = ["name_en"]  # noqa: RUF012
+    readonly_fields = ["created_at", "updated_at"]  # noqa: RUF012
+    prepopulated_fields = {"slug": ("name_en",)}  # noqa: RUF012
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Category definitions are disposition authority records (LAC DA #2016/001).
         # Deletion via admin bypasses the audit trail. Use the service layer.
         return False
@@ -118,41 +118,41 @@ class DocumentAdmin(admin.ModelAdmin):
 
     # ── List view ─────────────────────────────────────────────────────────────
 
-    list_display = [
+    list_display = [  # noqa: RUF012
         "pk_short",
         "category",
         "scan_status_badge",
         "security_classification",
         "version_number",
         "is_latest_version",
-        "uploaded_by_id",   # PK only — PIPEDA: not email
+        "uploaded_by_id",  # PK only — PIPEDA: not email
         "size_bytes",
         "legal_hold",
         "created_at",
     ]
-    list_filter = [
+    list_filter = [  # noqa: RUF012
         "scan_status",
         "security_classification",
         "category",
         "legal_hold",
         "is_latest_version",
     ]
-    search_fields = [
+    search_fields = [  # noqa: RUF012
         "id",
         "category__slug",
         # Note: original_filename is intentionally NOT in search_fields
         # because it would expose PII in search result snippets.
     ]
-    ordering = ["-created_at"]
+    ordering = ["-created_at"]  # noqa: RUF012
     date_hierarchy = "created_at"
 
     # ── Detail view ───────────────────────────────────────────────────────────
 
-    readonly_fields = [
+    readonly_fields = [  # noqa: RUF012
         "id",
         "pk_short",
-        "uploaded_by_id",       # raw int FK — PIPEDA: never User.__str__ (may expose email)
-        "original_filename",    # readonly only; never editable
+        "uploaded_by_id",  # raw int FK — PIPEDA: never User.__str__ (may expose email)
+        "original_filename",  # readonly only; never editable
         "mime_type",
         "size_bytes",
         "scan_status",
@@ -253,11 +253,11 @@ class DocumentAdmin(admin.ModelAdmin):
     # MUST go through the service layer to enforce permissions and write audit logs.
     # Admin is a read-only forensics/observation tool for Document records.
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Creation must go through the upload pipeline (service layer).
         return False
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # SECURITY: legal_hold, uploaded_by, security_classification, and other
         # lifecycle fields must only be modified via the service layer.
         # Editing via admin would bypass:
@@ -266,19 +266,19 @@ class DocumentAdmin(admin.ModelAdmin):
         #   - document_legal_hold_changed signal
         return False
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Deletion must go through DocumentService.soft_delete() (service layer).
         return False
 
     # ── Custom display columns ─────────────────────────────────────────────────
 
     @admin.display(description=_("ID (short)"))
-    def pk_short(self, obj) -> str:
+    def pk_short(self, obj) -> str:  # noqa: ANN001
         """Display the first 8 chars of the UUID for readability."""
         return str(obj.pk)[:8] if obj.pk else "—"
 
     @admin.display(description=_("Scan status"))
-    def scan_status_badge(self, obj) -> str:
+    def scan_status_badge(self, obj) -> str:  # noqa: ANN001
         colours = {
             Document.ScanStatus.PENDING_UPLOAD: "#888",
             Document.ScanStatus.SCANNING: "#e6a817",
@@ -302,7 +302,7 @@ class DocumentAdmin(admin.ModelAdmin):
 
 @admin.register(DocumentAttachment)
 class DocumentAttachmentAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "id",
         "document",
         "content_type",
@@ -311,22 +311,22 @@ class DocumentAttachmentAdmin(admin.ModelAdmin):
         "attached_by_id",  # PK only — PIPEDA
         "created_at",
     ]
-    list_filter = ["content_type", "attachment_role"]
-    search_fields = ["document__id", "object_id", "attachment_role"]
-    ordering = ["-created_at"]
-    raw_id_fields = ["document", "attached_by", "content_type"]
-    readonly_fields = ["created_at", "updated_at"]
+    list_filter = ["content_type", "attachment_role"]  # noqa: RUF012
+    search_fields = ["document__id", "object_id", "attachment_role"]  # noqa: RUF012
+    ordering = ["-created_at"]  # noqa: RUF012
+    raw_id_fields = ["document", "attached_by", "content_type"]  # noqa: RUF012
+    readonly_fields = ["created_at", "updated_at"]  # noqa: RUF012
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Attachments must be created through the service layer.
         return False
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # SECURITY: editing attachment fields (role, note, content_type, object_id,
         # attached_by) via admin bypasses the service-layer audit trail.
         return False
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Attachments link documents to CivicOS records and form part of the
         # case record. Deletion via admin bypasses the service-layer audit trail.
         return False
@@ -339,19 +339,19 @@ class DocumentAttachmentAdmin(admin.ModelAdmin):
 
 @admin.register(DocumentAccessToken)
 class DocumentAccessTokenAdmin(admin.ModelAdmin):
-    list_display = [
+    list_display = [  # noqa: RUF012
         "id",
         "document",
-        "issued_to_id",   # PK only — PIPEDA
+        "issued_to_id",  # PK only — PIPEDA
         "expires_at",
         "used_at",
         "is_valid_display",
         "created_at",
     ]
-    list_filter = ["expires_at"]
-    search_fields = ["document__id", "issued_to__id"]
-    ordering = ["-created_at"]
-    readonly_fields = [
+    list_filter = ["expires_at"]  # noqa: RUF012
+    search_fields = ["document__id", "issued_to__id"]  # noqa: RUF012
+    ordering = ["-created_at"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "id",
         "document",
         "issued_to",
@@ -363,18 +363,18 @@ class DocumentAccessTokenAdmin(admin.ModelAdmin):
         "updated_at",
     ]
 
-    def has_add_permission(self, request) -> bool:
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None) -> bool:
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Tokens are immutable; no field edits allowed.
         return False
 
-    def has_delete_permission(self, request, obj=None) -> bool:
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Tokens are audit evidence (who was issued a download token, when, from which IP).
         # Deleting them via admin would destroy the audit trail.
         return False
 
     @admin.display(description=_("Valid?"), boolean=True)
-    def is_valid_display(self, obj) -> bool:
+    def is_valid_display(self, obj) -> bool:  # noqa: ANN001
         return obj.is_valid

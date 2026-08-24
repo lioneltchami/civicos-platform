@@ -29,7 +29,7 @@ class AuditLogListView(StaffRequiredMixin, ListView):
     context_object_name = "entries"
     paginate_by = 50
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         qs = AuditLogEntry.objects.order_by("-timestamp")
 
         # --- event_type filter ---
@@ -70,7 +70,7 @@ class AuditLogListView(StaffRequiredMixin, ListView):
 
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         ctx["event_type_choices"] = AuditEventType.choices
         ctx["total_count"] = self.object_list.count()

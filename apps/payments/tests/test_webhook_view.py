@@ -3,13 +3,14 @@ Tests for the stripe_webhook Django view.
 Uses TestCase (DB required for WebhookEvent model).
 Mocks gateway.verify_webhook_signature and Celery task dispatch.
 """
+
 import json
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.payments.models import WebhookEvent, GATEWAY_STRIPE
+from apps.payments.models import GATEWAY_STRIPE, WebhookEvent
 
 
 class StripeWebhookViewTests(TestCase):
@@ -41,8 +42,10 @@ class StripeWebhookViewTests(TestCase):
         tests asserting mock_delay.assert_called_once() would always fail.
         """
         body = json.dumps(payload if payload is not None else self.valid_payload).encode()
-        with patch("apps.payments.views.webhook.get_gateway") as mock_get_gw, \
-             patch("apps.payments.tasks.process_stripe_webhook.delay") as mock_delay:
+        with (
+            patch("apps.payments.views.webhook.get_gateway") as mock_get_gw,
+            patch("apps.payments.tasks.process_stripe_webhook.delay") as mock_delay,
+        ):
             mock_gw = MagicMock()
             mock_gw.verify_webhook_signature.return_value = verify_result
             mock_get_gw.return_value = mock_gw
@@ -159,10 +162,14 @@ class StripeWebhookViewTests(TestCase):
         """Simulate IntegrityError on get_or_create (concurrent insert race)."""
         from django.db import IntegrityError
 
-        with patch("apps.payments.views.webhook.get_gateway") as mock_get_gw, \
-             patch("apps.payments.tasks.process_stripe_webhook.delay") as mock_delay, \
-             patch("apps.payments.views.webhook.WebhookEvent.objects.get_or_create",
-                   side_effect=IntegrityError("duplicate key")):
+        with (
+            patch("apps.payments.views.webhook.get_gateway") as mock_get_gw,
+            patch("apps.payments.tasks.process_stripe_webhook.delay") as mock_delay,
+            patch(
+                "apps.payments.views.webhook.WebhookEvent.objects.get_or_create",
+                side_effect=IntegrityError("duplicate key"),
+            ),
+        ):
             mock_gw = MagicMock()
             mock_gw.verify_webhook_signature.return_value = True
             mock_get_gw.return_value = mock_gw
@@ -316,8 +323,10 @@ class StripeWebhookViewTests(TestCase):
             captured_secret.append(secret)
             return True  # simulate valid signature
 
-        with patch("apps.payments.views.webhook.get_gateway") as mock_get_gw, \
-             patch("apps.payments.tasks.process_stripe_webhook.delay"):
+        with (
+            patch("apps.payments.views.webhook.get_gateway") as mock_get_gw,
+            patch("apps.payments.tasks.process_stripe_webhook.delay"),
+        ):
             mock_gw = mock_get_gw.return_value
             mock_gw.verify_webhook_signature.side_effect = capturing_verify
             self.client.post(

@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from django.core.exceptions import FieldDoesNotExist
 from django.core.management.base import BaseCommand
@@ -86,7 +86,7 @@ class Command(BaseCommand):
 
     # ── Argument definitions ──────────────────────────────────────────────────
 
-    def add_arguments(self, parser) -> None:
+    def add_arguments(self, parser) -> None:  # noqa: ANN001
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -109,7 +109,7 @@ class Command(BaseCommand):
 
     # ── Entry point ───────────────────────────────────────────────────────────
 
-    def handle(self, *args, **options) -> None:
+    def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         dry_run: bool = options["dry_run"]
         model_choice: str = options["model"]
 
@@ -169,9 +169,7 @@ class Command(BaseCommand):
         try:
             from apps.volunteers.models import Certification
         except ImportError:
-            logger.warning(
-                "%sCertification model not importable — skipping.", dry_prefix
-            )
+            logger.warning("%sCertification model not importable — skipping.", dry_prefix)
             return result
 
         # Detect if Phase 3 has already removed the legacy FileField
@@ -183,7 +181,9 @@ class Command(BaseCommand):
                 "legacy 'document' FileField no longer exists. No action needed.",
                 "[DRY RUN] " if dry_run else "",
             )
-            return _MigrationResult(model_label="Certification", migrated=0, skipped=0, failed=0, phase_3_applied=True)
+            return _MigrationResult(
+                model_label="Certification", migrated=0, skipped=0, failed=0, phase_3_applied=True
+            )
 
         category, _ = DocumentCategory.objects.get_or_create(
             slug="volunteer-certification",
@@ -198,10 +198,8 @@ class Command(BaseCommand):
                     "Vérifications des antécédents criminels, vérifications "
                     "du secteur vulnérable et autres documents de certification."
                 ),
-                "security_classification": (
-                    DocumentCategory.SecurityClassification.PROTECTED_B
-                ),
-                "min_retention_days": 730,   # Privacy Act s.6(1) — 2 years
+                "security_classification": (DocumentCategory.SecurityClassification.PROTECTED_B),
+                "min_retention_days": 730,  # Privacy Act s.6(1) — 2 years
                 "max_retention_days": 2555,  # 7 years
                 "is_transitory": False,
                 "staff_only": True,
@@ -216,9 +214,7 @@ class Command(BaseCommand):
             .select_related("volunteer__user")
         )
 
-        logger.info(
-            "%sCertification: %d row(s) to process.", dry_prefix, qs.count()
-        )
+        logger.info("%sCertification: %d row(s) to process.", dry_prefix, qs.count())
 
         for cert in qs.iterator():
             pk = cert.pk
@@ -241,7 +237,7 @@ class Command(BaseCommand):
                         category=category,
                         uploaded_by=uploaded_by,
                         original_filename=original_filename,  # stored in DB; NEVER logged
-                        _storage_key=storage_key,             # NEVER logged
+                        _storage_key=storage_key,  # NEVER logged
                         mime_type="application/octet-stream",
                         size_bytes=size_bytes,
                         scan_status=Document.ScanStatus.ACTIVE,
@@ -301,9 +297,7 @@ class Command(BaseCommand):
         try:
             from apps.payments.models import OfficialDonationReceipt
         except ImportError:
-            logger.warning(
-                "%sOfficialDonationReceipt model not importable — skipping.", dry_prefix
-            )
+            logger.warning("%sOfficialDonationReceipt model not importable — skipping.", dry_prefix)
             return result
 
         # Detect if Phase 3 has already removed the legacy CharField
@@ -315,22 +309,22 @@ class Command(BaseCommand):
                 "legacy 'pdf_path' CharField no longer exists. No action needed.",
                 "[DRY RUN] " if dry_run else "",
             )
-            return _MigrationResult(model_label="OfficialDonationReceipt", migrated=0, skipped=0, failed=0, phase_3_applied=True)
+            return _MigrationResult(
+                model_label="OfficialDonationReceipt",
+                migrated=0,
+                skipped=0,
+                failed=0,
+                phase_3_applied=True,
+            )
 
         category, _ = DocumentCategory.objects.get_or_create(
             slug="donation-receipt-pdf",
             defaults={
                 "name_en": "Official Donation Receipt (PDF)",
                 "name_fr": "Reçu officiel de don (PDF)",
-                "description_en": (
-                    "CRA-compliant official donation receipts issued to donors."
-                ),
-                "description_fr": (
-                    "Reçus officiels de don conformes à l'ARC émis aux donateurs."
-                ),
-                "security_classification": (
-                    DocumentCategory.SecurityClassification.PROTECTED_B
-                ),
+                "description_en": ("CRA-compliant official donation receipts issued to donors."),
+                "description_fr": ("Reçus officiels de don conformes à l'ARC émis aux donateurs."),
+                "security_classification": (DocumentCategory.SecurityClassification.PROTECTED_B),
                 "min_retention_days": 2555,  # CRA: 6 years + current year = 7 years
                 "max_retention_days": 2555,
                 "is_transitory": False,
@@ -340,24 +334,18 @@ class Command(BaseCommand):
 
         # Must use _default_manager to respect any custom manager filtering
         qs = (
-            OfficialDonationReceipt._default_manager
-            .filter(pdf_path__isnull=False)
+            OfficialDonationReceipt._default_manager.filter(pdf_path__isnull=False)
             .exclude(pdf_path="")
             .filter(document__isnull=True)
         )
 
-        logger.info(
-            "%sOfficialDonationReceipt: %d row(s) to process.", dry_prefix, qs.count()
-        )
+        logger.info("%sOfficialDonationReceipt: %d row(s) to process.", dry_prefix, qs.count())
 
-        for receipt in qs.select_related(
-            "donation__payment_intent__payer"
-        ).iterator():
+        for receipt in qs.select_related("donation__payment_intent__payer").iterator():
             pk = receipt.pk
             try:
                 original_filename = (
-                    os.path.basename(receipt.pdf_path)
-                    or f"receipt-{receipt.serial_number}.pdf"
+                    os.path.basename(receipt.pdf_path) or f"receipt-{receipt.serial_number}.pdf"
                 )
                 storage_key = receipt.pdf_path
                 uploaded_by = receipt.donation.payment_intent.payer
@@ -375,7 +363,7 @@ class Command(BaseCommand):
                         category=category,
                         uploaded_by=uploaded_by,
                         original_filename=original_filename,  # NEVER logged
-                        _storage_key=storage_key,             # NEVER logged
+                        _storage_key=storage_key,  # NEVER logged
                         mime_type="application/pdf",
                         size_bytes=0,  # S3 path — not locally inspectable
                         scan_status=Document.ScanStatus.ACTIVE,
@@ -440,9 +428,7 @@ class Command(BaseCommand):
         try:
             from apps.consent.models import DataExportRequest
         except ImportError:
-            logger.warning(
-                "%sDataExportRequest model not importable — skipping.", dry_prefix
-            )
+            logger.warning("%sDataExportRequest model not importable — skipping.", dry_prefix)
             return result
 
         # Detect if Phase 3 has already removed the legacy CharField
@@ -454,7 +440,13 @@ class Command(BaseCommand):
                 "legacy 'storage_path' CharField no longer exists. No action needed.",
                 "[DRY RUN] " if dry_run else "",
             )
-            return _MigrationResult(model_label="DataExportRequest", migrated=0, skipped=0, failed=0, phase_3_applied=True)
+            return _MigrationResult(
+                model_label="DataExportRequest",
+                migrated=0,
+                skipped=0,
+                failed=0,
+                phase_3_applied=True,
+            )
 
         category, _ = DocumentCategory.objects.get_or_create(
             slug="pipeda-data-export",
@@ -470,12 +462,10 @@ class Command(BaseCommand):
                     "dans le cadre d'une demande d'accès en vertu de la LPRPDE. "
                     "Transitoire — détruit une fois livré."
                 ),
-                "security_classification": (
-                    DocumentCategory.SecurityClassification.PROTECTED_B
-                ),
-                "min_retention_days": 0,    # Transitory: no mandatory minimum
-                "max_retention_days": 30,   # Destroy within 30 days of delivery
-                "is_transitory": True,      # LAC DA #2016/001
+                "security_classification": (DocumentCategory.SecurityClassification.PROTECTED_B),
+                "min_retention_days": 0,  # Transitory: no mandatory minimum
+                "max_retention_days": 30,  # Destroy within 30 days of delivery
+                "is_transitory": True,  # LAC DA #2016/001
                 "staff_only": False,
             },
         )
@@ -487,16 +477,13 @@ class Command(BaseCommand):
             .select_related("citizen")
         )
 
-        logger.info(
-            "%sDataExportRequest: %d row(s) to process.", dry_prefix, qs.count()
-        )
+        logger.info("%sDataExportRequest: %d row(s) to process.", dry_prefix, qs.count())
 
         for export in qs.iterator():
             pk = export.pk
             try:
                 original_filename = (
-                    os.path.basename(export.storage_path)
-                    or f"export-{export.pk}.json"
+                    os.path.basename(export.storage_path) or f"export-{export.pk}.json"
                 )
                 storage_key = export.storage_path
                 uploaded_by = export.citizen
@@ -514,7 +501,7 @@ class Command(BaseCommand):
                         category=category,
                         uploaded_by=uploaded_by,
                         original_filename=original_filename,  # NEVER logged
-                        _storage_key=storage_key,             # NEVER logged
+                        _storage_key=storage_key,  # NEVER logged
                         mime_type="application/json",
                         size_bytes=0,  # S3 path — not locally inspectable
                         scan_status=Document.ScanStatus.ACTIVE,
@@ -602,7 +589,7 @@ class Command(BaseCommand):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _get_file_size(file_field) -> int:
+def _get_file_size(file_field) -> int:  # noqa: ANN001
     """
     Attempt to determine the size of a FieldFile in bytes.
 

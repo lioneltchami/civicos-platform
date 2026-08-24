@@ -13,14 +13,14 @@ PIPEDA invariants:
 
 Currency: CAD only.
 """
+
 from __future__ import annotations
 
-import calendar
 import logging
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, F, Q, Sum
+from django.db.models import Count, DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 
 logger = logging.getLogger("apps.reports.services.financial")
@@ -29,6 +29,7 @@ logger = logging.getLogger("apps.reports.services.financial")
 # ---------------------------------------------------------------------------
 # T4A signal helper
 # ---------------------------------------------------------------------------
+
 
 def send_t4a_generated_signal(
     *,
@@ -76,6 +77,7 @@ def send_t4a_generated_signal(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _month_utc_range(year: int, month: int) -> tuple[datetime, datetime]:
     """
     Return a half-open UTC datetime interval [start, end) for the given calendar
@@ -96,17 +98,18 @@ def _month_utc_range(year: int, month: int) -> tuple[datetime, datetime]:
     business date their customers paid.  Never mix the two for the same
     report without documenting the boundary choice.
     """
-    month_start = datetime(year, month, 1, tzinfo=dt_timezone.utc)
+    month_start = datetime(year, month, 1, tzinfo=UTC)
     if month == 12:
-        month_end = datetime(year + 1, 1, 1, tzinfo=dt_timezone.utc)
+        month_end = datetime(year + 1, 1, 1, tzinfo=UTC)
     else:
-        month_end = datetime(year, month + 1, 1, tzinfo=dt_timezone.utc)
+        month_end = datetime(year, month + 1, 1, tzinfo=UTC)
     return month_start, month_end
 
 
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
+
 
 def get_monthly_revenue(year: int, month: int) -> dict:
     """
@@ -254,7 +257,7 @@ def get_refund_summary(year: int, month: int) -> dict:
     }
 
 
-def get_failed_payments(year: int, month: int):
+def get_failed_payments(year: int, month: int):  # noqa: ANN201
     """
     Return a QuerySet of failed PaymentIntents for the given month.
 
@@ -284,7 +287,7 @@ def get_failed_payments(year: int, month: int):
     )
 
 
-def get_reconciliation_queryset(start, end):
+def get_reconciliation_queryset(start, end):  # noqa: ANN001, ANN201
     """
     Return an annotated Payment QuerySet for the inclusive date range [start, end].
 
@@ -299,7 +302,8 @@ def get_reconciliation_queryset(start, end):
     Net (amount_paid - refund_total) is intentionally computed in Python by the
     caller to avoid Django's dependent-annotation ordering ambiguity.
     """
-    from datetime import date as date_type, datetime as dt, timedelta
+    from datetime import datetime as dt
+    from datetime import timedelta
     from zoneinfo import ZoneInfo
 
     from django.utils.timezone import make_aware
@@ -309,9 +313,7 @@ def get_reconciliation_queryset(start, end):
     toronto = ZoneInfo("America/Toronto")
     dt_start = make_aware(dt.combine(start, dt.min.time()), toronto)
     # Exclusive upper bound: midnight at start of the day AFTER end in Toronto.
-    dt_end = make_aware(
-        dt.combine(end + timedelta(days=1), dt.min.time()), toronto
-    )
+    dt_end = make_aware(dt.combine(end + timedelta(days=1), dt.min.time()), toronto)
 
     return (
         Payment.objects.filter(
@@ -367,19 +369,23 @@ def compute_financial_snapshot(year: int, month: int) -> dict:
     snapshot = {
         "year": year,
         "month": month,
-        "revenue": _str_decimals({
-            "total_gross": revenue["total_gross"],
-            "total_net": revenue["total_net"],
-            "total_tax": revenue["total_tax"],
-            "total_processor_fees": revenue["total_processor_fees"],
-            "payment_count": revenue["payment_count"],
-            "by_fee_code": revenue["by_fee_code"],
-        }),
-        "refunds": _str_decimals({
-            "total_refunded": refunds["total_refunded"],
-            "refund_count": refunds["refund_count"],
-            "by_reason": refunds["by_reason"],
-        }),
+        "revenue": _str_decimals(
+            {
+                "total_gross": revenue["total_gross"],
+                "total_net": revenue["total_net"],
+                "total_tax": revenue["total_tax"],
+                "total_processor_fees": revenue["total_processor_fees"],
+                "payment_count": revenue["payment_count"],
+                "by_fee_code": revenue["by_fee_code"],
+            }
+        ),
+        "refunds": _str_decimals(
+            {
+                "total_refunded": refunds["total_refunded"],
+                "refund_count": refunds["refund_count"],
+                "by_reason": refunds["by_reason"],
+            }
+        ),
         # row_count is used by the Celery task for monitoring
         "row_count": revenue["payment_count"],
     }

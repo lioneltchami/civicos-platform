@@ -29,17 +29,19 @@ Idempotency guarantees:
 PIPEDA:
     Log messages contain PKs only — never names, emails, or any PII.
 """
+
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
-from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format as django_date_format
-from datetime import timedelta
+
+from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +50,9 @@ logger = logging.getLogger(__name__)
 # Task 1: 24-hour shift reminders
 # ---------------------------------------------------------------------------
 
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def send_shift_reminders_24h(self):
+def send_shift_reminders_24h(self):  # noqa: ANN001, ANN201
     """
     Find all confirmed shift bookings whose shift starts in the 23h–25h window
     from now and whose 24h reminder has not been sent, then send it.
@@ -62,24 +65,21 @@ def send_shift_reminders_24h(self):
     Idempotency: the update-with-filter pattern atomically sets reminder_24h_sent
     before firing the notification. A concurrent worker or retry sees updated==0
     and skips cleanly.
-    """
-    from apps.volunteers.models import ShiftBooking
+    """  # noqa: RUF002
     from apps.notifications.services import send_email_notification
+    from apps.volunteers.models import ShiftBooking
 
     now = timezone.now()
     window_start = now + timedelta(hours=23)
     window_end = now + timedelta(hours=25)
 
-    bookings = (
-        ShiftBooking.objects.filter(
-            status=ShiftBooking.STATUS_CONFIRMED,
-            reminder_24h_sent=False,
-            shift__start_datetime__gte=window_start,
-            shift__start_datetime__lte=window_end,
-            shift__is_cancelled=False,
-        )
-        .select_related("shift__opportunity__program", "shift", "volunteer__user")
-    )
+    bookings = ShiftBooking.objects.filter(
+        status=ShiftBooking.STATUS_CONFIRMED,
+        reminder_24h_sent=False,
+        shift__start_datetime__gte=window_start,
+        shift__start_datetime__lte=window_end,
+        shift__is_cancelled=False,
+    ).select_related("shift__opportunity__program", "shift", "volunteer__user")
 
     sent = 0
     skipped = 0
@@ -108,7 +108,8 @@ def send_shift_reminders_24h(self):
 
             # Re-fetch to get fresh data (avoids stale pre-update state)
             try:
-                from apps.volunteers.models import ShiftBooking as _SB
+                from apps.volunteers.models import ShiftBooking as _SB  # noqa: N814
+
                 booking = _SB.objects.select_related(
                     "shift__opportunity__program",
                     "shift",
@@ -182,8 +183,9 @@ def send_shift_reminders_24h(self):
 # Task 2: 2-hour shift reminders
 # ---------------------------------------------------------------------------
 
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def send_shift_reminders_2h(self):
+def send_shift_reminders_2h(self):  # noqa: ANN001, ANN201
     """
     Find all confirmed shift bookings whose shift starts in the 1h–3h window
     from now and whose 2h reminder has not been sent, then send it.
@@ -191,24 +193,21 @@ def send_shift_reminders_2h(self):
     Scheduled: every hour via Celery Beat (see module docstring).
 
     Same idempotency pattern as send_shift_reminders_24h.
-    """
-    from apps.volunteers.models import ShiftBooking
+    """  # noqa: RUF002
     from apps.notifications.services import send_email_notification
+    from apps.volunteers.models import ShiftBooking
 
     now = timezone.now()
     window_start = now + timedelta(hours=1)
     window_end = now + timedelta(hours=3)
 
-    bookings = (
-        ShiftBooking.objects.filter(
-            status=ShiftBooking.STATUS_CONFIRMED,
-            reminder_2h_sent=False,
-            shift__start_datetime__gte=window_start,
-            shift__start_datetime__lte=window_end,
-            shift__is_cancelled=False,
-        )
-        .select_related("shift__opportunity__program", "shift", "volunteer__user")
-    )
+    bookings = ShiftBooking.objects.filter(
+        status=ShiftBooking.STATUS_CONFIRMED,
+        reminder_2h_sent=False,
+        shift__start_datetime__gte=window_start,
+        shift__start_datetime__lte=window_end,
+        shift__is_cancelled=False,
+    ).select_related("shift__opportunity__program", "shift", "volunteer__user")
 
     sent = 0
     skipped = 0
@@ -237,7 +236,8 @@ def send_shift_reminders_2h(self):
 
             # Re-fetch to get fresh data (avoids stale pre-update state)
             try:
-                from apps.volunteers.models import ShiftBooking as _SB
+                from apps.volunteers.models import ShiftBooking as _SB  # noqa: N814
+
                 booking = _SB.objects.select_related(
                     "shift__opportunity__program",
                     "shift",
@@ -306,8 +306,9 @@ def send_shift_reminders_2h(self):
 # Task 3: Expiring screening checks
 # ---------------------------------------------------------------------------
 
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def check_expiring_screenings(self):
+def check_expiring_screenings(self):  # noqa: ANN001, ANN201
     """
     Fire the screening_expiring signal for every ScreeningRecord that expires
     within the next 30 days (inclusive of today, exclusive of already-expired).
@@ -325,16 +326,13 @@ def check_expiring_screenings(self):
     today = timezone.localtime(timezone.now()).date()
     expiry_window = today + timedelta(days=30)
 
-    records = (
-        ScreeningRecord.objects.filter(
-            check_type=ScreeningRecord.CHECK_TYPE_VSC,  # H5 fix: only VSC checks have auto-expiry
-            verified_clear=True,                        # H5 fix: only alert on verified-clear records
-            expires_date__isnull=False,                 # H5 fix: exclude records with no expiry date
-            expires_date__gte=today,
-            expires_date__lte=expiry_window,
-        )
-        .select_related("volunteer__user")
-    )
+    records = ScreeningRecord.objects.filter(
+        check_type=ScreeningRecord.CHECK_TYPE_VSC,  # H5 fix: only VSC checks have auto-expiry
+        verified_clear=True,  # H5 fix: only alert on verified-clear records
+        expires_date__isnull=False,  # H5 fix: exclude records with no expiry date
+        expires_date__gte=today,
+        expires_date__lte=expiry_window,
+    ).select_related("volunteer__user")
 
     fired = 0
     errors = 0
@@ -392,8 +390,9 @@ def check_expiring_screenings(self):
 # Task 4: Expiring certifications
 # ---------------------------------------------------------------------------
 
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def check_expiring_certifications(self):
+def check_expiring_certifications(self):  # noqa: ANN001, ANN201
     """
     Fire the certification_expiring signal for every Certification that expires
     within the next 30 days (inclusive of today, exclusive of already-expired).
@@ -410,13 +409,10 @@ def check_expiring_certifications(self):
     today = timezone.localtime(timezone.now()).date()
     expiry_window = today + timedelta(days=30)
 
-    records = (
-        Certification.objects.filter(
-            expires_date__gte=today,
-            expires_date__lte=expiry_window,
-        )
-        .select_related("volunteer__user")
-    )
+    records = Certification.objects.filter(
+        expires_date__gte=today,
+        expires_date__lte=expiry_window,
+    ).select_related("volunteer__user")
 
     fired = 0
     errors = 0
@@ -473,6 +469,7 @@ def check_expiring_certifications(self):
 # Task 5: Monthly hours summary to program coordinators
 # ---------------------------------------------------------------------------
 
+
 @shared_task(
     bind=True,
     name="volunteers.send_monthly_hours_summary",
@@ -482,7 +479,7 @@ def check_expiring_certifications(self):
     reject_on_worker_lost=True,
     queue="volunteers",
 )
-def send_monthly_hours_summary(self):
+def send_monthly_hours_summary(self):  # noqa: ANN001, ANN201
     """
     Monthly digest of approved volunteer hours per active Program,
     sent to each program's coordinator.
@@ -498,9 +495,10 @@ def send_monthly_hours_summary(self):
     PIPEDA: Coordinator-facing report only. Volunteer names not included —
     only aggregated counts. No individual volunteer data in context.
     """
-    from apps.volunteers.models import HoursLog, Program
+    from django.db.models import Count, Sum
+
     from apps.notifications.services import send_email_notification
-    from django.db.models import Sum, Count, Q
+    from apps.volunteers.models import HoursLog, Program
 
     # Compute the previous calendar month
     now = timezone.localtime(timezone.now())
@@ -511,6 +509,7 @@ def send_monthly_hours_summary(self):
 
     # Human-readable month label (bilingual not needed — coordinator email in their preferred lang)
     import calendar as _cal
+
     month_name = _cal.month_name[report_month]  # e.g. "June"
     month_label = f"{month_name} {report_year}"
 
@@ -528,15 +527,12 @@ def send_monthly_hours_summary(self):
     for program in programs:
         try:
             # Aggregate hours for this program in the previous month
-            hours_qs = (
-                HoursLog.objects.filter(
-                    status=HoursLog.STATUS_APPROVED,
-                    date__year=report_year,
-                    date__month=report_month,
-                    opportunity__program=program,
-                )
-                .select_related("opportunity")
-            )
+            hours_qs = HoursLog.objects.filter(
+                status=HoursLog.STATUS_APPROVED,
+                date__year=report_year,
+                date__month=report_month,
+                opportunity__program=program,
+            ).select_related("opportunity")
 
             stats = hours_qs.aggregate(
                 total_hours=Sum("hours"),
@@ -623,7 +619,10 @@ def send_monthly_hours_summary(self):
     logger.info(
         "volunteers.tasks.send_monthly_hours_summary: complete — "
         "processed=%d skipped=%d errors=%d month=%s.",
-        processed, skipped, error_count, month_label,
+        processed,
+        skipped,
+        error_count,
+        month_label,
     )
     return {"processed": processed, "skipped": skipped, "errors": error_count}
 
@@ -632,7 +631,8 @@ def send_monthly_hours_summary(self):
 # Beat schedule helper (DatabaseScheduler — call from a data migration)
 # ---------------------------------------------------------------------------
 
-def create_beat_schedule():
+
+def create_beat_schedule() -> None:
     """
     Register all five periodic tasks in django_celery_beat's PeriodicTask table.
 
@@ -656,8 +656,9 @@ def create_beat_schedule():
                 )
             ]
     """
-    from django_celery_beat.models import CrontabSchedule, PeriodicTask
     import json
+
+    from django_celery_beat.models import CrontabSchedule, PeriodicTask
 
     # Every hour on the hour (UTC) — reminder windows are large enough to be tz-safe.
     hourly, _ = CrontabSchedule.objects.get_or_create(
@@ -749,13 +750,14 @@ def create_beat_schedule():
             obj.task = spec["task"]
             obj.crontab = spec["crontab"]
             obj.enabled = True
-            obj.args = json.dumps([])   # clear any accidentally set args from prior migrations
+            obj.args = json.dumps([])  # clear any accidentally set args from prior migrations
             obj.save(update_fields=["task", "crontab", "enabled", "args"])
 
 
 # ---------------------------------------------------------------------------
 # Task 6: Monthly volunteer impact snapshot trigger (thin wrapper for Beat)
 # ---------------------------------------------------------------------------
+
 
 @shared_task(
     bind=True,
@@ -764,7 +766,7 @@ def create_beat_schedule():
     default_retry_delay=300,
     queue="volunteers",
 )
-def trigger_monthly_volunteer_snapshot(self):
+def trigger_monthly_volunteer_snapshot(self):  # noqa: ANN001, ANN201
     """
     Thin Beat-registered wrapper that derives year/month from timezone.now()
     and dispatches compute_volunteer_impact_snapshot for the PREVIOUS month.
@@ -782,7 +784,9 @@ def trigger_monthly_volunteer_snapshot(self):
 
     logger.info(
         "volunteers.tasks.trigger_monthly_volunteer_snapshot: dispatching "
-        "compute_volunteer_impact_snapshot for %d-%02d.", year, month,
+        "compute_volunteer_impact_snapshot for %d-%02d.",
+        year,
+        month,
     )
     compute_volunteer_impact_snapshot.delay(year, month)
     return {"dispatched_year": year, "dispatched_month": month}
@@ -792,6 +796,7 @@ def trigger_monthly_volunteer_snapshot(self):
 # Task 7: Compute and persist volunteer impact snapshot
 # ---------------------------------------------------------------------------
 
+
 @shared_task(
     bind=True,
     name="volunteers.compute_volunteer_impact_snapshot",
@@ -799,7 +804,7 @@ def trigger_monthly_volunteer_snapshot(self):
     default_retry_delay=300,
     queue="volunteers",
 )
-def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
+def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:  # noqa: ANN001
     """
     Pre-compute volunteer impact metrics for a given month and persist as
     ReportSnapshot (report_type="volunteers").
@@ -822,7 +827,7 @@ def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
         t3010_volunteer_metrics,
     )
 
-    def _serialise_decimal(v):
+    def _serialise_decimal(v):  # noqa: ANN001, ANN202
         return str(v) if isinstance(v, _Decimal) else v
 
     try:
@@ -832,8 +837,7 @@ def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
 
             # Serialise Decimal values for JSON storage.
             hours_data_serialised = [
-                {k: _serialise_decimal(v) for k, v in row.items()}
-                for row in hours_data
+                {k: _serialise_decimal(v) for k, v in row.items()} for row in hours_data
             ]
 
             data = {
@@ -842,9 +846,7 @@ def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
 
             if month == 12:
                 # December snapshot: store full-year aggregates (authoritative for T3010 filing).
-                impact_serialised = {
-                    k: _serialise_decimal(v) for k, v in impact.items()
-                }
+                impact_serialised = {k: _serialise_decimal(v) for k, v in impact.items()}
 
                 t3010 = t3010_volunteer_metrics(year)
                 # t3010 has nested "categories" list — handle recursively.
@@ -852,8 +854,7 @@ def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
                 for k, v in t3010.items():
                     if k == "categories":
                         t3010_serialised[k] = [
-                            {ck: _serialise_decimal(cv) for ck, cv in cat.items()}
-                            for cat in v
+                            {ck: _serialise_decimal(cv) for ck, cv in cat.items()} for cat in v
                         ]
                     else:
                         t3010_serialised[k] = _serialise_decimal(v)
@@ -885,8 +886,7 @@ def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
             )
 
         logger.info(
-            "volunteers.tasks.compute_volunteer_impact_snapshot: %s snapshot "
-            "pk=%s for %d-%02d.",
+            "volunteers.tasks.compute_volunteer_impact_snapshot: %s snapshot " "pk=%s for %d-%02d.",
             "created" if created else "updated",
             snapshot.pk,
             year,
@@ -898,6 +898,9 @@ def compute_volunteer_impact_snapshot(self, year: int, month: int) -> dict:
         logger.error(
             "volunteers.tasks.compute_volunteer_impact_snapshot: error for "
             "%d-%02d: %s — retrying.",
-            year, month, exc, exc_info=True,
+            year,
+            month,
+            exc,
+            exc_info=True,
         )
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc)  # noqa: B904

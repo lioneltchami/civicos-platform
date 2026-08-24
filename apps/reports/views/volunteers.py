@@ -10,6 +10,7 @@ Views:
 All views require staff login + explicit permission (reports.view_reportsnapshot).
 PIPEDA: no volunteer names, emails, or addresses appear in any template context.
 """
+
 from __future__ import annotations
 
 import calendar
@@ -29,13 +30,14 @@ logger = logging.getLogger("apps.reports.views.volunteers")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _current_toronto_ym() -> tuple[int, int]:
     """Return (year, month) in America/Toronto local time."""
     now_local = timezone.localtime(timezone.now())
     return now_local.year, now_local.month
 
 
-def _parse_year_month(request) -> tuple[int, int] | None:
+def _parse_year_month(request) -> tuple[int, int] | None:  # noqa: ANN001
     """Parse ?year=YYYY&month=M from GET params. Returns (year, month) or None."""
     try:
         year = int(request.GET["year"])
@@ -50,6 +52,7 @@ def _parse_year_month(request) -> tuple[int, int] | None:
 # ---------------------------------------------------------------------------
 # Dashboard view
 # ---------------------------------------------------------------------------
+
 
 class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, TemplateView):
     """
@@ -68,7 +71,7 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
     raise_exception = True  # 403 for authenticated users without permission
     template_name = "reports/volunteers/dashboard.html"
 
-    def dispatch(self, request, *args, **kwargs):
+    def dispatch(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # H6: PermissionRequiredMixin only checks for the explicit permission, which can be
         # granted to any user — not just staff. These reports are operationally staff-only.
         # Add an explicit is_staff guard as a second gate independent of the permission check.
@@ -76,10 +79,11 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
             raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
 
-    def handle_no_permission(self):
+    def handle_no_permission(self):  # noqa: ANN201
         """Redirect unauthenticated users to login; raise 403 for authenticated users."""
         from django.conf import settings
         from django.contrib.auth.views import redirect_to_login
+
         if not self.request.user.is_authenticated:
             return redirect_to_login(
                 self.request.get_full_path(),
@@ -87,8 +91,9 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
             )
         return super().handle_no_permission()
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         from decimal import Decimal as _Dec
+
         from apps.reports.models import ReportSnapshot
 
         ctx = super().get_context_data(**kwargs)
@@ -97,7 +102,7 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
         ym = _parse_year_month(self.request)
         year, month = ym if ym else (current_year, current_month)
 
-        is_current_month = (year == current_year and month == current_month)
+        is_current_month = year == current_year and month == current_month
 
         data_source = "live"
         volunteer_summary = None
@@ -112,7 +117,7 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
                     period_month=month,
                 )
 
-                def _d(v):
+                def _d(v):  # noqa: ANN001, ANN202
                     try:
                         return _Dec(str(v))
                     except Exception:
@@ -159,11 +164,12 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
 
         if impact is None:
             from apps.volunteers.services.reporting import impact_value
+
             impact = impact_value(year)
 
         # H-1 fix: impact_value(year) returns year-to-date totals, not the
         # selected month's value. For a monthly dashboard we compute the
-        # economic value as: monthly_hours × hourly_rate (the provincial rate
+        # economic value as: monthly_hours × hourly_rate (the provincial rate  # noqa: RUF003
         # is time-invariant and comes from impact_value). This gives the
         # correct per-month estimated value rather than an inflated YTD figure.
         _hourly_rate = impact.get("hourly_rate", _Dec("0.00"))
@@ -175,27 +181,29 @@ class VolunteerImpactDashboardView(LoginRequiredMixin, PermissionRequiredMixin, 
         volunteer_summary["province"] = impact.get("province", "ON")
 
         # ── Recent snapshots sidebar ──────────────────────────────────────────
-        recent_snapshots = (
-            ReportSnapshot.objects.filter(
-                report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
-            )
-            .order_by("-period_year", "-period_month")[:12]
-        )
+        recent_snapshots = ReportSnapshot.objects.filter(
+            report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
+        ).order_by("-period_year", "-period_month")[:12]
 
         month_label = f"{calendar.month_name[month]} {year}"
 
         logger.info(
             "reports.views.volunteers.dashboard user_pk=%s year=%s month=%s source=%s",
-            self.request.user.pk, year, month, data_source,
+            self.request.user.pk,
+            year,
+            month,
+            data_source,
         )
 
-        ctx.update({
-            "year": year,
-            "month": month,
-            "month_label": month_label,
-            "is_current_month": is_current_month,
-            "data_source": data_source,
-            "volunteer_summary": volunteer_summary,
-            "recent_snapshots": recent_snapshots,
-        })
+        ctx.update(
+            {
+                "year": year,
+                "month": month,
+                "month_label": month_label,
+                "is_current_month": is_current_month,
+                "data_source": data_source,
+                "volunteer_summary": volunteer_summary,
+                "recent_snapshots": recent_snapshots,
+            }
+        )
         return ctx

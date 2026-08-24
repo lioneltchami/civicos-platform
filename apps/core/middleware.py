@@ -11,7 +11,9 @@ import uuid
 from collections.abc import Callable
 
 from django.http import HttpRequest, HttpResponse
-from django_otp.middleware import is_verified as user_is_verified  # noqa: F401 — imported for patching in tests
+from django_otp.middleware import (
+    is_verified as user_is_verified,
+)
 
 
 class RequestIDMiddleware:
@@ -50,7 +52,11 @@ class GovStackHeaderMiddleware:
     This satisfies GovStack G20 (INFO) — version header requirement.
     """
 
-    _GOVSTACK_PREFIXES = ("/api/v1/consent/config/", "/api/v1/consent/service/", "/api/v1/consent/audit/")
+    _GOVSTACK_PREFIXES = (
+        "/api/v1/consent/config/",
+        "/api/v1/consent/service/",
+        "/api/v1/consent/audit/",
+    )
 
     def __init__(self, get_response: Callable) -> None:
         self.get_response = get_response
@@ -97,6 +103,7 @@ class WagtailMFAMiddleware:
         if path.startswith("/cms/") and not is_exempt:
             if request.user.is_authenticated and not user_is_verified(request.user):
                 from django.shortcuts import redirect
+
                 return redirect(f"/account/login/?next={path}")
         return self.get_response(request)
 

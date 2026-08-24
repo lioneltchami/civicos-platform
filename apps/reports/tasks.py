@@ -12,13 +12,15 @@ Tasks:
 
 Queue: "reports" (see CELERY_TASK_ROUTES in config/settings/base.py).
 """
+
 from __future__ import annotations
 
 import logging
 from datetime import timedelta
 
-from celery import shared_task
 from django.utils import timezone
+
+from celery import shared_task
 
 logger = logging.getLogger("apps.reports.tasks")
 
@@ -32,7 +34,7 @@ logger = logging.getLogger("apps.reports.tasks")
     autoretry_for=(Exception,),
     acks_late=True,  # Don't ack until task completes (safer on failure)
 )
-def compute_monthly_snapshots(self) -> dict:
+def compute_monthly_snapshots(self) -> dict:  # noqa: ANN001
     """
     Celery Beat task — computes ReportSnapshot rows for the previous calendar
     month (America/Toronto time).
@@ -77,7 +79,7 @@ def compute_monthly_snapshots(self) -> dict:
     default_retry_delay=60,
     acks_late=True,
 )
-def recompute_snapshot(self, report_type: str, year: int, month: int) -> dict:
+def recompute_snapshot(self, report_type: str, year: int, month: int) -> dict:  # noqa: ANN001
     """
     On-demand recomputation for a single (report_type, year, month) snapshot.
 
@@ -122,6 +124,7 @@ def recompute_snapshot(self, report_type: str, year: int, month: int) -> dict:
 # Internal helpers (not Celery tasks — called from task bodies above)
 # ---------------------------------------------------------------------------
 
+
 def _compute_all_snapshots(year: int, month: int) -> int:
     """
     Compute and persist all report type snapshots for (year, month).
@@ -160,6 +163,7 @@ def _compute_all_snapshots(year: int, month: int) -> int:
     # ── Wave 3: donations ─────────────────────────────────────────────────────
     try:
         from apps.reports.services.donations import compute_donations_snapshot
+
         don_data = compute_donations_snapshot(year, month)
         ReportSnapshot.objects.update_or_create(
             report_type=ReportSnapshot.REPORT_TYPE_DONATIONS,
@@ -170,17 +174,20 @@ def _compute_all_snapshots(year: int, month: int) -> int:
         written += 1
         logger.info(
             "reports.tasks._compute_all_snapshots.donations_ok year=%s month=%s",
-            year, month,
+            year,
+            month,
         )
     except Exception:
         logger.exception(
             "reports.tasks._compute_all_snapshots.donations_failed year=%s month=%s",
-            year, month,
+            year,
+            month,
         )
 
     # ── Wave 4: operational ───────────────────────────────────────────────────
     try:
         from apps.reports.services.operational import compute_operational_snapshot
+
         op_data = compute_operational_snapshot(year, month)
         ReportSnapshot.objects.update_or_create(
             report_type=ReportSnapshot.REPORT_TYPE_OPERATIONAL,
@@ -191,17 +198,20 @@ def _compute_all_snapshots(year: int, month: int) -> int:
         written += 1
         logger.info(
             "reports.tasks._compute_all_snapshots.operational_ok year=%s month=%s",
-            year, month,
+            year,
+            month,
         )
     except Exception:
         logger.exception(
             "reports.tasks._compute_all_snapshots.operational_failed year=%s month=%s",
-            year, month,
+            year,
+            month,
         )
 
     # ── Integration Wave: volunteers ──────────────────────────────────────────
     try:
         from apps.reports.services.volunteers import compute_volunteer_snapshot
+
         vol_data = compute_volunteer_snapshot(year, month)
         ReportSnapshot.objects.update_or_create(
             report_type=ReportSnapshot.REPORT_TYPE_VOLUNTEERS,
@@ -212,12 +222,14 @@ def _compute_all_snapshots(year: int, month: int) -> int:
         written += 1
         logger.info(
             "reports.tasks._compute_all_snapshots.volunteers_ok year=%s month=%s",
-            year, month,
+            year,
+            month,
         )
     except Exception:
         logger.exception(
             "reports.tasks._compute_all_snapshots.volunteers_failed year=%s month=%s",
-            year, month,
+            year,
+            month,
         )
 
     return written
@@ -235,15 +247,19 @@ def _compute_single_snapshot(report_type: str, year: int, month: int) -> tuple[d
 
     if report_type == ReportSnapshot.REPORT_TYPE_FINANCIAL:
         from apps.reports.services.financial import compute_financial_snapshot
+
         data = compute_financial_snapshot(year, month)
     elif report_type == ReportSnapshot.REPORT_TYPE_DONATIONS:
         from apps.reports.services.donations import compute_donations_snapshot
+
         data = compute_donations_snapshot(year, month)
     elif report_type == ReportSnapshot.REPORT_TYPE_OPERATIONAL:
         from apps.reports.services.operational import compute_operational_snapshot
+
         data = compute_operational_snapshot(year, month)
     elif report_type == ReportSnapshot.REPORT_TYPE_VOLUNTEERS:
         from apps.reports.services.volunteers import compute_volunteer_snapshot
+
         data = compute_volunteer_snapshot(year, month)
     else:
         raise ValueError(f"Unknown report_type: {report_type!r}")

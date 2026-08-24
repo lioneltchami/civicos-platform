@@ -17,19 +17,19 @@ New models:
 
 Depends on: ("appointments", "0012_wave3_waitlist_queue")
 """
+
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("appointments", "0012_wave3_waitlist_queue"),
         ("auth_extension", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ------------------------------------------------------------------
         # Organization — GovStack Entity contact fields
         # ------------------------------------------------------------------
@@ -132,7 +132,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",
@@ -210,7 +212,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",
@@ -272,7 +276,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",
@@ -292,7 +298,7 @@ class Migration(migrations.Migration):
                         blank=True,
                         default=dict,
                         help_text=(
-                            'GovStack days_hours structure: e.g. '
+                            "GovStack days_hours structure: e.g. "
                             '{"monday": {"from": "09:00", "to": "17:00"}, "tuesday": {...}, ...}'
                         ),
                         verbose_name="Work days/hours",
@@ -348,7 +354,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
                 ),
                 (
                     "updated_at",

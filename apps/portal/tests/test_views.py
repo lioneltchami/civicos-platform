@@ -1,9 +1,10 @@
 """Integration tests for portal views — IDOR protection, auth, flows."""
+
 import uuid
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
 
 from apps.portal.models import ServiceRequest, ServiceRequestStatus
 from apps.portal.services import create_service_request
@@ -23,8 +24,10 @@ def make_user(email=None, is_staff=False):
 
 def make_request_for(citizen, **kwargs):
     """Create a ServiceRequest for a citizen via the service layer, suppressing side-effects."""
-    with patch("apps.portal.services._fire_notification"), \
-         patch("apps.portal.services._write_audit"):
+    with (
+        patch("apps.portal.services._fire_notification"),
+        patch("apps.portal.services._write_audit"),
+    ):
         return create_service_request(
             citizen,
             kwargs.get("service_name", "Test Service"),
@@ -189,55 +192,71 @@ class SubmitRequestViewTest(TestCase):
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_submit_valid_request_creates_record(self, mock_audit, mock_notify):
-        self.client.post("/portal/submit/", {
-            "service_name": "Pothole Repair",
-            "description": "Large pothole on Main St",
-            "contact_email": self.citizen.email,
-            "contact_phone": "",
-            "consent_given": True,
-        }, follow=True)
+        self.client.post(
+            "/portal/submit/",
+            {
+                "service_name": "Pothole Repair",
+                "description": "Large pothole on Main St",
+                "contact_email": self.citizen.email,
+                "contact_phone": "",
+                "consent_given": True,
+            },
+            follow=True,
+        )
         self.assertEqual(ServiceRequest.objects.filter(citizen=self.citizen).count(), 1)
 
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_submit_redirects_to_detail_on_success(self, mock_audit, mock_notify):
-        response = self.client.post("/portal/submit/", {
-            "service_name": "Pothole Repair",
-            "description": "Large pothole on Main St",
-            "contact_email": self.citizen.email,
-            "contact_phone": "",
-            "consent_given": True,
-        })
+        response = self.client.post(
+            "/portal/submit/",
+            {
+                "service_name": "Pothole Repair",
+                "description": "Large pothole on Main St",
+                "contact_email": self.citizen.email,
+                "contact_phone": "",
+                "consent_given": True,
+            },
+        )
         sr = ServiceRequest.objects.filter(citizen=self.citizen).first()
         self.assertRedirects(response, f"/portal/requests/{sr.pk}/")
 
     def test_submit_without_consent_fails(self):
-        response = self.client.post("/portal/submit/", {
-            "service_name": "Test",
-            "description": "Test desc",
-            "contact_email": self.citizen.email,
-            "consent_given": False,
-        })
+        response = self.client.post(
+            "/portal/submit/",
+            {
+                "service_name": "Test",
+                "description": "Test desc",
+                "contact_email": self.citizen.email,
+                "consent_given": False,
+            },
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(ServiceRequest.objects.count(), 0)
 
     def test_submit_missing_service_name_fails(self):
-        response = self.client.post("/portal/submit/", {
-            "service_name": "",
-            "description": "Some description",
-            "contact_email": self.citizen.email,
-            "consent_given": True,
-        })
+        response = self.client.post(
+            "/portal/submit/",
+            {
+                "service_name": "",
+                "description": "Some description",
+                "contact_email": self.citizen.email,
+                "consent_given": True,
+            },
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(ServiceRequest.objects.count(), 0)
 
     def test_submit_missing_description_fails(self):
-        response = self.client.post("/portal/submit/", {
-            "service_name": "Test",
-            "description": "",
-            "contact_email": self.citizen.email,
-            "consent_given": True,
-        })
+        response = self.client.post(
+            "/portal/submit/",
+            {
+                "service_name": "Test",
+                "description": "",
+                "contact_email": self.citizen.email,
+                "consent_given": True,
+            },
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(ServiceRequest.objects.count(), 0)
 
@@ -252,25 +271,34 @@ class CancelRequestViewTest(TestCase):
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_citizen_can_cancel_own_request(self, mock_audit, mock_notify):
-        self.client.post(f"/portal/requests/{self.sr.pk}/cancel/", {
-            "confirm": True,
-            "reason": "Changed my mind",
-        })
+        self.client.post(
+            f"/portal/requests/{self.sr.pk}/cancel/",
+            {
+                "confirm": True,
+                "reason": "Changed my mind",
+            },
+        )
         self.sr.refresh_from_db()
         self.assertEqual(self.sr.status, ServiceRequestStatus.CLOSED)
 
     def test_cannot_cancel_another_citizens_request(self):
         other = make_user()
         other_sr = make_request_for(other)
-        response = self.client.post(f"/portal/requests/{other_sr.pk}/cancel/", {
-            "confirm": True,
-        })
+        response = self.client.post(
+            f"/portal/requests/{other_sr.pk}/cancel/",
+            {
+                "confirm": True,
+            },
+        )
         self.assertEqual(response.status_code, 404)
 
     def test_cancel_requires_confirmation(self):
-        response = self.client.post(f"/portal/requests/{self.sr.pk}/cancel/", {
-            "confirm": False,
-        })
+        self.client.post(
+            f"/portal/requests/{self.sr.pk}/cancel/",
+            {
+                "confirm": False,
+            },
+        )
         self.sr.refresh_from_db()
         self.assertNotEqual(self.sr.status, ServiceRequestStatus.CLOSED)
 
@@ -281,17 +309,23 @@ class CancelRequestViewTest(TestCase):
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_cancel_redirects_to_request_list(self, mock_audit, mock_notify):
-        response = self.client.post(f"/portal/requests/{self.sr.pk}/cancel/", {
-            "confirm": True,
-            "reason": "",
-        })
+        response = self.client.post(
+            f"/portal/requests/{self.sr.pk}/cancel/",
+            {
+                "confirm": True,
+                "reason": "",
+            },
+        )
         self.assertRedirects(response, "/portal/requests/")
 
     def test_cancel_nonexistent_request_returns_404(self):
         fake_pk = uuid.uuid4()
-        response = self.client.post(f"/portal/requests/{fake_pk}/cancel/", {
-            "confirm": True,
-        })
+        response = self.client.post(
+            f"/portal/requests/{fake_pk}/cancel/",
+            {
+                "confirm": True,
+            },
+        )
         self.assertEqual(response.status_code, 404)
 
 
@@ -348,45 +382,60 @@ class StaffStatusUpdateTest(TestCase):
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_staff_can_update_status(self, mock_audit, mock_notify):
-        self.client.post(f"/portal/staff/requests/{self.sr.pk}/update-status/", {
-            "new_status": "in_review",
-            "public_note": "We are reviewing your request.",
-        })
+        self.client.post(
+            f"/portal/staff/requests/{self.sr.pk}/update-status/",
+            {
+                "new_status": "in_review",
+                "public_note": "We are reviewing your request.",
+            },
+        )
         self.sr.refresh_from_db()
         self.assertEqual(self.sr.status, ServiceRequestStatus.IN_REVIEW)
 
     def test_citizen_cannot_update_status(self):
         self.client.force_login(self.citizen)
-        response = self.client.post(f"/portal/staff/requests/{self.sr.pk}/update-status/", {
-            "new_status": "approved",
-            "public_note": "Self-approved!",
-        })
+        response = self.client.post(
+            f"/portal/staff/requests/{self.sr.pk}/update-status/",
+            {
+                "new_status": "approved",
+                "public_note": "Self-approved!",
+            },
+        )
         self.assertEqual(response.status_code, 403)
         self.sr.refresh_from_db()
         self.assertNotEqual(self.sr.status, ServiceRequestStatus.APPROVED)
 
     def test_anonymous_cannot_update_status(self):
         self.client.logout()
-        response = self.client.post(f"/portal/staff/requests/{self.sr.pk}/update-status/", {
-            "new_status": "approved",
-            "public_note": "",
-        })
+        response = self.client.post(
+            f"/portal/staff/requests/{self.sr.pk}/update-status/",
+            {
+                "new_status": "approved",
+                "public_note": "",
+            },
+        )
         self.assertEqual(response.status_code, 302)
 
     @patch("apps.portal.services._fire_notification")
     @patch("apps.portal.services._write_audit")
     def test_staff_update_redirects_to_staff_detail(self, mock_audit, mock_notify):
-        response = self.client.post(f"/portal/staff/requests/{self.sr.pk}/update-status/", {
-            "new_status": "in_review",
-            "public_note": "",
-        })
+        response = self.client.post(
+            f"/portal/staff/requests/{self.sr.pk}/update-status/",
+            {
+                "new_status": "in_review",
+                "public_note": "",
+            },
+        )
         self.assertRedirects(response, f"/portal/staff/requests/{self.sr.pk}/")
 
     def test_invalid_status_does_not_update_request(self):
-        response = self.client.post(f"/portal/staff/requests/{self.sr.pk}/update-status/", {
-            "new_status": "not_a_real_status",
-            "public_note": "",
-        })
+        response = self.client.post(
+            f"/portal/staff/requests/{self.sr.pk}/update-status/",
+            {
+                "new_status": "not_a_real_status",
+                "public_note": "",
+            },
+        )
         # Invalid form → redirects back to staff detail (302), request untouched
         self.assertEqual(response.status_code, 302)
         self.sr.refresh_from_db()
@@ -394,10 +443,13 @@ class StaffStatusUpdateTest(TestCase):
 
     def test_update_nonexistent_request_returns_404(self):
         fake_pk = uuid.uuid4()
-        response = self.client.post(f"/portal/staff/requests/{fake_pk}/update-status/", {
-            "new_status": "in_review",
-            "public_note": "",
-        })
+        response = self.client.post(
+            f"/portal/staff/requests/{fake_pk}/update-status/",
+            {
+                "new_status": "in_review",
+                "public_note": "",
+            },
+        )
         self.assertEqual(response.status_code, 404)
 
 

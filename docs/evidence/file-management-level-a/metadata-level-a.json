@@ -1,0 +1,36 @@
+{
+  "scope": "local File Management runner Level A only",
+  "workspace_commit_before_evidence_commit": "873393ede969b49397fad6e5787e2e87d9215b0e",
+  "runner": "tools/run_file_management_tests.py",
+  "runner_sha256": "128f002ec47b478947d153a527b02f4476f0bfbcc14564635ccafb276c51602e",
+  "manifest": "tools/file_management_test_layers.json",
+  "manifest_sha256": "6c50912b68a1bac78938d7555ee99fb32d023fa78e6845babd11ff3744bc2456",
+  "settings": "config.settings.test",
+  "all": {
+    "passed": 1159,
+    "exit": 0,
+    "pytest_log_sha256": "eeadef9bb16255d286c6c33d51afd537779c712a0976d85fe5d65de62e49a5ce"
+  },
+  "unit": {
+    "passed": 317,
+    "exit": 0,
+    "pytest_log_sha256": "4b35064c14763d22f7c4a795dac5fbfd9bb7dffe55a6d9283c51aa9615623bd3"
+  },
+  "integration": {
+    "passed": 637,
+    "exit": 0,
+    "pytest_log_sha256": "9378d48008176107efe2741995499cb31ae315f66eccbb82f0d07e381212a486"
+  },
+  "e2e": {
+    "passed": 205,
+    "exit": 0,
+    "pytest_log_sha256": "22cbd006e808381a2dc59cf13052df59d9a400ed3876f1d440c61eecbd7b9658"
+  },
+  "runner_contract": {
+    "passed": 5,
+    "exit": 0
+  },
+  "official_harness_executed": false,
+  "staging_executed": false,
+  "secrets_accessed": false
+}

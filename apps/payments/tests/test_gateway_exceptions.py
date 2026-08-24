@@ -1,4 +1,5 @@
 """Tests for GatewayError exception hierarchy."""
+
 from django.test import SimpleTestCase
 
 from apps.payments.gateways.exceptions import (
@@ -193,7 +194,7 @@ class GatewayIdempotencyErrorTests(SimpleTestCase):
 class AllSubclassesInheritanceTests(SimpleTestCase):
     """Verify all subclasses inherit from GatewayError."""
 
-    ALL_SUBCLASSES = [
+    ALL_SUBCLASSES = [  # noqa: RUF012
         GatewayAuthError,
         GatewayCardError,
         GatewayNetworkError,

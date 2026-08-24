@@ -22,9 +22,11 @@ Security invariants verified:
   - DA-all endpoint scoped to request.user (individual scope)
   - Individuals can only modify their own consent records
 """
+
 import hashlib
 import json
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -38,6 +40,7 @@ from apps.consent.models import (
     ConsentPolicy,
     ConsentRecord,
     ConsentRevision,
+    ConsentSignature,
     ConsentWebhook,
 )
 from apps.consent.services import ConsentService
@@ -48,6 +51,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_jwt(user):
     """Return a JWT access token string for the given user."""
@@ -109,8 +113,8 @@ class GovStackAPIBase(APITestCase):
 # Config — Policy
 # ===========================================================================
 
-class ConfigPolicyTests(GovStackAPIBase):
 
+class ConfigPolicyTests(GovStackAPIBase):
     def test_list_policies_requires_auth(self):
         self._unauth()
         r = self.client.get("/api/v1/consent/config/policies/")
@@ -129,14 +133,18 @@ class ConfigPolicyTests(GovStackAPIBase):
 
     def test_create_policy(self):
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/policy/", {
-            "policy": {
-                "name": "Privacy Policy",
-                "version": "1.0",
-                "url": "https://civicos.ca/privacy",
-                "jurisdiction": "Canada",
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/policy/",
+            {
+                "policy": {
+                    "name": "Privacy Policy",
+                    "version": "1.0",
+                    "url": "https://civicos.ca/privacy",
+                    "jurisdiction": "Canada",
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("policy", r.data)
         self.assertIn("revision", r.data)
@@ -146,18 +154,20 @@ class ConfigPolicyTests(GovStackAPIBase):
 
     def test_create_policy_creates_revision(self):
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/policy/", {
-            "policy": {
-                "name": "P1",
-                "version": "1.0",
-                "url": "https://example.com/p1",
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/policy/",
+            {
+                "policy": {
+                    "name": "P1",
+                    "version": "1.0",
+                    "url": "https://example.com/p1",
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         policy_id = r.data["policy"]["id"]
-        count = ConsentRevision.objects.filter(
-            schema_name="Policy", object_id=policy_id
-        ).count()
+        count = ConsentRevision.objects.filter(schema_name="Policy", object_id=policy_id).count()
         self.assertEqual(count, 1)
 
     def test_read_policy(self):
@@ -179,9 +189,11 @@ class ConfigPolicyTests(GovStackAPIBase):
             actor=self.admin,
         )
         self._auth(self.admin)
-        r = self.client.put(f"/api/v1/consent/config/policy/{policy.pk}/", {
-            "policy": {"name": "New", "version": "2.0", "url": "https://example.com/new"}
-        }, format="json")
+        r = self.client.put(
+            f"/api/v1/consent/config/policy/{policy.pk}/",
+            {"policy": {"name": "New", "version": "2.0", "url": "https://example.com/new"}},
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data["policy"]["name"], "New")
         # Should now have 2 revisions
@@ -222,8 +234,8 @@ class ConfigPolicyTests(GovStackAPIBase):
 # Config — DataAgreement
 # ===========================================================================
 
-class ConfigDataAgreementTests(GovStackAPIBase):
 
+class ConfigDataAgreementTests(GovStackAPIBase):
     def test_list_data_agreements(self):
         _make_category(slug="da-1")
         _make_category(slug="da-2")
@@ -256,17 +268,21 @@ class ConfigDataAgreementTests(GovStackAPIBase):
         supply them to keep exercising the happy path.
         """
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/data-agreement/", {
-            "dataAgreement": {
-                "slug": "newsletter",
-                "name_en": "Newsletter",
-                "name_fr": "Infolettre",
-                "purpose": "Send newsletters",
-                "purpose_fr": "Envoyer des infolettres",
-                "lawfulBasis": "consent",
-                "dpia": "",
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/data-agreement/",
+            {
+                "dataAgreement": {
+                    "slug": "newsletter",
+                    "name_en": "Newsletter",
+                    "name_fr": "Infolettre",
+                    "purpose": "Send newsletters",
+                    "purpose_fr": "Envoyer des infolettres",
+                    "lawfulBasis": "consent",
+                    "dpia": "",
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         self.assertIn("dataAgreement", r.data)
         category = ConsentCategory.objects.get(slug="newsletter")
@@ -297,35 +313,56 @@ class ConfigDataAgreementTests(GovStackAPIBase):
         self._auth(self.admin)
 
         # Blank name_en
-        r = self.client.post("/api/v1/consent/config/data-agreement/", {
-            "dataAgreement": self._valid_da_payload(slug="blank-name-en", name_en=""),
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/data-agreement/",
+            {
+                "dataAgreement": self._valid_da_payload(slug="blank-name-en", name_en=""),
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
 
         # Blank name_fr
-        r = self.client.post("/api/v1/consent/config/data-agreement/", {
-            "dataAgreement": self._valid_da_payload(slug="blank-name-fr", name_fr=""),
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/data-agreement/",
+            {
+                "dataAgreement": self._valid_da_payload(slug="blank-name-fr", name_fr=""),
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
 
         # Blank purpose_fr
-        r = self.client.post("/api/v1/consent/config/data-agreement/", {
-            "dataAgreement": self._valid_da_payload(slug="blank-purpose-fr", purpose_fr=""),
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/data-agreement/",
+            {
+                "dataAgreement": self._valid_da_payload(slug="blank-purpose-fr", purpose_fr=""),
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
 
         # Missing name_en entirely
         payload = self._valid_da_payload(slug="missing-name-en")
         del payload["name_en"]
-        r = self.client.post("/api/v1/consent/config/data-agreement/", {
-            "dataAgreement": payload,
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/data-agreement/",
+            {
+                "dataAgreement": payload,
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST, r.data)
 
         self.assertFalse(
-            ConsentCategory.objects.filter(slug__in=[
-                "blank-name-en", "blank-name-fr", "blank-purpose-fr", "missing-name-en",
-            ]).exists()
+            ConsentCategory.objects.filter(
+                slug__in=[
+                    "blank-name-en",
+                    "blank-name-fr",
+                    "blank-purpose-fr",
+                    "missing-name-en",
+                ]
+            ).exists()
         )
 
     def test_create_data_agreement_persists_bilingual_fields(self):
@@ -334,9 +371,13 @@ class ConfigDataAgreementTests(GovStackAPIBase):
         populated still succeeds and the values are persisted correctly.
         """
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/data-agreement/", {
-            "dataAgreement": self._valid_da_payload(slug="bilingual-happy-path"),
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/data-agreement/",
+            {
+                "dataAgreement": self._valid_da_payload(slug="bilingual-happy-path"),
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         category = ConsentCategory.objects.get(slug="bilingual-happy-path")
         self.assertEqual(category.name_en, "Bilingual DA")
@@ -363,9 +404,11 @@ class ConfigDataAgreementTests(GovStackAPIBase):
             actor=self.admin,
         )
         self._auth(self.admin)
-        r = self.client.put(f"/api/v1/consent/config/data-agreement/{category.pk}/", {
-            "dataAgreement": {"version": "2.0"}
-        }, format="json")
+        r = self.client.put(
+            f"/api/v1/consent/config/data-agreement/{category.pk}/",
+            {"dataAgreement": {"version": "2.0"}},
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("revision", r.data)
 
@@ -391,19 +434,23 @@ class ConfigDataAgreementTests(GovStackAPIBase):
 # Config — Webhook
 # ===========================================================================
 
-class ConfigWebhookTests(GovStackAPIBase):
 
+class ConfigWebhookTests(GovStackAPIBase):
     def test_create_webhook(self):
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/webhook/", {
-            "webhook": {
-                "payloadUrl": "https://example.com/hook",
-                "contentType": "application/json",
-                "isActive": True,
-                "secretKey": "super-secret-key",
-                "events": ["consent.granted", "consent.withdrawn"],
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/webhook/",
+            {
+                "webhook": {
+                    "payloadUrl": "https://example.com/hook",
+                    "contentType": "application/json",
+                    "isActive": True,
+                    "secretKey": "super-secret-key",
+                    "events": ["consent.granted", "consent.withdrawn"],
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("webhook", r.data)
         self.assertEqual(r.data["webhook"]["payloadUrl"], "https://example.com/hook")
@@ -426,12 +473,16 @@ class ConfigWebhookTests(GovStackAPIBase):
             subscribed_events=[],
         )
         self._auth(self.admin)
-        r = self.client.put(f"/api/v1/consent/config/webhook/{webhook.pk}/", {
-            "webhook": {
-                "payloadUrl": "https://example.com/wh-updated",
-                "secretKey": "k2",
-            }
-        }, format="json")
+        r = self.client.put(
+            f"/api/v1/consent/config/webhook/{webhook.pk}/",
+            {
+                "webhook": {
+                    "payloadUrl": "https://example.com/wh-updated",
+                    "secretKey": "k2",
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
     def test_delete_webhook(self):
@@ -451,14 +502,18 @@ class ConfigWebhookTests(GovStackAPIBase):
         all responses (POST/GET/PUT), not just on write (F5/Round-7 fix).
         """
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/webhook/", {
-            "webhook": {
-                "payloadUrl": "https://example.com/secret-test",
-                "contentType": "application/json",
-                "secretKey": "verifiable-secret",
-                "events": [],
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/webhook/",
+            {
+                "webhook": {
+                    "payloadUrl": "https://example.com/secret-test",
+                    "contentType": "application/json",
+                    "secretKey": "verifiable-secret",
+                    "events": [],
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("secretKey", r.data["webhook"])
         self.assertEqual(r.data["webhook"]["secretKey"], "verifiable-secret")
@@ -471,18 +526,23 @@ class ConfigWebhookTests(GovStackAPIBase):
         because explicitly declared JSONField does not inherit model default=list.
         """
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/webhook/", {
-            "webhook": {
-                "payloadUrl": "https://example.com/no-events",
-                "contentType": "application/json",
-                "disabled": False,
-                "secretKey": "spec-minimal-key",
-                # no "events" key — matches what the cert harness sends
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/webhook/",
+            {
+                "webhook": {
+                    "payloadUrl": "https://example.com/no-events",
+                    "contentType": "application/json",
+                    "disabled": False,
+                    "secretKey": "spec-minimal-key",
+                    # no "events" key — matches what the cert harness sends
+                }
+            },
+            format="json",
+        )
         self.assertEqual(
-            r.status_code, status.HTTP_200_OK,
-            f"Spec-minimal webhook (no events) should succeed; got {r.data}"
+            r.status_code,
+            status.HTTP_200_OK,
+            f"Spec-minimal webhook (no events) should succeed; got {r.data}",
         )
         self.assertIn("webhook", r.data)
         # events field should default to an empty list
@@ -494,8 +554,8 @@ class ConfigWebhookTests(GovStackAPIBase):
 # Service — ConsentRecord CRUD
 # ===========================================================================
 
-class ServiceConsentRecordTests(GovStackAPIBase):
 
+class ServiceConsentRecordTests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         self.category = _make_category(slug="service-cr-test")
@@ -519,11 +579,15 @@ class ServiceConsentRecordTests(GovStackAPIBase):
 
     def test_grant_consent_via_service_api(self):
         self._auth(self.citizen)
-        r = self.client.post("/api/v1/consent/service/individual/record/consent-record/", {
-            "consentRecord": {
-                "dataAgreementId": str(self.category.pk),
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/service/individual/record/consent-record/",
+            {
+                "consentRecord": {
+                    "dataAgreementId": str(self.category.pk),
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("consentRecord", r.data)
         self.assertTrue(r.data["consentRecord"]["optIn"])
@@ -550,10 +614,41 @@ class ServiceConsentRecordTests(GovStackAPIBase):
 
     def test_grant_invalid_agreement_returns_400(self):
         self._auth(self.citizen)
-        r = self.client.post("/api/v1/consent/service/individual/record/consent-record/", {
-            "consentRecord": {"dataAgreementId": str(uuid.uuid4())}
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/service/individual/record/consent-record/",
+            {"consentRecord": {"dataAgreementId": str(uuid.uuid4())}},
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("apps.consent.integration_boundary.ConsentIntegrationBoundary.publish")
+    def test_get_consent_record_is_read_only_and_does_not_call_boundary(self, publish):
+        """Repeated mounted GETs must not mutate consent state or cross the boundary."""
+        ConsentService.grant(self.citizen, self.category.slug)
+        record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
+        before = {
+            "records": ConsentRecord.objects.count(),
+            "revisions": ConsentRevision.objects.count(),
+            "signatures": ConsentSignature.objects.count(),
+            "audits": ConsentAuditEntry.objects.count(),
+        }
+        self._auth(self.citizen)
+        url = f"/api/v1/consent/service/individual/record/consent-record/{record.pk}/"
+        first = self.client.get(url)
+        second = self.client.get(url)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data, second.data)
+        self.assertEqual(
+            before,
+            {
+                "records": ConsentRecord.objects.count(),
+                "revisions": ConsentRevision.objects.count(),
+                "signatures": ConsentSignature.objects.count(),
+                "audits": ConsentAuditEntry.objects.count(),
+            },
+        )
+        publish.assert_not_called()
 
     def test_delete_on_consent_record_detail_returns_405(self):
         """
@@ -576,8 +671,8 @@ class ServiceConsentRecordTests(GovStackAPIBase):
 # Service — Draft ConsentRecord
 # ===========================================================================
 
-class ServiceConsentRecordDraftTests(GovStackAPIBase):
 
+class ServiceConsentRecordDraftTests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         self.category = _make_category(slug="draft-test")
@@ -609,13 +704,15 @@ class ServiceConsentRecordDraftTests(GovStackAPIBase):
         cr = r.data["consentRecord"]
         # individual must be a scalar string (UUID or integer), not a dict
         self.assertNotIsInstance(
-            cr["individual"], dict,
-            "consentRecord.individual must be an ID string, not a nested object"
+            cr["individual"],
+            dict,
+            "consentRecord.individual must be an ID string, not a nested object",
         )
         # dataAgreement must be a scalar string (PK), not a dict
         self.assertNotIsInstance(
-            cr["dataAgreement"], dict,
-            "consentRecord.dataAgreement must be an ID string, not a nested object"
+            cr["dataAgreement"],
+            dict,
+            "consentRecord.dataAgreement must be an ID string, not a nested object",
         )
         # Values must match the actual objects used
         self.assertEqual(str(cr["individual"]), str(self.citizen.pk))
@@ -639,7 +736,7 @@ class ServiceConsentRecordDraftTests(GovStackAPIBase):
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_draft_signature_stub_has_all_required_fields(self):
-        """Draft response signature stub must include all 8 GovStack Signature schema required fields (F4/Round-6 fix)."""
+        """Draft response signature stub must include all 8 GovStack Signature schema required fields (F4/Round-6 fix)."""  # noqa: E501
         self._auth(self.citizen)
         r = self.client.post(
             f"/api/v1/consent/service/individual/record/consent-record/draft/"
@@ -647,9 +744,16 @@ class ServiceConsentRecordDraftTests(GovStackAPIBase):
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         sig = r.data["signature"]
-        for field in ["id", "payload", "signature", "verificationMethod",
-                      "verificationPayload", "verificationPayloadHash",
-                      "verificationSignedBy", "timestamp"]:
+        for field in [
+            "id",
+            "payload",
+            "signature",
+            "verificationMethod",
+            "verificationPayload",
+            "verificationPayloadHash",
+            "verificationSignedBy",
+            "timestamp",
+        ]:
             self.assertIn(field, sig, f"signature stub missing required field: {field}")
 
 
@@ -657,12 +761,14 @@ class ServiceConsentRecordDraftTests(GovStackAPIBase):
 # Service — Right to Be Forgotten
 # ===========================================================================
 
-class ServiceRightToBeForgottenTests(GovStackAPIBase):
 
+class ServiceRightToBeForgottenTests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         self.forgettable_cat = _make_category(slug="rtbf-forgettable", forgettable=True)
-        self.required_cat = _make_category(slug="rtbf-required", is_required=True, forgettable=False)
+        self.required_cat = _make_category(
+            slug="rtbf-required", is_required=True, forgettable=False
+        )
 
     def test_rtbf_deletes_forgettable_records(self):
         ConsentService.grant(self.citizen, self.forgettable_cat.slug)
@@ -686,9 +792,7 @@ class ServiceRightToBeForgottenTests(GovStackAPIBase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data["retained_count"], 1)
         self.assertTrue(
-            ConsentRecord.objects.filter(
-                citizen=self.citizen, category=regular_cat
-            ).exists()
+            ConsentRecord.objects.filter(citizen=self.citizen, category=regular_cat).exists()
         )
 
     def test_rtbf_writes_audit_entry(self):
@@ -711,6 +815,7 @@ class ServiceRightToBeForgottenTests(GovStackAPIBase):
 # ===========================================================================
 # Service — Individual list/detail
 # ===========================================================================
+
 
 class ServiceIndividualTests(GovStackAPIBase):
     """Verify the /service/individual(s)/ endpoints return spec-compliant shapes."""
@@ -754,6 +859,7 @@ class ServiceIndividualTests(GovStackAPIBase):
 # Service — Verification
 # ===========================================================================
 
+
 class ServiceVerificationTests(GovStackAPIBase):
     """
     Verification endpoints require the GovStack [consumer] OAuth2 scope.
@@ -763,6 +869,7 @@ class ServiceVerificationTests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         from django.contrib.auth.models import Group
+
         self.category = _make_category(slug="verify-test")
         # Create a data consumer user (in 'data_consumers' group)
         self.consumer = _make_citizen(email="consumer@example.com")
@@ -816,9 +923,7 @@ class ServiceVerificationTests(GovStackAPIBase):
         ConsentService.grant(self.citizen, self.category.slug)
         record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
         self._auth(self.consumer)
-        r = self.client.get(
-            f"/api/v1/consent/service/verification/consent-record/{record.pk}/"
-        )
+        r = self.client.get(f"/api/v1/consent/service/verification/consent-record/{record.pk}/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("consentRecord", r.data)
 
@@ -827,9 +932,7 @@ class ServiceVerificationTests(GovStackAPIBase):
         ConsentService.grant(self.citizen, self.category.slug)
         record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
         self._auth(self.citizen)
-        r = self.client.get(
-            f"/api/v1/consent/service/verification/consent-record/{record.pk}/"
-        )
+        r = self.client.get(f"/api/v1/consent/service/verification/consent-record/{record.pk}/")
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
 
@@ -837,8 +940,8 @@ class ServiceVerificationTests(GovStackAPIBase):
 # Audit API
 # ===========================================================================
 
-class AuditAPITests(GovStackAPIBase):
 
+class AuditAPITests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         self.category = _make_category(slug="audit-test")
@@ -898,22 +1001,24 @@ class AuditAPITests(GovStackAPIBase):
 # configuration change. These tests confirm the audit trail now exists.
 # ===========================================================================
 
-class Round2PolicyDataAgreementAuditTests(GovStackAPIBase):
 
+class Round2PolicyDataAgreementAuditTests(GovStackAPIBase):
     def test_create_policy_writes_audit_entry(self):
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/policy/", {
-            "policy": {
-                "name": "Audited Policy",
-                "version": "1.0",
-                "url": "https://example.com/audited",
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/policy/",
+            {
+                "policy": {
+                    "name": "Audited Policy",
+                    "version": "1.0",
+                    "url": "https://example.com/audited",
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertTrue(
-            ConsentAuditEntry.objects.filter(
-                action="policy_created", actor=self.admin
-            ).exists(),
+            ConsentAuditEntry.objects.filter(action="policy_created", actor=self.admin).exists(),
             "ConsentService.create_policy() must write a ConsentAuditEntry",
         )
 
@@ -923,30 +1028,34 @@ class Round2PolicyDataAgreementAuditTests(GovStackAPIBase):
             actor=self.admin,
         )
         self._auth(self.admin)
-        r = self.client.put(f"/api/v1/consent/config/policy/{policy.pk}/", {
-            "policy": {"name": "New2"}
-        }, format="json")
+        r = self.client.put(
+            f"/api/v1/consent/config/policy/{policy.pk}/",
+            {"policy": {"name": "New2"}},
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertTrue(
-            ConsentAuditEntry.objects.filter(
-                action="policy_updated", actor=self.admin
-            ).exists(),
+            ConsentAuditEntry.objects.filter(action="policy_updated", actor=self.admin).exists(),
             "ConsentService.update_policy() must write a ConsentAuditEntry",
         )
 
     def test_create_data_agreement_writes_audit_entry(self):
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/data-agreement/", {
-            "dataAgreement": {
-                "slug": "audited-da",
-                "name_en": "Audited DA",
-                "name_fr": "DA Audité",
-                "purpose": "Test",
-                "purpose_fr": "Test",
-                "lawfulBasis": "consent",
-                "dpia": "",
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/data-agreement/",
+            {
+                "dataAgreement": {
+                    "slug": "audited-da",
+                    "name_en": "Audited DA",
+                    "name_fr": "DA Audité",
+                    "purpose": "Test",
+                    "purpose_fr": "Test",
+                    "lawfulBasis": "consent",
+                    "dpia": "",
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
         self.assertTrue(
             ConsentAuditEntry.objects.filter(
@@ -967,9 +1076,11 @@ class Round2PolicyDataAgreementAuditTests(GovStackAPIBase):
             actor=self.admin,
         )
         self._auth(self.admin)
-        r = self.client.put(f"/api/v1/consent/config/data-agreement/{category.pk}/", {
-            "dataAgreement": {"version": "2.0"}
-        }, format="json")
+        r = self.client.put(
+            f"/api/v1/consent/config/data-agreement/{category.pk}/",
+            {"dataAgreement": {"version": "2.0"}},
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertTrue(
             ConsentAuditEntry.objects.filter(
@@ -982,13 +1093,17 @@ class Round2PolicyDataAgreementAuditTests(GovStackAPIBase):
         """AuditConsentLogView's own docstring claims GovStack Sec 6.3
         tamper-proof-audit conformance — a policy config change must appear."""
         self._auth(self.admin)
-        self.client.post("/api/v1/consent/config/policy/", {
-            "policy": {
-                "name": "Visible In Log",
-                "version": "1.0",
-                "url": "https://example.com/visible",
-            }
-        }, format="json")
+        self.client.post(
+            "/api/v1/consent/config/policy/",
+            {
+                "policy": {
+                    "name": "Visible In Log",
+                    "version": "1.0",
+                    "url": "https://example.com/visible",
+                }
+            },
+            format="json",
+        )
         r = self.client.get("/api/v1/consent/audit/consent-log/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         actions = [entry["action"] for entry in r.data["consentLog"]]
@@ -1006,9 +1121,11 @@ class Round2PolicyDataAgreementAuditTests(GovStackAPIBase):
             actor=self.admin,
         )
         self._auth(self.admin)
-        self.client.put(f"/api/v1/consent/config/data-agreement/{category.pk}/", {
-            "dataAgreement": {"version": "3.0"}
-        }, format="json")
+        self.client.put(
+            f"/api/v1/consent/config/data-agreement/{category.pk}/",
+            {"dataAgreement": {"version": "3.0"}},
+            format="json",
+        )
         r = self.client.get("/api/v1/consent/audit/consent-log/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         actions = [entry["action"] for entry in r.data["consentLog"]]
@@ -1023,23 +1140,29 @@ class Round2PolicyDataAgreementAuditTests(GovStackAPIBase):
 # ConsentAuditEntry, and that the secretKey itself is never logged.
 # ===========================================================================
 
-class Round2WebhookAuditTests(GovStackAPIBase):
 
+class Round2WebhookAuditTests(GovStackAPIBase):
     def test_create_webhook_writes_audit_entry(self):
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/webhook/", {
-            "webhook": {
-                "payloadUrl": "https://example.com/audited-hook",
-                "contentType": "application/json",
-                "secretKey": "top-secret-value",
-                "events": ["consent.granted"],
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/webhook/",
+            {
+                "webhook": {
+                    "payloadUrl": "https://example.com/audited-hook",
+                    "contentType": "application/json",
+                    "secretKey": "top-secret-value",
+                    "events": ["consent.granted"],
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         webhook_id = r.data["webhook"]["id"]
-        entry = ConsentAuditEntry.objects.filter(
-            action="webhook_created", actor=self.admin
-        ).order_by("-timestamp").first()
+        entry = (
+            ConsentAuditEntry.objects.filter(action="webhook_created", actor=self.admin)
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry, "webhook creation must write a ConsentAuditEntry")
         self.assertEqual(entry.details.get("webhook_id"), str(webhook_id))
         self.assertNotIn("top-secret-value", str(entry.details))
@@ -1051,13 +1174,17 @@ class Round2WebhookAuditTests(GovStackAPIBase):
             subscribed_events=[],
         )
         self._auth(self.admin)
-        r = self.client.put(f"/api/v1/consent/config/webhook/{webhook.pk}/", {
-            "webhook": {"payloadUrl": "https://example.com/update-audit-2"}
-        }, format="json")
+        r = self.client.put(
+            f"/api/v1/consent/config/webhook/{webhook.pk}/",
+            {"webhook": {"payloadUrl": "https://example.com/update-audit-2"}},
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
-        entry = ConsentAuditEntry.objects.filter(
-            action="webhook_updated", actor=self.admin
-        ).order_by("-timestamp").first()
+        entry = (
+            ConsentAuditEntry.objects.filter(action="webhook_updated", actor=self.admin)
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry, "webhook update must write a ConsentAuditEntry")
         self.assertEqual(entry.details.get("webhook_id"), str(webhook.pk))
         self.assertNotIn("k-update", str(entry.details))
@@ -1072,9 +1199,11 @@ class Round2WebhookAuditTests(GovStackAPIBase):
         self._auth(self.admin)
         r = self.client.delete(f"/api/v1/consent/config/webhook/{webhook.pk}/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
-        entry = ConsentAuditEntry.objects.filter(
-            action="webhook_deleted", actor=self.admin
-        ).order_by("-timestamp").first()
+        entry = (
+            ConsentAuditEntry.objects.filter(action="webhook_deleted", actor=self.admin)
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(entry, "webhook deletion must write a ConsentAuditEntry")
         self.assertEqual(entry.details.get("webhook_id"), webhook_id)
         self.assertNotIn("k-delete-secret", str(entry.details))
@@ -1084,8 +1213,8 @@ class Round2WebhookAuditTests(GovStackAPIBase):
 # ConsentRevision — integrity
 # ===========================================================================
 
-class ConsentRevisionTests(GovStackAPIBase):
 
+class ConsentRevisionTests(GovStackAPIBase):
     def test_policy_revision_is_append_only(self):
         policy, rev = ConsentService.create_policy(
             {"name": "P", "version": "1.0", "url": "https://example.com"},
@@ -1155,7 +1284,7 @@ class ConsentRevisionTests(GovStackAPIBase):
         r = self.client.get(f"/api/v1/consent/config/policy/{policy.pk}/revisions/")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         # First revision (oldest) should have successor pointing to rev2
-        revs = sorted(r.data["revisions"], key=lambda x: x["serializedHash"])
+        sorted(r.data["revisions"], key=lambda x: x["serializedHash"])
         # Find rev1 in the list and check its successor
         rev1_data = next(rv for rv in r.data["revisions"] if rv["id"] == str(rev1.pk))
         self.assertEqual(str(rev1_data["successor"]), str(rev2.pk))
@@ -1252,8 +1381,13 @@ class ConsentRevisionTests(GovStackAPIBase):
         self.assertEqual(
             set(snapshot.keys()),
             {
-                "objectData", "schemaName", "objectId", "signedWithoutObjectId",
-                "timestamp", "authorizedByIndividual", "authorizedByOther",
+                "objectData",
+                "schemaName",
+                "objectId",
+                "signedWithoutObjectId",
+                "timestamp",
+                "authorizedByIndividual",
+                "authorizedByOther",
             },
         )
         self.assertEqual(snapshot["schemaName"], "Policy")
@@ -1284,8 +1418,13 @@ class ConsentRevisionTests(GovStackAPIBase):
         self.assertEqual(
             set(snapshot.keys()),
             {
-                "objectData", "schemaName", "objectId", "signedWithoutObjectId",
-                "timestamp", "authorizedByIndividual", "authorizedByOther",
+                "objectData",
+                "schemaName",
+                "objectId",
+                "signedWithoutObjectId",
+                "timestamp",
+                "authorizedByIndividual",
+                "authorizedByOther",
             },
         )
         self.assertEqual(snapshot["schemaName"], "DataAgreement")
@@ -1322,8 +1461,8 @@ class ConsentRevisionTests(GovStackAPIBase):
 # Service — DataAgreement-scoped consent record
 # ===========================================================================
 
-class ServiceDataAgreementConsentRecordTests(GovStackAPIBase):
 
+class ServiceDataAgreementConsentRecordTests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         self.category = _make_category(slug="da-scoped-test")
@@ -1358,6 +1497,7 @@ class ServiceDataAgreementConsentRecordTests(GovStackAPIBase):
 # GovStack paths: /service/individual/record/consent-record/{id}/signature/
 # ===========================================================================
 
+
 class ConsentRecordSignatureTests(GovStackAPIBase):
     """Tests for POST/PUT /service/individual/record/consent-record/{id}/signature/"""
 
@@ -1370,10 +1510,13 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         # the explicit POST /signature/ tests can exercise the create path cleanly.
         # The duplicate-prevention test re-creates it by calling POST first.
         from apps.consent.models import ConsentSignature
+
         ConsentSignature.objects.filter(consent_record=self.record).delete()
 
     def _sig_url(self):
-        return f"/api/v1/consent/service/individual/record/consent-record/{self.record.pk}/signature/"
+        return (
+            f"/api/v1/consent/service/individual/record/consent-record/{self.record.pk}/signature/"
+        )
 
     def _valid_payload(self):
         return {
@@ -1444,6 +1587,7 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self.assertNotEqual(len(r.data["signature"]["signature"]), 64)
 
         from apps.consent.models import ConsentSignature
+
         db_sig = ConsentSignature.objects.get(consent_record=self.record)
         self.assertEqual(db_sig.signature, "sha256-fakesig")
 
@@ -1456,6 +1600,7 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self.assertNotEqual(r.data["signature"]["verificationSignedBy"], str(self.citizen.pk))
 
         from apps.consent.models import ConsentSignature
+
         db_sig = ConsentSignature.objects.get(consent_record=self.record)
         self.assertEqual(db_sig.verification_signed_by, "external-delegate-signer-77")
 
@@ -1496,7 +1641,9 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
 
     def test_update_signature_when_none_exists_returns_404(self):
         self._auth(self.citizen)
-        r = self.client.put(self._sig_url(), {"signature": {"verificationType": "string"}}, format="json")
+        r = self.client.put(
+            self._sig_url(), {"signature": {"verificationType": "string"}}, format="json"
+        )
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update_signature_accepts_flat_body(self):
@@ -1515,17 +1662,22 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self.client.post(self._sig_url(), self._valid_payload(), format="json")
         rev_count_before = ConsentRevision.objects.filter(schema_name="ConsentSignature").count()
 
-        r = self.client.put(self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json")
+        r = self.client.put(
+            self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json"
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
         rev_count_after = ConsentRevision.objects.filter(schema_name="ConsentSignature").count()
         self.assertEqual(rev_count_after, rev_count_before + 1)
 
         from apps.consent.models import ConsentSignature
+
         db_sig = ConsentSignature.objects.get(consent_record=self.record)
-        latest_rev = ConsentRevision.objects.filter(
-            schema_name="ConsentSignature", object_id=str(db_sig.pk)
-        ).order_by("-timestamp").first()
+        latest_rev = (
+            ConsentRevision.objects.filter(schema_name="ConsentSignature", object_id=str(db_sig.pk))
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(latest_rev)
         self.assertEqual(latest_rev.authorized_by_individual_id, self.citizen.pk)
 
@@ -1533,7 +1685,9 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self._auth(self.citizen)
         self.client.post(self._sig_url(), self._valid_payload(), format="json")
 
-        r = self.client.put(self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json")
+        r = self.client.put(
+            self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json"
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
         entries = ConsentAuditEntry.objects.filter(citizen=self.citizen).order_by("-timestamp")
@@ -1551,14 +1705,16 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         self._auth(self.citizen)
         self.client.post(self._sig_url(), self._valid_payload(), format="json")
 
-        r = self.client.put(self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json")
+        r = self.client.put(
+            self._sig_url(), {"signature": {"verificationMethod": "rs256"}}, format="json"
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data["signature"]["signature"], "sha256-fakesig")
         self.assertEqual(r.data["signature"]["verificationSignedBy"], "external-delegate-signer-77")
 
     # --- Response envelope conformance ---
     def test_post_consent_record_includes_signature_key(self):
-        """POST /service/individual/record/consent-record/ must return {consentRecord, revision, signature}."""
+        """POST /service/individual/record/consent-record/ must return {consentRecord, revision, signature}."""  # noqa: E501
         category2 = _make_category(slug="sig-envelope-test")
         self._auth(self.citizen)
         r = self.client.post(
@@ -1573,7 +1729,7 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
         # Round 9: grant() auto-creates a ConsentSignature, so signature is now non-null
         self.assertIsNotNone(
             r.data["signature"],
-            "POST consent-record must return a non-null signature (Round 9 F9 fix)"
+            "POST consent-record must return a non-null signature (Round 9 F9 fix)",
         )
 
 
@@ -1590,8 +1746,8 @@ class ConsentRecordSignatureTests(GovStackAPIBase):
 # branch is revisioned/audited exactly like the PUT path.
 # ===========================================================================
 
-class CreateEndpointSignatureAuditTests(GovStackAPIBase):
 
+class CreateEndpointSignatureAuditTests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         self.category = _make_category(slug="repost-sig-test")
@@ -1615,39 +1771,56 @@ class CreateEndpointSignatureAuditTests(GovStackAPIBase):
     def test_repost_with_signature_for_already_granted_category_creates_revision(self):
         self._auth(self.citizen)
         # First grant — grant()'s Step 5 auto-creates a ConsentSignature.
-        r1 = self.client.post(self._url(), {
-            "consentRecord": {"dataAgreementId": str(self.category.pk)},
-        }, format="json")
+        r1 = self.client.post(
+            self._url(),
+            {
+                "consentRecord": {"dataAgreementId": str(self.category.pk)},
+            },
+            format="json",
+        )
         self.assertEqual(r1.status_code, status.HTTP_200_OK)
 
         rev_count_before = ConsentRevision.objects.filter(schema_name="ConsentSignature").count()
 
         # Re-POST for the SAME already-granted category with a caller-supplied
         # signature payload — the exact bypass path the bug report describes.
-        r2 = self.client.post(self._url(), {
-            "consentRecord": {"dataAgreementId": str(self.category.pk)},
-            "signature": self._sig_payload(),
-        }, format="json")
+        r2 = self.client.post(
+            self._url(),
+            {
+                "consentRecord": {"dataAgreementId": str(self.category.pk)},
+                "signature": self._sig_payload(),
+            },
+            format="json",
+        )
         self.assertEqual(r2.status_code, status.HTTP_200_OK, r2.data)
 
         rev_count_after = ConsentRevision.objects.filter(schema_name="ConsentSignature").count()
         self.assertEqual(
-            rev_count_after, rev_count_before + 1,
+            rev_count_after,
+            rev_count_before + 1,
             "Re-POSTing with a signature payload must create a ConsentRevision, "
-            "exactly like the PUT /signature/ path does."
+            "exactly like the PUT /signature/ path does.",
         )
 
     def test_repost_with_signature_creates_audit_entry(self):
         self._auth(self.citizen)
-        r1 = self.client.post(self._url(), {
-            "consentRecord": {"dataAgreementId": str(self.category.pk)},
-        }, format="json")
+        r1 = self.client.post(
+            self._url(),
+            {
+                "consentRecord": {"dataAgreementId": str(self.category.pk)},
+            },
+            format="json",
+        )
         self.assertEqual(r1.status_code, status.HTTP_200_OK)
 
-        r2 = self.client.post(self._url(), {
-            "consentRecord": {"dataAgreementId": str(self.category.pk)},
-            "signature": self._sig_payload(),
-        }, format="json")
+        r2 = self.client.post(
+            self._url(),
+            {
+                "consentRecord": {"dataAgreementId": str(self.category.pk)},
+                "signature": self._sig_payload(),
+            },
+            format="json",
+        )
         self.assertEqual(r2.status_code, status.HTTP_200_OK, r2.data)
 
         entries = ConsentAuditEntry.objects.filter(citizen=self.citizen).order_by("-timestamp")
@@ -1665,28 +1838,39 @@ class CreateEndpointSignatureAuditTests(GovStackAPIBase):
         must exist for it.
         """
         self._auth(self.citizen)
-        r1 = self.client.post(self._url(), {
-            "consentRecord": {"dataAgreementId": str(self.category.pk)},
-        }, format="json")
+        r1 = self.client.post(
+            self._url(),
+            {
+                "consentRecord": {"dataAgreementId": str(self.category.pk)},
+            },
+            format="json",
+        )
         self.assertEqual(r1.status_code, status.HTTP_200_OK)
 
         backdated = "1999-01-01T00:00:00Z"
-        r2 = self.client.post(self._url(), {
-            "consentRecord": {"dataAgreementId": str(self.category.pk)},
-            "signature": self._sig_payload(timestamp=backdated),
-        }, format="json")
+        r2 = self.client.post(
+            self._url(),
+            {
+                "consentRecord": {"dataAgreementId": str(self.category.pk)},
+                "signature": self._sig_payload(timestamp=backdated),
+            },
+            format="json",
+        )
         self.assertEqual(r2.status_code, status.HTTP_200_OK, r2.data)
 
         from apps.consent.models import ConsentSignature
+
         record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
         sig = ConsentSignature.objects.get(consent_record=record)
         # The backdate itself is allowed (caller-opaque signature store)...
         self.assertEqual(sig.timestamp.year, 1999)
 
         # ...but it must be fully traceable: a revision snapshot exists...
-        latest_rev = ConsentRevision.objects.filter(
-            schema_name="ConsentSignature", object_id=str(sig.pk)
-        ).order_by("-timestamp").first()
+        latest_rev = (
+            ConsentRevision.objects.filter(schema_name="ConsentSignature", object_id=str(sig.pk))
+            .order_by("-timestamp")
+            .first()
+        )
         self.assertIsNotNone(
             latest_rev,
             "Backdating a signature via re-POST must still create a ConsentRevision",
@@ -1704,6 +1888,7 @@ class CreateEndpointSignatureAuditTests(GovStackAPIBase):
 # Service — All ConsentRecords for a DataAgreement (/all/ endpoint)
 # GovStack path: /service/individual/record/data-agreement/{id}/all/
 # ===========================================================================
+
 
 class DataAgreementAllConsentRecordsTests(GovStackAPIBase):
     """Tests for GET /service/individual/record/data-agreement/{id}/all/"""
@@ -1778,6 +1963,7 @@ class DataAgreementAllConsentRecordsTests(GovStackAPIBase):
 # Round 9+ fixes — new regression tests
 # ===========================================================================
 
+
 class Round9WebhookDisabledFieldTests(GovStackAPIBase):
     """
     F8: Webhook create must honour the spec 'disabled' field, not legacy 'isActive'.
@@ -1787,17 +1973,23 @@ class Round9WebhookDisabledFieldTests(GovStackAPIBase):
     def test_create_webhook_with_disabled_true_creates_disabled_webhook(self):
         """Spec-minimal payload with disabled=true must create an is_disabled=True webhook."""
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/webhook/", {
-            "webhook": {
-                "payloadUrl": "https://example.com/disabled-hook",
-                "contentType": "application/json",
-                "disabled": True,
-                "secretKey": "test-disabled-key",
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/webhook/",
+            {
+                "webhook": {
+                    "payloadUrl": "https://example.com/disabled-hook",
+                    "contentType": "application/json",
+                    "disabled": True,
+                    "secretKey": "test-disabled-key",
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         webhook = ConsentWebhook.objects.get(pk=r.data["webhook"]["id"])
-        self.assertTrue(webhook.is_disabled, "webhook.is_disabled should be True when disabled=true is sent")
+        self.assertTrue(
+            webhook.is_disabled, "webhook.is_disabled should be True when disabled=true is sent"
+        )
         # Response should reflect the disabled state
         self.assertTrue(r.data["webhook"]["disabled"])
         # F15 fix: isActive removed from serializer (was CivicOS extension, not in GovStack spec)
@@ -1806,14 +1998,18 @@ class Round9WebhookDisabledFieldTests(GovStackAPIBase):
     def test_create_webhook_with_disabled_false_creates_active_webhook(self):
         """disabled=false must create an active webhook."""
         self._auth(self.admin)
-        r = self.client.post("/api/v1/consent/config/webhook/", {
-            "webhook": {
-                "payloadUrl": "https://example.com/active-hook",
-                "contentType": "application/json",
-                "disabled": False,
-                "secretKey": "test-active-key",
-            }
-        }, format="json")
+        r = self.client.post(
+            "/api/v1/consent/config/webhook/",
+            {
+                "webhook": {
+                    "payloadUrl": "https://example.com/active-hook",
+                    "contentType": "application/json",
+                    "disabled": False,
+                    "secretKey": "test-active-key",
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         webhook = ConsentWebhook.objects.get(pk=r.data["webhook"]["id"])
         self.assertFalse(webhook.is_disabled)
@@ -1826,13 +2022,17 @@ class Round9WebhookDisabledFieldTests(GovStackAPIBase):
             is_disabled=False,
         )
         self._auth(self.admin)
-        r = self.client.put(f"/api/v1/consent/config/webhook/{webhook.pk}/", {
-            "webhook": {
-                "payloadUrl": "https://example.com/put-test",
-                "secretKey": "k1",
-                "disabled": True,
-            }
-        }, format="json")
+        r = self.client.put(
+            f"/api/v1/consent/config/webhook/{webhook.pk}/",
+            {
+                "webhook": {
+                    "payloadUrl": "https://example.com/put-test",
+                    "secretKey": "k1",
+                    "disabled": True,
+                }
+            },
+            format="json",
+        )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         webhook.refresh_from_db()
         self.assertTrue(webhook.is_disabled)
@@ -1859,34 +2059,34 @@ class Round9GrantAutoSignatureTests(GovStackAPIBase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("signature", r.data)
         self.assertIsNotNone(
-            r.data["signature"],
-            "POST consent-record must return a non-null signature object"
+            r.data["signature"], "POST consent-record must return a non-null signature object"
         )
 
     def test_grant_service_creates_consent_signature_record(self):
         """ConsentService.grant() must persist a ConsentSignature row."""
         from apps.consent.models import ConsentSignature
+
         ConsentService.grant(self.citizen, self.category.slug)
         record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
         self.assertTrue(
             ConsentSignature.objects.filter(consent_record=record).exists(),
-            "ConsentService.grant() must auto-create a ConsentSignature"
+            "ConsentService.grant() must auto-create a ConsentSignature",
         )
 
     def test_grant_idempotent_updates_signature(self):
         """Calling grant() twice on the same record must not raise an error."""
         from apps.consent.models import ConsentSignature
+
         ConsentService.grant(self.citizen, self.category.slug)
         ConsentService.grant(self.citizen, self.category.slug)
         record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
         # Exactly one signature should exist (update_or_create is idempotent)
-        self.assertEqual(
-            ConsentSignature.objects.filter(consent_record=record).count(), 1
-        )
+        self.assertEqual(ConsentSignature.objects.filter(consent_record=record).count(), 1)
 
     def test_grant_signature_has_string_verification_type(self):
         """Auto-created signature must use verificationMethod='string'."""
         from apps.consent.models import ConsentSignature
+
         ConsentService.grant(self.citizen, self.category.slug)
         record = ConsentRecord.objects.get(citizen=self.citizen, category=self.category)
         sig = ConsentSignature.objects.get(consent_record=record)
@@ -1940,7 +2140,7 @@ class Round9RTBFRequiredGuardTests(GovStackAPIBase):
     """
 
     def test_rtbf_does_not_delete_required_forgettable_records(self):
-        """A category with both is_required=True and forgettable=True must NOT be deleted by RTBF."""
+        """A category with both is_required=True and forgettable=True must NOT be deleted by RTBF."""  # noqa: E501
         required_and_forgettable = _make_category(
             slug="rtbf-req-forget",
             is_required=True,
@@ -1956,7 +2156,7 @@ class Round9RTBFRequiredGuardTests(GovStackAPIBase):
             ConsentRecord.objects.filter(
                 citizen=self.citizen, category=required_and_forgettable
             ).exists(),
-            "RTBF must not delete records for required categories even if forgettable=True"
+            "RTBF must not delete records for required categories even if forgettable=True",
         )
         self.assertEqual(r.data["deleted_count"], 0)
 
@@ -1978,6 +2178,7 @@ class AuditEndpointAuthorizationTests(APITestCase):
             is_staff=False,
         )
         from django.contrib.auth.models import Group
+
         grp, _ = Group.objects.get_or_create(name="consent_auditors")
         self.auditor.groups.add(grp)
         self.staff = User.objects.create_user(
@@ -2027,8 +2228,8 @@ class AuditEndpointAuthorizationTests(APITestCase):
 # not Django's raw, un-routed, HTML 404.
 # ===========================================================================
 
-class MalformedPathIdRoutingTests(GovStackAPIBase):
 
+class MalformedPathIdRoutingTests(GovStackAPIBase):
     def test_config_policy_detail_malformed_uuid_returns_400(self):
         """UUID-typed route, config namespace."""
         self._auth(self.admin)
@@ -2065,9 +2266,7 @@ class MalformedPathIdRoutingTests(GovStackAPIBase):
     def test_service_individual_record_consent_record_malformed_uuid_returns_400(self):
         """UUID-typed route, service namespace (ConsentRecord)."""
         self._auth(self.citizen)
-        r = self.client.get(
-            "/api/v1/consent/service/individual/record/consent-record/not-a-uuid/"
-        )
+        r = self.client.get("/api/v1/consent/service/individual/record/consent-record/not-a-uuid/")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_config_data_agreement_detail_valid_but_nonexistent_id_still_404s(self):
@@ -2105,11 +2304,12 @@ class MalformedPathIdRoutingTests(GovStackAPIBase):
 # list endpoint (the full unfiltered count, not the page count).
 # ===========================================================================
 
-class PaginationTotalFieldTests(GovStackAPIBase):
 
+class PaginationTotalFieldTests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         from django.contrib.auth.models import Group
+
         self.category = _make_category(slug="total-field-test")
         self.consumer = _make_citizen(email="total-consumer@example.com")
         group, _ = Group.objects.get_or_create(name="data_consumers")
@@ -2150,9 +2350,7 @@ class PaginationTotalFieldTests(GovStackAPIBase):
     def test_verification_data_agreements_list_includes_total(self):
         _make_category(slug="total-field-test-2")
         self._auth(self.consumer)
-        r = self.client.get(
-            "/api/v1/consent/service/verification/data-agreements/", {"limit": 1}
-        )
+        r = self.client.get("/api/v1/consent/service/verification/data-agreements/", {"limit": 1})
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("total", r.data)
         self.assertGreaterEqual(r.data["total"], 2)
@@ -2164,9 +2362,7 @@ class PaginationTotalFieldTests(GovStackAPIBase):
         other_category = _make_category(slug="total-field-test-cr2")
         ConsentService.grant(other, other_category.slug)
         self._auth(self.consumer)
-        r = self.client.get(
-            "/api/v1/consent/service/verification/consent-records/", {"limit": 1}
-        )
+        r = self.client.get("/api/v1/consent/service/verification/consent-records/", {"limit": 1})
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("total", r.data)
         self.assertGreaterEqual(r.data["total"], 2)
@@ -2201,6 +2397,7 @@ class ConsentGovStackThrottleScopeTests(TestCase):
 
     def test_settings_govstack_bb_rate_is_configured(self):
         from django.conf import settings
+
         self.assertIn("govstack_bb", settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"])
 
     def test_representative_views_use_govstack_bb_scope(self):
@@ -2209,6 +2406,7 @@ class ConsentGovStackThrottleScopeTests(TestCase):
         (config/service/audit) plus the base class itself.
         """
         from rest_framework.throttling import ScopedRateThrottle
+
         from apps.consent import govstack_views as v
 
         views_to_check = [
@@ -2232,8 +2430,9 @@ class ConsentGovStackThrottleScopeTests(TestCase):
         future new view being added directly under APIView and silently
         missing the throttle scope, the exact mistake this fix corrects.
         """
-        from apps.consent import govstack_views as v
         from rest_framework.views import APIView
+
+        from apps.consent import govstack_views as v
 
         checked = 0
         for name in dir(v):
@@ -2268,8 +2467,8 @@ class ConsentGovStackThrottleScopeTests(TestCase):
 # _parse_int_param, which matches auth_extension.User's real PK type.
 # ===========================================================================
 
-class ConfigIndividualDetailTests(GovStackAPIBase):
 
+class ConfigIndividualDetailTests(GovStackAPIBase):
     def test_get_individual_by_valid_int_pk_returns_200(self):
         self._auth(self.admin)
         r = self.client.get(f"/api/v1/consent/config/individual/{self.citizen.pk}/")
@@ -2338,7 +2537,6 @@ class ConfigIndividualDetailTests(GovStackAPIBase):
 
 
 class ServiceIndividualDetailTests(GovStackAPIBase):
-
     def test_get_own_individual_by_valid_int_pk_returns_200(self):
         self._auth(self.citizen)
         r = self.client.get(f"/api/v1/consent/service/individual/{self.citizen.pk}/")
@@ -2400,11 +2598,12 @@ class ServiceIndividualDetailTests(GovStackAPIBase):
 # Django ORM ValidationError escaping as an HTTP 500.
 # ===========================================================================
 
-class ServiceVerificationConsentRecordsMalformedFilterTests(GovStackAPIBase):
 
+class ServiceVerificationConsentRecordsMalformedFilterTests(GovStackAPIBase):
     def setUp(self):
         super().setUp()
         from django.contrib.auth.models import Group
+
         self.category = _make_category(slug="verify-malformed-test")
         self.consumer = _make_citizen(email="verify-malformed-consumer@example.com")
         group, _ = Group.objects.get_or_create(name="data_consumers")
@@ -2449,7 +2648,6 @@ class ServiceVerificationConsentRecordsMalformedFilterTests(GovStackAPIBase):
 
 
 class AuditConsentLogMalformedFilterTests(GovStackAPIBase):
-
     def setUp(self):
         super().setUp()
         self.category = _make_category(slug="audit-log-malformed-test")
@@ -2457,17 +2655,13 @@ class AuditConsentLogMalformedFilterTests(GovStackAPIBase):
 
     def test_malformed_individual_id_returns_400_not_500(self):
         self._auth(self.admin)
-        r = self.client.get(
-            "/api/v1/consent/audit/consent-log/?individualId=not-an-int"
-        )
+        r = self.client.get("/api/v1/consent/audit/consent-log/?individualId=not-an-int")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_wellformed_nonexistent_individual_id_returns_empty_list(self):
         self._auth(self.admin)
         nonexistent_pk = self.citizen.pk + 999999
-        r = self.client.get(
-            f"/api/v1/consent/audit/consent-log/?individualId={nonexistent_pk}"
-        )
+        r = self.client.get(f"/api/v1/consent/audit/consent-log/?individualId={nonexistent_pk}")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data["consentLog"], [])
 
@@ -2520,3 +2714,142 @@ class PolicyDetailMalformedRevisionIdTests(GovStackAPIBase):
             f"/api/v1/consent/service/policy/{self.policy.pk}/?revisionId={uuid.uuid4()}"
         )
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+
+# ===========================================================================
+# Stage 3 — selected current ConsentRecord GET parity (C01-01..C01-03)
+# ===========================================================================
+class ServiceDataAgreementCurrentConsentRecordParityTests(GovStackAPIBase):
+    def setUp(self):
+        super().setUp()
+        self.category = _make_category(slug="stage3-current-record")
+        self.other_category = _make_category(slug="stage3-other-category")
+        self.url = f"/api/v1/consent/service/individual/record/data-agreement/{self.category.pk}/"
+
+    def test_current_record_get_requires_authentication(self):
+        self._unauth()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn("consentRecord", response.data)
+
+    def test_current_record_get_has_bounded_malformed_and_not_found_errors(self):
+        self._auth(self.citizen)
+        malformed = self.client.get(
+            "/api/v1/consent/service/individual/record/data-agreement/not-an-integer/"
+        )
+        self.assertEqual(malformed.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsInstance(malformed.data, (dict, list))
+        unknown = self.client.get(
+            "/api/v1/consent/service/individual/record/data-agreement/999999999/"
+        )
+        self.assertEqual(unknown.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotIn("consentRecord", unknown.data)
+        no_current = self.client.get(self.url)
+        self.assertEqual(no_current.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotIn("consentRecord", no_current.data)
+
+    def test_current_record_get_is_scoped_to_authenticated_citizen_and_category(self):
+        current = ConsentService.grant(self.citizen, self.category.slug)
+        ConsentService.grant(self.citizen, self.other_category.slug)
+        ConsentService.grant(self.admin, self.category.slug)
+        self._auth(self.citizen)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["consentRecord"]["id"], str(current.pk))
+        self.assertEqual(response.data["consentRecord"]["dataAgreement"], str(self.category.pk))
+        self.assertEqual(response.data["consentRecord"]["individual"], str(self.citizen.pk))
+        self._auth(self.admin)
+        foreign_response = self.client.get(self.url)
+        self.assertEqual(foreign_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(foreign_response.data["consentRecord"]["individual"], str(self.admin.pk))
+
+    def test_current_record_get_returns_only_current_row_not_history(self):
+        historical = ConsentService.grant(self.citizen, self.category.slug)
+        historical.is_current = False
+        historical.save(update_fields=["is_current", "updated_at"])
+        current = ConsentService.grant(self.citizen, self.category.slug)
+        historical.refresh_from_db()
+        self.assertFalse(historical.is_current)
+        self.assertTrue(current.is_current)
+        self._auth(self.citizen)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.data["consentRecord"]
+        self.assertEqual(payload["id"], str(current.pk))
+        self.assertNotIn("history", payload)
+        self.assertNotIn(str(historical.pk), str(payload))
+
+    def test_current_record_get_matches_exact_existing_serializer_allowlist(self):
+        record = ConsentService.grant(self.citizen, self.category.slug)
+        self._auth(self.citizen)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.data["consentRecord"]
+        self.assertEqual(
+            set(payload),
+            {
+                "id",
+                "dataAgreement",
+                "dataAgreementRevision",
+                "dataAgreementRevisionHash",
+                "individual",
+                "optIn",
+                "state",
+                "signature",
+            },
+        )
+        self.assertEqual(payload["id"], str(record.pk))
+        self.assertEqual(payload["dataAgreement"], str(self.category.pk))
+        self.assertEqual(payload["individual"], str(self.citizen.pk))
+        self.assertIsInstance(payload["optIn"], bool)
+        self.assertIn(payload["state"], {"unsigned", "pending", "signed", "revoked"})
+        self.assertTrue(payload["signature"] is None or isinstance(payload["signature"], str))
+        self.assertTrue(
+            payload["dataAgreementRevision"] is None
+            or isinstance(payload["dataAgreementRevision"], str)
+        )
+        self.assertIsInstance(payload["dataAgreementRevisionHash"], str)
+
+    def test_current_record_get_is_read_only_and_never_calls_external_boundary(self):
+        ConsentService.grant(self.citizen, self.category.slug)
+        self._auth(self.citizen)
+        tracked = (
+            ConsentRecord,
+            ConsentRevision,
+            ConsentSignature,
+            ConsentAuditEntry,
+            ConsentWebhook,
+        )
+        before_counts = {model.__name__: model.objects.count() for model in tracked}
+        before_record = list(
+            ConsentRecord.objects.values(
+                "id", "is_current", "status", "state", "updated_at", "data_agreement_revision_id"
+            ).order_by("id")
+        )
+        with patch(
+            "apps.consent.integration_boundary.ConsentIntegrationBoundary.publish",
+            side_effect=AssertionError("selected GET must not invoke an external boundary"),
+        ) as publish:
+            first = self.client.get(self.url)
+            second = self.client.get(self.url)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data, second.data)
+        publish.assert_not_called()
+        self.assertEqual(
+            {model.__name__: model.objects.count() for model in tracked},
+            before_counts,
+        )
+        self.assertEqual(
+            list(
+                ConsentRecord.objects.values(
+                    "id",
+                    "is_current",
+                    "status",
+                    "state",
+                    "updated_at",
+                    "data_agreement_revision_id",
+                ).order_by("id")
+            ),
+            before_record,
+        )

@@ -8,21 +8,20 @@ Covers:
 - donor_name_snapshot from metadata donor_legal_name (not user.get_full_name())
 - Fallbacks for legacy intents lacking metadata fields
 """
+
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from django.utils import timezone as dj_timezone
 
 from apps.payments.models import (
-    DonationCampaign,
     Donation,
+    DonationCampaign,
     Payment,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
 from apps.payments.tasks import _handle_one_time_donation
 
@@ -32,6 +31,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_user(**kwargs):
     email = kwargs.pop("email", f"donor_{uuid.uuid4().hex[:6]}@example.com")
@@ -74,7 +74,7 @@ def make_payment(intent, amount_paid=Decimal("100.00")):
         amount_paid=amount_paid,
         processor_fee=Decimal("0.00"),
         payment_method_type="card",
-        paid_at=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        paid_at=datetime(2024, 6, 1, tzinfo=UTC),
     )
 
 
@@ -87,6 +87,7 @@ def make_webhook_event():
 # ---------------------------------------------------------------------------
 # Fix 3 tests
 # ---------------------------------------------------------------------------
+
 
 class HandleOneTimeDonationMetadataTests(TestCase):
     """
@@ -117,8 +118,11 @@ class HandleOneTimeDonationMetadataTests(TestCase):
             "donor_legal_name": "Jean Tremblay",
         }
         donation = self._run_handler(meta)
-        self.assertEqual(donation.advantage_amount, Decimal("25.00"),
-                         "advantage_amount must come from metadata, not campaign default ($5)")
+        self.assertEqual(
+            donation.advantage_amount,
+            Decimal("25.00"),
+            "advantage_amount must come from metadata, not campaign default ($5)",
+        )
 
     # Fix 3.2 — eligible_amount from metadata
     def test_eligible_amount_from_metadata(self):
@@ -131,8 +135,9 @@ class HandleOneTimeDonationMetadataTests(TestCase):
             "donor_legal_name": "Jean Tremblay",
         }
         donation = self._run_handler(meta)
-        self.assertEqual(donation.eligible_amount, Decimal("75.00"),
-                         "eligible_amount must come from metadata")
+        self.assertEqual(
+            donation.eligible_amount, Decimal("75.00"), "eligible_amount must come from metadata"
+        )
 
     # Fix 3.3 — is_anonymous=True from metadata
     def test_is_anonymous_true_from_metadata(self):
@@ -145,8 +150,9 @@ class HandleOneTimeDonationMetadataTests(TestCase):
             "donor_legal_name": "Anonymous Donor",
         }
         donation = self._run_handler(meta)
-        self.assertTrue(donation.is_anonymous,
-                        "is_anonymous must be True when metadata is_anonymous='1'")
+        self.assertTrue(
+            donation.is_anonymous, "is_anonymous must be True when metadata is_anonymous='1'"
+        )
 
     # Fix 3.4 — is_anonymous=False from metadata
     def test_is_anonymous_false_from_metadata(self):
@@ -159,8 +165,9 @@ class HandleOneTimeDonationMetadataTests(TestCase):
             "donor_legal_name": "Jean Tremblay",
         }
         donation = self._run_handler(meta)
-        self.assertFalse(donation.is_anonymous,
-                         "is_anonymous must be False when metadata is_anonymous='0'")
+        self.assertFalse(
+            donation.is_anonymous, "is_anonymous must be False when metadata is_anonymous='0'"
+        )
 
     # Fix 3.5 — donor_name_snapshot from metadata donor_legal_name (not account name)
     def test_donor_name_snapshot_from_metadata(self):
@@ -176,8 +183,11 @@ class HandleOneTimeDonationMetadataTests(TestCase):
             "donor_legal_name": "Jean Tremblay",
         }
         donation = self._run_handler(meta)
-        self.assertEqual(donation.donor_name_snapshot, "Jean Tremblay",
-                         "donor_name_snapshot must be the legal name from metadata")
+        self.assertEqual(
+            donation.donor_name_snapshot,
+            "Jean Tremblay",
+            "donor_name_snapshot must be the legal name from metadata",
+        )
 
     # Fix 3.6 — legacy fallback: empty metadata → uses campaign default + get_full_name()
     def test_legacy_fallback_advantage_from_campaign(self):
@@ -193,8 +203,11 @@ class HandleOneTimeDonationMetadataTests(TestCase):
         self.donor.save()
         donation = self._run_handler(meta)
         # Campaign default is $5.00
-        self.assertEqual(donation.advantage_amount, Decimal("5.00"),
-                         "Legacy intent: advantage_amount should fall back to campaign default")
+        self.assertEqual(
+            donation.advantage_amount,
+            Decimal("5.00"),
+            "Legacy intent: advantage_amount should fall back to campaign default",
+        )
 
     # Fix 3.7 — legacy fallback: is_anonymous defaults to False
     def test_legacy_fallback_is_anonymous_defaults_false(self):
@@ -203,8 +216,10 @@ class HandleOneTimeDonationMetadataTests(TestCase):
             "is_recurring": "0",
         }
         donation = self._run_handler(meta)
-        self.assertFalse(donation.is_anonymous,
-                         "Legacy intent without is_anonymous in metadata: defaults to False")
+        self.assertFalse(
+            donation.is_anonymous,
+            "Legacy intent without is_anonymous in metadata: defaults to False",
+        )
 
     # Fix 3.8 — recurring intents (is_recurring="1") are skipped
     def test_recurring_intent_skipped(self):
@@ -216,8 +231,10 @@ class HandleOneTimeDonationMetadataTests(TestCase):
         payment = make_payment(intent)
         _handle_one_time_donation(intent, payment, self.webhook_event)
         # No Donation row should be created for recurring intents
-        self.assertFalse(Donation.objects.filter(payment_intent=intent).exists(),
-                         "Recurring intents should be skipped by _handle_one_time_donation")
+        self.assertFalse(
+            Donation.objects.filter(payment_intent=intent).exists(),
+            "Recurring intents should be skipped by _handle_one_time_donation",
+        )
 
     # Fix 3.9 — idempotency: calling twice does not create a second Donation
     def test_idempotent_double_call(self):
@@ -247,5 +264,8 @@ class HandleOneTimeDonationMetadataTests(TestCase):
             "donor_legal_name": "Jean Tremblay",
         }
         donation = self._run_handler(meta)
-        self.assertEqual(donation.advantage_amount, Decimal("0.00"),
-                         "Invalid advantage_amount in metadata must fall back to 0.00, not raise")
+        self.assertEqual(
+            donation.advantage_amount,
+            Decimal("0.00"),
+            "Invalid advantage_amount in metadata must fall back to 0.00, not raise",
+        )

@@ -3,15 +3,17 @@ Signal receivers for the Consent & Privacy building block.
 
 These receivers are registered in ConsentConfig.ready() by importing this module.
 """
+
 from __future__ import annotations
+
 import logging
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.template.loader import render_to_string
-from django.conf import settings
 
 from apps.consent.signals import consent_withdrawn, export_requested
 
@@ -21,11 +23,11 @@ User = get_user_model()
 
 
 @receiver(consent_withdrawn)
-def send_withdrawal_confirmation_email(sender, consent_record, request=None, **kwargs):
+def send_withdrawal_confirmation_email(sender, consent_record, request=None, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Send a plain-text email to the citizen confirming their consent withdrawal.
     PIPEDA accountability principle — citizens must receive evidence of their rights being exercised.
-    """
+    """  # noqa: E501
     citizen = consent_record.citizen
     category = consent_record.category
     subject = f"Consent Withdrawn: {category.name_en} — CivicOS"
@@ -46,7 +48,7 @@ def send_withdrawal_confirmation_email(sender, consent_record, request=None, **k
 
 
 @receiver(export_requested)
-def send_export_request_received_email(sender, export_request, request=None, **kwargs):
+def send_export_request_received_email(sender, export_request, request=None, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Send acknowledgement email when a PIPEDA data export request is submitted.
     Informs the citizen of the 30-day processing SLA.
@@ -71,7 +73,7 @@ def send_export_request_received_email(sender, export_request, request=None, **k
 
 
 @receiver(post_save, sender=User)
-def bootstrap_required_consents(sender, instance, created, **kwargs):
+def bootstrap_required_consents(sender, instance, created, **kwargs) -> None:  # noqa: ANN001, ANN003
     """
     Automatically grant required consent categories for new citizen accounts.
 
@@ -96,9 +98,7 @@ def bootstrap_required_consents(sender, instance, created, **kwargs):
     from apps.consent.models import ConsentCategory
     from apps.consent.services import ConsentService
 
-    required_categories = ConsentCategory.objects.filter(
-        is_required=True, is_active=True
-    )
+    required_categories = ConsentCategory.objects.filter(is_required=True, is_active=True)
     granted_count = 0
     for category in required_categories:
         try:

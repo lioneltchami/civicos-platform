@@ -16,11 +16,12 @@ strict consistency via SELECT FOR UPDATE inside atomic() at booking time.
 
 Privacy: No PII is written to logs. Staff and citizen references use PKs only.
 """
+
 from __future__ import annotations
 
 import dataclasses
 import logging
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -34,6 +35,7 @@ logger = logging.getLogger("civicos.appointments.services.availability")
 # Settings-policy proxy
 # ---------------------------------------------------------------------------
 
+
 @dataclasses.dataclass(frozen=True)
 class _SettingsPolicy:
     """
@@ -41,6 +43,7 @@ class _SettingsPolicy:
     a SchedulingPolicy instance. Used when no SchedulingPolicy is attached to
     the AppointmentType or Location.
     """
+
     slot_interval_minutes: int
     buffer_before_minutes: int
     buffer_after_minutes: int
@@ -82,7 +85,7 @@ def _policy_from_settings() -> _SettingsPolicy:
     )
 
 
-def _resolve_policy(appointment_type, location=None):
+def _resolve_policy(appointment_type, location=None):  # noqa: ANN001, ANN202
     """
     Three-level policy fallback:
       1. AppointmentType.scheduling_policy (most specific)
@@ -106,6 +109,7 @@ def _resolve_policy(appointment_type, location=None):
 # Overlap detection
 # ---------------------------------------------------------------------------
 
+
 def _overlaps(
     a_start: datetime,
     a_end: datetime,
@@ -119,6 +123,7 @@ def _overlaps(
 # ---------------------------------------------------------------------------
 # SlotAvailabilityService
 # ---------------------------------------------------------------------------
+
 
 class SlotAvailabilityService:
     """
@@ -151,12 +156,12 @@ class SlotAvailabilityService:
 
     def get_available_slots(
         self,
-        appointment_type,
+        appointment_type,  # noqa: ANN001
         date_from: date,
         date_to: date,
-        location=None,
-        staff=None,
-        citizen=None,
+        location=None,  # noqa: ANN001
+        staff=None,  # noqa: ANN001
+        citizen=None,  # noqa: ANN001
     ) -> list[dict]:
         """
         Return available slots for appointment_type over [date_from, date_to].
@@ -173,7 +178,6 @@ class SlotAvailabilityService:
             List of slot dicts, sorted by start_datetime.
         """
         from apps.appointments.models import (
-            AppointmentType,
             AvailabilityTemplate,
             Slot,
             StaffException,
@@ -253,19 +257,18 @@ class SlotAvailabilityService:
                 min_lead_hours = policy.min_lead_time_hours
                 max_advance = policy.max_advance_days
                 earliest_allowed = now_utc + timedelta(hours=min_lead_hours)
-                latest_allowed = (
-                    now_utc + timedelta(days=max_advance)
-                    if max_advance > 0
-                    else None
-                )
+                latest_allowed = now_utc + timedelta(days=max_advance) if max_advance > 0 else None
 
-                tz_name = staff_location.timezone or settings.CIVICOS["APPOINTMENTS"]["DEFAULT_TIMEZONE"]
+                tz_name = (
+                    staff_location.timezone or settings.CIVICOS["APPOINTMENTS"]["DEFAULT_TIMEZONE"]
+                )
                 try:
                     tz = ZoneInfo(tz_name)
                 except Exception:
                     logger.warning(
                         "get_available_slots: invalid timezone '%s' for location #%s — using UTC",
-                        tz_name, staff_location.pk,
+                        tz_name,
+                        staff_location.pk,
                     )
                     tz = ZoneInfo("UTC")
 
@@ -286,30 +289,27 @@ class SlotAvailabilityService:
                 # handle the case where duplicate exception rows exist (e.g. via
                 # raw SQL or failed migration), avoiding MultipleObjectsReturned.
                 exception = (
-                    StaffException.objects
-                    .filter(staff=staff_member, exception_date=current_date)
+                    StaffException.objects.filter(staff=staff_member, exception_date=current_date)
                     .order_by("-pk")
                     .first()
                 )
                 if exception is None:
                     # No exception — use all template windows
-                    avail_windows = [
-                        (tpl.start_time, tpl.end_time) for tpl in templates
-                    ]
+                    avail_windows = [(tpl.start_time, tpl.end_time) for tpl in templates]
                 else:
                     if exception.exception_type in ("holiday", "leave", "training"):
                         continue  # Staff unavailable all day
                     # override — use override hours
-                    avail_windows = [
-                        (exception.override_start_time, exception.override_end_time)
-                    ]
+                    avail_windows = [(exception.override_start_time, exception.override_end_time)]
 
                 # c. Collect existing busy times for this staff on this date (UTC)
                 # Build explicit UTC window for this local calendar day to avoid
                 # date-vs-UTC mismatch (e.g. America/Vancouver late slots fall on
                 # the next UTC date).
                 _day_start_utc = datetime(
-                    current_date.year, current_date.month, current_date.day,
+                    current_date.year,
+                    current_date.month,
+                    current_date.day,
                     tzinfo=tz,
                 ).astimezone(ZoneInfo("UTC"))
                 _day_end_utc = _day_start_utc + timedelta(days=1)
@@ -354,13 +354,19 @@ class SlotAvailabilityService:
 
                     # Convert local times to UTC
                     avail_start_utc = datetime(
-                        current_date.year, current_date.month, current_date.day,
-                        avail_start_local.hour, avail_start_local.minute,
+                        current_date.year,
+                        current_date.month,
+                        current_date.day,
+                        avail_start_local.hour,
+                        avail_start_local.minute,
                         tzinfo=tz,
                     ).astimezone(ZoneInfo("UTC"))
                     avail_end_utc = datetime(
-                        current_date.year, current_date.month, current_date.day,
-                        avail_end_local.hour, avail_end_local.minute,
+                        current_date.year,
+                        current_date.month,
+                        current_date.day,
+                        avail_end_local.hour,
+                        avail_end_local.minute,
                         tzinfo=tz,
                     ).astimezone(ZoneInfo("UTC"))
 
@@ -396,20 +402,22 @@ class SlotAvailabilityService:
                         )
                         if not collision:
                             start_local = current_slot_start.astimezone(tz)
-                            results.append({
-                                "slot_id": None,  # Not yet persisted
-                                "staff_id": staff_member.pk,
-                                "location_id": staff_location.pk,
-                                "appointment_type_id": appointment_type.pk,
-                                "start_datetime": current_slot_start,
-                                "end_datetime": slot_end,
-                                "effective_start": eff_start,
-                                "effective_end": eff_end,
-                                "timezone": tz_name,
-                                "start_local": start_local,
-                                "available_spaces": appointment_type.capacity_per_slot,
-                                "waitlist_count": 0,
-                            })
+                            results.append(
+                                {
+                                    "slot_id": None,  # Not yet persisted
+                                    "staff_id": staff_member.pk,
+                                    "location_id": staff_location.pk,
+                                    "appointment_type_id": appointment_type.pk,
+                                    "start_datetime": current_slot_start,
+                                    "end_datetime": slot_end,
+                                    "effective_start": eff_start,
+                                    "effective_end": eff_end,
+                                    "timezone": tz_name,
+                                    "start_local": start_local,
+                                    "available_spaces": appointment_type.capacity_per_slot,
+                                    "waitlist_count": 0,
+                                }
+                            )
 
                         current_slot_start += slot_stride
 
@@ -421,8 +429,8 @@ class SlotAvailabilityService:
 
     def _citizen_within_frequency_window(
         self,
-        citizen,
-        appointment_type,
+        citizen,  # noqa: ANN001
+        appointment_type,  # noqa: ANN001
         frequency_days: int,
         now_utc: datetime,
     ) -> bool:

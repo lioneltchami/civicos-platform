@@ -36,11 +36,11 @@ logger = logging.getLogger(__name__)
 
 @receiver(document_soft_deleted, weak=False)
 def on_document_soft_deleted(
-    sender,
+    sender,  # noqa: ANN001
     *,
     document_pk: str,
-    deleted_by_id,
-    **kwargs,
+    deleted_by_id,  # noqa: ANN001
+    **kwargs,  # noqa: ANN003
 ) -> None:
     """
     Fires after a document is soft-deleted and the DB transaction commits.
@@ -66,11 +66,11 @@ def on_document_soft_deleted(
 
 @receiver(document_hard_deleted, weak=False)
 def on_document_hard_deleted(
-    sender,
+    sender,  # noqa: ANN001
     *,
     document_pk: str,
     category_slug: str,
-    **kwargs,
+    **kwargs,  # noqa: ANN003
 ) -> None:
     """
     Fires after a document's storage object is irreversibly purged (NIST SP 800-88
@@ -102,12 +102,12 @@ def on_document_hard_deleted(
 
 @receiver(document_legal_hold_changed, weak=False)
 def on_document_legal_hold_changed(
-    sender,
+    sender,  # noqa: ANN001
     *,
     document_pk: str,
     legal_hold: bool,
-    set_by_id,
-    **kwargs,
+    set_by_id,  # noqa: ANN001
+    **kwargs,  # noqa: ANN003
 ) -> None:
     """
     Fires after a legal hold is applied or released and the DB transaction commits.

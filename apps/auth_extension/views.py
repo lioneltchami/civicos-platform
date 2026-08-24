@@ -4,9 +4,11 @@ Custom views for CivicOS citizen authentication.
 Covers: account dashboard, profile management, MFA status,
 backup code generation, language switching, and guest sessions.
 """
+
 from __future__ import annotations
-import secrets
+
 import logging
+import secrets
 from typing import Any
 
 from django.conf import settings
@@ -14,13 +16,13 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
-from two_factor.views.mixins import OTPRequiredMixin
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView, UpdateView
+from two_factor.views.mixins import OTPRequiredMixin
 
 from apps.forms.utils import _mask_ip
 
@@ -29,7 +31,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-def _write_audit(event_type: str, user, request: HttpRequest, detail: dict | None = None) -> None:
+def _write_audit(event_type: str, user, request: HttpRequest, detail: dict | None = None) -> None:  # noqa: ANN001
     """
     Write an immutable audit log entry.
 
@@ -58,7 +60,9 @@ def _write_audit(event_type: str, user, request: HttpRequest, detail: dict | Non
             prev_hash=prev_hash,
         )
     except Exception:
-        logger.warning("Audit log failed for event_type=%s user_id=%s", event_type, getattr(user, "pk", "?"))
+        logger.warning(
+            "Audit log failed for event_type=%s user_id=%s", event_type, getattr(user, "pk", "?")
+        )
 
 
 def _get_client_ip(request: HttpRequest) -> str | None:
@@ -84,6 +88,7 @@ class AccountDashboardView(OTPRequiredMixin, TemplateView):
     Citizen account home page.
     Shows profile summary, quick links to requests and settings.
     """
+
     template_name = "account/dashboard.html"
 
     def get_context_data(self, **kwargs: Any) -> dict:
@@ -91,14 +96,14 @@ class AccountDashboardView(OTPRequiredMixin, TemplateView):
         # Service request count — guarded import since portal may not be ready
         try:
             from apps.portal.models import ServiceRequest
-            ctx["request_count"] = ServiceRequest.objects.filter(
-                citizen=self.request.user
-            ).count()
+
+            ctx["request_count"] = ServiceRequest.objects.filter(citizen=self.request.user).count()
         except (ImportError, LookupError):
             ctx["request_count"] = 0
         # Unread notification count
         try:
             from apps.notifications.models import Notification
+
             ctx["unread_count"] = Notification.objects.filter(
                 recipient=self.request.user,
                 read_at__isnull=True,
@@ -113,15 +118,17 @@ class ProfileUpdateView(OTPRequiredMixin, SuccessMessageMixin, UpdateView):
     Allows a citizen to update their display name, phone number,
     and preferred language.
     """
+
     template_name = "account/profile_edit.html"
     success_url = reverse_lazy("auth_extension:dashboard")
     success_message = _("Your profile has been updated. / Votre profil a été mis à jour.")
 
-    def get_form_class(self):
+    def get_form_class(self):  # noqa: ANN201
         from apps.auth_extension.forms import ProfileUpdateForm
+
         return ProfileUpdateForm
 
-    def get_object(self, queryset=None):
+    def get_object(self, queryset=None):  # noqa: ANN001, ANN201
         return self.request.user
 
     def form_valid(self, form: Any) -> HttpResponse:
@@ -136,7 +143,8 @@ class ChangeLanguageView(LoginRequiredMixin, View):
     Updates the user record AND sets the Django language cookie.
     No GET — protects against CSRF via POST requirement.
     """
-    http_method_names = ["post"]
+
+    http_method_names = ["post"]  # noqa: RUF012
 
     @staticmethod
     def _safe_next(request: HttpRequest) -> str:
@@ -154,6 +162,7 @@ class ChangeLanguageView(LoginRequiredMixin, View):
         request.user.preferred_language = lang
         request.user.save(update_fields=["preferred_language"])
         from django.utils import translation
+
         translation.activate(lang)
         next_url = self._safe_next(request)
         response = redirect(next_url)
@@ -174,26 +183,22 @@ class MFAStatusView(OTPRequiredMixin, TemplateView):
     - Whether TOTP is enabled
     - Number of remaining backup codes
     """
+
     template_name = "account/mfa_status.html"
 
     def get_context_data(self, **kwargs: Any) -> dict:
         ctx = super().get_context_data(**kwargs)
         try:
-            from django_otp.plugins.otp_totp.models import TOTPDevice
             from django_otp.plugins.otp_static.models import StaticDevice
-            totp_devices = TOTPDevice.objects.filter(
-                user=self.request.user, confirmed=True
-            )
+            from django_otp.plugins.otp_totp.models import TOTPDevice
+
+            totp_devices = TOTPDevice.objects.filter(user=self.request.user, confirmed=True)
             ctx["totp_devices"] = totp_devices
             ctx["has_mfa"] = totp_devices.exists()
             first_device = totp_devices.first()
             ctx["device_name"] = first_device.name if first_device else ""
-            static_dev = StaticDevice.objects.filter(
-                user=self.request.user
-            ).first()
-            ctx["backup_codes_remaining"] = (
-                static_dev.token_set.count() if static_dev else 0
-            )
+            static_dev = StaticDevice.objects.filter(user=self.request.user).first()
+            ctx["backup_codes_remaining"] = static_dev.token_set.count() if static_dev else 0
         except Exception:
             ctx["totp_devices"] = []
             ctx["has_mfa"] = False
@@ -209,20 +214,21 @@ class GenerateBackupCodesView(OTPRequiredMixin, View):
     POST-only: regenerate 8 backup codes, invalidating all previous ones.
     Codes are stored in the session for one-time display only.
     """
-    http_method_names = ["post"]
+
+    http_method_names = ["post"]  # noqa: RUF012
 
     def post(self, request: HttpRequest) -> HttpResponse:
         try:
-            from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
             from django.db import transaction
+            from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
+
             device, _created = StaticDevice.objects.get_or_create(
                 user=request.user,
                 defaults={"name": "Backup codes"},
             )
             # Generate 8 codes in XXXX-XXXX format before the atomic block
             codes = [
-                f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}"
-                for _i in range(8)
+                f"{secrets.token_hex(2).upper()}-{secrets.token_hex(2).upper()}" for _i in range(8)
             ]
             # Atomic delete-and-replace: prevents duplicate token sets from concurrent POSTs
             with transaction.atomic():
@@ -233,10 +239,14 @@ class GenerateBackupCodesView(OTPRequiredMixin, View):
             # Store for one-time display — cleared on next page load
             request.session["new_backup_codes"] = codes
             request.session.modified = True
-            _write_audit("auth.mfa.enabled", request.user, request, {"action": "backup_codes_regenerated"})
+            _write_audit(
+                "auth.mfa.enabled", request.user, request, {"action": "backup_codes_regenerated"}
+            )
             messages.success(
                 request,
-                _("New backup codes generated. Save them somewhere safe. / Nouveaux codes de sauvegarde générés. Conservez-les en lieu sûr.")
+                _(
+                    "New backup codes generated. Save them somewhere safe. / Nouveaux codes de sauvegarde générés. Conservez-les en lieu sûr."  # noqa: E501
+                ),
             )
         except Exception:
             logger.exception("Failed to generate backup codes for user_id=%s", request.user.pk)
@@ -255,15 +265,18 @@ class GuestSessionView(View):
     If the requester is already authenticated, the guest token is cleared
     (they don't need it).
     """
+
     def get(self, request: HttpRequest) -> HttpResponse:
         if request.user.is_authenticated:
             from apps.auth_extension.tokens import GuestTokenManager
+
             GuestTokenManager.clear(request)
             if request.headers.get("Accept") == "application/json":
                 return JsonResponse({"authenticated": True})
             return redirect("auth_extension:dashboard")
 
         from apps.auth_extension.tokens import get_or_create_guest_token
+
         token = get_or_create_guest_token(request)
 
         if request.headers.get("Accept") == "application/json":

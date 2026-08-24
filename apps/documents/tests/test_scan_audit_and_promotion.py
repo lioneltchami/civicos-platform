@@ -35,7 +35,6 @@ import os
 import uuid
 from unittest.mock import patch
 
-from celery.exceptions import Retry
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
 from django.test import TestCase, override_settings
@@ -49,6 +48,7 @@ from apps.documents.tasks import (
     _StoragePromotionError,
     scan_document,
 )
+from celery.exceptions import Retry
 
 User = get_user_model()
 
@@ -70,7 +70,7 @@ CIVICOS_CLAMAV = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def make_user() -> "User":
+def make_user() -> User:
     uid = uuid.uuid4().hex[:8]
     return User.objects.create_user(email=f"scanaudit-{uid}@example.com", password="hunter2")
 
@@ -378,9 +378,7 @@ class QuarantinePromotionTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True) as callbacks:
             run_scan(doc, "OK")
 
-        self.assertEqual(
-            len(callbacks), 1, "Exactly one deferred cleanup callback is expected."
-        )
+        self.assertEqual(len(callbacks), 1, "Exactly one deferred cleanup callback is expected.")
         self.assertFalse(
             default_storage.exists(old_key),
             "The stale quarantine copy must be deleted after the promotion commits.",

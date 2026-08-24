@@ -1,6 +1,7 @@
 """
 Custom template filters for the Forms building block.
 """
+
 from django import template
 from django.utils.safestring import mark_safe
 
@@ -8,7 +9,7 @@ register = template.Library()
 
 
 @register.filter(name="get_item")
-def get_item(dictionary, key):
+def get_item(dictionary, key):  # noqa: ANN001, ANN201
     """
     Get a value from a dict by a dynamic key.
 
@@ -23,7 +24,7 @@ def get_item(dictionary, key):
 
 
 @register.filter(name="render_field_with_error_attrs")
-def render_field_with_error_attrs(field, describedby_id=""):
+def render_field_with_error_attrs(field, describedby_id=""):  # noqa: ANN001, ANN201
     """
     Render a BoundField's widget with WCAG-required error attributes injected.
 
@@ -62,11 +63,11 @@ def render_field_with_error_attrs(field, describedby_id=""):
     if field.field.required:
         attrs["aria-required"] = "true"
 
-    return mark_safe(field.as_widget(attrs=attrs))
+    return mark_safe(field.as_widget(attrs=attrs))  # noqa: S308
 
 
 @register.filter(name="render_field_with_required_attrs")
-def render_field_with_required_attrs(field):
+def render_field_with_required_attrs(field):  # noqa: ANN001, ANN201
     """
     Render a BoundField's widget with aria-required="true" and, when the field
     also has hint text, aria-describedby pointing at the hint span.
@@ -87,12 +88,12 @@ def render_field_with_required_attrs(field):
     if field.help_text:
         attrs["aria-describedby"] = f"{field.id_for_label}-hint"
     if not attrs:
-        return mark_safe(field.as_widget())
-    return mark_safe(field.as_widget(attrs=attrs))
+        return mark_safe(field.as_widget())  # noqa: S308
+    return mark_safe(field.as_widget(attrs=attrs))  # noqa: S308
 
 
 @register.filter(name="get_form_field")
-def get_form_field(form, field_name):
+def get_form_field(form, field_name):  # noqa: ANN001, ANN201
     """
     Retrieve a BoundField from a Django form by name, including names that
     start with underscores (which Django's template engine blocks via normal

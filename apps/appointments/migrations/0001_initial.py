@@ -12,225 +12,981 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.CreateModel(
-            name='Organization',
+            name="Organization",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Updated at')),
-                ('name_en', models.CharField(max_length=200, verbose_name='Name (EN)')),
-                ('name_fr', models.CharField(max_length=200, verbose_name='Name (FR)')),
-                ('slug', models.SlugField(help_text='Machine-readable identifier. Used in URL routing and service-layer lookups.', max_length=80, unique=True, verbose_name='Slug')),
-                ('description_en', models.TextField(blank=True, verbose_name='Description (EN)')),
-                ('description_fr', models.TextField(blank=True, verbose_name='Description (FR)')),
-                ('organization_type', models.CharField(choices=[('government_federal', 'Federal Government'), ('government_provincial', 'Provincial Government'), ('government_municipal', 'Municipal Government'), ('ngo', 'Non-Governmental Organization'), ('health', 'Health Authority / Clinic'), ('other', 'Other')], default='government_federal', max_length=25, verbose_name='Organization type')),
-                ('is_active', models.BooleanField(db_index=True, default=True, verbose_name='Active')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
+                ("name_en", models.CharField(max_length=200, verbose_name="Name (EN)")),
+                ("name_fr", models.CharField(max_length=200, verbose_name="Name (FR)")),
+                (
+                    "slug",
+                    models.SlugField(
+                        help_text="Machine-readable identifier. Used in URL routing and service-layer lookups.",
+                        max_length=80,
+                        unique=True,
+                        verbose_name="Slug",
+                    ),
+                ),
+                ("description_en", models.TextField(blank=True, verbose_name="Description (EN)")),
+                ("description_fr", models.TextField(blank=True, verbose_name="Description (FR)")),
+                (
+                    "organization_type",
+                    models.CharField(
+                        choices=[
+                            ("government_federal", "Federal Government"),
+                            ("government_provincial", "Provincial Government"),
+                            ("government_municipal", "Municipal Government"),
+                            ("ngo", "Non-Governmental Organization"),
+                            ("health", "Health Authority / Clinic"),
+                            ("other", "Other"),
+                        ],
+                        default="government_federal",
+                        max_length=25,
+                        verbose_name="Organization type",
+                    ),
+                ),
+                (
+                    "is_active",
+                    models.BooleanField(db_index=True, default=True, verbose_name="Active"),
+                ),
             ],
             options={
-                'verbose_name': 'Organization',
-                'verbose_name_plural': 'Organizations',
-                'ordering': ['name_en'],
+                "verbose_name": "Organization",
+                "verbose_name_plural": "Organizations",
+                "ordering": ["name_en"],
             },
         ),
         migrations.CreateModel(
-            name='SchedulingPolicy',
+            name="SchedulingPolicy",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Updated at')),
-                ('name', models.CharField(help_text='Human-readable name for this policy configuration.', max_length=100, unique=True, verbose_name='Policy name')),
-                ('description', models.TextField(blank=True, verbose_name='Description')),
-                ('min_lead_time_hours', models.PositiveIntegerField(default=1, help_text='Minimum hours before a slot that self-service booking is allowed. Enforced against wall-clock time, not business hours. Staff-assisted bookings bypass this limit.', verbose_name='Minimum lead time (hours)')),
-                ('max_advance_days', models.PositiveIntegerField(default=180, help_text='Maximum days in the future a citizen can book. 0 = no limit.', verbose_name='Maximum advance booking (days)')),
-                ('slot_interval_minutes', models.PositiveIntegerField(default=15, help_text='Step between slot start times. May differ from appointment duration. Example: 30-min appointments on a 15-min grid = every quarter-hour start.', validators=[django.core.validators.MinValueValidator(5), django.core.validators.MaxValueValidator(240)], verbose_name='Slot interval (minutes)')),
-                ('buffer_before_minutes', models.PositiveIntegerField(default=0, help_text="Setup time before the appointment. Expands the slot's effective busy-time footprint so back-to-back slots cannot be double-booked.", verbose_name='Buffer before appointment (minutes)')),
-                ('buffer_after_minutes', models.PositiveIntegerField(default=5, help_text='Wrap-up time after the appointment. Same function as buffer_before.', verbose_name='Buffer after appointment (minutes)')),
-                ('cancellation_notice_hours', models.PositiveIntegerField(default=24, help_text='Minimum hours before the appointment that a citizen may self-cancel. Cancellations within this window are flagged as late_cancellation=True.', verbose_name='Cancellation notice required (hours)')),
-                ('reschedule_notice_hours', models.PositiveIntegerField(default=24, help_text='Minimum hours before the appointment that a citizen may reschedule.', verbose_name='Reschedule notice required (hours)')),
-                ('max_reschedule_count', models.PositiveIntegerField(default=3, help_text='How many times a single booking may be rescheduled before the citizen must contact staff. 0 = rescheduling not allowed by citizens.', verbose_name='Maximum reschedule count')),
-                ('max_active_bookings_per_citizen', models.PositiveIntegerField(default=3, help_text='Maximum simultaneous CONFIRMED bookings per citizen under this policy. Prevents slot hoarding. 0 = no limit.', verbose_name='Max active bookings per citizen')),
-                ('booking_frequency_days', models.PositiveIntegerField(default=0, help_text='If > 0, a citizen cannot book again within this many calendar days of their last CONFIRMED booking. Used by food banks and similar services where frequency is part of the eligibility model. 0 = no frequency limit.', verbose_name='Booking frequency limit (days)')),
-                ('waitlist_enabled', models.BooleanField(default=True, help_text='If True, citizens can join a waitlist when a slot is full.', verbose_name='Waitlist enabled')),
-                ('waitlist_acceptance_window_hours', models.PositiveIntegerField(default=2, help_text='Hours a waitlisted citizen has to accept a freed slot before it moves to the next person on the waitlist.', verbose_name='Waitlist acceptance window (hours)')),
-                ('max_waitlist_per_slot', models.PositiveIntegerField(default=10, help_text='Hard cap on the waitlist queue length per slot. 0 = unlimited.', verbose_name='Maximum waitlist entries per slot')),
-                ('waitlist_notify_batch_size', models.PositiveIntegerField(default=3, help_text='How many waitlisted citizens to notify simultaneously when a slot opens. Batch of 3 raises fill rate from ~50%% to 80%%+ (industry evidence). The first to accept gets the slot; others are notified it was taken.', verbose_name='Waitlist notification batch size')),
-                ('no_show_warning_threshold', models.PositiveIntegerField(default=1, help_text='After this many no-shows, flag the ClientNoShowRecord for staff review. 0 = never warn.', verbose_name='No-show warning threshold')),
-                ('no_show_suspension_threshold', models.PositiveIntegerField(default=3, help_text='After this many no-shows, set ClientNoShowRecord.is_suspended=True preventing further self-service booking. 0 = non-punitive mode (recommended for health and social services).', verbose_name='No-show suspension threshold')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
+                (
+                    "name",
+                    models.CharField(
+                        help_text="Human-readable name for this policy configuration.",
+                        max_length=100,
+                        unique=True,
+                        verbose_name="Policy name",
+                    ),
+                ),
+                ("description", models.TextField(blank=True, verbose_name="Description")),
+                (
+                    "min_lead_time_hours",
+                    models.PositiveIntegerField(
+                        default=1,
+                        help_text="Minimum hours before a slot that self-service booking is allowed. Enforced against wall-clock time, not business hours. Staff-assisted bookings bypass this limit.",
+                        verbose_name="Minimum lead time (hours)",
+                    ),
+                ),
+                (
+                    "max_advance_days",
+                    models.PositiveIntegerField(
+                        default=180,
+                        help_text="Maximum days in the future a citizen can book. 0 = no limit.",
+                        verbose_name="Maximum advance booking (days)",
+                    ),
+                ),
+                (
+                    "slot_interval_minutes",
+                    models.PositiveIntegerField(
+                        default=15,
+                        help_text="Step between slot start times. May differ from appointment duration. Example: 30-min appointments on a 15-min grid = every quarter-hour start.",
+                        validators=[
+                            django.core.validators.MinValueValidator(5),
+                            django.core.validators.MaxValueValidator(240),
+                        ],
+                        verbose_name="Slot interval (minutes)",
+                    ),
+                ),
+                (
+                    "buffer_before_minutes",
+                    models.PositiveIntegerField(
+                        default=0,
+                        help_text="Setup time before the appointment. Expands the slot's effective busy-time footprint so back-to-back slots cannot be double-booked.",
+                        verbose_name="Buffer before appointment (minutes)",
+                    ),
+                ),
+                (
+                    "buffer_after_minutes",
+                    models.PositiveIntegerField(
+                        default=5,
+                        help_text="Wrap-up time after the appointment. Same function as buffer_before.",
+                        verbose_name="Buffer after appointment (minutes)",
+                    ),
+                ),
+                (
+                    "cancellation_notice_hours",
+                    models.PositiveIntegerField(
+                        default=24,
+                        help_text="Minimum hours before the appointment that a citizen may self-cancel. Cancellations within this window are flagged as late_cancellation=True.",
+                        verbose_name="Cancellation notice required (hours)",
+                    ),
+                ),
+                (
+                    "reschedule_notice_hours",
+                    models.PositiveIntegerField(
+                        default=24,
+                        help_text="Minimum hours before the appointment that a citizen may reschedule.",
+                        verbose_name="Reschedule notice required (hours)",
+                    ),
+                ),
+                (
+                    "max_reschedule_count",
+                    models.PositiveIntegerField(
+                        default=3,
+                        help_text="How many times a single booking may be rescheduled before the citizen must contact staff. 0 = rescheduling not allowed by citizens.",
+                        verbose_name="Maximum reschedule count",
+                    ),
+                ),
+                (
+                    "max_active_bookings_per_citizen",
+                    models.PositiveIntegerField(
+                        default=3,
+                        help_text="Maximum simultaneous CONFIRMED bookings per citizen under this policy. Prevents slot hoarding. 0 = no limit.",
+                        verbose_name="Max active bookings per citizen",
+                    ),
+                ),
+                (
+                    "booking_frequency_days",
+                    models.PositiveIntegerField(
+                        default=0,
+                        help_text="If > 0, a citizen cannot book again within this many calendar days of their last CONFIRMED booking. Used by food banks and similar services where frequency is part of the eligibility model. 0 = no frequency limit.",
+                        verbose_name="Booking frequency limit (days)",
+                    ),
+                ),
+                (
+                    "waitlist_enabled",
+                    models.BooleanField(
+                        default=True,
+                        help_text="If True, citizens can join a waitlist when a slot is full.",
+                        verbose_name="Waitlist enabled",
+                    ),
+                ),
+                (
+                    "waitlist_acceptance_window_hours",
+                    models.PositiveIntegerField(
+                        default=2,
+                        help_text="Hours a waitlisted citizen has to accept a freed slot before it moves to the next person on the waitlist.",
+                        verbose_name="Waitlist acceptance window (hours)",
+                    ),
+                ),
+                (
+                    "max_waitlist_per_slot",
+                    models.PositiveIntegerField(
+                        default=10,
+                        help_text="Hard cap on the waitlist queue length per slot. 0 = unlimited.",
+                        verbose_name="Maximum waitlist entries per slot",
+                    ),
+                ),
+                (
+                    "waitlist_notify_batch_size",
+                    models.PositiveIntegerField(
+                        default=3,
+                        help_text="How many waitlisted citizens to notify simultaneously when a slot opens. Batch of 3 raises fill rate from ~50%% to 80%%+ (industry evidence). The first to accept gets the slot; others are notified it was taken.",
+                        verbose_name="Waitlist notification batch size",
+                    ),
+                ),
+                (
+                    "no_show_warning_threshold",
+                    models.PositiveIntegerField(
+                        default=1,
+                        help_text="After this many no-shows, flag the ClientNoShowRecord for staff review. 0 = never warn.",
+                        verbose_name="No-show warning threshold",
+                    ),
+                ),
+                (
+                    "no_show_suspension_threshold",
+                    models.PositiveIntegerField(
+                        default=3,
+                        help_text="After this many no-shows, set ClientNoShowRecord.is_suspended=True preventing further self-service booking. 0 = non-punitive mode (recommended for health and social services).",
+                        verbose_name="No-show suspension threshold",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Scheduling policy',
-                'verbose_name_plural': 'Scheduling policies',
-                'ordering': ['name'],
+                "verbose_name": "Scheduling policy",
+                "verbose_name_plural": "Scheduling policies",
+                "ordering": ["name"],
             },
         ),
         migrations.CreateModel(
-            name='Location',
+            name="Location",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Updated at')),
-                ('name_en', models.CharField(max_length=200, verbose_name='Name (EN)')),
-                ('name_fr', models.CharField(max_length=200, verbose_name='Name (FR)')),
-                ('slug', models.SlugField(help_text='Machine-readable identifier. Used in URL routing.', max_length=80, unique=True, verbose_name='Slug')),
-                ('is_virtual', models.BooleanField(default=False, help_text='If True, this location has no physical address — it is a virtual meeting room pool.', verbose_name='Virtual location')),
-                ('street_address', models.CharField(blank=True, max_length=300, verbose_name='Street address')),
-                ('city', models.CharField(blank=True, max_length=100, verbose_name='City')),
-                ('province', models.CharField(blank=True, help_text='ISO 3166-2:CA two-letter code (e.g. ON, QC, BC).', max_length=2, verbose_name='Province / Territory')),
-                ('postal_code', models.CharField(blank=True, max_length=7, verbose_name='Postal code')),
-                ('accessibility_features_en', models.TextField(blank=True, help_text='Describe physical accessibility: wheelchair access, elevator, TTY, parking. Shown to citizens.', verbose_name='Accessibility features (EN)')),
-                ('accessibility_features_fr', models.TextField(blank=True, verbose_name='Accessibility features (FR)')),
-                ('timezone', models.CharField(default='America/Toronto', help_text="IANA timezone identifier for this location (e.g. 'America/Toronto', 'America/Vancouver', 'America/Winnipeg'). All Slot datetimes are stored in UTC; this field is used for display and availability template conversion only. Canada spans 6 timezones — never assume Eastern time.", max_length=64, verbose_name='Timezone (IANA)')),
-                ('business_hours', models.JSONField(blank=True, default=list, help_text='JSON array of weekly business hours for display purposes. Format: [{"day_of_week": 1, "open": "09:00", "close": "17:00"}] where day_of_week follows ISO 8601 (1=Monday, 7=Sunday). This is for public display only — staff availability is configured via AvailabilityTemplate (Wave 2).', verbose_name='Business hours')),
-                ('privacy_regime', models.CharField(choices=[('privacy_act', 'Federal Privacy Act'), ('pipeda', 'PIPEDA'), ('phipa', 'Ontario PHIPA'), ('law25', 'Quebec Law 25'), ('foippa_bc', 'BC FOIPPA'), ('fippa_on', 'Ontario FIPPA'), ('other', 'Other provincial statute')], default='pipeda', help_text='Governing privacy law for this location. Affects consent requirements, retention periods, breach notification deadlines, and PIA obligations. Quebec Law 25 is the most stringent: requires mandatory PIA for booking systems and express consent for sensitive fields.', max_length=30, verbose_name='Privacy regime')),
-                ('is_active', models.BooleanField(db_index=True, default=True, verbose_name='Active')),
-                ('phone_en', models.CharField(blank=True, max_length=20, verbose_name='Phone (EN)')),
-                ('phone_fr', models.CharField(blank=True, max_length=20, verbose_name='Phone (FR)')),
-                ('tty_phone', models.CharField(blank=True, help_text='Teletype number for Deaf and hard-of-hearing citizens.', max_length=20, verbose_name='TTY/TDD phone')),
-                ('email', models.EmailField(blank=True, max_length=254, verbose_name='Contact email')),
-                ('organization', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='locations', to='appointments.organization', verbose_name='Organization')),
-                ('scheduling_policy', models.ForeignKey(blank=True, help_text='Default policy for all appointment types at this location. Can be overridden per AppointmentType.', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='locations', to='appointments.schedulingpolicy', verbose_name='Scheduling policy')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
+                ("name_en", models.CharField(max_length=200, verbose_name="Name (EN)")),
+                ("name_fr", models.CharField(max_length=200, verbose_name="Name (FR)")),
+                (
+                    "slug",
+                    models.SlugField(
+                        help_text="Machine-readable identifier. Used in URL routing.",
+                        max_length=80,
+                        unique=True,
+                        verbose_name="Slug",
+                    ),
+                ),
+                (
+                    "is_virtual",
+                    models.BooleanField(
+                        default=False,
+                        help_text="If True, this location has no physical address — it is a virtual meeting room pool.",
+                        verbose_name="Virtual location",
+                    ),
+                ),
+                (
+                    "street_address",
+                    models.CharField(blank=True, max_length=300, verbose_name="Street address"),
+                ),
+                ("city", models.CharField(blank=True, max_length=100, verbose_name="City")),
+                (
+                    "province",
+                    models.CharField(
+                        blank=True,
+                        help_text="ISO 3166-2:CA two-letter code (e.g. ON, QC, BC).",
+                        max_length=2,
+                        verbose_name="Province / Territory",
+                    ),
+                ),
+                (
+                    "postal_code",
+                    models.CharField(blank=True, max_length=7, verbose_name="Postal code"),
+                ),
+                (
+                    "accessibility_features_en",
+                    models.TextField(
+                        blank=True,
+                        help_text="Describe physical accessibility: wheelchair access, elevator, TTY, parking. Shown to citizens.",
+                        verbose_name="Accessibility features (EN)",
+                    ),
+                ),
+                (
+                    "accessibility_features_fr",
+                    models.TextField(blank=True, verbose_name="Accessibility features (FR)"),
+                ),
+                (
+                    "timezone",
+                    models.CharField(
+                        default="America/Toronto",
+                        help_text="IANA timezone identifier for this location (e.g. 'America/Toronto', 'America/Vancouver', 'America/Winnipeg'). All Slot datetimes are stored in UTC; this field is used for display and availability template conversion only. Canada spans 6 timezones — never assume Eastern time.",
+                        max_length=64,
+                        verbose_name="Timezone (IANA)",
+                    ),
+                ),
+                (
+                    "business_hours",
+                    models.JSONField(
+                        blank=True,
+                        default=list,
+                        help_text='JSON array of weekly business hours for display purposes. Format: [{"day_of_week": 1, "open": "09:00", "close": "17:00"}] where day_of_week follows ISO 8601 (1=Monday, 7=Sunday). This is for public display only — staff availability is configured via AvailabilityTemplate (Wave 2).',
+                        verbose_name="Business hours",
+                    ),
+                ),
+                (
+                    "privacy_regime",
+                    models.CharField(
+                        choices=[
+                            ("privacy_act", "Federal Privacy Act"),
+                            ("pipeda", "PIPEDA"),
+                            ("phipa", "Ontario PHIPA"),
+                            ("law25", "Quebec Law 25"),
+                            ("foippa_bc", "BC FOIPPA"),
+                            ("fippa_on", "Ontario FIPPA"),
+                            ("other", "Other provincial statute"),
+                        ],
+                        default="pipeda",
+                        help_text="Governing privacy law for this location. Affects consent requirements, retention periods, breach notification deadlines, and PIA obligations. Quebec Law 25 is the most stringent: requires mandatory PIA for booking systems and express consent for sensitive fields.",
+                        max_length=30,
+                        verbose_name="Privacy regime",
+                    ),
+                ),
+                (
+                    "is_active",
+                    models.BooleanField(db_index=True, default=True, verbose_name="Active"),
+                ),
+                (
+                    "phone_en",
+                    models.CharField(blank=True, max_length=20, verbose_name="Phone (EN)"),
+                ),
+                (
+                    "phone_fr",
+                    models.CharField(blank=True, max_length=20, verbose_name="Phone (FR)"),
+                ),
+                (
+                    "tty_phone",
+                    models.CharField(
+                        blank=True,
+                        help_text="Teletype number for Deaf and hard-of-hearing citizens.",
+                        max_length=20,
+                        verbose_name="TTY/TDD phone",
+                    ),
+                ),
+                (
+                    "email",
+                    models.EmailField(blank=True, max_length=254, verbose_name="Contact email"),
+                ),
+                (
+                    "organization",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="locations",
+                        to="appointments.organization",
+                        verbose_name="Organization",
+                    ),
+                ),
+                (
+                    "scheduling_policy",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Default policy for all appointment types at this location. Can be overridden per AppointmentType.",
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="locations",
+                        to="appointments.schedulingpolicy",
+                        verbose_name="Scheduling policy",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Location',
-                'verbose_name_plural': 'Locations',
-                'ordering': ['name_en'],
+                "verbose_name": "Location",
+                "verbose_name_plural": "Locations",
+                "ordering": ["name_en"],
             },
         ),
         migrations.CreateModel(
-            name='ServiceType',
+            name="ServiceType",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Updated at')),
-                ('slug', models.SlugField(help_text='Machine-readable identifier. Used in URL routing and service-layer lookups.', max_length=80, unique=True, verbose_name='Slug')),
-                ('name_en', models.CharField(max_length=200, verbose_name='Name (EN)')),
-                ('name_fr', models.CharField(max_length=200, verbose_name='Name (FR)')),
-                ('description_en', models.TextField(blank=True, verbose_name='Description (EN)')),
-                ('description_fr', models.TextField(blank=True, verbose_name='Description (FR)')),
-                ('category', models.CharField(choices=[('government', 'Government Service'), ('health', 'Health Service'), ('legal', 'Legal Aid'), ('employment', 'Employment Service'), ('housing', 'Housing Service'), ('settlement', 'Settlement Service'), ('food', 'Food Security'), ('mental_health', 'Mental Health & Addictions'), ('other', 'Other')], default='government', max_length=40, verbose_name='Service category')),
-                ('sector', models.CharField(choices=[('government', 'Government'), ('ngo', 'NGO'), ('both', 'Both')], default='both', help_text='Which sector this service type is typically used in.', max_length=20, verbose_name='Sector')),
-                ('privacy_sensitivity', models.CharField(choices=[('standard', 'Standard (unclassified)'), ('protected_a', 'Protected A'), ('protected_b', 'Protected B')], default='standard', help_text='Sensitivity classification following TBS SPIN 2023. Drives which additional consent and access controls apply.', max_length=20, verbose_name='Privacy sensitivity')),
-                ('requires_eligibility_screening', models.BooleanField(default=False, help_text='If True, citizens must complete an eligibility check before the booking flow is accessible (e.g., income threshold for legal aid, insurance status for CHC, By-Name-List for coordinated housing access).', verbose_name='Requires eligibility screening')),
-                ('eligibility_description_en', models.TextField(blank=True, help_text='Shown to citizens before they begin the booking flow.', verbose_name='Eligibility description (EN)')),
-                ('eligibility_description_fr', models.TextField(blank=True, verbose_name='Eligibility description (FR)')),
-                ('is_active', models.BooleanField(db_index=True, default=True, verbose_name='Active')),
-                ('sort_order', models.PositiveSmallIntegerField(default=0, help_text='Lower numbers appear first in listings. Tie-breaks alphabetically by name.', verbose_name='Sort order')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
+                (
+                    "slug",
+                    models.SlugField(
+                        help_text="Machine-readable identifier. Used in URL routing and service-layer lookups.",
+                        max_length=80,
+                        unique=True,
+                        verbose_name="Slug",
+                    ),
+                ),
+                ("name_en", models.CharField(max_length=200, verbose_name="Name (EN)")),
+                ("name_fr", models.CharField(max_length=200, verbose_name="Name (FR)")),
+                ("description_en", models.TextField(blank=True, verbose_name="Description (EN)")),
+                ("description_fr", models.TextField(blank=True, verbose_name="Description (FR)")),
+                (
+                    "category",
+                    models.CharField(
+                        choices=[
+                            ("government", "Government Service"),
+                            ("health", "Health Service"),
+                            ("legal", "Legal Aid"),
+                            ("employment", "Employment Service"),
+                            ("housing", "Housing Service"),
+                            ("settlement", "Settlement Service"),
+                            ("food", "Food Security"),
+                            ("mental_health", "Mental Health & Addictions"),
+                            ("other", "Other"),
+                        ],
+                        default="government",
+                        max_length=40,
+                        verbose_name="Service category",
+                    ),
+                ),
+                (
+                    "sector",
+                    models.CharField(
+                        choices=[("government", "Government"), ("ngo", "NGO"), ("both", "Both")],
+                        default="both",
+                        help_text="Which sector this service type is typically used in.",
+                        max_length=20,
+                        verbose_name="Sector",
+                    ),
+                ),
+                (
+                    "privacy_sensitivity",
+                    models.CharField(
+                        choices=[
+                            ("standard", "Standard (unclassified)"),
+                            ("protected_a", "Protected A"),
+                            ("protected_b", "Protected B"),
+                        ],
+                        default="standard",
+                        help_text="Sensitivity classification following TBS SPIN 2023. Drives which additional consent and access controls apply.",
+                        max_length=20,
+                        verbose_name="Privacy sensitivity",
+                    ),
+                ),
+                (
+                    "requires_eligibility_screening",
+                    models.BooleanField(
+                        default=False,
+                        help_text="If True, citizens must complete an eligibility check before the booking flow is accessible (e.g., income threshold for legal aid, insurance status for CHC, By-Name-List for coordinated housing access).",
+                        verbose_name="Requires eligibility screening",
+                    ),
+                ),
+                (
+                    "eligibility_description_en",
+                    models.TextField(
+                        blank=True,
+                        help_text="Shown to citizens before they begin the booking flow.",
+                        verbose_name="Eligibility description (EN)",
+                    ),
+                ),
+                (
+                    "eligibility_description_fr",
+                    models.TextField(blank=True, verbose_name="Eligibility description (FR)"),
+                ),
+                (
+                    "is_active",
+                    models.BooleanField(db_index=True, default=True, verbose_name="Active"),
+                ),
+                (
+                    "sort_order",
+                    models.PositiveSmallIntegerField(
+                        default=0,
+                        help_text="Lower numbers appear first in listings. Tie-breaks alphabetically by name.",
+                        verbose_name="Sort order",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Service type',
-                'verbose_name_plural': 'Service types',
-                'ordering': ['sort_order', 'name_en'],
-                'indexes': [models.Index(fields=['category', 'is_active'], name='appt_servicetype_cat_active')],
+                "verbose_name": "Service type",
+                "verbose_name_plural": "Service types",
+                "ordering": ["sort_order", "name_en"],
+                "indexes": [
+                    models.Index(
+                        fields=["category", "is_active"], name="appt_servicetype_cat_active"
+                    )
+                ],
             },
         ),
         migrations.CreateModel(
-            name='AppointmentType',
+            name="AppointmentType",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Updated at')),
-                ('slug', models.SlugField(help_text='Machine-readable identifier used in URL routing.', max_length=80, unique=True, verbose_name='Slug')),
-                ('name_en', models.CharField(max_length=200, verbose_name='Name (EN)')),
-                ('name_fr', models.CharField(max_length=200, verbose_name='Name (FR)')),
-                ('description_en', models.TextField(blank=True, verbose_name='Description (EN)')),
-                ('description_fr', models.TextField(blank=True, verbose_name='Description (FR)')),
-                ('duration_minutes', models.PositiveIntegerField(default=30, help_text='Length of the appointment itself, not including buffers. Buffers are defined in the attached SchedulingPolicy.', validators=[django.core.validators.MinValueValidator(5), django.core.validators.MaxValueValidator(480)], verbose_name='Duration (minutes)')),
-                ('mode', models.CharField(choices=[('in_person', 'In-Person'), ('virtual', 'Virtual (Video)'), ('phone', 'Phone'), ('hybrid', 'Hybrid — Client Choice')], default='in_person', max_length=20, verbose_name='Appointment mode')),
-                ('capacity_per_slot', models.PositiveSmallIntegerField(default=1, help_text='Number of clients that can be booked into a single slot. 1 = one-to-one appointment. > 1 = group session.', validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(100)], verbose_name='Capacity per slot')),
-                ('intake_form_schema', models.JSONField(blank=True, default=dict, help_text='JSON Schema (draft-07) for pre-booking intake questions. Answers are stored in Booking.form_responses at booking time. Collect only what the service actually requires (PIPEDA data-minimisation).', verbose_name='Intake form schema')),
-                ('requires_document_upload', models.BooleanField(default=False, help_text='If True, citizens must upload a supporting document before the booking is confirmed. Document category is specified in required_document_category_slug.', verbose_name='Requires document upload')),
-                ('required_document_category_slug', models.CharField(blank=True, help_text='Slug of the DocumentCategory required. Only relevant if requires_document_upload=True.', max_length=80, verbose_name='Required document category slug')),
-                ('requires_payment', models.BooleanField(default=False, help_text='If True, the citizen must complete a fee payment before the slot is confirmed. Fee amount is configured via the Payments BB using fee_code.', verbose_name='Requires payment')),
-                ('fee_code', models.CharField(blank=True, help_text='Fee code in the Payments BB. Only relevant if requires_payment=True.', max_length=50, verbose_name='Fee code')),
-                ('requires_consent', models.BooleanField(default=False, help_text='If True, the citizen must grant consent for data processing before booking. The Consent BB gate is checked using consent_category_slug. Always required under Quebec Law 25 for sensitive data.', verbose_name='Requires explicit consent')),
-                ('consent_category_slug', models.CharField(blank=True, help_text="Slug of the ConsentCategory to check. Default: 'appointment_data_processing'. Only relevant if requires_consent=True.", max_length=80, verbose_name='Consent category slug')),
-                ('requires_staff_confirmation', models.BooleanField(default=True, help_text='If True, new bookings start as PENDING and must be confirmed by staff before the citizen receives a confirmation email. If False, bookings are auto-confirmed immediately on submission.', verbose_name='Requires staff confirmation')),
-                ('allow_citizen_self_booking', models.BooleanField(default=True, help_text='If False, only staff can create bookings (e.g., IRCC immigration interviews where eligibility is verified before scheduling).', verbose_name='Allow citizen self-booking')),
-                ('allow_walk_in', models.BooleanField(default=False, help_text='If True, walk-in queue entries are accepted alongside advance bookings.', verbose_name='Allow walk-in')),
-                ('non_punitive_no_show', models.BooleanField(default=False, help_text="If True, no-shows do not count against the citizen's ClientNoShowRecord and do not trigger suspension. Recommended for mental health, addictions, and other services where a punitive approach is clinically harmful.", verbose_name='Non-punitive no-show policy')),
-                ('interpreter_required_option', models.CharField(choices=[('none', 'Not applicable'), ('optional', 'Client may request'), ('required', 'Always required')], default='none', help_text='Controls whether the booking flow asks about interpreter needs. Required for settlement services and some legal aid appointments.', max_length=20, verbose_name='Interpreter option')),
-                ('is_active', models.BooleanField(db_index=True, default=True, verbose_name='Active')),
-                ('sort_order', models.PositiveSmallIntegerField(default=0, verbose_name='Sort order')),
-                ('cms_page_id', models.PositiveIntegerField(blank=True, help_text='Optional: link to a Wagtail page describing this appointment type publicly. Not a FK to avoid a migration every time CMS pages change.', null=True, verbose_name='CMS page ID')),
-                ('scheduling_policy', models.ForeignKey(blank=True, help_text="Overrides the Location's scheduling policy for this appointment type. Leave blank to inherit the Location policy.", null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='appointment_types', to='appointments.schedulingpolicy', verbose_name='Scheduling policy')),
-                ('service_type', models.ForeignKey(help_text='Parent service category.', on_delete=django.db.models.deletion.PROTECT, related_name='appointment_types', to='appointments.servicetype', verbose_name='Service type')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
+                (
+                    "slug",
+                    models.SlugField(
+                        help_text="Machine-readable identifier used in URL routing.",
+                        max_length=80,
+                        unique=True,
+                        verbose_name="Slug",
+                    ),
+                ),
+                ("name_en", models.CharField(max_length=200, verbose_name="Name (EN)")),
+                ("name_fr", models.CharField(max_length=200, verbose_name="Name (FR)")),
+                ("description_en", models.TextField(blank=True, verbose_name="Description (EN)")),
+                ("description_fr", models.TextField(blank=True, verbose_name="Description (FR)")),
+                (
+                    "duration_minutes",
+                    models.PositiveIntegerField(
+                        default=30,
+                        help_text="Length of the appointment itself, not including buffers. Buffers are defined in the attached SchedulingPolicy.",
+                        validators=[
+                            django.core.validators.MinValueValidator(5),
+                            django.core.validators.MaxValueValidator(480),
+                        ],
+                        verbose_name="Duration (minutes)",
+                    ),
+                ),
+                (
+                    "mode",
+                    models.CharField(
+                        choices=[
+                            ("in_person", "In-Person"),
+                            ("virtual", "Virtual (Video)"),
+                            ("phone", "Phone"),
+                            ("hybrid", "Hybrid — Client Choice"),
+                        ],
+                        default="in_person",
+                        max_length=20,
+                        verbose_name="Appointment mode",
+                    ),
+                ),
+                (
+                    "capacity_per_slot",
+                    models.PositiveSmallIntegerField(
+                        default=1,
+                        help_text="Number of clients that can be booked into a single slot. 1 = one-to-one appointment. > 1 = group session.",
+                        validators=[
+                            django.core.validators.MinValueValidator(1),
+                            django.core.validators.MaxValueValidator(100),
+                        ],
+                        verbose_name="Capacity per slot",
+                    ),
+                ),
+                (
+                    "intake_form_schema",
+                    models.JSONField(
+                        blank=True,
+                        default=dict,
+                        help_text="JSON Schema (draft-07) for pre-booking intake questions. Answers are stored in Booking.form_responses at booking time. Collect only what the service actually requires (PIPEDA data-minimisation).",
+                        verbose_name="Intake form schema",
+                    ),
+                ),
+                (
+                    "requires_document_upload",
+                    models.BooleanField(
+                        default=False,
+                        help_text="If True, citizens must upload a supporting document before the booking is confirmed. Document category is specified in required_document_category_slug.",
+                        verbose_name="Requires document upload",
+                    ),
+                ),
+                (
+                    "required_document_category_slug",
+                    models.CharField(
+                        blank=True,
+                        help_text="Slug of the DocumentCategory required. Only relevant if requires_document_upload=True.",
+                        max_length=80,
+                        verbose_name="Required document category slug",
+                    ),
+                ),
+                (
+                    "requires_payment",
+                    models.BooleanField(
+                        default=False,
+                        help_text="If True, the citizen must complete a fee payment before the slot is confirmed. Fee amount is configured via the Payments BB using fee_code.",
+                        verbose_name="Requires payment",
+                    ),
+                ),
+                (
+                    "fee_code",
+                    models.CharField(
+                        blank=True,
+                        help_text="Fee code in the Payments BB. Only relevant if requires_payment=True.",
+                        max_length=50,
+                        verbose_name="Fee code",
+                    ),
+                ),
+                (
+                    "requires_consent",
+                    models.BooleanField(
+                        default=False,
+                        help_text="If True, the citizen must grant consent for data processing before booking. The Consent BB gate is checked using consent_category_slug. Always required under Quebec Law 25 for sensitive data.",
+                        verbose_name="Requires explicit consent",
+                    ),
+                ),
+                (
+                    "consent_category_slug",
+                    models.CharField(
+                        blank=True,
+                        help_text="Slug of the ConsentCategory to check. Default: 'appointment_data_processing'. Only relevant if requires_consent=True.",
+                        max_length=80,
+                        verbose_name="Consent category slug",
+                    ),
+                ),
+                (
+                    "requires_staff_confirmation",
+                    models.BooleanField(
+                        default=True,
+                        help_text="If True, new bookings start as PENDING and must be confirmed by staff before the citizen receives a confirmation email. If False, bookings are auto-confirmed immediately on submission.",
+                        verbose_name="Requires staff confirmation",
+                    ),
+                ),
+                (
+                    "allow_citizen_self_booking",
+                    models.BooleanField(
+                        default=True,
+                        help_text="If False, only staff can create bookings (e.g., IRCC immigration interviews where eligibility is verified before scheduling).",
+                        verbose_name="Allow citizen self-booking",
+                    ),
+                ),
+                (
+                    "allow_walk_in",
+                    models.BooleanField(
+                        default=False,
+                        help_text="If True, walk-in queue entries are accepted alongside advance bookings.",
+                        verbose_name="Allow walk-in",
+                    ),
+                ),
+                (
+                    "non_punitive_no_show",
+                    models.BooleanField(
+                        default=False,
+                        help_text="If True, no-shows do not count against the citizen's ClientNoShowRecord and do not trigger suspension. Recommended for mental health, addictions, and other services where a punitive approach is clinically harmful.",
+                        verbose_name="Non-punitive no-show policy",
+                    ),
+                ),
+                (
+                    "interpreter_required_option",
+                    models.CharField(
+                        choices=[
+                            ("none", "Not applicable"),
+                            ("optional", "Client may request"),
+                            ("required", "Always required"),
+                        ],
+                        default="none",
+                        help_text="Controls whether the booking flow asks about interpreter needs. Required for settlement services and some legal aid appointments.",
+                        max_length=20,
+                        verbose_name="Interpreter option",
+                    ),
+                ),
+                (
+                    "is_active",
+                    models.BooleanField(db_index=True, default=True, verbose_name="Active"),
+                ),
+                (
+                    "sort_order",
+                    models.PositiveSmallIntegerField(default=0, verbose_name="Sort order"),
+                ),
+                (
+                    "cms_page_id",
+                    models.PositiveIntegerField(
+                        blank=True,
+                        help_text="Optional: link to a Wagtail page describing this appointment type publicly. Not a FK to avoid a migration every time CMS pages change.",
+                        null=True,
+                        verbose_name="CMS page ID",
+                    ),
+                ),
+                (
+                    "scheduling_policy",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="Overrides the Location's scheduling policy for this appointment type. Leave blank to inherit the Location policy.",
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="appointment_types",
+                        to="appointments.schedulingpolicy",
+                        verbose_name="Scheduling policy",
+                    ),
+                ),
+                (
+                    "service_type",
+                    models.ForeignKey(
+                        help_text="Parent service category.",
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="appointment_types",
+                        to="appointments.servicetype",
+                        verbose_name="Service type",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Appointment type',
-                'verbose_name_plural': 'Appointment types',
-                'ordering': ['sort_order', 'name_en'],
+                "verbose_name": "Appointment type",
+                "verbose_name_plural": "Appointment types",
+                "ordering": ["sort_order", "name_en"],
             },
         ),
         migrations.CreateModel(
-            name='StaffProfile',
+            name="StaffProfile",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Updated at')),
-                ('display_name_en', models.CharField(blank=True, help_text='Optional: public-facing name shown to citizens when selecting a staff member. Omit to hide staff identity (some services use anonymous assignment).', max_length=200, verbose_name='Display name (EN)')),
-                ('display_name_fr', models.CharField(blank=True, max_length=200, verbose_name='Display name (FR)')),
-                ('max_daily_appointments', models.PositiveIntegerField(blank=True, help_text='Hard cap on appointments per calendar day for this staff member. Null = no cap (bounded only by availability template hours).', null=True, verbose_name='Max daily appointments')),
-                ('accepts_walk_ins', models.BooleanField(default=False, help_text='If True, this staff member appears in the walk-in queue assignment pool.', verbose_name='Accepts walk-ins')),
-                ('is_accepting_bookings', models.BooleanField(default=True, help_text='Quick toggle to pause new bookings for this staff member without removing their availability templates. Useful during leave without advance notice.', verbose_name='Accepting bookings')),
-                ('calendar_integration_provider', models.CharField(choices=[('none', 'None'), ('google', 'Google Calendar'), ('exchange', 'Microsoft Exchange / Outlook')], default='none', help_text='External calendar for two-way availability sync. Wave 7+ only.', max_length=20, verbose_name='Calendar provider')),
-                ('external_calendar_id', models.CharField(blank=True, help_text="Staff member's calendar ID in the external provider.", max_length=200, verbose_name='External calendar ID')),
-                ('video_provider', models.CharField(choices=[('none', 'None'), ('teams', 'Microsoft Teams'), ('zoom', 'Zoom'), ('jitsi', 'Jitsi Meet (Self-Hosted)'), ('phone', 'Phone Bridge')], default='none', help_text="Video conference platform for virtual appointments. Requires corresponding CIVICOS['APPOINTMENTS'] credentials. Wave 7+ only.", max_length=20, verbose_name='Video provider')),
-                ('video_external_user_id', models.CharField(blank=True, help_text="Staff member's user ID in the video platform (e.g. Teams UPN 'name@dept.gc.ca', Zoom userId UUID). Security: NEVER expose in templates or API responses — server-side only.", max_length=200, verbose_name='Video platform user ID')),
-                ('appointment_types', models.ManyToManyField(blank=True, help_text='Which appointment types this staff member is qualified to handle.', related_name='staff_members', to='appointments.appointmenttype', verbose_name='Appointment types')),
-                ('location', models.ForeignKey(blank=True, help_text='The office or clinic where this staff member primarily works.', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='staff', to='appointments.location', verbose_name='Primary location')),
-                ('user', models.OneToOneField(help_text="The staff member's CivicOS user account. Must have is_staff=True. limit_choices_to is enforced at form level.", limit_choices_to={'is_staff': True}, on_delete=django.db.models.deletion.CASCADE, related_name='staff_profile', to=settings.AUTH_USER_MODEL, verbose_name='User account')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
+                (
+                    "display_name_en",
+                    models.CharField(
+                        blank=True,
+                        help_text="Optional: public-facing name shown to citizens when selecting a staff member. Omit to hide staff identity (some services use anonymous assignment).",
+                        max_length=200,
+                        verbose_name="Display name (EN)",
+                    ),
+                ),
+                (
+                    "display_name_fr",
+                    models.CharField(blank=True, max_length=200, verbose_name="Display name (FR)"),
+                ),
+                (
+                    "max_daily_appointments",
+                    models.PositiveIntegerField(
+                        blank=True,
+                        help_text="Hard cap on appointments per calendar day for this staff member. Null = no cap (bounded only by availability template hours).",
+                        null=True,
+                        verbose_name="Max daily appointments",
+                    ),
+                ),
+                (
+                    "accepts_walk_ins",
+                    models.BooleanField(
+                        default=False,
+                        help_text="If True, this staff member appears in the walk-in queue assignment pool.",
+                        verbose_name="Accepts walk-ins",
+                    ),
+                ),
+                (
+                    "is_accepting_bookings",
+                    models.BooleanField(
+                        default=True,
+                        help_text="Quick toggle to pause new bookings for this staff member without removing their availability templates. Useful during leave without advance notice.",
+                        verbose_name="Accepting bookings",
+                    ),
+                ),
+                (
+                    "calendar_integration_provider",
+                    models.CharField(
+                        choices=[
+                            ("none", "None"),
+                            ("google", "Google Calendar"),
+                            ("exchange", "Microsoft Exchange / Outlook"),
+                        ],
+                        default="none",
+                        help_text="External calendar for two-way availability sync. Wave 7+ only.",
+                        max_length=20,
+                        verbose_name="Calendar provider",
+                    ),
+                ),
+                (
+                    "external_calendar_id",
+                    models.CharField(
+                        blank=True,
+                        help_text="Staff member's calendar ID in the external provider.",
+                        max_length=200,
+                        verbose_name="External calendar ID",
+                    ),
+                ),
+                (
+                    "video_provider",
+                    models.CharField(
+                        choices=[
+                            ("none", "None"),
+                            ("teams", "Microsoft Teams"),
+                            ("zoom", "Zoom"),
+                            ("jitsi", "Jitsi Meet (Self-Hosted)"),
+                            ("phone", "Phone Bridge"),
+                        ],
+                        default="none",
+                        help_text="Video conference platform for virtual appointments. Requires corresponding CIVICOS['APPOINTMENTS'] credentials. Wave 7+ only.",
+                        max_length=20,
+                        verbose_name="Video provider",
+                    ),
+                ),
+                (
+                    "video_external_user_id",
+                    models.CharField(
+                        blank=True,
+                        help_text="Staff member's user ID in the video platform (e.g. Teams UPN 'name@dept.gc.ca', Zoom userId UUID). Security: NEVER expose in templates or API responses — server-side only.",
+                        max_length=200,
+                        verbose_name="Video platform user ID",
+                    ),
+                ),
+                (
+                    "appointment_types",
+                    models.ManyToManyField(
+                        blank=True,
+                        help_text="Which appointment types this staff member is qualified to handle.",
+                        related_name="staff_members",
+                        to="appointments.appointmenttype",
+                        verbose_name="Appointment types",
+                    ),
+                ),
+                (
+                    "location",
+                    models.ForeignKey(
+                        blank=True,
+                        help_text="The office or clinic where this staff member primarily works.",
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="staff",
+                        to="appointments.location",
+                        verbose_name="Primary location",
+                    ),
+                ),
+                (
+                    "user",
+                    models.OneToOneField(
+                        help_text="The staff member's CivicOS user account. Must have is_staff=True. limit_choices_to is enforced at form level.",
+                        limit_choices_to={"is_staff": True},
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="staff_profile",
+                        to=settings.AUTH_USER_MODEL,
+                        verbose_name="User account",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Staff profile',
-                'verbose_name_plural': 'Staff profiles',
-                'ordering': ['user_id'],
+                "verbose_name": "Staff profile",
+                "verbose_name_plural": "Staff profiles",
+                "ordering": ["user_id"],
             },
         ),
         migrations.CreateModel(
-            name='Resource',
+            name="Resource",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at')),
-                ('updated_at', models.DateTimeField(auto_now=True, verbose_name='Updated at')),
-                ('name_en', models.CharField(max_length=200, verbose_name='Name (EN)')),
-                ('name_fr', models.CharField(max_length=200, verbose_name='Name (FR)')),
-                ('resource_type', models.CharField(choices=[('room', 'Meeting Room'), ('equipment', 'Equipment'), ('virtual', 'Virtual Meeting Room'), ('phone_line', 'Phone Line'), ('other', 'Other')], max_length=20, verbose_name='Resource type')),
-                ('capacity', models.PositiveIntegerField(default=1, help_text='Maximum number of people this resource can accommodate simultaneously.', validators=[django.core.validators.MinValueValidator(1)], verbose_name='Capacity')),
-                ('features', models.JSONField(blank=True, default=list, help_text="List of feature tags describing this resource's capabilities. Controlled vocabulary: WHEELCHAIR_ACCESSIBLE, VIDEO_CONFERENCING, PROJECTOR, PRIVATE, INTERPRETER_PHONE, HEARING_LOOP, ADJUSTABLE_HEIGHT. Used by the slot availability service to filter resources for citizens with stated accessibility requirements.", verbose_name='Features')),
-                ('calendar_provider', models.CharField(choices=[('none', 'None'), ('google', 'Google Calendar'), ('exchange', 'Microsoft Exchange / Outlook')], default='none', help_text="External calendar to sync this resource's availability. Wave 7+ only.", max_length=20, verbose_name='Calendar provider')),
-                ('external_calendar_id', models.CharField(blank=True, help_text='Calendar ID in the external provider. Used only when calendar_provider is set.', max_length=200, verbose_name='External calendar ID')),
-                ('is_active', models.BooleanField(default=True, verbose_name='Active')),
-                ('location', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='resources', to='appointments.location', verbose_name='Location')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True, db_index=True, verbose_name="Created at"
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, verbose_name="Updated at")),
+                ("name_en", models.CharField(max_length=200, verbose_name="Name (EN)")),
+                ("name_fr", models.CharField(max_length=200, verbose_name="Name (FR)")),
+                (
+                    "resource_type",
+                    models.CharField(
+                        choices=[
+                            ("room", "Meeting Room"),
+                            ("equipment", "Equipment"),
+                            ("virtual", "Virtual Meeting Room"),
+                            ("phone_line", "Phone Line"),
+                            ("other", "Other"),
+                        ],
+                        max_length=20,
+                        verbose_name="Resource type",
+                    ),
+                ),
+                (
+                    "capacity",
+                    models.PositiveIntegerField(
+                        default=1,
+                        help_text="Maximum number of people this resource can accommodate simultaneously.",
+                        validators=[django.core.validators.MinValueValidator(1)],
+                        verbose_name="Capacity",
+                    ),
+                ),
+                (
+                    "features",
+                    models.JSONField(
+                        blank=True,
+                        default=list,
+                        help_text="List of feature tags describing this resource's capabilities. Controlled vocabulary: WHEELCHAIR_ACCESSIBLE, VIDEO_CONFERENCING, PROJECTOR, PRIVATE, INTERPRETER_PHONE, HEARING_LOOP, ADJUSTABLE_HEIGHT. Used by the slot availability service to filter resources for citizens with stated accessibility requirements.",
+                        verbose_name="Features",
+                    ),
+                ),
+                (
+                    "calendar_provider",
+                    models.CharField(
+                        choices=[
+                            ("none", "None"),
+                            ("google", "Google Calendar"),
+                            ("exchange", "Microsoft Exchange / Outlook"),
+                        ],
+                        default="none",
+                        help_text="External calendar to sync this resource's availability. Wave 7+ only.",
+                        max_length=20,
+                        verbose_name="Calendar provider",
+                    ),
+                ),
+                (
+                    "external_calendar_id",
+                    models.CharField(
+                        blank=True,
+                        help_text="Calendar ID in the external provider. Used only when calendar_provider is set.",
+                        max_length=200,
+                        verbose_name="External calendar ID",
+                    ),
+                ),
+                ("is_active", models.BooleanField(default=True, verbose_name="Active")),
+                (
+                    "location",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="resources",
+                        to="appointments.location",
+                        verbose_name="Location",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Resource',
-                'verbose_name_plural': 'Resources',
-                'ordering': ['name_en'],
-                'indexes': [models.Index(fields=['location', 'resource_type', 'is_active'], name='appt_resource_loc_type_active')],
+                "verbose_name": "Resource",
+                "verbose_name_plural": "Resources",
+                "ordering": ["name_en"],
+                "indexes": [
+                    models.Index(
+                        fields=["location", "resource_type", "is_active"],
+                        name="appt_resource_loc_type_active",
+                    )
+                ],
             },
         ),
         migrations.AddIndex(
-            model_name='location',
-            index=models.Index(fields=['organization', 'is_active'], name='appt_location_org_active'),
+            model_name="location",
+            index=models.Index(
+                fields=["organization", "is_active"], name="appt_location_org_active"
+            ),
         ),
         migrations.AddIndex(
-            model_name='appointmenttype',
-            index=models.Index(fields=['service_type', 'is_active'], name='appt_appttype_stype_active'),
+            model_name="appointmenttype",
+            index=models.Index(
+                fields=["service_type", "is_active"], name="appt_appttype_stype_active"
+            ),
         ),
         migrations.AddIndex(
-            model_name='appointmenttype',
-            index=models.Index(fields=['mode', 'is_active'], name='appt_appttype_mode_active'),
+            model_name="appointmenttype",
+            index=models.Index(fields=["mode", "is_active"], name="appt_appttype_mode_active"),
         ),
         migrations.AddIndex(
-            model_name='staffprofile',
-            index=models.Index(fields=['location', 'is_accepting_bookings'], name='appt_staff_loc_accepting'),
+            model_name="staffprofile",
+            index=models.Index(
+                fields=["location", "is_accepting_bookings"], name="appt_staff_loc_accepting"
+            ),
         ),
     ]

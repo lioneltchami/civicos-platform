@@ -1,8 +1,8 @@
 """Tests for workflow signal handlers."""
 
 from types import SimpleNamespace
-from uuid import uuid4
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.test import TestCase
 
@@ -62,4 +62,3 @@ class WorkflowAuditHandlerTest(TestCase):
         self.assertEqual(kwargs["event_detail"]["old_status"], "pending")
         self.assertEqual(kwargs["event_detail"]["new_status"], "in_progress")
         self.assertEqual(len(kwargs["event_detail"]["notes"]), 500)
-

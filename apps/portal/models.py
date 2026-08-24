@@ -103,8 +103,8 @@ class ServiceRequest(BaseModel):
     class Meta:
         verbose_name = _("Service request")
         verbose_name_plural = _("Service requests")
-        ordering = ["-created_at"]
-        indexes = [
+        ordering = ["-created_at"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["citizen", "status"]),
             models.Index(fields=["reference_number"]),
         ]
@@ -121,7 +121,7 @@ class ServiceRequest(BaseModel):
         Example: GS-2026-A3F9K2
         """
         year = timezone.now().year
-        for _ in range(10):
+        for _ in range(10):  # noqa: F402
             alphabet = string.ascii_uppercase + string.digits
             suffix = "".join(secrets.choice(alphabet) for _ in range(6))
             ref = f"GS-{year}-{suffix}"
@@ -129,7 +129,7 @@ class ServiceRequest(BaseModel):
                 return ref
         raise ValueError("Could not generate unique reference number after 10 attempts")
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         if not self.reference_number:
             self.reference_number = self.generate_reference_number()
         super().save(*args, **kwargs)
@@ -217,19 +217,14 @@ class StatusUpdate(BaseModel):
 
     class Meta:
         verbose_name = _("Status update")
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
 
     def __str__(self) -> str:
-        return (
-            f"{self.service_request.reference_number}: "
-            f"{self.old_status} → {self.new_status}"
-        )
+        return f"{self.service_request.reference_number}: " f"{self.old_status} → {self.new_status}"
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         # self._state.adding is False only when Django performs an UPDATE
         # Cannot use self.pk here — UUIDField assigns it at instantiation, not save time
         if not self._state.adding:
-            raise ValueError(
-                "StatusUpdate records are immutable. Create a new record instead."
-            )
+            raise ValueError("StatusUpdate records are immutable. Create a new record instead.")
         super().save(*args, **kwargs)

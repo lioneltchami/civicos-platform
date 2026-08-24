@@ -11,11 +11,14 @@ GovStack model mapping:
   ConsentAuditEntry   → GovStack Auditor API data
   DataExportRequest   → PIPEDA s.4.9 Right of Access (no GovStack equivalent)
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import uuid
+from typing import Never
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -23,11 +26,11 @@ from django.utils import timezone
 from apps.core.fields import EncryptedCharField
 from apps.core.models import TimestampedModel, UUIDModel
 
-
 # ---------------------------------------------------------------------------
 # GovStack: Policy
 # Governs Data Agreements in the realm of an organisation (data controller).
 # ---------------------------------------------------------------------------
+
 
 class ConsentPolicy(UUIDModel, TimestampedModel):
     """
@@ -40,6 +43,7 @@ class ConsentPolicy(UUIDModel, TimestampedModel):
     Each update to a Policy creates a new ConsentRevision so the history
     is tamper-proof.
     """
+
     name = models.CharField(max_length=255)
     description = models.TextField(
         blank=True,
@@ -52,18 +56,21 @@ class ConsentPolicy(UUIDModel, TimestampedModel):
     jurisdiction = models.CharField(max_length=100, blank=True)
     industry_sector = models.CharField(max_length=100, blank=True)
     data_retention_period_days = models.PositiveIntegerField(
-        null=True, blank=True,
+        null=True,
+        blank=True,
         help_text="How long personal data is retained (days).",
     )
     geographic_restriction = models.CharField(max_length=100, blank=True)
     storage_location = models.CharField(max_length=255, blank=True)
     third_party_data_sharing = models.BooleanField(
         default=False,
-        help_text="True if data may be shared with third parties per this policy (GovStack Policy.thirdPartyDataSharing).",
+        help_text="True if data may be shared with third parties per this policy (GovStack Policy.thirdPartyDataSharing).",  # noqa: E501
     )
     is_active = models.BooleanField(default=True)
     harness_alias_id = models.PositiveIntegerField(
-        null=True, blank=True, unique=True,
+        null=True,
+        blank=True,
+        unique=True,
         help_text=(
             "GovStack reference-harness compatibility alias ONLY — not part of the "
             "real Policy identity, and not a GovStack spec field. The real primary key "
@@ -82,7 +89,7 @@ class ConsentPolicy(UUIDModel, TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = "Consent Policy"
         verbose_name_plural = "Consent Policies"
 
@@ -93,6 +100,7 @@ class ConsentPolicy(UUIDModel, TimestampedModel):
 # ---------------------------------------------------------------------------
 # GovStack: DataAgreement  (our ConsentCategory, extended)
 # ---------------------------------------------------------------------------
+
 
 class ConsentCategory(TimestampedModel):
     """
@@ -112,7 +120,7 @@ class ConsentCategory(TimestampedModel):
       - attributes         JSON list of DataAgreementAttribute objects
     """
 
-    LAWFUL_BASIS_CHOICES = [
+    LAWFUL_BASIS_CHOICES = [  # noqa: RUF012
         ("consent", "Consent"),
         ("legal_obligation", "Legal Obligation"),
         ("vital_interests", "Vital Interests"),
@@ -123,7 +131,7 @@ class ConsentCategory(TimestampedModel):
         ("legitimate_interest", "Legitimate Interest (legacy)"),
     ]
 
-    DATA_USE_CHOICES = [
+    DATA_USE_CHOICES = [  # noqa: RUF012
         ("", "Not specified"),
         ("data_source", "Data Source"),
         ("data-using-service", "Data Using Service"),
@@ -131,7 +139,7 @@ class ConsentCategory(TimestampedModel):
         ("data_using_service", "Data Using Service (legacy)"),
     ]
 
-    LIFECYCLE_CHOICES = [
+    LIFECYCLE_CHOICES = [  # noqa: RUF012
         ("draft", "Draft"),
         ("published", "Published"),
         ("error_correction", "Error Correction"),
@@ -202,8 +210,7 @@ class ConsentCategory(TimestampedModel):
         default=list,
         blank=True,
         help_text=(
-            "List of DataAgreementAttribute objects: "
-            "[{name, sensitivity, category}, ...]"
+            "List of DataAgreementAttribute objects: " "[{name, sensitivity, category}, ...]"
         ),
     )
 
@@ -212,7 +219,7 @@ class ConsentCategory(TimestampedModel):
         max_length=10,
         blank=True,
         default="en",
-        help_text="ISO 639-1 language code for this data agreement (GovStack DataAgreement.language).",
+        help_text="ISO 639-1 language code for this data agreement (GovStack DataAgreement.language).",  # noqa: E501
     )
     lifecycle = models.CharField(
         max_length=30,
@@ -251,7 +258,7 @@ class ConsentCategory(TimestampedModel):
     )
     data_use_purpose_description = models.TextField(
         blank=True,
-        help_text="Detailed description of the data use purpose (GovStack dataUsePurposeDescription).",
+        help_text="Detailed description of the data use purpose (GovStack dataUsePurposeDescription).",  # noqa: E501
     )
     data_use_purpose_restriction = models.TextField(
         blank=True,
@@ -271,7 +278,7 @@ class ConsentCategory(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["sort_order", "slug"]
+        ordering = ["sort_order", "slug"]  # noqa: RUF012
         verbose_name = "Consent Category"
         verbose_name_plural = "Consent Categories"
 
@@ -281,6 +288,7 @@ class ConsentCategory(TimestampedModel):
     def get_name(self) -> str:
         """Return the category name in the active language."""
         from django.utils.translation import get_language
+
         if get_language() and get_language().startswith("fr"):
             return self.name_fr or self.name_en
         return self.name_en
@@ -288,6 +296,7 @@ class ConsentCategory(TimestampedModel):
     def get_purpose(self) -> str:
         """Return the category purpose in the active language."""
         from django.utils.translation import get_language
+
         if get_language() and get_language().startswith("fr"):
             return self.purpose_fr or self.purpose_en
         return self.purpose_en
@@ -297,6 +306,7 @@ class ConsentCategory(TimestampedModel):
 # GovStack: Revision
 # Generic tamper-proof snapshot for any consent object.
 # ---------------------------------------------------------------------------
+
 
 class ConsentRevision(UUIDModel):
     """
@@ -385,17 +395,17 @@ class ConsentRevision(UUIDModel):
     )
 
     class Meta:
-        ordering = ["-timestamp"]
+        ordering = ["-timestamp"]  # noqa: RUF012
         verbose_name = "Consent Revision"
         verbose_name_plural = "Consent Revisions"
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["schema_name", "object_id", "timestamp"]),
         ]
 
     def __str__(self) -> str:
         return f"Revision({self.schema_name}/{self.object_id}) @ {self.timestamp:%Y-%m-%d %H:%M:%S}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         # _state.adding is True only on INSERT (new object), False on UPDATE.
         # We cannot use `if self.pk:` because UUIDModel sets the UUID default
         # before save() is called, so self.pk is already set even for new rows.
@@ -410,7 +420,7 @@ class ConsentRevision(UUIDModel):
             self.serialized_hash = self._compute_hash()
         super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, **kwargs) -> Never:  # noqa: ANN002, ANN003
         raise ValueError("ConsentRevision records cannot be deleted.")
 
     def redact_pii(self) -> None:
@@ -461,7 +471,7 @@ class ConsentRevision(UUIDModel):
         erode the tamper-evidence chain this model exists to provide, for no
         RTBF benefit.
         """
-        _REDACTED = "[REDACTED]"
+        _REDACTED = "[REDACTED]"  # noqa: N806
 
         snapshot = self.serialized_snapshot
         if isinstance(snapshot, dict):
@@ -477,9 +487,7 @@ class ConsentRevision(UUIDModel):
         # Deliberately bypasses THIS class's save() guard — see docstring
         # above for why this is the one, narrowly-scoped, sanctioned
         # exception to the append-only invariant.
-        super(ConsentRevision, self).save(
-            update_fields=["serialized_snapshot", "authorized_by_individual"]
-        )
+        super().save(update_fields=["serialized_snapshot", "authorized_by_individual"])
 
     def _compute_hash(self) -> str:
         # SHA-256, not the live spec's literal "SHA-1" — a deliberate, documented
@@ -494,11 +502,11 @@ class ConsentRevision(UUIDModel):
     def create_for(
         cls,
         schema_name: str,
-        obj,
+        obj,  # noqa: ANN001
         snapshot: dict,
-        authorized_by=None,
+        authorized_by=None,  # noqa: ANN001
         authorized_by_other: str = "",
-    ) -> "ConsentRevision":
+    ) -> ConsentRevision:
         """
         Create a new revision for ``obj``, correctly linking the predecessor chain.
 
@@ -580,6 +588,7 @@ class ConsentRevision(UUIDModel):
 # GovStack: ConsentRecord (extended)
 # ---------------------------------------------------------------------------
 
+
 class ConsentRecord(UUIDModel, TimestampedModel):
     """
     One citizen's decision on one consent category / Data Agreement.
@@ -594,7 +603,7 @@ class ConsentRecord(UUIDModel, TimestampedModel):
     STATUS_GRANTED = "granted"
     STATUS_WITHDRAWN = "withdrawn"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_PENDING, "Pending"),
         (STATUS_GRANTED, "Granted"),
         (STATUS_WITHDRAWN, "Withdrawn"),
@@ -606,14 +615,14 @@ class ConsentRecord(UUIDModel, TimestampedModel):
     STATE_SIGNED = "signed"
     STATE_REVOKED = "revoked"
 
-    STATE_CHOICES = [
+    STATE_CHOICES = [  # noqa: RUF012
         (STATE_UNSIGNED, "Unsigned"),
         (STATE_PENDING, "Pending"),
         (STATE_SIGNED, "Signed"),
         (STATE_REVOKED, "Revoked"),
     ]
 
-    SOURCE_CHOICES = [
+    SOURCE_CHOICES = [  # noqa: RUF012
         ("web", "Web Portal"),
         ("api", "API"),
         ("admin", "Admin"),
@@ -691,16 +700,16 @@ class ConsentRecord(UUIDModel, TimestampedModel):
         # unique_together removed (F4): we now allow multiple rows per
         # citizen/category to preserve full consent history.  is_current=True
         # always points at the latest row.
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = "Consent Record"
         verbose_name_plural = "Consent Records"
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["citizen", "category", "is_current"],
                 name="cr_citizen_cat_curr_idx",
             ),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 condition=models.Q(state__in=["unsigned", "pending", "signed", "revoked"]),
                 name="consent_record_state_valid",
@@ -730,7 +739,7 @@ class ConsentRecord(UUIDModel, TimestampedModel):
         """GovStack ConsentRecord.optIn — True if status is 'granted'."""
         return self.status == self.STATUS_GRANTED
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         if self.status == self.STATUS_GRANTED and self.granted_at is None:
             self.granted_at = timezone.now()
         if self.status == self.STATUS_WITHDRAWN and self.withdrawn_at is None:
@@ -745,6 +754,7 @@ class ConsentRecord(UUIDModel, TimestampedModel):
 # PIPEDA: DataExportRequest (unchanged — no GovStack equivalent)
 # ---------------------------------------------------------------------------
 
+
 class DataExportRequest(UUIDModel):
     """
     PIPEDA s.4.9 right of access — a citizen's request for all their data.
@@ -758,7 +768,7 @@ class DataExportRequest(UUIDModel):
     STATUS_FAILED = "failed"
     STATUS_EXPIRED = "expired"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_PENDING, "Pending"),
         (STATUS_PROCESSING, "Processing"),
         (STATUS_READY, "Ready"),
@@ -767,7 +777,7 @@ class DataExportRequest(UUIDModel):
         (STATUS_EXPIRED, "Expired"),
     ]
 
-    FORMAT_CHOICES = [
+    FORMAT_CHOICES = [  # noqa: RUF012
         ("json", "JSON"),
     ]
 
@@ -805,15 +815,15 @@ class DataExportRequest(UUIDModel):
         on_delete=models.PROTECT,
         related_name="data_export",
         help_text="Documents BB record for the export archive. "
-                  "PIPEDA transitory — disposed after delivery.",
+        "PIPEDA transitory — disposed after delivery.",
     )
     notes = models.TextField(blank=True, help_text="Staff notes.")
 
     class Meta:
-        ordering = ["-requested_at"]
+        ordering = ["-requested_at"]  # noqa: RUF012
         verbose_name = "Data Export Request"
         verbose_name_plural = "Data Export Requests"
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["citizen"],
                 condition=models.Q(status__in=["pending", "processing"]),
@@ -829,6 +839,7 @@ class DataExportRequest(UUIDModel):
 # GovStack: Webhook
 # ---------------------------------------------------------------------------
 
+
 class ConsentWebhook(UUIDModel, TimestampedModel):
     """
     GovStack Webhook object.
@@ -837,7 +848,7 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
     export requests, etc.).
     """
 
-    CONTENT_TYPE_CHOICES = [
+    CONTENT_TYPE_CHOICES = [  # noqa: RUF012
         ("application/json", "application/json"),
         ("application/x-www-form-urlencoded", "application/x-www-form-urlencoded"),
     ]
@@ -848,7 +859,7 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
     EVENT_EXPORT_REQUESTED = "consent.export.requested"
     EVENT_EXPORT_READY = "consent.export.ready"
 
-    KNOWN_EVENTS = [
+    KNOWN_EVENTS = [  # noqa: RUF012
         EVENT_CONSENT_GRANTED,
         EVENT_CONSENT_WITHDRAWN,
         EVENT_EXPORT_REQUESTED,
@@ -884,7 +895,7 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
         max_length=500,
         help_text=(
             "HMAC secret key used to sign payloads (SHA-256). "
-            "Stored Fernet-encrypted at rest; returned in API responses as required by GovStack spec."
+            "Stored Fernet-encrypted at rest; returned in API responses as required by GovStack spec."  # noqa: E501
         ),
     )
     subscribed_events = models.JSONField(
@@ -903,7 +914,7 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
     skipped_headers = models.JSONField(
         default=list,
         blank=True,
-        help_text="List of HTTP headers to omit when sending the webhook payload (GovStack skippedHeaders).",
+        help_text="List of HTTP headers to omit when sending the webhook payload (GovStack skippedHeaders).",  # noqa: E501
     )
 
     # ── Webhook delivery replay log ───────────────────────────────────────────
@@ -935,7 +946,7 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = "Consent Webhook"
         verbose_name_plural = "Consent Webhooks"
 
@@ -950,13 +961,14 @@ class ConsentWebhook(UUIDModel, TimestampedModel):
 # ConsentAuditEntry (unchanged — append-only audit trail)
 # ---------------------------------------------------------------------------
 
+
 class ConsentAuditEntry(models.Model):
     """
     Append-only audit trail for all consent and export events.
     Records may never be updated or deleted.
     """
 
-    ACTION_CHOICES = [
+    ACTION_CHOICES = [  # noqa: RUF012
         ("granted", "Granted"),
         ("withdrawn", "Withdrawn"),
         ("export_requested", "Export Requested"),
@@ -1019,25 +1031,37 @@ class ConsentAuditEntry(models.Model):
     details = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        ordering = ["-timestamp"]
+        ordering = ["-timestamp"]  # noqa: RUF012
         verbose_name = "Consent Audit Entry"
         verbose_name_plural = "Consent Audit Entries"
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
-                condition=models.Q(action__in=[
-                    "granted", "withdrawn",
-                    "export_requested", "export_ready",
-                    "export_delivered", "export_expired", "export_failed",
-                    "export_downloaded", "export_marked_delivered",
-                    "rtbf_requested", "rtbf_completed",
-                    "policy_created", "policy_updated",
-                    "data_agreement_created", "data_agreement_updated",
-                    "webhook_created", "webhook_updated", "webhook_deleted",
-                ]),
+                condition=models.Q(
+                    action__in=[
+                        "granted",
+                        "withdrawn",
+                        "export_requested",
+                        "export_ready",
+                        "export_delivered",
+                        "export_expired",
+                        "export_failed",
+                        "export_downloaded",
+                        "export_marked_delivered",
+                        "rtbf_requested",
+                        "rtbf_completed",
+                        "policy_created",
+                        "policy_updated",
+                        "data_agreement_created",
+                        "data_agreement_updated",
+                        "webhook_created",
+                        "webhook_updated",
+                        "webhook_deleted",
+                    ]
+                ),
                 name="consent_audit_valid_action",
             )
         ]
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(
                 fields=["citizen", "timestamp"],
                 name="consent_audit_citizen_ts_idx",
@@ -1047,12 +1071,12 @@ class ConsentAuditEntry(models.Model):
     def __str__(self) -> str:
         return f"ConsentAuditEntry #{self.pk}: {self.action} @ {self.timestamp}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         if self.pk:
             raise ValueError("ConsentAuditEntry is append-only and cannot be modified.")
         super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, **kwargs) -> Never:  # noqa: ANN002, ANN003
         raise ValueError("ConsentAuditEntry records cannot be deleted.")
 
 
@@ -1060,6 +1084,7 @@ class ConsentAuditEntry(models.Model):
 # GovStack: Signature
 # Cryptographic or non-cryptographic signature attached to a ConsentRecord.
 # ---------------------------------------------------------------------------
+
 
 class ConsentSignature(UUIDModel):
     """
@@ -1081,7 +1106,7 @@ class ConsentSignature(UUIDModel):
         help_text="The ConsentRecord this signature covers.",
     )
 
-    VERIFICATION_TYPE_CHOICES = [
+    VERIFICATION_TYPE_CHOICES = [  # noqa: RUF012
         ("string", "String (non-cryptographic)"),
         ("rs256", "RS256 (RSA + SHA-256)"),
         ("ed25519", "Ed25519"),
@@ -1089,7 +1114,7 @@ class ConsentSignature(UUIDModel):
         ("pgp", "PGP"),  # F17 fix: GovStack spec includes pgp
     ]
 
-    SIGNED_AS_CHOICES = [
+    SIGNED_AS_CHOICES = [  # noqa: RUF012
         ("individual", "Individual"),
         ("delegate", "Delegate"),
         ("commissioner", "Commissioner"),
@@ -1097,9 +1122,7 @@ class ConsentSignature(UUIDModel):
 
     # --- Required GovStack fields ---
     payload = models.TextField(
-        help_text=(
-            "JSON serialization of the fields that were signed, per GovStack spec."
-        ),
+        help_text=("JSON serialization of the fields that were signed, per GovStack spec."),
     )
     signature = models.TextField(
         help_text="Signature of payload hash.",
@@ -1130,11 +1153,11 @@ class ConsentSignature(UUIDModel):
     data_agreement_revision_hash = models.CharField(
         max_length=64,
         blank=True,
-        help_text="Hash of the DataAgreement revision that was signed (GovStack dataAgreementRevisionHash).",
+        help_text="Hash of the DataAgreement revision that was signed (GovStack dataAgreementRevisionHash).",  # noqa: E501
     )
     data_agreement_revision_signed_without_id = models.BooleanField(
         default=False,
-        help_text="True if the DataAgreement revision was signed without its object ID (GovStack dataAgreementRevisionSignedWithoutId).",
+        help_text="True if the DataAgreement revision was signed without its object ID (GovStack dataAgreementRevisionSignedWithoutId).",  # noqa: E501
     )
 
     # --- Optional GovStack fields ---
@@ -1151,7 +1174,7 @@ class ConsentSignature(UUIDModel):
     verification_jwks = models.JSONField(
         null=True,
         blank=True,
-        help_text="JSON Web Key Set (JWKS) used for signature verification (GovStack verificationJwks).",
+        help_text="JSON Web Key Set (JWKS) used for signature verification (GovStack verificationJwks).",  # noqa: E501
     )
     verification_jws_header = models.TextField(
         blank=True,
@@ -1159,12 +1182,12 @@ class ConsentSignature(UUIDModel):
     )
     signed_without_object_id = models.BooleanField(
         default=False,
-        help_text="True if objectId was omitted from the signed payload (GovStack signedWithoutObjectId).",
+        help_text="True if objectId was omitted from the signed payload (GovStack signedWithoutObjectId).",  # noqa: E501
     )
     object_type = models.CharField(
         max_length=50,
         blank=True,
-        help_text="Name of the schema model that objectReference points to ('signature' or 'revision').",
+        help_text="Name of the schema model that objectReference points to ('signature' or 'revision').",  # noqa: E501
     )
     object_reference = models.CharField(
         max_length=255,

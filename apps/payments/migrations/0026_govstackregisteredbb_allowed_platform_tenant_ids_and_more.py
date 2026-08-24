@@ -4,33 +4,52 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0025_govstackbill_platform_tenant_id'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0025_govstackbill_platform_tenant_id"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='govstackregisteredbb',
-            name='allowed_platform_tenant_ids',
-            field=models.JSONField(blank=True, default=list, help_text='List of X-Platform-TenantId values this registered BB may declare on P2G calls. An EMPTY list means unrestricted (back-compat default for BBs not yet assigned tenant restrictions) — only a non-empty list enforces binding.', verbose_name='Allowed Platform Tenant IDs'),
+            model_name="govstackregisteredbb",
+            name="allowed_platform_tenant_ids",
+            field=models.JSONField(
+                blank=True,
+                default=list,
+                help_text="List of X-Platform-TenantId values this registered BB may declare on P2G calls. An EMPTY list means unrestricted (back-compat default for BBs not yet assigned tenant restrictions) — only a non-empty list enforces binding.",
+                verbose_name="Allowed Platform Tenant IDs",
+            ),
         ),
         migrations.AlterField(
-            model_name='govstackbill',
-            name='bill_id',
-            field=models.CharField(db_index=True, help_text="Government-assigned bill identifier. Used as the {bill_id} URL parameter. Safe to expose in API responses. Uniqueness is enforced PER TENANT (see Meta.constraints' gs_bill_tenant_billid_uniq), not globally — see that constraint's docstring note for the certifiability-audit rationale (Round 2, MEDIUM finding).", max_length=100, verbose_name='Bill ID'),
+            model_name="govstackbill",
+            name="bill_id",
+            field=models.CharField(
+                db_index=True,
+                help_text="Government-assigned bill identifier. Used as the {bill_id} URL parameter. Safe to expose in API responses. Uniqueness is enforced PER TENANT (see Meta.constraints' gs_bill_tenant_billid_uniq), not globally — see that constraint's docstring note for the certifiability-audit rationale (Round 2, MEDIUM finding).",
+                max_length=100,
+                verbose_name="Bill ID",
+            ),
         ),
         migrations.AlterField(
-            model_name='govstackbillpayment',
-            name='request_id',
-            field=models.CharField(db_index=True, help_text="Caller-supplied idempotency key. Duplicate request_ids return HTTP 400 instead of creating duplicate payment records. Uniqueness is enforced PER TENANT (see Meta.constraints' gs_billpayment_tenant_requestid_uniq), not globally — see that constraint's docstring note for the certifiability-audit rationale (Round 2, MEDIUM finding).", max_length=100, verbose_name='Request ID'),
+            model_name="govstackbillpayment",
+            name="request_id",
+            field=models.CharField(
+                db_index=True,
+                help_text="Caller-supplied idempotency key. Duplicate request_ids return HTTP 400 instead of creating duplicate payment records. Uniqueness is enforced PER TENANT (see Meta.constraints' gs_billpayment_tenant_requestid_uniq), not globally — see that constraint's docstring note for the certifiability-audit rationale (Round 2, MEDIUM finding).",
+                max_length=100,
+                verbose_name="Request ID",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='govstackbill',
-            constraint=models.UniqueConstraint(fields=('platform_tenant_id', 'bill_id'), name='gs_bill_tenant_billid_uniq'),
+            model_name="govstackbill",
+            constraint=models.UniqueConstraint(
+                fields=("platform_tenant_id", "bill_id"), name="gs_bill_tenant_billid_uniq"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='govstackbillpayment',
-            constraint=models.UniqueConstraint(fields=('platform_tenant_id', 'request_id'), name='gs_billpayment_tenant_requestid_uniq'),
+            model_name="govstackbillpayment",
+            constraint=models.UniqueConstraint(
+                fields=("platform_tenant_id", "request_id"),
+                name="gs_billpayment_tenant_requestid_uniq",
+            ),
         ),
     ]

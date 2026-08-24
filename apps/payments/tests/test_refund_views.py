@@ -4,13 +4,14 @@ Wave 3 — test_refund_views.py
 Tests for RefundCreateView, RefundConfirmView, RefundDetailView.
 All views are staff-only (StaffRequiredMixin).
 """
+
 import uuid
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -32,6 +33,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def make_user(email=None, password="testpass123", **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -95,8 +97,8 @@ GATEWAY_REFUND_RESULT = {
 # Base test class
 # ---------------------------------------------------------------------------
 
-class RefundViewTestBase(TestCase):
 
+class RefundViewTestBase(TestCase):
     def setUp(self):
         # Clear the locmem cache so rate-limit counters from prior tests don't
         # bleed into this test. Without this, multiple POSTs across tests in the
@@ -158,8 +160,8 @@ class RefundViewTestBase(TestCase):
 # StaffRequiredMixin tests
 # ---------------------------------------------------------------------------
 
-class StaffRequiredMixinTests(RefundViewTestBase):
 
+class StaffRequiredMixinTests(RefundViewTestBase):
     def test_unauthenticated_redirects_to_login(self):
         resp = self.client.get(self.CREATE_URL)
         self.assertEqual(resp.status_code, 302)
@@ -194,8 +196,8 @@ class StaffRequiredMixinTests(RefundViewTestBase):
 # RefundCreateView — GET tests
 # ---------------------------------------------------------------------------
 
-class RefundCreateViewGetTests(RefundViewTestBase):
 
+class RefundCreateViewGetTests(RefundViewTestBase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.staff)
@@ -246,72 +248,93 @@ class RefundCreateViewGetTests(RefundViewTestBase):
 # RefundCreateView — POST tests
 # ---------------------------------------------------------------------------
 
-class RefundCreateViewPostTests(RefundViewTestBase):
 
+class RefundCreateViewPostTests(RefundViewTestBase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.staff)
 
     def test_valid_post_stores_session_data(self):
-        resp = self.client.post(self.CREATE_URL, data={
-            "amount": "10.00",
-            "reason": Refund.REASON_CUSTOMER,
-            "notes": "",
-        })
+        self.client.post(
+            self.CREATE_URL,
+            data={
+                "amount": "10.00",
+                "reason": Refund.REASON_CUSTOMER,
+                "notes": "",
+            },
+        )
         self.assertIn(REFUND_SESSION_KEY, self.client.session)
 
     def test_valid_post_session_has_payment_pk(self):
-        self.client.post(self.CREATE_URL, data={
-            "amount": "10.00",
-            "reason": Refund.REASON_CUSTOMER,
-            "notes": "",
-        })
+        self.client.post(
+            self.CREATE_URL,
+            data={
+                "amount": "10.00",
+                "reason": Refund.REASON_CUSTOMER,
+                "notes": "",
+            },
+        )
         session = self.client.session[REFUND_SESSION_KEY]
         self.assertEqual(session["payment_pk"], str(self.payment.pk))
 
     def test_valid_post_session_has_correct_amount(self):
-        self.client.post(self.CREATE_URL, data={
-            "amount": "25.00",
-            "reason": Refund.REASON_CUSTOMER,
-            "notes": "",
-        })
+        self.client.post(
+            self.CREATE_URL,
+            data={
+                "amount": "25.00",
+                "reason": Refund.REASON_CUSTOMER,
+                "notes": "",
+            },
+        )
         session = self.client.session[REFUND_SESSION_KEY]
         self.assertEqual(session["amount"], "25.00")
 
     def test_valid_post_session_has_reason(self):
-        self.client.post(self.CREATE_URL, data={
-            "amount": "10.00",
-            "reason": Refund.REASON_DUPLICATE,
-            "notes": "",
-        })
+        self.client.post(
+            self.CREATE_URL,
+            data={
+                "amount": "10.00",
+                "reason": Refund.REASON_DUPLICATE,
+                "notes": "",
+            },
+        )
         session = self.client.session[REFUND_SESSION_KEY]
         self.assertEqual(session["reason"], Refund.REASON_DUPLICATE)
 
     def test_valid_post_redirects_to_confirm(self):
-        resp = self.client.post(self.CREATE_URL, data={
-            "amount": "10.00",
-            "reason": Refund.REASON_CUSTOMER,
-            "notes": "",
-        })
+        resp = self.client.post(
+            self.CREATE_URL,
+            data={
+                "amount": "10.00",
+                "reason": Refund.REASON_CUSTOMER,
+                "notes": "",
+            },
+        )
         self.assertRedirects(resp, self.CONFIRM_URL, fetch_redirect_response=False)
 
     def test_invalid_post_amount_zero_returns_200(self):
-        resp = self.client.post(self.CREATE_URL, data={
-            "amount": "0.00",
-            "reason": Refund.REASON_CUSTOMER,
-            "notes": "",
-        })
+        resp = self.client.post(
+            self.CREATE_URL,
+            data={
+                "amount": "0.00",
+                "reason": Refund.REASON_CUSTOMER,
+                "notes": "",
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertIn("form", resp.context)
         self.assertTrue(resp.context["form"].errors)
 
     def test_invalid_post_amount_zero_no_session_stored(self):
         """Zero amount fails clean_amount validation → form invalid → no session."""
-        self.client.post(self.CREATE_URL, data={
-            "amount": "0.00",
-            "reason": Refund.REASON_CUSTOMER,
-            "notes": "",
-        })
+        self.client.post(
+            self.CREATE_URL,
+            data={
+                "amount": "0.00",
+                "reason": Refund.REASON_CUSTOMER,
+                "notes": "",
+            },
+        )
         self.assertNotIn(REFUND_SESSION_KEY, self.client.session)
 
     def test_post_amount_above_paid_allowed_by_form_blocked_by_view_toctou(self):
@@ -321,11 +344,14 @@ class RefundCreateViewPostTests(RefundViewTestBase):
         validation and goes to session → the TOCTOU guard in RefundConfirmView
         catches it. So the create view redirects to confirm.
         """
-        resp = self.client.post(self.CREATE_URL, data={
-            "amount": "999.00",  # > amount_paid, but form allows it
-            "reason": Refund.REASON_CUSTOMER,
-            "notes": "",
-        })
+        resp = self.client.post(
+            self.CREATE_URL,
+            data={
+                "amount": "999.00",  # > amount_paid, but form allows it
+                "reason": Refund.REASON_CUSTOMER,
+                "notes": "",
+            },
+        )
         # Form passes; view redirects to confirm
         self.assertEqual(resp.status_code, 302)
 
@@ -334,8 +360,8 @@ class RefundCreateViewPostTests(RefundViewTestBase):
 # RefundConfirmView — GET tests
 # ---------------------------------------------------------------------------
 
-class RefundConfirmViewGetTests(RefundViewTestBase):
 
+class RefundConfirmViewGetTests(RefundViewTestBase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.staff)
@@ -374,8 +400,8 @@ class RefundConfirmViewGetTests(RefundViewTestBase):
 # RefundConfirmView — POST tests (critical)
 # ---------------------------------------------------------------------------
 
-class RefundConfirmViewPostTests(RefundViewTestBase):
 
+class RefundConfirmViewPostTests(RefundViewTestBase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.staff)
@@ -383,7 +409,7 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
 
     def test_confirm_post_creates_refund(self):
         with self._mock_gateway():
-            resp = self.client.post(self.CONFIRM_URL)
+            self.client.post(self.CONFIRM_URL)
         self.assertEqual(Refund.objects.count(), 1)
 
     def test_confirm_post_creates_audit_entry(self):
@@ -430,11 +456,13 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
 
     def test_confirm_post_amount_quantized_correctly(self):
         self._set_session(self._valid_session_data(amount="10.00"))
-        with self._mock_gateway(refund_result={
-            "gateway_refund_id": f"re_test_{uuid.uuid4().hex[:6]}",
-            "status": "succeeded",
-            "amount": Decimal("10.00"),
-        }):
+        with self._mock_gateway(
+            refund_result={
+                "gateway_refund_id": f"re_test_{uuid.uuid4().hex[:6]}",
+                "status": "succeeded",
+                "amount": Decimal("10.00"),
+            }
+        ):
             self.client.post(self.CONFIRM_URL)
         refund = Refund.objects.get()
         self.assertEqual(refund.amount, Decimal("10.00"))
@@ -450,7 +478,7 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
         make_refund(self.payment, Decimal("100.00"), self.staff)
         # Now our $10 refund request exceeds max_refundable ($0)
         with self._mock_gateway():
-            resp = self.client.post(self.CONFIRM_URL)
+            self.client.post(self.CONFIRM_URL)
         # Only the pre-existing refund exists
         self.assertEqual(Refund.objects.count(), 1)
         # Session cleared on TOCTOU block
@@ -471,9 +499,7 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
         So the mock gateway is never called here — we just verify that the Refund
         row was created and the view redirected to the detail page (success path).
         """
-        with self._mock_gateway(
-            raises=GatewayError("stripe down", gateway_code="stripe_error")
-        ):
+        with self._mock_gateway(raises=GatewayError("stripe down", gateway_code="stripe_error")):
             resp = self.client.post(self.CONFIRM_URL)
         # Refund row IS created — Stripe call is deferred to on_commit, not inside atomic
         self.assertEqual(Refund.objects.count(), 1)
@@ -488,7 +514,7 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
         self.payment.intent.status = PaymentIntent.STATUS_FAILED
         self.payment.intent.save(update_fields=["status"])
         with self._mock_gateway():
-            resp = self.client.post(self.CONFIRM_URL)
+            self.client.post(self.CONFIRM_URL)
         self.assertEqual(Refund.objects.count(), 0)
         self.assertNotIn(REFUND_SESSION_KEY, self.client.session)
 
@@ -496,21 +522,25 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
         """Two partial refunds sum to ≤ amount_paid → both succeed."""
         # First refund
         self._set_session(self._valid_session_data(amount="30.00"))
-        with self._mock_gateway(refund_result={
-            "gateway_refund_id": f"re_first_{uuid.uuid4().hex[:6]}",
-            "status": "succeeded",
-            "amount": Decimal("30.00"),
-        }):
+        with self._mock_gateway(
+            refund_result={
+                "gateway_refund_id": f"re_first_{uuid.uuid4().hex[:6]}",
+                "status": "succeeded",
+                "amount": Decimal("30.00"),
+            }
+        ):
             self.client.post(self.CONFIRM_URL)
         self.assertEqual(Refund.objects.count(), 1)
 
         # Second refund
         self._set_session(self._valid_session_data(amount="40.00"))
-        with self._mock_gateway(refund_result={
-            "gateway_refund_id": f"re_second_{uuid.uuid4().hex[:6]}",
-            "status": "succeeded",
-            "amount": Decimal("40.00"),
-        }):
+        with self._mock_gateway(
+            refund_result={
+                "gateway_refund_id": f"re_second_{uuid.uuid4().hex[:6]}",
+                "status": "succeeded",
+                "amount": Decimal("40.00"),
+            }
+        ):
             self.client.post(self.CONFIRM_URL)
         self.assertEqual(Refund.objects.count(), 2)
 
@@ -518,18 +548,20 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
         """After full refund, any subsequent refund attempt is blocked by TOCTOU guard."""
         # Full refund first
         self._set_session(self._valid_session_data(amount="100.00"))
-        with self._mock_gateway(refund_result={
-            "gateway_refund_id": f"re_full_{uuid.uuid4().hex[:6]}",
-            "status": "succeeded",
-            "amount": Decimal("100.00"),
-        }):
+        with self._mock_gateway(
+            refund_result={
+                "gateway_refund_id": f"re_full_{uuid.uuid4().hex[:6]}",
+                "status": "succeeded",
+                "amount": Decimal("100.00"),
+            }
+        ):
             self.client.post(self.CONFIRM_URL)
         self.assertEqual(Refund.objects.count(), 1)
 
         # Attempt second refund — should be blocked by TOCTOU guard
         self._set_session(self._valid_session_data(amount="10.00"))
         with self._mock_gateway():
-            resp = self.client.post(self.CONFIRM_URL)
+            self.client.post(self.CONFIRM_URL)
         self.assertEqual(Refund.objects.count(), 1)
 
     def test_confirm_post_session_expired_redirects_to_create(self):
@@ -547,8 +579,8 @@ class RefundConfirmViewPostTests(RefundViewTestBase):
 # RefundDetailView tests
 # ---------------------------------------------------------------------------
 
-class RefundDetailViewTests(RefundViewTestBase):
 
+class RefundDetailViewTests(RefundViewTestBase):
     def setUp(self):
         super().setUp()
         self.refund = make_refund(self.payment, Decimal("10.00"), self.staff)
@@ -584,10 +616,10 @@ class RefundDetailViewTests(RefundViewTestBase):
     def test_refund_payment_accessible_from_context(self):
         self.client.force_login(self.staff)
         resp = self.client.get(self.DETAIL_URL)
-        refund = resp.context["refund"]
+        resp.context["refund"]
         # Should not raise AttributeError
         try:
-            pk = refund.payment.pk
+            pass
         except AttributeError as exc:
             self.fail(f"refund.payment.pk raised AttributeError: {exc}")
 
@@ -600,6 +632,7 @@ class RefundDetailViewTests(RefundViewTestBase):
 # ---------------------------------------------------------------------------
 # Fix 28 — RefundDetailView staff scoping (IDOR prevention)
 # ---------------------------------------------------------------------------
+
 
 class RefundDetailViewStaffScopingTests(TestCase):
     """
@@ -688,6 +721,7 @@ class RefundDetailViewStaffScopingTests(TestCase):
 # H8 — Concurrent refund race: Refund rows locked inside atomic block
 # ---------------------------------------------------------------------------
 
+
 class RefundConfirmViewRangeLockTests(RefundViewTestBase):
     """
     H8: Verify that RefundConfirmView.post() acquires a select_for_update()
@@ -717,6 +751,7 @@ class RefundConfirmViewRangeLockTests(RefundViewTestBase):
         this unit test guards against the pattern being accidentally removed.
         """
         import inspect
+
         from apps.payments.views.refund import RefundConfirmView
 
         source = inspect.getsource(RefundConfirmView.post)
@@ -797,6 +832,7 @@ class RefundConfirmViewRangeLockTests(RefundViewTestBase):
         so the pattern cannot be accidentally removed without a test failure.
         """
         import inspect
+
         from apps.payments.views.refund import RefundConfirmView
 
         source = inspect.getsource(RefundConfirmView.post)
@@ -812,6 +848,7 @@ class RefundConfirmViewRangeLockTests(RefundViewTestBase):
 # ---------------------------------------------------------------------------
 # H-B — Payment row lock prevents first-refund double-spend
 # ---------------------------------------------------------------------------
+
 
 class RefundDoubleRacePreventionTest(RefundViewTestBase):
     """H-B: Lock on Payment row prevents first-refund double-spend."""
@@ -832,6 +869,7 @@ class RefundDoubleRacePreventionTest(RefundViewTestBase):
         is the correct fix.
         """
         import inspect
+
         from apps.payments.views.refund import RefundConfirmView
 
         source = inspect.getsource(RefundConfirmView.post)
@@ -847,6 +885,7 @@ class RefundDoubleRacePreventionTest(RefundViewTestBase):
 # ---------------------------------------------------------------------------
 # H-C — gateway_status field transitions
 # ---------------------------------------------------------------------------
+
 
 class RefundGatewayStatusTest(RefundViewTestBase):
     """H-C: gateway_status field on Refund tracks pending/succeeded/failed states."""
@@ -912,16 +951,22 @@ class RefundGatewayStatusTest(RefundViewTestBase):
     def test_mixed_statuses_only_non_failed_counted(self):
         """Only PENDING and SUCCEEDED rows count; FAILED rows are excluded."""
         make_refund(
-            self.payment, Decimal("20.00"), self.staff,
+            self.payment,
+            Decimal("20.00"),
+            self.staff,
             gateway_status=Refund.GATEWAY_STATUS_SUCCEEDED,
         )
         make_refund(
-            self.payment, Decimal("10.00"), self.staff,
+            self.payment,
+            Decimal("10.00"),
+            self.staff,
             gateway_status=Refund.GATEWAY_STATUS_FAILED,
             gateway_refund_id=f"failed_{uuid.uuid4().hex[:8]}",
         )
         make_refund(
-            self.payment, Decimal("5.00"), self.staff,
+            self.payment,
+            Decimal("5.00"),
+            self.staff,
             gateway_status=Refund.GATEWAY_STATUS_PENDING,
             gateway_refund_id=f"pending_{uuid.uuid4().hex[:8]}",
         )
@@ -946,17 +991,17 @@ class RefundGatewayStatusTest(RefundViewTestBase):
 
         # Now request the full amount again — should succeed (FAILED row excluded)
         self._set_session(self._valid_session_data(amount="100.00"))
-        with self._mock_gateway(refund_result={
-            "gateway_refund_id": f"re_retry_{uuid.uuid4().hex[:6]}",
-            "status": "succeeded",
-            "amount": Decimal("100.00"),
-        }):
+        with self._mock_gateway(
+            refund_result={
+                "gateway_refund_id": f"re_retry_{uuid.uuid4().hex[:6]}",
+                "status": "succeeded",
+                "amount": Decimal("100.00"),
+            }
+        ):
             resp = self.client.post(self.CONFIRM_URL)
 
         # A new PENDING refund row was created (the FAILED one already existed)
         self.assertEqual(Refund.objects.count(), 2)
-        new_refund = Refund.objects.exclude(
-            gateway_status=Refund.GATEWAY_STATUS_FAILED
-        ).get()
+        new_refund = Refund.objects.exclude(gateway_status=Refund.GATEWAY_STATUS_FAILED).get()
         self.assertEqual(new_refund.gateway_status, Refund.GATEWAY_STATUS_PENDING)
         self.assertEqual(resp.status_code, 302)

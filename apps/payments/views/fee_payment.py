@@ -35,12 +35,11 @@ CSP note: Stripe.js is loaded from https://js.stripe.com. The deployer must
 add "https://js.stripe.com" to CSP_SCRIPT_SRC and "https://api.stripe.com"
 to CSP_CONNECT_SRC in config/settings/base.py (or production.py).
 """
-import hashlib
+
 import logging
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
-from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
 from django.db import transaction
@@ -65,7 +64,7 @@ except ImportError:  # pragma: no cover
     _ipware_get_client_ip = None
 
 
-def _get_client_ip(request) -> str:
+def _get_client_ip(request) -> str:  # noqa: ANN001
     """Return the real client IP, honouring the configured proxy chain.
 
     Uses django-ipware which respects IPWARE_META_PRECEDENCE_ORDER / NUM_PROXIES
@@ -79,7 +78,7 @@ def _get_client_ip(request) -> str:
             ip, _ = _ipware_get_client_ip(request)
             if ip:
                 return ip
-        except Exception:
+        except Exception:  # noqa: S110
             pass
     return request.META.get("REMOTE_ADDR", "")
 
@@ -87,9 +86,10 @@ def _get_client_ip(request) -> str:
 def _check_rate_limit(user_pk: str) -> bool:
     """Returns True if rate limit is exceeded."""
     key = f"payments:create_intent:rl:{user_pk}"
-    cache.add(key, 0, timeout=60)   # initialises to 0 only if key absent (atomic)
-    count = cache.incr(key)          # atomically increment and return new value
+    cache.add(key, 0, timeout=60)  # initialises to 0 only if key absent (atomic)
+    count = cache.incr(key)  # atomically increment and return new value
     return count > 5
+
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class FeePaymentSelectView(LoginRequiredMixin, FormView):
     template_name = "payments/fee_payment_select.html"
     form_class = FeePaymentForm
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         cd = form.cleaned_data
         fee = cd["fee"]
         # Store everything the confirm step needs.  No PII beyond payer_reference.
@@ -123,10 +123,11 @@ class FeePaymentSelectView(LoginRequiredMixin, FormView):
         }
         return redirect("payments:fee_payment_confirm")
 
-    def get_success_url(self):
+    def get_success_url(self):  # noqa: ANN201
         # form_valid() handles the redirect directly.
         # This fallback is required by FormView's contract.
         from django.urls import reverse
+
         return reverse("payments:fee_payment_confirm")
 
 
@@ -135,34 +136,36 @@ class FeePaymentConfirmView(LoginRequiredMixin, TemplateView):
 
     template_name = "payments/fee_payment_confirm.html"
 
-    def _get_session_data(self):
+    def _get_session_data(self):  # noqa: ANN202
         return self.request.session.get(SESSION_KEY)
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         if not self._get_session_data():
             return redirect("payments:fee_payment_select")
         return super().get(request, *args, **kwargs)
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         sd = self._get_session_data() or {}
         config = TenantPaymentConfig.get_solo()
-        ctx.update({
-            "fee_code": sd.get("fee_code", ""),
-            "fee_description": sd.get("fee_description", ""),
-            "province": sd.get("province", ""),
-            "quantity": sd.get("quantity", 1),
-            "subtotal": Decimal(sd.get("subtotal", "0.00")),
-            "tax_amount": Decimal(sd.get("tax_amount", "0.00")),
-            "total": Decimal(sd.get("total", "0.00")),
-            # Publishable key is safe for front-end.
-            # stripe_secret_key and webhook_secret are NEVER passed here.
-            "stripe_publishable_key": config.stripe_publishable_key or "",
-        })
+        ctx.update(
+            {
+                "fee_code": sd.get("fee_code", ""),
+                "fee_description": sd.get("fee_description", ""),
+                "province": sd.get("province", ""),
+                "quantity": sd.get("quantity", 1),
+                "subtotal": Decimal(sd.get("subtotal", "0.00")),
+                "tax_amount": Decimal(sd.get("tax_amount", "0.00")),
+                "total": Decimal(sd.get("total", "0.00")),
+                # Publishable key is safe for front-end.
+                # stripe_secret_key and webhook_secret are NEVER passed here.
+                "stripe_publishable_key": config.stripe_publishable_key or "",
+            }
+        )
         return ctx
 
 
-def create_payment_intent_api(request):
+def create_payment_intent_api(request):  # noqa: ANN001, ANN201
     """
     POST /payments/fees/api/create-intent/
 
@@ -239,9 +242,7 @@ def create_payment_intent_api(request):
     try:
         gateway = get_gateway()
         config = TenantPaymentConfig.get_solo()
-        connect_account_id = (
-            config.stripe_connect_account_id if config.use_connect else None
-        )
+        connect_account_id = config.stripe_connect_account_id if config.use_connect else None
         gateway_result = gateway.create_payment_intent(
             amount=total,
             currency="cad",
@@ -311,10 +312,12 @@ def create_payment_intent_api(request):
         session_data.get("province", ""),
     )
 
-    return JsonResponse({
-        "client_secret": gateway_result["client_secret"],
-        "payment_intent_pk": str(intent.pk),
-    })
+    return JsonResponse(
+        {
+            "client_secret": gateway_result["client_secret"],
+            "payment_intent_pk": str(intent.pk),
+        }
+    )
 
 
 class FeePaymentSuccessView(LoginRequiredMixin, TemplateView):
@@ -322,7 +325,7 @@ class FeePaymentSuccessView(LoginRequiredMixin, TemplateView):
 
     template_name = "payments/fee_payment_success.html"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         intent_pk_raw = request.GET.get("payment_intent_pk") or (
             request.session.get(SESSION_KEY) or {}
         ).get("payment_intent_pk")
@@ -344,7 +347,7 @@ class FeePaymentSuccessView(LoginRequiredMixin, TemplateView):
         request.session.pop(SESSION_KEY, None)
         return super().get(request, *args, **kwargs)
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         intent = getattr(self, "intent", None)
         ctx["payment_intent"] = intent
@@ -352,7 +355,7 @@ class FeePaymentSuccessView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-def _cancel_stripe_pi_safe(gateway, pi_id: str) -> None:
+def _cancel_stripe_pi_safe(gateway, pi_id: str) -> None:  # noqa: ANN001
     """Cancel a Stripe PaymentIntent — fire-and-forget.
 
     Called via transaction.on_commit() from FeePaymentCancelView.
@@ -377,7 +380,7 @@ class FeePaymentCancelView(LoginRequiredMixin, TemplateView):
 
     template_name = "payments/fee_payment_cancel.html"
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         session_data = request.session.pop(SESSION_KEY, {})
 
         # M-M fix: cancel the live Stripe PI if one was created for this session.
@@ -385,6 +388,7 @@ class FeePaymentCancelView(LoginRequiredMixin, TemplateView):
         if intent_pk:
             try:
                 import uuid as _uuid_mod
+
                 _uuid_mod.UUID(str(intent_pk))  # validate before DB lookup
                 intent = PaymentIntent.objects.get(
                     pk=intent_pk,
@@ -398,8 +402,7 @@ class FeePaymentCancelView(LoginRequiredMixin, TemplateView):
                     # there is no surrounding transaction.
                     with transaction.atomic():
                         transaction.on_commit(
-                            lambda gw=_gw, pi_id=_pi_id:
-                                _cancel_stripe_pi_safe(gw, pi_id)
+                            lambda gw=_gw, pi_id=_pi_id: _cancel_stripe_pi_safe(gw, pi_id)
                         )
             except (PaymentIntent.DoesNotExist, ValueError):
                 pass

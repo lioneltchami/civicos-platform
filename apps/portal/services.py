@@ -4,6 +4,7 @@ Portal service layer.
 All mutations to ServiceRequest and StatusUpdate go through these functions.
 Views are thin — they call services, never touch ORM directly for writes.
 """
+
 from __future__ import annotations
 
 import logging
@@ -45,9 +46,7 @@ def create_service_request(
         ValueError: If citizen is anonymous.
     """
     if not hasattr(citizen, "pk") or citizen.pk is None:
-        raise ValueError(
-            "Cannot create service request for anonymous user. Use guest token flow."
-        )
+        raise ValueError("Cannot create service request for anonymous user. Use guest token flow.")
 
     with transaction.atomic():
         expires_at = timezone.now() + timezone.timedelta(days=retention_days)
@@ -70,9 +69,7 @@ def create_service_request(
                 "Votre demande a été reçue et sera examinée prochainement."
             ),
         )
-        transaction.on_commit(
-            lambda: _fire_notification(request, ServiceRequestStatus.SUBMITTED)
-        )
+        transaction.on_commit(lambda: _fire_notification(request, ServiceRequestStatus.SUBMITTED))
         transaction.on_commit(
             lambda: _write_audit(request, "workflow.submission.received", citizen)
         )
@@ -121,8 +118,7 @@ def update_request_status(
         raise ValueError("Cannot transition from a closed request")
     if service_request.is_terminal() and new_status != ServiceRequestStatus.CLOSED:
         raise ValueError(
-            f"Cannot transition from terminal status {service_request.status} "
-            f"to {new_status}"
+            f"Cannot transition from terminal status {service_request.status} " f"to {new_status}"
         )
 
     with transaction.atomic():
@@ -137,12 +133,12 @@ def update_request_status(
             changed_by=changed_by,
             public_note=public_note,
         )
-        transaction.on_commit(
-            lambda: _fire_notification(service_request, new_status)
-        )
+        transaction.on_commit(lambda: _fire_notification(service_request, new_status))
         _detail = {"old_status": old_status, "new_status": new_status}
         transaction.on_commit(
-            lambda: _write_audit(service_request, "workflow.status.changed", changed_by, detail=_detail)
+            lambda: _write_audit(
+                service_request, "workflow.status.changed", changed_by, detail=_detail
+            )
         )
 
     return update
@@ -165,9 +161,8 @@ def cancel_service_request(
             f"(current status: {service_request.status})"
         )
 
-    note = (
-        "Request cancelled by citizen. / Demande annulée par le citoyen."
-        + (f" Reason: {reason}" if reason else "")
+    note = "Request cancelled by citizen. / Demande annulée par le citoyen." + (
+        f" Reason: {reason}" if reason else ""
     )
     return update_request_status(
         service_request=service_request,
@@ -177,7 +172,7 @@ def cancel_service_request(
     )
 
 
-def get_citizen_requests(citizen: Any, status_filter: str | None = None):
+def get_citizen_requests(citizen: Any, status_filter: str | None = None):  # noqa: ANN201
     """
     Return a queryset of service requests for a citizen, optionally filtered by status.
     Always scoped to the citizen to prevent IDOR.

@@ -136,7 +136,8 @@ Coverage matrix:
      H3:  is_terminal returns False for PREACTIVATED, ACTIVATED
      H4:  transition_to raises ValueError for invalid transitions
      H5:  transition_to allows all transitions in ALLOWED_TRANSITIONS
-"""
+"""  # noqa: E501, RUF002
+
 from __future__ import annotations
 
 import json
@@ -266,8 +267,10 @@ def _make_voucher(
     issuing_bb: str = BB_ID,
 ) -> GovStackVoucher:
     """Create a GovStackVoucher directly in the DB (skips service layer)."""
-    from django.utils import timezone
     from datetime import timedelta
+
+    from django.utils import timezone
+
     return GovStackVoucher.objects.create(
         serial_number=serial,
         amount=Decimal(amount),
@@ -282,6 +285,7 @@ def _make_voucher(
 # ---------------------------------------------------------------------------
 # A. VoucherPreactivation view
 # ---------------------------------------------------------------------------
+
 
 class VoucherPreactivationHarnessTest(TestCase):
     """POST /govstack/payments/vouchers/voucher_preactivation"""
@@ -482,13 +486,13 @@ class VoucherPreactivationHarnessTest(TestCase):
             self.assertTrue(
                 16 <= len(value) <= 20,
                 msg=f"Generated voucher id {value!r} has length {len(value)}, "
-                    f"expected 16-20 (harness requires 16-25; our serializers "
-                    f"cap max_length=20).",
+                f"expected 16-20 (harness requires 16-25; our serializers "
+                f"cap max_length=20).",
             )
             self.assertTrue(
                 value.isdigit(),
                 msg=f"Generated voucher id {value!r} must be purely numeric "
-                    f"so _is_numeric_voucher_number() continues to work.",
+                f"so _is_numeric_voucher_number() continues to work.",
             )
 
     def test_a17_null_voucher_amount_returns_452_not_400(self):
@@ -530,6 +534,7 @@ class VoucherPreactivationHarnessTest(TestCase):
 # ---------------------------------------------------------------------------
 # B. VoucherActivation view
 # ---------------------------------------------------------------------------
+
 
 class VoucherActivationHarnessTest(TestCase):
     """PATCH /govstack/payments/vouchers/voucher_activation"""
@@ -606,10 +611,12 @@ class VoucherActivationHarnessTest(TestCase):
 
     def test_b8_integer_serial_accepted(self):
         """Harness sends voucher_serial_number as an integer — must be accepted."""
-        resp = self._patch({
-            "voucher_serial_number": int(FIXED_SERIAL),
-            "Gov_Stack_BB": BB_ID,
-        })
+        resp = self._patch(
+            {
+                "voucher_serial_number": int(FIXED_SERIAL),
+                "Gov_Stack_BB": BB_ID,
+            }
+        )
         self.assertEqual(resp.status_code, 200, resp.data)
 
     def test_b9_harness_invalid_serial_literal_returns_456_not_400(self):
@@ -638,6 +645,7 @@ class VoucherActivationHarnessTest(TestCase):
 # ---------------------------------------------------------------------------
 # C. VoucherRedemption view
 # ---------------------------------------------------------------------------
+
 
 class VoucherRedemptionHarnessTest(TestCase):
     """POST /govstack/payments/vouchers/voucher_redemption"""
@@ -725,10 +733,12 @@ class VoucherRedemptionHarnessTest(TestCase):
 
     def test_c9_unknown_bb_returns_460(self):
         """Whitespace-only Gov_Stack_BB passes serializer but service raises 460."""
-        resp = self._post({
-            "voucher_number": FIXED_SERIAL,
-            "Gov_Stack_BB": "   ",  # all whitespace — strip() → ""
-        })
+        resp = self._post(
+            {
+                "voucher_number": FIXED_SERIAL,
+                "Gov_Stack_BB": "   ",  # all whitespace — strip() → ""
+            }
+        )
         self.assertEqual(resp.status_code, 460, resp.data)
 
     def test_c10_unknown_voucher_returns_456(self):
@@ -744,10 +754,12 @@ class VoucherRedemptionHarnessTest(TestCase):
 
     def test_c12_integer_voucher_number_accepted(self):
         """Harness sends voucher_number as an integer."""
-        resp = self._post({
-            "voucher_number": int(FIXED_SERIAL),
-            "Gov_Stack_BB": BB_ID,
-        })
+        resp = self._post(
+            {
+                "voucher_number": int(FIXED_SERIAL),
+                "Gov_Stack_BB": BB_ID,
+            }
+        )
         self.assertEqual(resp.status_code, 200, resp.data)
 
     def test_c13_double_redemption_returns_456(self):
@@ -822,11 +834,13 @@ class VoucherRedemptionHarnessTest(TestCase):
         harness's voucher_redemption.js hardcoded When-steps, and
         test-data.json's merchant fixture comments (3 independent sources).
         """
-        resp = self._post(_redemption_body(
-            merchant_name="Ronan Oliver",
-            merchant_bank_details="Vigor Bank Group",
-            merchant_voucher_group="insufficient funds",
-        ))
+        resp = self._post(
+            _redemption_body(
+                merchant_name="Ronan Oliver",
+                merchant_bank_details="Vigor Bank Group",
+                merchant_voucher_group="insufficient funds",
+            )
+        )
         self.assertEqual(resp.status_code, 462, resp.data)
         self.assertIn("message", resp.data)
 
@@ -838,11 +852,13 @@ class VoucherRedemptionHarnessTest(TestCase):
         (both scenarios send merchant_voucher_group == "insufficient funds")
         until the GovStack reference server's Mockoon config was checked.
         """
-        resp = self._post(_redemption_body(
-            merchant_name="Annie Krueger",
-            merchant_bank_details="Omega Holding Company",
-            merchant_voucher_group="insufficient funds",
-        ))
+        resp = self._post(
+            _redemption_body(
+                merchant_name="Annie Krueger",
+                merchant_bank_details="Omega Holding Company",
+                merchant_voucher_group="insufficient funds",
+            )
+        )
         self.assertEqual(resp.status_code, 463, resp.data)
         self.assertIn("message", resp.data)
         # Voucher must NOT have been consumed on a decline.
@@ -866,6 +882,7 @@ class VoucherRedemptionHarnessTest(TestCase):
 # ---------------------------------------------------------------------------
 # D. VoucherStatusCheck view — GET
 # ---------------------------------------------------------------------------
+
 
 class VoucherStatusCheckGetTest(TestCase):
     """GET /govstack/payments/vouchers/voucherstatuscheck/{serial}"""
@@ -1021,6 +1038,7 @@ class VoucherStatusCheckGetTest(TestCase):
 # ---------------------------------------------------------------------------
 # E. VoucherCancellation view — PATCH
 # ---------------------------------------------------------------------------
+
 
 class VoucherCancellationHarnessTest(TestCase):
     """
@@ -1185,6 +1203,7 @@ class VoucherCancellationHarnessTest(TestCase):
 # F. GovStackVoucherService — unit tests
 # ---------------------------------------------------------------------------
 
+
 class VoucherServicePreactivateTest(TestCase):
     """Service-layer tests for GovStackVoucherService.preactivate()."""
 
@@ -1240,7 +1259,7 @@ class VoucherServicePreactivateTest(TestCase):
         return_value=FIXED_SERIAL,
     )
     def test_f4_audit_details_never_contain_payee_functional_id(self, _mock):
-        PAYEE_ID = "3e4c9a1b-0f42-dead"
+        PAYEE_ID = "3e4c9a1b-0f42-dead"  # noqa: N806
         GovStackVoucherService.preactivate(
             voucher_amount=Decimal("100.00"),
             voucher_currency=CURRENCY,
@@ -1319,16 +1338,21 @@ class VoucherServicePreactivateTest(TestCase):
         # Generator called exactly twice: once for the collision, once for the success.
         self.assertEqual(mock_gen.call_count, 2)
         # Both vouchers exist in the DB.
-        self.assertEqual(GovStackVoucher.objects.filter(
-            serial_number__in=[FIXED_SERIAL, FIXED_SERIAL_2]
-        ).count(), 2)
+        self.assertEqual(
+            GovStackVoucher.objects.filter(
+                serial_number__in=[FIXED_SERIAL, FIXED_SERIAL_2]
+            ).count(),
+            2,
+        )
 
 
 class VoucherServiceActivateTest(TestCase):
     """Service-layer tests for GovStackVoucherService.activate()."""
 
     def setUp(self):
-        self.voucher = _make_voucher(serial=FIXED_SERIAL, status=GovStackVoucher.STATUS_PREACTIVATED)
+        self.voucher = _make_voucher(
+            serial=FIXED_SERIAL, status=GovStackVoucher.STATUS_PREACTIVATED
+        )
 
     def test_f9_transitions_to_activated(self):
         v = GovStackVoucherService.activate(
@@ -1357,7 +1381,7 @@ class VoucherServiceActivateTest(TestCase):
 
     def test_f13_consumed_voucher_raises_invalid_voucher_serial(self):
         """CONSUMED → ACTIVATED is not in ALLOWED_TRANSITIONS."""
-        v = _make_voucher(serial=FIXED_SERIAL_2, status=GovStackVoucher.STATUS_CONSUMED)
+        _make_voucher(serial=FIXED_SERIAL_2, status=GovStackVoucher.STATUS_CONSUMED)
         with self.assertRaises(InvalidVoucherSerial):
             GovStackVoucherService.activate(voucher_serial_number=FIXED_SERIAL_2, issuing_bb=BB_ID)
 
@@ -1406,7 +1430,7 @@ class VoucherServiceRedeemTest(TestCase):
         self.assertIsNotNone(entry)
 
     def test_f19_audit_details_never_contain_merchant_bank_details(self):
-        SECRET_BANK = "TOP_SECRET_ACCOUNT_1234567890"
+        SECRET_BANK = "TOP_SECRET_ACCOUNT_1234567890"  # noqa: N806
         GovStackVoucherService.redeem(
             voucher_number=FIXED_SERIAL,
             issuing_bb=BB_ID,
@@ -1501,7 +1525,7 @@ class VoucherServiceCancelTest(TestCase):
         self.assertEqual(v.status, GovStackVoucher.STATUS_CANCELLED)
 
     def test_f23_cancel_activated(self):
-        v = _make_voucher(serial=FIXED_SERIAL_2, status=GovStackVoucher.STATUS_ACTIVATED)
+        _make_voucher(serial=FIXED_SERIAL_2, status=GovStackVoucher.STATUS_ACTIVATED)
         result = GovStackVoucherService.cancel(voucher_serial_number=FIXED_SERIAL_2)
         self.assertEqual(result.status, GovStackVoucher.STATUS_CANCELLED)
 
@@ -1590,6 +1614,7 @@ class VoucherServiceGetStatusTest(TestCase):
 # G. Security invariants
 # ---------------------------------------------------------------------------
 
+
 class VoucherSecurityInvariantsTest(TestCase):
     """
     Security: voucher_secret, payee_functional_id must NEVER appear in
@@ -1618,7 +1643,7 @@ class VoucherSecurityInvariantsTest(TestCase):
         return_value=FIXED_SERIAL,
     )
     def test_g2_payee_functional_id_never_in_preactivation_response(self, _mock):
-        PAYEE = "deadbeef-1234-5678"
+        PAYEE = "deadbeef-1234-5678"  # noqa: N806
         v = GovStackVoucherService.preactivate(
             voucher_amount=Decimal("100.00"),
             voucher_currency=CURRENCY,
@@ -1650,7 +1675,7 @@ class VoucherSecurityInvariantsTest(TestCase):
 
     def test_g4_merchant_bank_details_never_in_audit_details(self):
         v = _make_voucher(serial=FIXED_SERIAL, status=GovStackVoucher.STATUS_ACTIVATED)
-        BANK = "SUPER_SECRET_BANK_ACCOUNT_99"
+        BANK = "SUPER_SECRET_BANK_ACCOUNT_99"  # noqa: N806
         GovStackVoucherService.redeem(
             voucher_number=FIXED_SERIAL,
             issuing_bb=BB_ID,
@@ -1680,6 +1705,7 @@ class VoucherSecurityInvariantsTest(TestCase):
 # H. Model: GovStackVoucher
 # ---------------------------------------------------------------------------
 
+
 class GovStackVoucherModelTest(TestCase):
     """Unit tests for GovStackVoucher model methods and properties."""
 
@@ -1708,7 +1734,9 @@ class GovStackVoucherModelTest(TestCase):
             GovStackVoucher.STATUS_CANCELLED,
             GovStackVoucher.STATUS_PURGED,
         ):
-            self.assertTrue(self._voucher(status).is_terminal, f"Expected {status!r} to be terminal")
+            self.assertTrue(
+                self._voucher(status).is_terminal, f"Expected {status!r} to be terminal"
+            )
 
     def test_h3_is_terminal_false_for_non_terminal_states(self):
         for status in (
@@ -1717,7 +1745,9 @@ class GovStackVoucherModelTest(TestCase):
             GovStackVoucher.STATUS_BLOCKED,
             GovStackVoucher.STATUS_SUSPENDED,
         ):
-            self.assertFalse(self._voucher(status).is_terminal, f"Expected {status!r} to be non-terminal")
+            self.assertFalse(
+                self._voucher(status).is_terminal, f"Expected {status!r} to be non-terminal"
+            )
 
     def test_h4_transition_to_raises_for_invalid_transitions(self):
         # CONSUMED is terminal — no transitions allowed
@@ -1741,6 +1771,7 @@ class GovStackVoucherModelTest(TestCase):
 # ---------------------------------------------------------------------------
 # I. Full chained harness flow
 # ---------------------------------------------------------------------------
+
 
 class VoucherFullChainedFlowTest(TestCase):
     """
@@ -1839,8 +1870,9 @@ class VoucherFullChainedFlowTest(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# F31–F36  seed_govstack_vouchers management command
+# F31–F36  seed_govstack_vouchers management command  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class SeedGovStackVouchersCommandTests(TestCase):
     """
@@ -1858,15 +1890,27 @@ class SeedGovStackVouchersCommandTests(TestCase):
     The full seed set uses 4-digit serials (5550–6004) and 5-digit serials
     (60000–60001) — values outside the auto-generation range (100 000–999 999)
     and therefore guaranteed not to conflict with production vouchers.
-    """
+    """  # noqa: RUF002
 
     # Canonical list of all serial numbers the seed command must create.
     # Order matches _SEED_VOUCHERS in the management command.
-    EXPECTED_SERIALS: list[str] = [
-        "5550", "5551", "5552", "5553", "5554", "5555",
-        "5556", "5557", "5558", "5559", "5560",
-        "6001", "6002", "6004",
-        "60000", "60001",
+    EXPECTED_SERIALS: list[str] = [  # noqa: RUF012
+        "5550",
+        "5551",
+        "5552",
+        "5553",
+        "5554",
+        "5555",
+        "5556",
+        "5557",
+        "5558",
+        "5559",
+        "5560",
+        "6001",
+        "6002",
+        "6004",
+        "60000",
+        "60001",
     ]
 
     # Expected group_code + amount_str + currency + "expiry must be in the
@@ -1875,14 +1919,14 @@ class SeedGovStackVouchersCommandTests(TestCase):
     # its expiry_date is intentionally in the PAST (see test_f33 and the
     # dedicated 6001/6002 assertions below), so it doesn't fit this table's
     # "expiry must be in the future" invariant.
-    _EXPECTED_DATA: dict[str, tuple[str, str, str, bool]] = {
-        "5550":  ("FOOD",      "100.00", "CAD", True),
-        "5552":  ("FOOD",      "200.00", "CAD", True),
-        "5556":  ("HEALTH",    "75.00",  "CAD", True),
-        "6001":  ("FOOD",      "100.00", "CAD", True),
-        "6004":  ("HEALTH",    "200.00", "CAD", True),
-        "60000": ("TRANSPORT", "50.00",  "CAD", True),
-        "60001": ("TRANSPORT", "50.00",  "CAD", True),
+    _EXPECTED_DATA: dict[str, tuple[str, str, str, bool]] = {  # noqa: RUF012
+        "5550": ("FOOD", "100.00", "CAD", True),
+        "5552": ("FOOD", "200.00", "CAD", True),
+        "5556": ("HEALTH", "75.00", "CAD", True),
+        "6001": ("FOOD", "100.00", "CAD", True),
+        "6004": ("HEALTH", "200.00", "CAD", True),
+        "60000": ("TRANSPORT", "50.00", "CAD", True),
+        "60001": ("TRANSPORT", "50.00", "CAD", True),
     }
 
     # Per-serial expected status after a plain seed run (F33).
@@ -1890,9 +1934,19 @@ class SeedGovStackVouchersCommandTests(TestCase):
     _EXPECTED_STATUS: dict[str, str] = {
         serial: GovStackVoucher.STATUS_PREACTIVATED
         for serial in [
-            "5550", "5551", "5552", "5553", "5554", "5555",
-            "5556", "5557", "5558", "5559", "5560",
-            "60000", "60001",
+            "5550",
+            "5551",
+            "5552",
+            "5553",
+            "5554",
+            "5555",
+            "5556",
+            "5557",
+            "5558",
+            "5559",
+            "5560",
+            "60000",
+            "60001",
         ]
     } | {
         "6001": GovStackVoucher.STATUS_CONSUMED,
@@ -2087,14 +2141,15 @@ class SeedGovStackVouchersCommandTests(TestCase):
         creates missing rows), so --reset is required.
         """
         from datetime import timedelta
+
         from django.utils import timezone
 
         # Pre-create two seed serials in terminal/modified states
         GovStackVoucher.objects.create(
             serial_number="5550",
             amount=Decimal("999.00"),
-            currency="USD",              # Wrong currency — will be deleted and replaced by seed value
-            group_code="WRONG",          # Wrong group — will be deleted and replaced by seed value
+            currency="USD",  # Wrong currency — will be deleted and replaced by seed value
+            group_code="WRONG",  # Wrong group — will be deleted and replaced by seed value
             status=GovStackVoucher.STATUS_CONSUMED,
             issuing_bb="SOME-OTHER-BB",  # Not GS-HARNESS — reset must still delete it
             expiry_date=timezone.now() + timedelta(days=1),
@@ -2201,9 +2256,12 @@ class SeedGovStackVouchersCommandTests(TestCase):
 
         self._call_seed()
 
-        for serial, (expected_group, expected_amount_str, expected_currency, expiry_in_future) in (
-            self._EXPECTED_DATA.items()
-        ):
+        for serial, (
+            expected_group,
+            expected_amount_str,
+            expected_currency,
+            expiry_in_future,
+        ) in self._EXPECTED_DATA.items():
             v = GovStackVoucher.objects.get(serial_number=serial)
             self.assertEqual(
                 v.group_code,
@@ -2301,8 +2359,9 @@ class SeedGovStackVouchersCommandTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# F37–F40  GOVSTACK_VOUCHER_REQUIRE_JWT enforcement (GAP-3)
+# F37–F40  GOVSTACK_VOUCHER_REQUIRE_JWT enforcement (GAP-3)  # noqa: RUF003
 # ---------------------------------------------------------------------------
+
 
 class VoucherJWTEnforcementTest(TestCase):
     """
@@ -2343,7 +2402,7 @@ class VoucherJWTEnforcementTest(TestCase):
       the actual code is 401.  The tests therefore assert
       ``status_code in (401, 403)`` to cover both semantics without
       over-specifying DRF internals.
-    """
+    """  # noqa: RUF002
 
     def setUp(self):
         self.client = APIClient()
@@ -2490,7 +2549,7 @@ class VoucherJWTEnforcementTest(TestCase):
         from authentication_classes or broke request.user population would
         leave all three rejection tests (F37–F39) green while the endpoint
         would reject every real authenticated user in production.
-        """
+        """  # noqa: RUF002
         user = get_user_model().objects.create_user(
             email="voucher_jwt_test@example.com",
             password="testpass123",
@@ -2585,6 +2644,7 @@ class VoucherJWTEnforcementTest(TestCase):
 # G. Gov_Stack_BB production allowlist (P2)
 # ---------------------------------------------------------------------------
 
+
 class VoucherRegisteredBBAllowlistTest(TestCase):
     """
     Tests for the GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB production guard added
@@ -2626,7 +2686,7 @@ class VoucherRegisteredBBAllowlistTest(TestCase):
     GovStackRegisteredBB.bb_id today (underscores / 21 chars vs. the field's
     validator and max_length=20), which is exactly why this flag is absent
     (→ False) from every non-production settings module.
-    """
+    """  # noqa: RUF002
 
     # Well-formed, validator-compatible, on nobody's blocklist, and with no
     # GovStackRegisteredBB row — the only way to reach the allowlist branch.
@@ -2686,9 +2746,7 @@ class VoucherRegisteredBBAllowlistTest(TestCase):
     def _redeem(self, bb: str):
         return self.client.post(
             REDEMPTION_URL,
-            data=self._json(
-                _redemption_body(voucher_number=FIXED_SERIAL_2, gov_stack_bb=bb)
-            ),
+            data=self._json(_redemption_body(voucher_number=FIXED_SERIAL_2, gov_stack_bb=bb)),
             content_type="application/json",
         )
 
@@ -2699,7 +2757,7 @@ class VoucherRegisteredBBAllowlistTest(TestCase):
             content_type="application/json",
         )
 
-    # ── G1–G4: flag OFF → allowlist is a no-op ───────────────────────────────
+    # ── G1–G4: flag OFF → allowlist is a no-op ───────────────────────────────  # noqa: RUF003
 
     def test_g1_flag_off_unregistered_bb_accepted_on_preactivation(self):
         """
@@ -2743,7 +2801,7 @@ class VoucherRegisteredBBAllowlistTest(TestCase):
         # Cancellation uniquely uses 463, not 460, for a bad Gov_Stack_BB.
         self.assertEqual(self._cancel("invalid_bb").status_code, 463)
 
-    # ── G6–G9: flag ON → unregistered rejected ───────────────────────────────
+    # ── G6–G9: flag ON → unregistered rejected ───────────────────────────────  # noqa: RUF003
 
     @override_settings(GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB=True)
     def test_g6_flag_on_unregistered_bb_rejected_on_preactivation(self):
@@ -2783,7 +2841,7 @@ class VoucherRegisteredBBAllowlistTest(TestCase):
         the allowlist transparent, so all 4 endpoints behave exactly as they do
         with the flag off. Complements G6–G9 by proving the gate is binary
         rather than a blanket rejection.
-        """
+        """  # noqa: RUF002
         self.assertEqual(self._preactivate(BB_ID).status_code, 200)
         self.assertEqual(self._activate(BB_ID).status_code, 200)
         self.assertEqual(self._redeem(BB_ID).status_code, 200)
@@ -2820,6 +2878,7 @@ class VoucherRegisteredBBAllowlistTest(TestCase):
 # ---------------------------------------------------------------------------
 # G(b). Gov_Stack_BB allowlist — service-layer helper unit tests (P2)
 # ---------------------------------------------------------------------------
+
 
 class IsUnregisteredGovStackBBHelperTest(TestCase):
     """

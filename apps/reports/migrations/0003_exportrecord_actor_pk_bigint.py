@@ -16,12 +16,11 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("reports", "0002_reports_cleanup"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ── 1. Drop index that references actor_pk before removing the column ──
         # Required for SQLite compatibility: SQLite cannot drop a column while
         # an index still references it (OperationalError: error in index … after

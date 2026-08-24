@@ -51,8 +51,6 @@ class AppointmentsConfig(AppConfig):
         """
         # Import signals module to instantiate Signal() objects and make them
         # available for other apps to connect to via their ready() hooks.
-        import apps.appointments.signals  # noqa: F401 — side-effect import
-
         # Safe-import guard: importlib.util.find_spec() returns None only when the
         # module file does not exist. It does NOT protect against broken imports
         # *inside* the file — those will raise ImportError/SyntaxError and propagate
@@ -60,9 +58,12 @@ class AppointmentsConfig(AppConfig):
         # files rather than having them silently skipped).
         import importlib.util
 
+        import apps.appointments.signals
+
         _receivers_spec = importlib.util.find_spec("apps.appointments.receivers")
         if _receivers_spec is not None:
-            import apps.appointments.receivers  # noqa: F401
+            import apps.appointments.receivers
+
             apps.appointments.receivers.connect_receivers()
 
         # Validate iCalendar organizer email in production (RFC 5545 §3.8.4.3).

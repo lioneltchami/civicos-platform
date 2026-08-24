@@ -74,8 +74,7 @@ def _bearer(client, user):
     )
     if resp.status_code != 200:
         raise RuntimeError(
-            f"Token fetch failed for {user.email}: "
-            f"status={resp.status_code} data={resp.data}"
+            f"Token fetch failed for {user.email}: " f"status={resp.status_code} data={resp.data}"
         )
     return {"HTTP_AUTHORIZATION": f"Bearer {resp.data['access']}"}
 
@@ -180,7 +179,9 @@ class WorkItemQueueListTests(TestCase):
         # ?mine=1 must return only items assigned to the requesting staff member.
         other_staff = _make_staff()
         _make_work_item(title="Mine", assigned_to=self.staff, status=WorkItemStatus.IN_PROGRESS)
-        _make_work_item(title="Not Mine", assigned_to=other_staff, status=WorkItemStatus.IN_PROGRESS)
+        _make_work_item(
+            title="Not Mine", assigned_to=other_staff, status=WorkItemStatus.IN_PROGRESS
+        )
 
         resp = self.client.get(QUEUE_URL + "?mine=1", **_bearer(self.client, self.staff))
 
@@ -721,7 +722,7 @@ class AddCommentTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_whitespace_only_body_returns_400(self):
-        # The service layer strips whitespace; a whitespace body becomes empty and raises ValueError.
+        # The service layer strips whitespace; a whitespace body becomes empty and raises ValueError.  # noqa: E501
         work_item = _make_work_item(status=WorkItemStatus.PENDING)
 
         resp = self.client.post(

@@ -67,8 +67,7 @@ def _bearer(client, user):
     )
     if resp.status_code != 200:
         raise RuntimeError(
-            f"Token fetch failed for {user.email}: "
-            f"status={resp.status_code} data={resp.data}"
+            f"Token fetch failed for {user.email}: " f"status={resp.status_code} data={resp.data}"
         )
     return {"HTTP_AUTHORIZATION": f"Bearer {resp.data['access']}"}
 
@@ -178,9 +177,7 @@ class ServiceRequestListTests(TestCase):
             status=ServiceRequestStatus.IN_REVIEW,
         )
 
-        resp = self.client.get(
-            LIST_URL + "?status=submitted", **_bearer(self.client, self.citizen)
-        )
+        resp = self.client.get(LIST_URL + "?status=submitted", **_bearer(self.client, self.citizen))
 
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data["count"], 1)
@@ -195,9 +192,7 @@ class ServiceRequestListTests(TestCase):
             status=ServiceRequestStatus.SUBMITTED,
         )
 
-        resp = self.client.get(
-            LIST_URL + "?status=garbage", **_bearer(self.client, self.citizen)
-        )
+        resp = self.client.get(LIST_URL + "?status=garbage", **_bearer(self.client, self.citizen))
 
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data["count"], 1)
@@ -297,7 +292,9 @@ class ServiceRequestCreateTests(TestCase):
     @patch(_PATCH_SIGNAL)
     @patch(_PATCH_AUDIT)
     @patch(_PATCH_NOTIFICATION)
-    def test_created_request_belongs_to_authenticated_citizen(self, mock_notif, mock_audit, mock_sig):
+    def test_created_request_belongs_to_authenticated_citizen(
+        self, mock_notif, mock_audit, mock_sig
+    ):
         # The citizen FK on the created record must always be the requesting user,
         # never a value supplied in the payload.
         payload = {
@@ -306,9 +303,7 @@ class ServiceRequestCreateTests(TestCase):
         }
 
         with self.captureOnCommitCallbacks(execute=True):
-            self.client.post(
-                LIST_URL, payload, format="json", **_bearer(self.client, self.citizen)
-            )
+            self.client.post(LIST_URL, payload, format="json", **_bearer(self.client, self.citizen))
 
         sr = ServiceRequest.objects.get(citizen=self.citizen)
         self.assertEqual(sr.citizen_id, self.citizen.pk)

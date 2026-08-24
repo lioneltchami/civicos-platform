@@ -20,20 +20,19 @@
 #   that enumerates the allowed values, you WILL need a migration for any new
 #   choices — but the default CharField approach does not require one.
 
-import django.core.validators
-import django.db.models.deletion
 import uuid
 
+import django.core.validators
+import django.db.models.deletion
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("payments", "0019_widen_bulk_correlation_id"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # ── GovStackBill ──────────────────────────────────────────────────────
         migrations.CreateModel(
             name="GovStackBill",

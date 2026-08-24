@@ -1,0 +1,127 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.3, pluggy-1.6.0
+django: version: 5.2.17, settings: config.settings.test (from env)
+rootdir: /home/ubuntu/civicos-pr1-ruff-source
+configfile: pyproject.toml
+plugins: anyio-4.14.2, time-machine-2.16.0, Faker-33.0.0, xdist-3.6.1, django-4.9.0, cov-6.0.0
+collected 5 items
+
+tests/test_file_management_runner_contract.py .....                      [100%]
+
+=============================== warnings summary ===============================
+apps/payments/models.py:195
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:195: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:199
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:199: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:352
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:352: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:356
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:356: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:360
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:360: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:364
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:364: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:500
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:500: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:700
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:700: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1013
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1013: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1017
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1017: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1205
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1205: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1209
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1209: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1591
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1591: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1595
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1595: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1599
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1599: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1603
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1603: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1607
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1607: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1847
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1847: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1851
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1851: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1860
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/models.py:1860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:547
+  /home/ubuntu/civicos-pr1-ruff-source/apps/volunteers/models.py:547: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:860
+  /home/ubuntu/civicos-pr1-ruff-source/apps/volunteers/models.py:860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1084
+  /home/ubuntu/civicos-pr1-ruff-source/apps/volunteers/models.py:1084: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1588
+  /home/ubuntu/civicos-pr1-ruff-source/apps/volunteers/models.py:1588: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1796
+  /home/ubuntu/civicos-pr1-ruff-source/apps/volunteers/models.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1136
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/govstack_models.py:1136: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1281
+  /home/ubuntu/civicos-pr1-ruff-source/apps/payments/govstack_models.py:1281: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    return form_class(**defaults)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 5 passed, 29 warnings in 0.07s ========================
+TEST_EXIT=0

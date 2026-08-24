@@ -4,108 +4,191 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('consent', '0008_govstack_signature'),
+    dependencies = [  # noqa: RUF012
+        ("consent", "0008_govstack_signature"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.RemoveField(
-            model_name='consentsignature',
-            name='signed_without_object_reference',
+            model_name="consentsignature",
+            name="signed_without_object_reference",
         ),
         migrations.RemoveField(
-            model_name='consentsignature',
-            name='verification_method',
+            model_name="consentsignature",
+            name="verification_method",
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='dpia_date',
-            field=models.DateField(blank=True, help_text='Date the DPIA was conducted.', null=True),
+            model_name="consentcategory",
+            name="dpia_date",
+            field=models.DateField(blank=True, help_text="Date the DPIA was conducted.", null=True),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='dpia_evidence_url',
-            field=models.URLField(blank=True, help_text='URL to DPIA evidence document.'),
+            model_name="consentcategory",
+            name="dpia_evidence_url",
+            field=models.URLField(blank=True, help_text="URL to DPIA evidence document."),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='dpia_summary_url',
-            field=models.URLField(blank=True, help_text='URL to DPIA summary document.'),
+            model_name="consentcategory",
+            name="dpia_summary_url",
+            field=models.URLField(blank=True, help_text="URL to DPIA summary document."),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='dpia_url',
-            field=models.URLField(blank=True, help_text='URL to the full DPIA document.'),
+            model_name="consentcategory",
+            name="dpia_url",
+            field=models.URLField(blank=True, help_text="URL to the full DPIA document."),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='language',
-            field=models.CharField(blank=True, default='en', help_text='ISO 639-1 language code for this data agreement (GovStack DataAgreement.language).', max_length=10),
+            model_name="consentcategory",
+            name="language",
+            field=models.CharField(
+                blank=True,
+                default="en",
+                help_text="ISO 639-1 language code for this data agreement (GovStack DataAgreement.language).",
+                max_length=10,
+            ),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='lifecycle',
-            field=models.CharField(blank=True, choices=[('draft', 'Draft'), ('published', 'Published'), ('error_correction', 'Error Correction')], default='published', help_text='Lifecycle state: draft / published / error_correction.', max_length=30),
+            model_name="consentcategory",
+            name="lifecycle",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("draft", "Draft"),
+                    ("published", "Published"),
+                    ("error_correction", "Error Correction"),
+                ],
+                default="published",
+                help_text="Lifecycle state: draft / published / error_correction.",
+                max_length=30,
+            ),
         ),
         migrations.AddField(
-            model_name='consentpolicy',
-            name='description',
-            field=models.TextField(blank=True, help_text='Human-readable description of this policy (GovStack Policy.description).'),
+            model_name="consentpolicy",
+            name="description",
+            field=models.TextField(
+                blank=True,
+                help_text="Human-readable description of this policy (GovStack Policy.description).",
+            ),
         ),
         migrations.AddField(
-            model_name='consentpolicy',
-            name='third_party_data_sharing',
-            field=models.BooleanField(default=False, help_text='True if data may be shared with third parties per this policy (GovStack Policy.thirdPartyDataSharing).'),
+            model_name="consentpolicy",
+            name="third_party_data_sharing",
+            field=models.BooleanField(
+                default=False,
+                help_text="True if data may be shared with third parties per this policy (GovStack Policy.thirdPartyDataSharing).",
+            ),
         ),
         migrations.AddField(
-            model_name='consentsignature',
-            name='data_agreement_revision_hash',
-            field=models.CharField(blank=True, help_text='Hash of the DataAgreement revision that was signed (GovStack dataAgreementRevisionHash).', max_length=64),
+            model_name="consentsignature",
+            name="data_agreement_revision_hash",
+            field=models.CharField(
+                blank=True,
+                help_text="Hash of the DataAgreement revision that was signed (GovStack dataAgreementRevisionHash).",
+                max_length=64,
+            ),
         ),
         migrations.AddField(
-            model_name='consentsignature',
-            name='data_agreement_revision_signed_without_id',
-            field=models.BooleanField(default=False, help_text='True if the DataAgreement revision was signed without its object ID (GovStack dataAgreementRevisionSignedWithoutId).'),
+            model_name="consentsignature",
+            name="data_agreement_revision_signed_without_id",
+            field=models.BooleanField(
+                default=False,
+                help_text="True if the DataAgreement revision was signed without its object ID (GovStack dataAgreementRevisionSignedWithoutId).",
+            ),
         ),
         migrations.AddField(
-            model_name='consentsignature',
-            name='signed_without_object_id',
-            field=models.BooleanField(default=False, help_text='True if objectId was omitted from the signed payload (GovStack signedWithoutObjectId).'),
+            model_name="consentsignature",
+            name="signed_without_object_id",
+            field=models.BooleanField(
+                default=False,
+                help_text="True if objectId was omitted from the signed payload (GovStack signedWithoutObjectId).",
+            ),
         ),
         migrations.AddField(
-            model_name='consentsignature',
-            name='verification_jwks',
-            field=models.JSONField(blank=True, help_text='JSON Web Key Set (JWKS) used for signature verification (GovStack verificationJwks).', null=True),
+            model_name="consentsignature",
+            name="verification_jwks",
+            field=models.JSONField(
+                blank=True,
+                help_text="JSON Web Key Set (JWKS) used for signature verification (GovStack verificationJwks).",
+                null=True,
+            ),
         ),
         migrations.AddField(
-            model_name='consentsignature',
-            name='verification_type',
-            field=models.CharField(choices=[('string', 'String (non-cryptographic)'), ('rs256', 'RS256 (RSA + SHA-256)'), ('ed25519', 'Ed25519'), ('ps256', 'PS256 (RSA-PSS + SHA-256)')], default='string', help_text='Signing algorithm (GovStack verificationType enum: string/rs256/ed25519/ps256).', max_length=10),
+            model_name="consentsignature",
+            name="verification_type",
+            field=models.CharField(
+                choices=[
+                    ("string", "String (non-cryptographic)"),
+                    ("rs256", "RS256 (RSA + SHA-256)"),
+                    ("ed25519", "Ed25519"),
+                    ("ps256", "PS256 (RSA-PSS + SHA-256)"),
+                ],
+                default="string",
+                help_text="Signing algorithm (GovStack verificationType enum: string/rs256/ed25519/ps256).",
+                max_length=10,
+            ),
         ),
         migrations.AddField(
-            model_name='consentwebhook',
-            name='signature_header',
-            field=models.CharField(blank=True, default='X-GovStack-Signature', help_text='HTTP header name used for the HMAC-SHA256 signature (GovStack signatureHeader).', max_length=100),
+            model_name="consentwebhook",
+            name="signature_header",
+            field=models.CharField(
+                blank=True,
+                default="X-GovStack-Signature",
+                help_text="HTTP header name used for the HMAC-SHA256 signature (GovStack signatureHeader).",
+                max_length=100,
+            ),
         ),
         migrations.AlterField(
-            model_name='consentcategory',
-            name='data_use',
-            field=models.CharField(blank=True, choices=[('', 'Not specified'), ('data_source', 'Data Source'), ('data-using-service', 'Data Using Service'), ('data_using_service', 'Data Using Service (legacy)')], default='', max_length=30),
+            model_name="consentcategory",
+            name="data_use",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("", "Not specified"),
+                    ("data_source", "Data Source"),
+                    ("data-using-service", "Data Using Service"),
+                    ("data_using_service", "Data Using Service (legacy)"),
+                ],
+                default="",
+                max_length=30,
+            ),
         ),
         migrations.AlterField(
-            model_name='consentcategory',
-            name='lawful_basis',
-            field=models.CharField(choices=[('consent', 'Consent'), ('legal_obligation', 'Legal Obligation'), ('vital_interests', 'Vital Interests'), ('contract', 'Contract'), ('public_task', 'Public Task'), ('legitimate_interests', 'Legitimate Interests'), ('legitimate_interest', 'Legitimate Interest (legacy)')], default='consent', max_length=30),
+            model_name="consentcategory",
+            name="lawful_basis",
+            field=models.CharField(
+                choices=[
+                    ("consent", "Consent"),
+                    ("legal_obligation", "Legal Obligation"),
+                    ("vital_interests", "Vital Interests"),
+                    ("contract", "Contract"),
+                    ("public_task", "Public Task"),
+                    ("legitimate_interests", "Legitimate Interests"),
+                    ("legitimate_interest", "Legitimate Interest (legacy)"),
+                ],
+                default="consent",
+                max_length=30,
+            ),
         ),
         migrations.AlterField(
-            model_name='consentsignature',
-            name='verification_jws_header',
-            field=models.TextField(blank=True, help_text='JWS serialized object (RFC7515) — alternative to verificationType.'),
+            model_name="consentsignature",
+            name="verification_jws_header",
+            field=models.TextField(
+                blank=True,
+                help_text="JWS serialized object (RFC7515) — alternative to verificationType.",
+            ),
         ),
         migrations.AlterField(
-            model_name='consentsignature',
-            name='verification_signed_as',
-            field=models.CharField(blank=True, choices=[('individual', 'Individual'), ('delegate', 'Delegate'), ('commissioner', 'Commissioner')], help_text='Relationship of the signer: individual / delegate / commissioner.', max_length=20),
+            model_name="consentsignature",
+            name="verification_signed_as",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("individual", "Individual"),
+                    ("delegate", "Delegate"),
+                    ("commissioner", "Commissioner"),
+                ],
+                help_text="Relationship of the signer: individual / delegate / commissioner.",
+                max_length=20,
+            ),
         ),
     ]

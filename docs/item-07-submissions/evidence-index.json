@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source_revision": "f8bfe3c",
+  "release_state": "NON_RELEASE_COMMIT",
+  "portal_state": "NOT_SUBMITTED",
+  "external_execution": "NOT_PERFORMED",
+  "candidates": [
+    {"id":"consent","building_block":"Consent","dossier":"docs/item-07-submissions/dossiers/consent.md","candidate_manifest":"examples/civicos-consent/candidate-manifest.json","decision":"NOT_READY","limitations":"local official-suite evidence only; no authorised staging or portal receipt"},
+    {"id":"payments","building_block":"Payments","dossier":"docs/item-07-submissions/dossiers/payments.md","candidate_manifest":"examples/civicos-payments/candidate-manifest.json","decision":"NOT_READY","limitations":"recorded official-suite failures; no authorised staging or portal receipt"},
+    {"id":"scheduler","building_block":"Scheduler","dossier":"docs/item-07-submissions/dossiers/scheduler.md","candidate_manifest":"examples/civicos-scheduler/candidate-manifest.json","decision":"NOT_READY","limitations":"Item 03 remains partially aligned; no authorised staging or portal receipt"},
+    {"id":"file-management","building_block":"File Management","dossier":"docs/item-07-submissions/dossiers/file-management.md","candidate_manifest":"examples/civicos-file-management/candidate-manifest.json","decision":"NOT_READY","limitations":"local runner evidence only; no official harness/staging/portal receipt"}
+  ],
+  "forbidden_claims": ["SUBMITTED","OFFICIAL_PASS","STAGING_PASS","CERTIFIED"]
+}

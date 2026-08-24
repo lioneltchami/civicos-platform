@@ -23,6 +23,7 @@ Permission model:
   - approve_hours() / reject_hours() — actor must hold the Django permission
     "volunteers.change_hourslog".
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,8 +41,12 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 MILESTONE_THRESHOLDS = [
-    Decimal("25"), Decimal("50"), Decimal("100"),
-    Decimal("250"), Decimal("500"), Decimal("1000"),
+    Decimal("25"),
+    Decimal("50"),
+    Decimal("100"),
+    Decimal("250"),
+    Decimal("500"),
+    Decimal("1000"),
 ]
 
 
@@ -49,15 +54,16 @@ MILESTONE_THRESHOLDS = [
 # log_hours()
 # ---------------------------------------------------------------------------
 
-def log_hours(
+
+def log_hours(  # noqa: ANN201
     *,
-    volunteer_profile,
-    opportunity,
-    hours,
-    date,
+    volunteer_profile,  # noqa: ANN001
+    opportunity,  # noqa: ANN001
+    hours,  # noqa: ANN001
+    date,  # noqa: ANN001
     description: str = "",
-    shift=None,
-    actor,
+    shift=None,  # noqa: ANN001
+    actor,  # noqa: ANN001
 ):
     """
     Volunteer logs hours against an opportunity (and optionally a specific shift).
@@ -87,7 +93,7 @@ def log_hours(
         PermissionDenied:  actor is not the volunteer's User.
         ValidationError:   shift mismatch, duplicate shift entry, or field
                            constraint violation (hours out of range, etc.).
-    """
+    """  # noqa: RUF002
     # --- Permission check (OUTSIDE atomic) ---
     if actor.pk != volunteer_profile.user_id:
         raise PermissionDenied(
@@ -98,24 +104,17 @@ def log_hours(
     # --- Future-date check (OUTSIDE atomic) ---
     today = timezone.localtime(timezone.now()).date()
     if date > today:
-        raise ValidationError(
-            {"date": _("Hours cannot be logged for a future date.")}
-        )
+        raise ValidationError({"date": _("Hours cannot be logged for a future date.")})
 
     # --- Shift ownership check (OUTSIDE atomic) ---
     if shift is not None:
         if shift.opportunity_id != opportunity.pk:
-            raise ValidationError(
-                {"shift": _("Shift does not belong to this opportunity.")}
-            )
+            raise ValidationError({"shift": _("Shift does not belong to this opportunity.")})
         # Friendly pre-check; DB UniqueConstraint is the authoritative guard.
         from apps.volunteers.models import HoursLog as _HoursLog
-        if _HoursLog.objects.filter(
-            volunteer=volunteer_profile, shift=shift
-        ).exists():
-            raise ValidationError(
-                {"shift": _("You have already logged hours for this shift.")}
-            )
+
+        if _HoursLog.objects.filter(volunteer=volunteer_profile, shift=shift).exists():
+            raise ValidationError({"shift": _("You have already logged hours for this shift.")})
 
     with transaction.atomic():
         from apps.volunteers.models import HoursLog
@@ -133,20 +132,17 @@ def log_hours(
         try:
             log.save()
         except IntegrityError:
-            raise ValidationError(
-                {"shift": _("Hours already logged for this shift.")}
-            )
+            raise ValidationError({"shift": _("Hours already logged for this shift.")})  # noqa: B904
 
         # Capture PK before the closure — avoid holding a reference to the
         # full model instance inside the on_commit closure (memory / GC).
         _pk = log.pk
 
-        def _post_commit():
+        def _post_commit() -> None:
+            from apps.volunteers.models import HoursLog as _HL  # noqa: N814
             from apps.volunteers.signals import hours_logged
-            from apps.volunteers.models import HoursLog as _HL
-            l = _HL.objects.select_related(
-                "volunteer__user", "opportunity"
-            ).get(pk=_pk)
+
+            l = _HL.objects.select_related("volunteer__user", "opportunity").get(pk=_pk)  # noqa: E741
             hours_logged.send_robust(
                 sender=_HL,
                 instance=l,
@@ -170,10 +166,11 @@ def log_hours(
 # approve_hours()
 # ---------------------------------------------------------------------------
 
-def approve_hours(
+
+def approve_hours(  # noqa: ANN201
     *,
-    hours_log,
-    actor,
+    hours_log,  # noqa: ANN001
+    actor,  # noqa: ANN001
 ):
     """
     Coordinator approves a pending HoursLog.
@@ -207,49 +204,39 @@ def approve_hours(
 
     # --- Permission check (OUTSIDE atomic) ---
     if not actor.has_perm("volunteers.change_hourslog"):
-        raise PermissionDenied(
-            f"User #{actor.pk} does not have 'volunteers.change_hourslog'."
-        )
+        raise PermissionDenied(f"User #{actor.pk} does not have 'volunteers.change_hourslog'.")
 
     # Fast-path status check (OUTSIDE atomic) — avoids acquiring a row lock
     # when the state is clearly wrong.
     if hours_log.status != HoursLog.STATUS_PENDING:
-        raise ValidationError(
-            {"status": _("Only pending hours logs can be approved.")}
-        )
+        raise ValidationError({"status": _("Only pending hours logs can be approved.")})
 
     with transaction.atomic():
         # Re-fetch with row-level lock to serialise concurrent approvals /
         # rejections.  The second writer will block here, re-read the updated
         # status, and raise ValidationError rather than silently overwriting.
         hours_log = (
-            HoursLog.objects
-            .select_for_update(of=("self",))
+            HoursLog.objects.select_for_update(of=("self",))
             .select_related("volunteer")
             .get(pk=hours_log.pk)
         )
 
         # Re-validate status (race guard — someone else may have acted first).
         if hours_log.status != HoursLog.STATUS_PENDING:
-            raise ValidationError(
-                {"status": _("Only pending hours logs can be approved.")}
-            )
+            raise ValidationError({"status": _("Only pending hours logs can be approved.")})
 
         hours_log.status = HoursLog.STATUS_APPROVED
         hours_log.approved_by = actor
         hours_log.approved_at = timezone.now()
         hours_log.full_clean()
-        hours_log.save(
-            update_fields=["status", "approved_by", "approved_at", "updated_at"]
-        )
+        hours_log.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
 
         # Read old total INSIDE the transaction (before on_commit) so that the
         # milestone comparison uses the pre-approval value.
         from apps.volunteers.models import VolunteerProfile
-        old_total = (
-            VolunteerProfile.objects
-            .values_list("total_hours_approved", flat=True)
-            .get(pk=hours_log.volunteer_id)
+
+        old_total = VolunteerProfile.objects.values_list("total_hours_approved", flat=True).get(
+            pk=hours_log.volunteer_id
         )
 
         _log_pk = hours_log.pk
@@ -257,12 +244,13 @@ def approve_hours(
         _old_total = old_total
         _actor_pk = actor.pk
 
-        def _post_commit():
+        def _post_commit() -> None:
+            from apps.volunteers.models import HoursLog as _HL  # noqa: N814
             from apps.volunteers.signals import hours_approved
-            from apps.volunteers.models import HoursLog as _HL
-            l = _HL.objects.select_related(
-                "volunteer__user", "opportunity", "approved_by"
-            ).get(pk=_log_pk)
+
+            l = _HL.objects.select_related("volunteer__user", "opportunity", "approved_by").get(  # noqa: E741
+                pk=_log_pk
+            )
             hours_approved.send_robust(
                 sender=_HL,
                 instance=l,
@@ -292,10 +280,11 @@ def approve_hours(
 # reject_hours()
 # ---------------------------------------------------------------------------
 
-def reject_hours(
+
+def reject_hours(  # noqa: ANN201
     *,
-    hours_log,
-    actor,
+    hours_log,  # noqa: ANN001
+    actor,  # noqa: ANN001
     reason: str,
 ):
     """
@@ -330,35 +319,23 @@ def reject_hours(
 
     # --- Permission check (OUTSIDE atomic) ---
     if not actor.has_perm("volunteers.change_hourslog"):
-        raise PermissionDenied(
-            f"User #{actor.pk} does not have 'volunteers.change_hourslog'."
-        )
+        raise PermissionDenied(f"User #{actor.pk} does not have 'volunteers.change_hourslog'.")
 
     # --- Reason check (OUTSIDE atomic) ---
     if not reason or not reason.strip():
-        raise ValidationError(
-            {"reason": _("A rejection reason is required.")}
-        )
+        raise ValidationError({"reason": _("A rejection reason is required.")})
 
     # Fast-path status check (OUTSIDE atomic).
     if hours_log.status != HoursLog.STATUS_PENDING:
-        raise ValidationError(
-            {"status": _("Only pending hours logs can be rejected.")}
-        )
+        raise ValidationError({"status": _("Only pending hours logs can be rejected.")})
 
     with transaction.atomic():
         # Re-fetch with row-level lock.
-        hours_log = (
-            HoursLog.objects
-            .select_for_update()
-            .get(pk=hours_log.pk)
-        )
+        hours_log = HoursLog.objects.select_for_update().get(pk=hours_log.pk)
 
         # Re-validate status (race guard).
         if hours_log.status != HoursLog.STATUS_PENDING:
-            raise ValidationError(
-                {"status": _("Only pending hours logs can be rejected.")}
-            )
+            raise ValidationError({"status": _("Only pending hours logs can be rejected.")})
 
         hours_log.status = HoursLog.STATUS_REJECTED
         # Truncate to field max_length (CharField max_length=300) — mirrors the
@@ -366,23 +343,23 @@ def reject_hours(
         hours_log.rejection_reason = reason.strip()[:300]
         # approved_by is intentionally NOT set on rejection.
         hours_log.full_clean()
-        hours_log.save(
-            update_fields=["status", "rejection_reason", "updated_at"]
-        )
+        hours_log.save(update_fields=["status", "rejection_reason", "updated_at"])
 
         _pk = hours_log.pk
         _actor_pk = actor.pk
 
-        def _post_commit():
-            from apps.volunteers.signals import hours_rejected
-            from apps.volunteers.models import HoursLog as _HL
+        def _post_commit() -> None:
             from django.contrib.auth import get_user_model
-            User = get_user_model()
-            # email included for coordinator-audit notification only — never send to volunteer-facing context
+
+            from apps.volunteers.models import HoursLog as _HL  # noqa: N814
+            from apps.volunteers.signals import hours_rejected
+
+            User = get_user_model()  # noqa: N806
+            # email included for coordinator-audit notification only — never send to volunteer-facing context  # noqa: E501
             _actor = User.objects.only("pk", "email").get(pk=_actor_pk)
             # PIPEDA: fetch with .only() so rejection_reason is deferred and
             # inaccessible to signal receivers without an explicit extra query.
-            l = _HL.objects.only(
+            l = _HL.objects.only(  # noqa: E741
                 "pk", "status", "volunteer_id", "opportunity_id", "hours", "date"
             ).get(pk=_pk)
             hours_rejected.send_robust(
@@ -410,7 +387,8 @@ def reject_hours(
 # _recompute_total_hours()  (private)
 # ---------------------------------------------------------------------------
 
-def _recompute_total_hours(*, volunteer_profile_pk) -> Decimal:
+
+def _recompute_total_hours(*, volunteer_profile_pk) -> Decimal:  # noqa: ANN001
     """
     Recalculate and atomically update VolunteerProfile.total_hours_approved.
 
@@ -429,6 +407,7 @@ def _recompute_total_hours(*, volunteer_profile_pk) -> Decimal:
         Recomputed Decimal total hours.
     """
     from django.db.models import Sum
+
     from apps.volunteers.models import HoursLog, VolunteerProfile
 
     # H2 fix: wrap the SUM + UPDATE in atomic() and acquire a row-level lock on
@@ -442,17 +421,13 @@ def _recompute_total_hours(*, volunteer_profile_pk) -> Decimal:
         VolunteerProfile.objects.select_for_update().get(pk=volunteer_profile_pk)
 
         total = (
-            HoursLog.objects
-            .filter(
+            HoursLog.objects.filter(
                 volunteer_id=volunteer_profile_pk,
                 status=HoursLog.STATUS_APPROVED,
-            )
-            .aggregate(total=Sum("hours"))["total"]
+            ).aggregate(total=Sum("hours"))["total"]
         ) or Decimal("0")
 
-        VolunteerProfile.objects.filter(pk=volunteer_profile_pk).update(
-            total_hours_approved=total
-        )
+        VolunteerProfile.objects.filter(pk=volunteer_profile_pk).update(total_hours_approved=total)
 
     logger.info(
         "volunteers.hours: recomputed total volunteer=%s total=%s",
@@ -467,7 +442,8 @@ def _recompute_total_hours(*, volunteer_profile_pk) -> Decimal:
 # _check_milestones()  (private)
 # ---------------------------------------------------------------------------
 
-def _check_milestones(*, volunteer_profile_pk, old_total, new_total) -> list:
+
+def _check_milestones(*, volunteer_profile_pk, old_total, new_total) -> list:  # noqa: ANN001
     """
     Create RecognitionMilestone records for any MILESTONE_THRESHOLDS crossed.
 
@@ -497,10 +473,8 @@ def _check_milestones(*, volunteer_profile_pk, old_total, new_total) -> list:
             )
             if created:
                 newly_achieved.append(milestone)
-                volunteer = (
-                    VolunteerProfile.objects
-                    .select_related("user")
-                    .get(pk=volunteer_profile_pk)
+                volunteer = VolunteerProfile.objects.select_related("user").get(
+                    pk=volunteer_profile_pk
                 )
                 results = milestone_achieved.send_robust(
                     sender=RecognitionMilestone,

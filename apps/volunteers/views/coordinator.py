@@ -25,24 +25,25 @@ WCAG 2.1 AA compliance notes:
   - Status badges must carry text labels (not colour alone).
   - Review form's RadioSelect gives visible choices without interaction.
 """
+
 from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.formats import date_format
-from django.utils.translation import gettext as _t, gettext_lazy as _
-from django.conf import settings
+from django.utils.translation import gettext as _t
+from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView
-
-from django.db.models import Prefetch
 
 from apps.volunteers.forms import ApplicationReviewForm, HoursRejectForm, ShiftForm
 from apps.volunteers.models import (
@@ -67,14 +68,17 @@ logger = logging.getLogger(__name__)
 # Django 5.x LoginRequiredMixin compatibility
 # ---------------------------------------------------------------------------
 
+
 class _RedirectUnauthenticatedMixin(LoginRequiredMixin):
     """
     Django 5.x compatibility: raise_exception=True on PermissionRequiredMixin causes
     LoginRequiredMixin to also return 403 for unauthenticated users. Override to
     always redirect unauthenticated users to login regardless of raise_exception.
     """
-    def handle_no_permission(self):
+
+    def handle_no_permission(self):  # noqa: ANN202
         from django.contrib.auth.views import redirect_to_login
+
         if not self.request.user.is_authenticated:
             return redirect_to_login(
                 self.request.get_full_path(),
@@ -87,6 +91,7 @@ class _RedirectUnauthenticatedMixin(LoginRequiredMixin):
 # ---------------------------------------------------------------------------
 # CoordinatorDashboardView
 # ---------------------------------------------------------------------------
+
 
 class CoordinatorDashboardView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """
@@ -115,7 +120,7 @@ class CoordinatorDashboardView(_RedirectUnauthenticatedMixin, PermissionRequired
     context_object_name = "applications"
     paginate_by = 25
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         """
         Return pending applications for this coordinator's opportunities.
 
@@ -140,7 +145,7 @@ class CoordinatorDashboardView(_RedirectUnauthenticatedMixin, PermissionRequired
             .order_by("created_at")  # oldest first — FIFO review queue
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         # paginator.count is already computed by ListView's pagination logic —
         # use it directly to avoid a redundant COUNT(*) query.
@@ -151,6 +156,7 @@ class CoordinatorDashboardView(_RedirectUnauthenticatedMixin, PermissionRequired
 # ---------------------------------------------------------------------------
 # ApplicationReviewView
 # ---------------------------------------------------------------------------
+
 
 class ApplicationReviewView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, FormView):
     """
@@ -185,7 +191,7 @@ class ApplicationReviewView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
     template_name = "volunteers/coordinator/application_review.html"
     success_url = reverse_lazy("volunteers:coordinator_dashboard")
 
-    def _get_application(self):
+    def _get_application(self):  # noqa: ANN202
         """Fetch the target application with related objects, or 404.
 
         Scoped to the current coordinator via opportunity__program__coordinator
@@ -204,33 +210,33 @@ class ApplicationReviewView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
             opportunity__program__coordinator=self.request.user,
         )
 
-    def dispatch(self, request, *args, **kwargs):
+    def dispatch(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # Let LoginRequiredMixin and PermissionRequiredMixin run first via
         # super().dispatch().  Both checks happen before get()/post() are called,
         # so the DB query in _get_application() only fires for authenticated,
         # permissioned users.
         return super().dispatch(request, *args, **kwargs)
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # Fetch self.application here — only reached after LoginRequiredMixin
         # and PermissionRequiredMixin have both passed.
         self.application = self._get_application()
         return super().get(request, *args, **kwargs)
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # Fetch self.application here — only reached after LoginRequiredMixin
         # and PermissionRequiredMixin have both passed.
         self.application = self._get_application()
         return super().post(request, *args, **kwargs)
 
-    def get_initial(self):
+    def get_initial(self):  # noqa: ANN201
         """Pre-populate rejection_reason with any previously saved notes."""
         initial = super().get_initial()
         if hasattr(self, "application"):
             initial["rejection_reason"] = self.application.rejection_reason
         return initial
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         # self.application is guaranteed to exist — dispatch() set it before
         # calling get() or post(), which are the only paths into get_context_data().
@@ -242,7 +248,7 @@ class ApplicationReviewView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
         context["opportunity"] = application.opportunity
         return context
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         """Delegate to the appropriate service based on ``action``."""
         action = form.cleaned_data["action"]
         rejection_reason = form.cleaned_data.get("rejection_reason", "").strip()
@@ -287,9 +293,7 @@ class ApplicationReviewView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
             # ValidationError can be raised as a plain string (no message_dict)
             # or as a dict. Handle both to avoid AttributeError on .message_dict.
             error_messages = (
-                exc.message_dict
-                if hasattr(exc, "message_dict")
-                else {"__all__": exc.messages}
+                exc.message_dict if hasattr(exc, "message_dict") else {"__all__": exc.messages}
             )
             for field, errors in error_messages.items():
                 for error in errors:
@@ -301,7 +305,7 @@ class ApplicationReviewView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
 
         return redirect(self.success_url)
 
-    def form_invalid(self, form):
+    def form_invalid(self, form):  # noqa: ANN001, ANN201
         """Re-render with application context preserved."""
         return self.render_to_response(self.get_context_data(form=form))
 
@@ -310,7 +314,10 @@ class ApplicationReviewView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
 # CoordinatorApplicationListView
 # ---------------------------------------------------------------------------
 
-class CoordinatorApplicationListView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
+
+class CoordinatorApplicationListView(
+    _RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView
+):
     """
     Full application list for coordinator/programme-manager use.
 
@@ -341,9 +348,9 @@ class CoordinatorApplicationListView(_RedirectUnauthenticatedMixin, PermissionRe
     paginate_by = 50
 
     # Valid status values for the filter query parameter.
-    _VALID_STATUSES = {choice[0] for choice in VolunteerApplication.STATUS_CHOICES}
+    _VALID_STATUSES = {choice[0] for choice in VolunteerApplication.STATUS_CHOICES}  # noqa: RUF012
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         """
         Return all applications, optionally filtered by status.
 
@@ -351,15 +358,19 @@ class CoordinatorApplicationListView(_RedirectUnauthenticatedMixin, PermissionRe
         opportunity names.  No ``.defer()`` here — coordinators have access to all
         fields in this view (rejection_reason included).
         """
-        qs = VolunteerApplication.objects.filter(
-            opportunity__program__coordinator=self.request.user,
-        ).select_related(
-            "volunteer",
-            "volunteer__user",
-            "opportunity",
-            "opportunity__program",
-            "reviewed_by",
-        ).order_by("-created_at")
+        qs = (
+            VolunteerApplication.objects.filter(
+                opportunity__program__coordinator=self.request.user,
+            )
+            .select_related(
+                "volunteer",
+                "volunteer__user",
+                "opportunity",
+                "opportunity__program",
+                "reviewed_by",
+            )
+            .order_by("-created_at")
+        )
 
         status_filter = self.request.GET.get("status", "").strip()
         if status_filter and status_filter in self._VALID_STATUSES:
@@ -367,12 +378,10 @@ class CoordinatorApplicationListView(_RedirectUnauthenticatedMixin, PermissionRe
 
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         status_filter = self.request.GET.get("status", "").strip()
-        context["current_status"] = (
-            status_filter if status_filter in self._VALID_STATUSES else ""
-        )
+        context["current_status"] = status_filter if status_filter in self._VALID_STATUSES else ""
         context["status_choices"] = VolunteerApplication.STATUS_CHOICES
         return context
 
@@ -380,6 +389,7 @@ class CoordinatorApplicationListView(_RedirectUnauthenticatedMixin, PermissionRe
 # ---------------------------------------------------------------------------
 # ShiftListView
 # ---------------------------------------------------------------------------
+
 
 class ShiftListView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """List all shifts across the coordinator's opportunities."""
@@ -391,10 +401,9 @@ class ShiftListView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, List
     context_object_name = "shifts"
     paginate_by = 25
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return (
-            Shift.objects
-            .filter(opportunity__program__coordinator=self.request.user)
+            Shift.objects.filter(opportunity__program__coordinator=self.request.user)
             .select_related("opportunity__program")
             .order_by("start_datetime")
         )
@@ -403,6 +412,7 @@ class ShiftListView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, List
 # ---------------------------------------------------------------------------
 # ShiftDetailView
 # ---------------------------------------------------------------------------
+
 
 class ShiftDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, DetailView):
     """
@@ -418,21 +428,19 @@ class ShiftDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, De
     template_name = "volunteers/coordinator/shift_detail.html"
     context_object_name = "shift"
 
-    def get_queryset(self):
-        return (
-            Shift.objects
-            .filter(opportunity__program__coordinator=self.request.user)
-            .select_related("opportunity__program")
-        )
+    def get_queryset(self):  # noqa: ANN201
+        return Shift.objects.filter(
+            opportunity__program__coordinator=self.request.user
+        ).select_related("opportunity__program")
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         # Force to a list in one DB round-trip, then compute counts in Python
         # to avoid a separate COUNT(*) query.
         bookings = list(
-            self.object.bookings
-            .select_related("volunteer__user")
-            .order_by("status", "waitlist_position", "created_at")
+            self.object.bookings.select_related("volunteer__user").order_by(
+                "status", "waitlist_position", "created_at"
+            )
         )
         context["bookings"] = bookings
         context["confirmed_count"] = sum(
@@ -444,6 +452,7 @@ class ShiftDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, De
 # ---------------------------------------------------------------------------
 # ShiftCreateView
 # ---------------------------------------------------------------------------
+
 
 class ShiftCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, CreateView):
     """
@@ -458,34 +467,34 @@ class ShiftCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Cr
     form_class = ShiftForm
     template_name = "volunteers/coordinator/shift_form.html"
 
-    def _get_opportunity(self):
+    def _get_opportunity(self):  # noqa: ANN202
         return get_object_or_404(
             Opportunity,
             pk=self.kwargs["opportunity_pk"],
             program__coordinator=self.request.user,
         )
 
-    def dispatch(self, request, *args, **kwargs):
+    def dispatch(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # Let LoginRequiredMixin and PermissionRequiredMixin run first via
         # super().dispatch().  The DB query in _get_opportunity() is deferred
         # to get()/post() so it only fires for authenticated, permissioned users.
         return super().dispatch(request, *args, **kwargs)
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         self.opportunity = self._get_opportunity()
         return super().get(request, *args, **kwargs)
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         self.opportunity = self._get_opportunity()
         return super().post(request, *args, **kwargs)
 
-    def get_form_kwargs(self):
+    def get_form_kwargs(self):  # noqa: ANN201
         kwargs = super().get_form_kwargs()
         kwargs["opportunity"] = self.opportunity
         kwargs.pop("instance", None)
         return kwargs
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         shift = form.save(commit=False)
         shift.opportunity = self.opportunity
         shift.coordinator = self.request.user
@@ -498,7 +507,7 @@ class ShiftCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Cr
         messages.success(self.request, _("Shift created."))
         return redirect(reverse("volunteers:shift_detail", kwargs={"pk": shift.pk}))
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         context = super().get_context_data(**kwargs)
         context["opportunity"] = self.opportunity
         return context
@@ -507,6 +516,7 @@ class ShiftCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Cr
 # ---------------------------------------------------------------------------
 # ShiftCancelView
 # ---------------------------------------------------------------------------
+
 
 class ShiftCancelView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
@@ -519,9 +529,9 @@ class ShiftCancelView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Vi
 
     permission_required = "volunteers.change_shift"
     raise_exception = True
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         shift = get_object_or_404(
             Shift,
             pk=self.kwargs["pk"],
@@ -530,6 +540,7 @@ class ShiftCancelView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Vi
         reason = request.POST.get("reason", "").strip()
         try:
             from apps.volunteers.services.scheduling import cancel_shift
+
             cancel_shift(shift=shift, actor=request.user, reason=reason)
             messages.success(request, _("Shift cancelled. All bookings have been notified."))
         except (ValidationError, PermissionDenied) as exc:
@@ -544,6 +555,7 @@ class ShiftCancelView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Vi
 # BookingNoShowView
 # ---------------------------------------------------------------------------
 
+
 class BookingNoShowView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only. Coordinator marks a confirmed booking as no-show after the shift
@@ -555,9 +567,9 @@ class BookingNoShowView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, 
 
     permission_required = "volunteers.change_shiftbooking"
     raise_exception = True
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         booking = get_object_or_404(
             ShiftBooking.objects.select_related("shift__opportunity__program"),
             pk=self.kwargs["pk"],
@@ -565,6 +577,7 @@ class BookingNoShowView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, 
         )
         try:
             from apps.volunteers.services.scheduling import mark_no_show
+
             mark_no_show(booking=booking, actor=request.user)
             messages.success(request, _("Marked as no-show."))
         except (ValidationError, PermissionDenied) as exc:
@@ -579,6 +592,7 @@ class BookingNoShowView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, 
 # BookingCompleteView
 # ---------------------------------------------------------------------------
 
+
 class BookingCompleteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only. Coordinator marks a confirmed booking as completed.
@@ -591,9 +605,9 @@ class BookingCompleteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
 
     permission_required = "volunteers.change_shiftbooking"
     raise_exception = True
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         booking = get_object_or_404(
             ShiftBooking.objects.select_related("shift__opportunity__program"),
             pk=self.kwargs["pk"],
@@ -601,6 +615,7 @@ class BookingCompleteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
         )
         try:
             from apps.volunteers.services.scheduling import complete_booking
+
             complete_booking(booking=booking, actor=request.user)
             messages.success(request, _("Booking marked complete. Hours log created."))
         except (ValidationError, PermissionDenied) as exc:
@@ -614,6 +629,7 @@ class BookingCompleteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
 # ---------------------------------------------------------------------------
 # HoursApprovalListView
 # ---------------------------------------------------------------------------
+
 
 class HoursApprovalListView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """
@@ -630,10 +646,9 @@ class HoursApprovalListView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
     context_object_name = "hours_logs"
     paginate_by = 25
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return (
-            HoursLog.objects
-            .filter(
+            HoursLog.objects.filter(
                 opportunity__program__coordinator=self.request.user,
                 status=HoursLog.STATUS_PENDING,
             )
@@ -645,6 +660,7 @@ class HoursApprovalListView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
 # ---------------------------------------------------------------------------
 # HoursApproveView
 # ---------------------------------------------------------------------------
+
 
 class HoursApproveView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
@@ -658,9 +674,9 @@ class HoursApproveView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, V
 
     permission_required = "volunteers.change_hourslog"
     raise_exception = True
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         log = get_object_or_404(
             HoursLog.objects.select_related("opportunity__program"),
             pk=self.kwargs["pk"],
@@ -668,6 +684,7 @@ class HoursApproveView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, V
         )
         try:
             from apps.volunteers.services.hours import approve_hours
+
             approve_hours(hours_log=log, actor=request.user)
             messages.success(request, _("Hours approved."))
         except (ValidationError, PermissionDenied) as exc:
@@ -681,6 +698,7 @@ class HoursApproveView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, V
 # ---------------------------------------------------------------------------
 # HoursRejectView
 # ---------------------------------------------------------------------------
+
 
 class HoursRejectView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, FormView):
     """
@@ -699,23 +717,24 @@ class HoursRejectView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Fo
 
     permission_required = "volunteers.change_hourslog"
     raise_exception = True
-    http_method_names = ["post"]  # GET → 405 Method Not Allowed
+    http_method_names = ["post"]  # GET → 405 Method Not Allowed  # noqa: RUF012
     form_class = HoursRejectForm
     # Re-render the list page so the coordinator stays in context after a
     # form error (e.g. blank reason).
     template_name = "volunteers/coordinator/hours_approval_list.html"
 
-    def _get_log(self):
+    def _get_log(self):  # noqa: ANN202
         return get_object_or_404(
             HoursLog.objects.select_related("opportunity__program"),
             pk=self.kwargs["pk"],
             opportunity__program__coordinator=self.request.user,
         )
 
-    def form_valid(self, form):
+    def form_valid(self, form):  # noqa: ANN001, ANN201
         log = self._get_log()
         try:
             from apps.volunteers.services.hours import reject_hours
+
             reject_hours(
                 hours_log=log,
                 actor=self.request.user,
@@ -729,7 +748,7 @@ class HoursRejectView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Fo
             )
         return redirect(reverse("volunteers:hours_approval_list"))
 
-    def form_invalid(self, form):
+    def form_invalid(self, form):  # noqa: ANN001, ANN201
         messages.error(self.request, _("Please provide a rejection reason."))
         return redirect(reverse("volunteers:hours_approval_list"))
 
@@ -737,6 +756,7 @@ class HoursRejectView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, Fo
 # ---------------------------------------------------------------------------
 # VolunteerRosterView
 # ---------------------------------------------------------------------------
+
 
 class VolunteerRosterView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, ListView):
     """
@@ -751,10 +771,11 @@ class VolunteerRosterView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
     context_object_name = "profiles"
     paginate_by = 30
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         qs = (
-            VolunteerProfile.objects
-            .filter(applications__opportunity__program__coordinator=self.request.user)
+            VolunteerProfile.objects.filter(
+                applications__opportunity__program__coordinator=self.request.user
+            )
             .distinct()
             .select_related("user")
             .prefetch_related("skills")
@@ -768,9 +789,10 @@ class VolunteerRosterView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
             qs = qs.filter(skills__pk=int(skill_pk))
         return qs
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         from apps.volunteers.models import SkillTag
+
         ctx["status_choices"] = VolunteerProfile.STATUS_CHOICES
         ctx["skill_tags"] = SkillTag.objects.order_by("name_en")
         ctx["current_status"] = self.request.GET.get("status", "")
@@ -781,6 +803,7 @@ class VolunteerRosterView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
 # ---------------------------------------------------------------------------
 # VolunteerDetailView
 # ---------------------------------------------------------------------------
+
 
 class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, DetailView):
     """
@@ -798,10 +821,11 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
     model = VolunteerProfile
     template_name = "volunteers/coordinator/volunteer_detail.html"
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return (
-            VolunteerProfile.objects
-            .filter(applications__opportunity__program__coordinator=self.request.user)
+            VolunteerProfile.objects.filter(
+                applications__opportunity__program__coordinator=self.request.user
+            )
             .distinct()
             .select_related("user", "status_changed_by")
             .prefetch_related(
@@ -814,16 +838,16 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
                 ),
                 Prefetch(
                     "bookings",
-                    queryset=ShiftBooking.objects.select_related(
-                        "shift__opportunity"
-                    ).order_by("-created_at"),
+                    queryset=ShiftBooking.objects.select_related("shift__opportunity").order_by(
+                        "-created_at"
+                    ),
                     to_attr="_prefetched_bookings",
                 ),
                 Prefetch(
                     "hours_logs",
-                    queryset=HoursLog.objects.defer("rejection_reason").select_related(
-                        "opportunity"
-                    ).order_by("-date"),
+                    queryset=HoursLog.objects.defer("rejection_reason")
+                    .select_related("opportunity")
+                    .order_by("-date"),
                     to_attr="_prefetched_hours_logs",
                 ),
                 Prefetch(
@@ -835,16 +859,16 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
                 ),
                 Prefetch(
                     "certifications",
-                    queryset=Certification.objects.select_related(
-                        "verified_by"
-                    ).order_by("-issued_date"),
+                    queryset=Certification.objects.select_related("verified_by").order_by(
+                        "-issued_date"
+                    ),
                     to_attr="_prefetched_certifications",
                 ),
                 Prefetch(
                     "honoraria",
-                    queryset=Honorarium.objects.select_related(
-                        "created_by"
-                    ).order_by("-payment_date"),
+                    queryset=Honorarium.objects.select_related("created_by").order_by(
+                        "-payment_date"
+                    ),
                     to_attr="_prefetched_honoraria",
                 ),
                 Prefetch(
@@ -860,7 +884,7 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
             )
         )
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
         profile = self.object
         can_view_sensitive = self.request.user.has_perm("volunteers.view_accommodation_notes")
@@ -881,6 +905,7 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
             # Sensitive field access must be recorded for PIPEDA accountability.
             try:
                 from apps.volunteers.admin import _write_volunteer_audit
+
                 _write_volunteer_audit(
                     event_type="data.viewed",
                     request=self.request,
@@ -912,7 +937,9 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
         # when a sliced queryset is used with to_attr).
         ctx["applications"] = profile._prefetched_applications[:10]
         ctx["bookings"] = profile._prefetched_bookings[:10]
-        ctx["hours_logs"] = profile._prefetched_hours_logs[:20]  # rejection_reason deferred (PIPEDA)
+        ctx["hours_logs"] = profile._prefetched_hours_logs[
+            :20
+        ]  # rejection_reason deferred (PIPEDA)
         ctx["screenings"] = profile._prefetched_screenings
         ctx["certifications"] = profile._prefetched_certifications
         ctx["honoraria"] = profile._prefetched_honoraria[:10]
@@ -921,6 +948,7 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
 
         # Forms for inline actions
         from apps.volunteers.forms import VolunteerNoteForm, VolunteerStatusForm
+
         ctx["note_form"] = VolunteerNoteForm()
         ctx["status_form"] = VolunteerStatusForm(initial={"status": profile.status})
 
@@ -928,7 +956,9 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
         # cumulative_ytd() already returns Decimal("0") on empty, but guard
         # defensively in case the service contract changes or returns None.
         from decimal import Decimal
+
         from apps.volunteers.services.honoraria import cumulative_ytd
+
         ctx["ytd_honorarium"] = cumulative_ytd(
             profile, year=timezone.localtime(timezone.now()).year
         ) or Decimal("0")
@@ -940,6 +970,7 @@ class VolunteerDetailView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
 # VolunteerStatusChangeView
 # ---------------------------------------------------------------------------
 
+
 class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only: coordinator changes a volunteer's status (active/inactive/suspended).
@@ -948,9 +979,9 @@ class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequire
 
     permission_required = "volunteers.change_volunteerprofile"
     raise_exception = True
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # H4+H5 (TOCTOU + lock-order fix): acquire the lock FIRST inside atomic(),
         # scoped to the coordinator, BEFORE any form validation or status checks.
         # Previously: profile was fetched outside atomic(), form validated, then lock
@@ -967,15 +998,20 @@ class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequire
             # select_for_update() BEFORE any business logic (CivicOS invariant).
             # select_for_update with distinct is not supported by PostgreSQL.
             # Use a subquery to first find matching PKs, then lock the profile row.
-            _matching_pks = VolunteerProfile.objects.filter(
-                applications__opportunity__program__coordinator=request.user
-            ).values_list("pk", flat=True).distinct()
+            _matching_pks = (
+                VolunteerProfile.objects.filter(
+                    applications__opportunity__program__coordinator=request.user
+                )
+                .values_list("pk", flat=True)
+                .distinct()
+            )
             locked = get_object_or_404(
                 VolunteerProfile.objects.select_for_update().filter(pk__in=_matching_pks),
                 pk=profile_pk,
             )
 
             from apps.volunteers.forms import VolunteerStatusForm
+
             form = VolunteerStatusForm(request.POST)
             if not form.is_valid():
                 messages.error(request, _("Invalid status value."))
@@ -986,11 +1022,16 @@ class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequire
             locked.status = new_status
             locked.status_changed_at = timezone.now()
             locked.status_changed_by = request.user
-            locked.save(update_fields=["status", "status_changed_at", "status_changed_by", "updated_at"])
+            locked.save(
+                update_fields=["status", "status_changed_at", "status_changed_by", "updated_at"]
+            )
 
         logger.info(
             "VolunteerStatusChangeView: profile #%s status changed from %s to %s by user #%s",
-            locked.pk, old_status, new_status, request.user.pk,
+            locked.pk,
+            old_status,
+            new_status,
+            request.user.pk,
         )
         messages.success(
             request,
@@ -1003,6 +1044,7 @@ class VolunteerStatusChangeView(_RedirectUnauthenticatedMixin, PermissionRequire
 # AddVolunteerNoteView
 # ---------------------------------------------------------------------------
 
+
 class AddVolunteerNoteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     POST-only: coordinator adds an internal (append-only) note to a volunteer profile.
@@ -1011,9 +1053,9 @@ class AddVolunteerNoteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixi
 
     permission_required = "volunteers.change_volunteerprofile"
     raise_exception = True
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         profile = get_object_or_404(
             VolunteerProfile.objects.filter(
                 applications__opportunity__program__coordinator=request.user
@@ -1022,6 +1064,7 @@ class AddVolunteerNoteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixi
         )
         from apps.volunteers.forms import VolunteerNoteForm
         from apps.volunteers.models import VolunteerNote
+
         form = VolunteerNoteForm(request.POST)
         if not form.is_valid():
             messages.error(request, _("Note cannot be empty."))
@@ -1034,7 +1077,8 @@ class AddVolunteerNoteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixi
         )
         logger.info(
             "AddVolunteerNoteView: note added to volunteer profile #%s by user #%s",
-            profile.pk, request.user.pk,
+            profile.pk,
+            request.user.pk,
         )
         messages.success(request, _("Note added."))
         return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
@@ -1043,6 +1087,7 @@ class AddVolunteerNoteView(_RedirectUnauthenticatedMixin, PermissionRequiredMixi
 # ---------------------------------------------------------------------------
 # RecordScreeningView
 # ---------------------------------------------------------------------------
+
 
 class RecordScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
@@ -1056,7 +1101,7 @@ class RecordScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
     permission_required = "volunteers.add_screeningrecord"
     raise_exception = True
 
-    def _get_profile(self):
+    def _get_profile(self):  # noqa: ANN202
         return get_object_or_404(
             VolunteerProfile.objects.filter(
                 applications__opportunity__program__coordinator=self.request.user
@@ -1064,25 +1109,35 @@ class RecordScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
             pk=self.kwargs["pk"],
         )
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         profile = self._get_profile()
         from apps.volunteers.forms import ScreeningForm
-        form = ScreeningForm(volunteer=profile)
-        return render(request, "volunteers/coordinator/screening_form.html", {
-            "form": form,
-            "profile": profile,
-        })
 
-    def post(self, request, *args, **kwargs):
+        form = ScreeningForm(volunteer=profile)
+        return render(
+            request,
+            "volunteers/coordinator/screening_form.html",
+            {
+                "form": form,
+                "profile": profile,
+            },
+        )
+
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         profile = self._get_profile()
         from apps.volunteers.forms import ScreeningForm
         from apps.volunteers.services.screening import record_check
+
         form = ScreeningForm(request.POST, volunteer=profile)
         if not form.is_valid():
-            return render(request, "volunteers/coordinator/screening_form.html", {
-                "form": form,
-                "profile": profile,
-            })
+            return render(
+                request,
+                "volunteers/coordinator/screening_form.html",
+                {
+                    "form": form,
+                    "profile": profile,
+                },
+            )
         try:
             record_check(
                 volunteer_profile=profile,
@@ -1097,15 +1152,20 @@ class RecordScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin
             return redirect(reverse("volunteers:volunteer_detail", kwargs={"pk": profile.pk}))
         except ValidationError as exc:
             form.add_error(None, exc)
-            return render(request, "volunteers/coordinator/screening_form.html", {
-                "form": form,
-                "profile": profile,
-            })
+            return render(
+                request,
+                "volunteers/coordinator/screening_form.html",
+                {
+                    "form": form,
+                    "profile": profile,
+                },
+            )
 
 
 # ---------------------------------------------------------------------------
 # CompleteScreeningView
 # ---------------------------------------------------------------------------
+
 
 class CompleteScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
@@ -1117,13 +1177,14 @@ class CompleteScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
 
     permission_required = "volunteers.change_screeningrecord"
     raise_exception = True
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
-    def post(self, request, *args, **kwargs):
-        from apps.volunteers.models import ScreeningRecord
-        from apps.volunteers.forms import CompleteScreeningForm
-        from apps.volunteers.services.screening import complete_check
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         from django.db.models import Q
+
+        from apps.volunteers.forms import CompleteScreeningForm
+        from apps.volunteers.models import ScreeningRecord
+        from apps.volunteers.services.screening import complete_check
 
         # Scope: the screening's own opportunity must belong to this coordinator's
         # programs (when opportunity is set), OR the volunteer must have an
@@ -1132,8 +1193,11 @@ class CompleteScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
         # for the same volunteer across programs.
         screening = get_object_or_404(
             ScreeningRecord.objects.filter(
-                Q(opportunity__program__coordinator=request.user) |
-                Q(opportunity__isnull=True, volunteer__applications__opportunity__program__coordinator=request.user)
+                Q(opportunity__program__coordinator=request.user)
+                | Q(
+                    opportunity__isnull=True,
+                    volunteer__applications__opportunity__program__coordinator=request.user,
+                )
             ).distinct(),
             pk=self.kwargs["pk"],
         )
@@ -1163,6 +1227,7 @@ class CompleteScreeningView(_RedirectUnauthenticatedMixin, PermissionRequiredMix
 # HonorariumCreateView
 # ---------------------------------------------------------------------------
 
+
 class HonorariumCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
     GET: show form to create an honorarium for a volunteer.
@@ -1175,7 +1240,7 @@ class HonorariumCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixi
     permission_required = "volunteers.add_honorarium"
     raise_exception = True
 
-    def _get_profile(self):
+    def _get_profile(self):  # noqa: ANN202
         return get_object_or_404(
             VolunteerProfile.objects.filter(
                 applications__opportunity__program__coordinator=self.request.user
@@ -1183,31 +1248,41 @@ class HonorariumCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixi
             pk=self.kwargs["pk"],
         )
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         profile = self._get_profile()
         from apps.volunteers.forms import HonorariumForm
         from apps.volunteers.services.honoraria import cumulative_ytd
+
         form = HonorariumForm()
         ytd = cumulative_ytd(profile, year=timezone.localtime(timezone.now()).year)
-        return render(request, "volunteers/coordinator/honorarium_form.html", {
-            "form": form,
-            "profile": profile,
-            "ytd_honorarium": ytd,
-        })
+        return render(
+            request,
+            "volunteers/coordinator/honorarium_form.html",
+            {
+                "form": form,
+                "profile": profile,
+                "ytd_honorarium": ytd,
+            },
+        )
 
-    def post(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         profile = self._get_profile()
         from apps.volunteers.forms import HonorariumForm
         from apps.volunteers.models import Honorarium as HonorariumModel
         from apps.volunteers.services.honoraria import create_honorarium, cumulative_ytd
+
         form = HonorariumForm(request.POST, instance=HonorariumModel(volunteer=profile))
         if not form.is_valid():
             ytd = cumulative_ytd(profile, year=timezone.localtime(timezone.now()).year)
-            return render(request, "volunteers/coordinator/honorarium_form.html", {
-                "form": form,
-                "profile": profile,
-                "ytd_honorarium": ytd,
-            })
+            return render(
+                request,
+                "volunteers/coordinator/honorarium_form.html",
+                {
+                    "form": form,
+                    "profile": profile,
+                    "ytd_honorarium": ytd,
+                },
+            )
         try:
             create_honorarium(
                 volunteer_profile=profile,
@@ -1222,16 +1297,21 @@ class HonorariumCreateView(_RedirectUnauthenticatedMixin, PermissionRequiredMixi
         except ValidationError as exc:
             form.add_error(None, exc)
             ytd = cumulative_ytd(profile, year=timezone.localtime(timezone.now()).year)
-            return render(request, "volunteers/coordinator/honorarium_form.html", {
-                "form": form,
-                "profile": profile,
-                "ytd_honorarium": ytd,
-            })
+            return render(
+                request,
+                "volunteers/coordinator/honorarium_form.html",
+                {
+                    "form": form,
+                    "profile": profile,
+                    "ytd_honorarium": ytd,
+                },
+            )
 
 
 # ---------------------------------------------------------------------------
 # ImpactReportView — Wave 5 Phase A
 # ---------------------------------------------------------------------------
+
 
 class ImpactReportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, TemplateView):
     """
@@ -1254,13 +1334,13 @@ class ImpactReportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, T
     raise_exception = True
     template_name = "volunteers/coordinator/impact_report.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
+        from apps.volunteers.models import Program
         from apps.volunteers.services.reporting import (
             hours_by_program,
             impact_value,
             t3010_volunteer_metrics,
         )
-        from apps.volunteers.models import Program
 
         ctx = super().get_context_data(**kwargs)
 
@@ -1294,8 +1374,7 @@ class ImpactReportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, T
         ctx["years"] = list(range(current_year, current_year - 6, -1))
 
         logger.info(
-            "volunteers.views.ImpactReportView: rendered for year=%d month=%s "
-            "by user #%s.",
+            "volunteers.views.ImpactReportView: rendered for year=%d month=%s " "by user #%s.",
             year,
             month,
             self.request.user.pk,
@@ -1306,6 +1385,7 @@ class ImpactReportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, T
 # ---------------------------------------------------------------------------
 # Volunteer CSV export views — Wave 5 Phase A
 # ---------------------------------------------------------------------------
+
 
 class VolunteerHoursExportView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
@@ -1319,15 +1399,16 @@ class VolunteerHoursExportView(_RedirectUnauthenticatedMixin, PermissionRequired
 
     permission_required = "volunteers.change_volunteerapplication"
     raise_exception = True
-    http_method_names = ["get"]
+    http_method_names = ["get"]  # noqa: RUF012
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
+        import calendar as _cal
+        from datetime import date as _date
+
+        from apps.forms.utils import _mask_ip
         from apps.reports.exports.volunteer_export import export_volunteer_hours_csv
         from apps.reports.models import ExportRecord
         from apps.volunteers.services.reporting import hours_by_program
-        from apps.forms.utils import _mask_ip
-        from datetime import date as _date
-        import calendar as _cal
 
         current_year = timezone.localtime(timezone.now()).year
         year_str = request.GET.get("year", "")
@@ -1347,10 +1428,9 @@ class VolunteerHoursExportView(_RedirectUnauthenticatedMixin, PermissionRequired
         row_count = len(rows)
 
         # Audit record — PIPEDA: actor_pk not email; IP masked.
-        raw_ip = (
-            request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
-            or request.META.get("REMOTE_ADDR", "")
-        )
+        raw_ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[
+            0
+        ].strip() or request.META.get("REMOTE_ADDR", "")
         try:
             masked_ip = _mask_ip(raw_ip)
         except Exception:
@@ -1373,7 +1453,10 @@ class VolunteerHoursExportView(_RedirectUnauthenticatedMixin, PermissionRequired
         logger.info(
             "volunteers.views.VolunteerHoursExportView: user #%s downloaded "
             "volunteer_hours CSV year=%d month=%s rows=%d.",
-            request.user.pk, year, month, row_count,
+            request.user.pk,
+            year,
+            month,
+            row_count,
         )
 
         return export_volunteer_hours_csv(year, month, rows=rows)
@@ -1391,13 +1474,14 @@ class VolunteerT3010ExportView(_RedirectUnauthenticatedMixin, PermissionRequired
 
     permission_required = "volunteers.change_volunteerapplication"
     raise_exception = True
-    http_method_names = ["get"]
+    http_method_names = ["get"]  # noqa: RUF012
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
+        from datetime import date as _date
+
+        from apps.forms.utils import _mask_ip
         from apps.reports.exports.volunteer_export import export_t3010_volunteer_csv
         from apps.reports.models import ExportRecord
-        from apps.forms.utils import _mask_ip
-        from datetime import date as _date
 
         current_year = timezone.localtime(timezone.now()).year
         year_str = request.GET.get("year", "")
@@ -1408,10 +1492,9 @@ class VolunteerT3010ExportView(_RedirectUnauthenticatedMixin, PermissionRequired
         except (ValueError, AttributeError):
             year = current_year
 
-        raw_ip = (
-            request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
-            or request.META.get("REMOTE_ADDR", "")
-        )
+        raw_ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[
+            0
+        ].strip() or request.META.get("REMOTE_ADDR", "")
         try:
             masked_ip = _mask_ip(raw_ip)
         except Exception:
@@ -1430,7 +1513,8 @@ class VolunteerT3010ExportView(_RedirectUnauthenticatedMixin, PermissionRequired
         logger.info(
             "volunteers.views.VolunteerT3010ExportView: user #%s downloaded "
             "volunteer_t3010 CSV year=%d.",
-            request.user.pk, year,
+            request.user.pk,
+            year,
         )
 
         return export_t3010_volunteer_csv(year)
@@ -1439,6 +1523,7 @@ class VolunteerT3010ExportView(_RedirectUnauthenticatedMixin, PermissionRequired
 # ---------------------------------------------------------------------------
 # ReferenceLetterPDFView
 # ---------------------------------------------------------------------------
+
 
 class ReferenceLetterPDFView(_RedirectUnauthenticatedMixin, PermissionRequiredMixin, View):
     """
@@ -1452,14 +1537,16 @@ class ReferenceLetterPDFView(_RedirectUnauthenticatedMixin, PermissionRequiredMi
     Requires: volunteers.view_volunteerprofile permission.
     Renders: templates/volunteers/pdf/reference_letter.html → WeasyPrint PDF.
     """
+
     permission_required = "volunteers.view_volunteerprofile"
     raise_exception = True
 
-    def get(self, request, pk):
+    def get(self, request, pk):  # noqa: ANN001, ANN201
+        import uuid
+
         from django.db.models import Sum
         from django.http import HttpResponse
         from django.template.loader import render_to_string
-        import uuid
 
         # IDOR scope: only volunteers with applications in coordinator's programs
         profile = get_object_or_404(
@@ -1478,8 +1565,7 @@ class ReferenceLetterPDFView(_RedirectUnauthenticatedMixin, PermissionRequiredMi
             opportunity__program__coordinator=request.user,
         )
         service_rows_qs = (
-            hours_qs
-            .values("opportunity__title_en", "date__year")
+            hours_qs.values("opportunity__title_en", "date__year")
             .annotate(approved_hours=Sum("hours"))
             .order_by("date__year", "opportunity__title_en")
         )
@@ -1515,6 +1601,7 @@ class ReferenceLetterPDFView(_RedirectUnauthenticatedMixin, PermissionRequiredMi
 
         try:
             from weasyprint import HTML as WP_HTML
+
             pdf_bytes = WP_HTML(
                 string=html,
                 base_url=request.build_absolute_uri("/"),
@@ -1526,9 +1613,7 @@ class ReferenceLetterPDFView(_RedirectUnauthenticatedMixin, PermissionRequiredMi
                 content_type="text/plain",
             )
 
-        fname = (
-            f"volunteer_reference_{profile.pk}_{timezone.now().strftime('%Y%m%d')}.pdf"
-        )
+        fname = f"volunteer_reference_{profile.pk}_{timezone.now().strftime('%Y%m%d')}.pdf"
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{fname}"'
         logger.info(

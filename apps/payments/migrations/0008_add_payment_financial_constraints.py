@@ -5,31 +5,53 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('payments', '0007_add_refund_gateway_status'),
+    dependencies = [  # noqa: RUF012
+        ("payments", "0007_add_refund_gateway_status"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='officialdonationreceipt',
-            name='serial_number',
-            field=models.CharField(help_text='YYYY-NNNNNN format, generated from DB sequence payments_receipt_serial_seq.', max_length=20, unique=True, validators=[django.core.validators.RegexValidator(message='Serial number must be in YYYY-NNNNNN format (e.g. 2024-000001).', regex='^\\d{4}-\\d{6}$')], verbose_name='Serial Number'),
+            model_name="officialdonationreceipt",
+            name="serial_number",
+            field=models.CharField(
+                help_text="YYYY-NNNNNN format, generated from DB sequence payments_receipt_serial_seq.",
+                max_length=20,
+                unique=True,
+                validators=[
+                    django.core.validators.RegexValidator(
+                        message="Serial number must be in YYYY-NNNNNN format (e.g. 2024-000001).",
+                        regex="^\\d{4}-\\d{6}$",
+                    )
+                ],
+                verbose_name="Serial Number",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='payment',
-            constraint=models.CheckConstraint(condition=models.Q(('amount_paid__gte', 0)), name='payments_payment_amount_paid_non_negative'),
+            model_name="payment",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("amount_paid__gte", 0)),
+                name="payments_payment_amount_paid_non_negative",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='payment',
-            constraint=models.CheckConstraint(condition=models.Q(('processor_fee__gte', 0)), name='payments_payment_processor_fee_non_negative'),
+            model_name="payment",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("processor_fee__gte", 0)),
+                name="payments_payment_processor_fee_non_negative",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='payment',
-            constraint=models.CheckConstraint(condition=models.Q(('net_amount__gte', 0)), name='payments_payment_net_amount_non_negative'),
+            model_name="payment",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("net_amount__gte", 0)),
+                name="payments_payment_net_amount_non_negative",
+            ),
         ),
         migrations.AddConstraint(
-            model_name='payment',
-            constraint=models.CheckConstraint(condition=models.Q(('processor_fee__lte', models.F('amount_paid'))), name='payments_payment_processor_fee_lte_amount_paid'),
+            model_name="payment",
+            constraint=models.CheckConstraint(
+                condition=models.Q(("processor_fee__lte", models.F("amount_paid"))),
+                name="payments_payment_processor_fee_lte_amount_paid",
+            ),
         ),
     ]

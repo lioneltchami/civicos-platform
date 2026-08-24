@@ -4,7 +4,9 @@ Citizen notification inbox views.
 Citizens can view their notification history and mark notifications as read.
 All views require authentication.
 """
+
 from __future__ import annotations
+
 import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -14,7 +16,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView
 
-from .models import Notification, NotificationStatus
+from .models import Notification
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +27,13 @@ class NotificationListView(LoginRequiredMixin, ListView):
     Marks all notifications as read when the page is loaded.
     Supports filtering by channel and read/unread status.
     """
+
     template_name = "notifications/inbox.html"
     context_object_name = "notifications"
     paginate_by = 20
 
-    def get_queryset(self):
-        qs = Notification.objects.filter(
-            recipient=self.request.user
-        ).order_by("-created_at")
+    def get_queryset(self):  # noqa: ANN201
+        qs = Notification.objects.filter(recipient=self.request.user).order_by("-created_at")
 
         # Filter by read/unread
         filter_param = self.request.GET.get("filter", "all")
@@ -48,12 +49,10 @@ class NotificationListView(LoginRequiredMixin, ListView):
 
         return qs
 
-    def get_context_data(self, **kwargs) -> dict:
+    def get_context_data(self, **kwargs) -> dict:  # noqa: ANN003
         ctx = super().get_context_data(**kwargs)
         # Build a channel-scoped unread count matching the active channel filter
-        unread_qs = Notification.objects.filter(
-            recipient=self.request.user, read_at__isnull=True
-        )
+        unread_qs = Notification.objects.filter(recipient=self.request.user, read_at__isnull=True)
         channel = self.request.GET.get("channel", "")
         if channel in ("email", "sms", "in_app"):
             unread_qs = unread_qs.filter(channel=channel)
@@ -68,12 +67,11 @@ class MarkNotificationReadView(LoginRequiredMixin, View):
     POST: Mark a single notification as read.
     Citizen can only mark their own notifications.
     """
-    http_method_names = ["post"]
+
+    http_method_names = ["post"]  # noqa: RUF012
 
     def post(self, request: HttpRequest, pk: str) -> HttpResponse:
-        notification = get_object_or_404(
-            Notification, pk=pk, recipient=request.user
-        )
+        notification = get_object_or_404(Notification, pk=pk, recipient=request.user)
         if notification.read_at is None:
             notification.read_at = timezone.now()
             notification.save(update_fields=["read_at", "updated_at"])
@@ -96,7 +94,8 @@ class MarkAllReadView(LoginRequiredMixin, View):
     """
     POST: Mark ALL unread notifications for the current user as read.
     """
-    http_method_names = ["post"]
+
+    http_method_names = ["post"]  # noqa: RUF012
 
     def post(self, request: HttpRequest) -> HttpResponse:
         now = timezone.now()
@@ -107,10 +106,7 @@ class MarkAllReadView(LoginRequiredMixin, View):
             read_at__isnull=True,
         ).update(read_at=now, updated_at=now)
 
-        logger.info(
-            "Marked %d notifications as read for user_id=%s",
-            updated, request.user.pk
-        )
+        logger.info("Marked %d notifications as read for user_id=%s", updated, request.user.pk)
 
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
             return JsonResponse({"status": "ok", "marked_count": updated})
@@ -122,6 +118,7 @@ class UnreadCountView(LoginRequiredMixin, View):
     GET: Returns the unread notification count as JSON.
     Used by the frontend to update the bell badge without a full page reload.
     """
+
     def get(self, request: HttpRequest) -> JsonResponse:
         count = Notification.objects.filter(
             recipient=request.user,

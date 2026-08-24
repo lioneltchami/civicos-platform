@@ -21,6 +21,7 @@ Wave status:
   Wave 4: GovStackVoucherService fully implemented.
   Wave 5: GovStackP2GService fully implemented.
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,6 +54,7 @@ from apps.payments.govstack_exceptions import (
     VoucherAlreadyUsed,
     VoucherExpired,
 )
+from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
     CreditInstruction,
@@ -62,6 +64,7 @@ from apps.payments.govstack_models import (
     GovStackPaymentAuditEntry,
     GovStackRegisteredBB,
     GovStackVoucher,
+    PaymentOutcome,
     PrepaymentValidationRequest,
     _generate_voucher_serial,
 )
@@ -180,6 +183,7 @@ def _is_unregistered_gov_stack_bb(value: str | None) -> bool:
 # GovStackBeneficiaryService  (Wave 2)
 # ---------------------------------------------------------------------------
 
+
 class GovStackBeneficiaryService:
     """
     G2P ID Mapper: register and update beneficiaries.
@@ -256,7 +260,10 @@ class GovStackBeneficiaryService:
                     if obj.source_bb_id != source_bb_id:
                         obj.source_bb_id = source_bb_id
                         changed = True
-                    if registering_institution_id and obj.registering_institution_id != registering_institution_id:
+                    if (
+                        registering_institution_id
+                        and obj.registering_institution_id != registering_institution_id
+                    ):
                         obj.registering_institution_id = registering_institution_id
                         changed = True
                     if changed:
@@ -270,7 +277,7 @@ class GovStackBeneficiaryService:
                     action=action,
                     actor_bb_id=source_bb_id,
                     object_type="beneficiary",
-                    object_pk=str(obj.pk),   # UUID — not the payee_functional_id
+                    object_pk=str(obj.pk),  # UUID — not the payee_functional_id
                     request_id=request_id,
                     details={
                         "source_bb_id": source_bb_id,
@@ -282,7 +289,9 @@ class GovStackBeneficiaryService:
 
                 logger.debug(
                     "govstack.beneficiary action=%s pk=%s source_bb=%s",
-                    action, obj.pk, source_bb_id,
+                    action,
+                    obj.pk,
+                    source_bb_id,
                     # NEVER log payee_functional_id
                 )
 
@@ -365,6 +374,7 @@ class GovStackBeneficiaryService:
 # GovStackBulkPaymentService  (Wave 3)
 # ---------------------------------------------------------------------------
 
+
 class GovStackBulkPaymentService:
     """
     G2P Bulk Disbursement: receive batches and validate beneficiaries pre-payment.
@@ -446,7 +456,7 @@ class GovStackBulkPaymentService:
                     object_pk=str(batch.pk),
                     request_id=request_id,
                     details={
-                        "batch_id": batch_id,            # batch_id is not PII
+                        "batch_id": batch_id,  # batch_id is not PII
                         "source_bb_id": source_bb_id,
                         "instruction_count": len(instructions),
                         "total_amount": str(total_amount),
@@ -616,25 +626,29 @@ class GovStackBulkPaymentService:
             # Mapper unreachable).  beneficiary_found may still be None.  These are
             # surfaced as failed cases so the Source BB can investigate.
             if pvr.status == PrepaymentValidationRequest.STATUS_FAILED:
-                failed_accounts.append({
-                    "InstructionID": pvr.instruction_id,
-                    "FailureReason": "Validation processing error. Please retry or contact support.",
-                })
+                failed_accounts.append(
+                    {
+                        "InstructionID": pvr.instruction_id,
+                        "FailureReason": "Validation processing error. Please retry or contact support.",  # noqa: E501
+                    }
+                )
                 continue
 
             # COMPLETED records where the validation check itself failed:
             #   beneficiary_found=False  → not in ID Mapper
             #   financial_address_valid=False → address not configured
             if pvr.beneficiary_found is False or pvr.financial_address_valid is False:
-                failed_accounts.append({
-                    # Use InstructionID (not payee_functional_id) to avoid PII in response.
-                    "InstructionID": pvr.instruction_id,
-                    "FailureReason": (
-                        "Beneficiary not found in ID Mapper."
-                        if pvr.beneficiary_found is False
-                        else "Financial address not configured for this beneficiary."
-                    ),
-                })
+                failed_accounts.append(
+                    {
+                        # Use InstructionID (not payee_functional_id) to avoid PII in response.
+                        "InstructionID": pvr.instruction_id,
+                        "FailureReason": (
+                            "Beneficiary not found in ID Mapper."
+                            if pvr.beneficiary_found is False
+                            else "Financial address not configured for this beneficiary."
+                        ),
+                    }
+                )
 
         return {
             "request_id": request_id,
@@ -725,6 +739,7 @@ def _classify_redemption_decline(
 # ---------------------------------------------------------------------------
 # GovStackVoucherService  (Wave 4)
 # ---------------------------------------------------------------------------
+
 
 class GovStackVoucherService:
     """
@@ -824,10 +839,14 @@ class GovStackVoucherService:
                         # the model).  For fields that arrive as HTTP headers or optional params,
                         # we clamp here defensively — a long header value would otherwise raise
                         # a DataError at the DB layer (uncaught → HTTP 500).
-                        registering_institution_id=registering_institution_id[:20],  # model max_length=20
-                        batch_id=batch_id[:12] if batch_id else "",                  # model max_length=12
-                        payee_functional_id=payee_functional_id[:20] if payee_functional_id else "",  # model max_length=20
-                        callback_url=callback_url[:500],                              # URLField max_length=500
+                        registering_institution_id=registering_institution_id[
+                            :20
+                        ],  # model max_length=20
+                        batch_id=batch_id[:12] if batch_id else "",  # model max_length=12
+                        payee_functional_id=payee_functional_id[:20]
+                        if payee_functional_id
+                        else "",  # model max_length=20
+                        callback_url=callback_url[:500],  # URLField max_length=500
                         expiry_date=expiry,
                     )
                     GovStackPaymentAuditEntry.objects.create(
@@ -902,9 +921,11 @@ class GovStackVoucherService:
             # select_for_update() acquires a row-level lock for the duration of
             # this transaction, preventing concurrent requests from activating
             # the same voucher simultaneously.
-            voucher = GovStackVoucher.objects.select_for_update().filter(
-                serial_number=voucher_serial_number
-            ).first()
+            voucher = (
+                GovStackVoucher.objects.select_for_update()
+                .filter(serial_number=voucher_serial_number)
+                .first()
+            )
             if voucher is None:
                 logger.warning(
                     "govstack.voucher_activate serial not found issuing_bb=%s",
@@ -922,7 +943,7 @@ class GovStackVoucherService:
                     voucher.status,
                     voucher.pk,
                 )
-                raise InvalidVoucherSerial()
+                raise InvalidVoucherSerial()  # noqa: B904
 
             voucher.save(update_fields=["status"])
 
@@ -952,9 +973,9 @@ class GovStackVoucherService:
         merchant_name: str = "",
         merchant_bank_details: str = "",
         merchant_voucher_group: str = "",
-        override: bool = False,          # Reserved: Wave 5 will use this to bypass group/currency checks. Not used in Wave 4.
+        override: bool = False,  # Reserved: Wave 5 will use this to bypass group/currency checks. Not used in Wave 4.  # noqa: E501
         agent_id: str = "",
-        voucher_secret_number: str = "",  # Reserved: Wave 5 will validate the secret. Not used in Wave 4.
+        voucher_secret_number: str = "",  # Reserved: Wave 5 will validate the secret. Not used in Wave 4.  # noqa: E501
     ) -> GovStackVoucher:
         """
         Transition ACTIVATED → CONSUMED. Records merchant redemption details.
@@ -1018,9 +1039,11 @@ class GovStackVoucherService:
         with transaction.atomic():
             # select_for_update() holds a row-level lock until the transaction
             # commits, making double-redemption impossible.
-            voucher = GovStackVoucher.objects.select_for_update().filter(
-                serial_number=voucher_number
-            ).first()
+            voucher = (
+                GovStackVoucher.objects.select_for_update()
+                .filter(serial_number=voucher_number)
+                .first()
+            )
             if voucher is None:
                 logger.warning(
                     "govstack.voucher_redeem voucher not found issuing_bb=%s",
@@ -1037,7 +1060,7 @@ class GovStackVoucherService:
                     voucher.status,
                     voucher.pk,
                 )
-                raise InvalidVoucherSerial()
+                raise InvalidVoucherSerial()  # noqa: B904
 
             # ── Record redemption details ──────────────────────────────────────
             now = timezone.now()
@@ -1050,15 +1073,17 @@ class GovStackVoucherService:
             voucher.redeemed_at = now
             voucher.redemption_transaction_id = transaction_id
 
-            voucher.save(update_fields=[
-                "status",
-                "redeemed_by_agent_id",
-                "redeemed_merchant_name",
-                "redeemed_merchant_bank_details",
-                "redeemed_merchant_voucher_group",
-                "redeemed_at",
-                "redemption_transaction_id",
-            ])
+            voucher.save(
+                update_fields=[
+                    "status",
+                    "redeemed_by_agent_id",
+                    "redeemed_merchant_name",
+                    "redeemed_merchant_bank_details",
+                    "redeemed_merchant_voucher_group",
+                    "redeemed_at",
+                    "redemption_transaction_id",
+                ]
+            )
 
             GovStackPaymentAuditEntry.objects.create(
                 action=GovStackPaymentAuditEntry.ACTION_VOUCHER_REDEEMED,
@@ -1103,9 +1128,11 @@ class GovStackVoucherService:
             # same serial number. Without the lock, two requests could both fetch
             # a non-CANCELLED voucher, both pass the STATUS_CANCELLED check, and
             # both write — producing two VOUCHER_CANCELLED audit entries.
-            voucher = GovStackVoucher.objects.select_for_update().filter(
-                serial_number=voucher_serial_number
-            ).first()
+            voucher = (
+                GovStackVoucher.objects.select_for_update()
+                .filter(serial_number=voucher_serial_number)
+                .first()
+            )
             if voucher is None:
                 raise InvalidCancellationSerial()
 
@@ -1124,7 +1151,7 @@ class GovStackVoucherService:
                     voucher.status,
                     voucher.pk,
                 )
-                raise InvalidCancellationSerial()
+                raise InvalidCancellationSerial()  # noqa: B904
 
             voucher.save(update_fields=["status"])
 
@@ -1183,6 +1210,7 @@ class GovStackVoucherService:
 # ---------------------------------------------------------------------------
 # GovStackP2GService  (Wave 5)
 # ---------------------------------------------------------------------------
+
 
 class GovStackP2GService:
     """
@@ -1339,9 +1367,7 @@ class GovStackP2GService:
             # BillNotFound is raised OUTSIDE the IntegrityError guard below so
             # it propagates cleanly to the view without risk of being swallowed
             # by a broad except-IntegrityError clause.
-            locked_qs = GovStackBill.objects.select_for_update().filter(
-                bill_id=bill_id
-            )
+            locked_qs = GovStackBill.objects.select_for_update().filter(bill_id=bill_id)
             if platform_tenant_id:
                 locked_qs = locked_qs.filter(platform_tenant_id=platform_tenant_id)
             locked_bill = locked_qs.first()
@@ -1380,7 +1406,46 @@ class GovStackP2GService:
                     "govstack.p2g.duplicate_transfer_request request_id_len=%d",
                     len(request_id),
                 )
-                raise DuplicateBillPaymentError(request_id=request_id)
+                raise DuplicateBillPaymentError(request_id=request_id)  # noqa: B904
+
+            # ── Item 02 settlement-verification record ─────────────────────
+            # The existing P2G compatibility contract records the notification
+            # synchronously. A separate durable attempt makes the distinction
+            # explicit: local recording is not provider-settlement evidence.
+            p2g_attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+                tenant_id=platform_tenant_id,
+                operation="p2g_bill_notification",
+                request_id=request_id,
+                payload={
+                    "bill_pk": str(locked_bill.pk),
+                    "payment_pk": str(payment.pk),
+                    "amount": str(payment.amount),
+                    "currency": payment.currency,
+                },
+                amount=payment.amount,
+                currency=payment.currency,
+                correlation_id=payment.correlation_id,
+                source_bb_id="",
+                external_transaction_id=payment.payment_reference_id,
+            )
+            # Local P2G notification is never provider finality.  A deployment
+            # must explicitly enable and configure the asynchronous provider
+            # runtime before this durable attempt is dispatched.  The legacy
+            # fallback remains review-only and preserves existing API behavior.
+            if getattr(settings, "GOVSTACK_PAYMENT_PROVIDER_RUNTIME_ENABLED", False):
+                from apps.payments.provider_runtime import enqueue_attempt
+
+                enqueue_attempt(p2g_attempt)
+            else:
+                PaymentLifecycleService.apply_outcome(
+                    p2g_attempt,
+                    PaymentOutcome(
+                        "review",
+                        code="P2G_SETTLEMENT_VERIFICATION_REQUIRED",
+                        category="reconciliation",
+                        message="Payment notification recorded; settlement verification is required.",  # noqa: E501
+                    ),
+                )
 
             # ── Transition bill to PAID (idempotent if already PAID) ────────
             # DESIGN DECISION (M4): We do not restrict payment to STATUS_UNPAID
@@ -1571,11 +1636,7 @@ class GovStackP2GService:
                 but registered under a different tenant than the one
                 supplied (both cases raise the identical exception).
         """
-        qs = (
-            GovStackBillPayment.objects
-            .select_related("bill")
-            .filter(request_id=request_id)
-        )
+        qs = GovStackBillPayment.objects.select_related("bill").filter(request_id=request_id)
         if platform_tenant_id:
             qs = qs.filter(platform_tenant_id=platform_tenant_id)
         payment = qs.first()

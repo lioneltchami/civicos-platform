@@ -1,0 +1,32 @@
+Creating test database for alias 'default'...
+........./usr/local/lib/python3.12/dist-packages/django/core/handlers/base.py:61: UserWarning: No directory at: /home/ubuntu/item03-scheduler/current-integration/civicos-source/staticfiles/
+  mw_instance = middleware(adapted_handler)
+.............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 502 tests in 5.127s
+
+OK
+Destroying test database for alias 'default'...
+Found 502 test(s).
+System check identified no issues (0 silenced).
+Created credential for bb_id='audit-test-bb'.
+
+COPY THIS SECRET NOW — it will not be shown again and is not recoverable from the database:
+
+    request_token = [REDACTED-TEST-TOKEN]
+
+Use with requestor_id='audit-test-bb' as the two GovStack Scheduler BB query parameters.
+Created credential for bb_id='audit-test-bb-rotate'.
+
+COPY THIS SECRET NOW — it will not be shown again and is not recoverable from the database:
+
+    request_token = [REDACTED-TEST-TOKEN]
+
+Use with requestor_id='audit-test-bb-rotate' as the two GovStack Scheduler BB query parameters.
+Rotated credential for bb_id='audit-test-bb-rotate'.
+
+COPY THIS SECRET NOW — it will not be shown again and is not recoverable from the database:
+
+    request_token = [REDACTED-TEST-TOKEN]
+
+Use with requestor_id='audit-test-bb-rotate' as the two GovStack Scheduler BB query parameters.

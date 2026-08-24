@@ -5,26 +5,49 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('documents', '0007_seed_document_categories'),
-        ('volunteers', '0010_drop_certification_document_filefield'),
+    dependencies = [  # noqa: RUF012
+        ("documents", "0007_seed_document_categories"),
+        ("volunteers", "0010_drop_certification_document_filefield"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='certification',
-            name='document_v2',
-            field=models.ForeignKey(blank=True, help_text='FK to the Documents BB record. Replaces the deprecated document FileField after migration.', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='certification_documents', to='documents.document', verbose_name='Certificate document (Documents BB)'),
+            model_name="certification",
+            name="document_v2",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="FK to the Documents BB record. Replaces the deprecated document FileField after migration.",
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="certification_documents",
+                to="documents.document",
+                verbose_name="Certificate document (Documents BB)",
+            ),
         ),
         migrations.AlterField(
-            model_name='honorarium',
-            name='t4a_document',
-            field=models.OneToOneField(blank=True, help_text='FK to the issued T4A slip Document record. Set after CRA T4A generation workflow completes.', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='honorarium_t4a', to='documents.document', verbose_name='T4A document (Documents BB)'),
+            model_name="honorarium",
+            name="t4a_document",
+            field=models.OneToOneField(
+                blank=True,
+                help_text="FK to the issued T4A slip Document record. Set after CRA T4A generation workflow completes.",
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="honorarium_t4a",
+                to="documents.document",
+                verbose_name="T4A document (Documents BB)",
+            ),
         ),
         migrations.AlterField(
-            model_name='screeningrecord',
-            name='vsc_confirmation_doc',
-            field=models.ForeignKey(blank=True, help_text='PIPEDA: stores reference to chain-of-custody confirmation document only. Must never reference or store the criminal check result.', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='screening_vsc_confirmations', to='documents.document', verbose_name='VSC confirmation document'),
+            model_name="screeningrecord",
+            name="vsc_confirmation_doc",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="PIPEDA: stores reference to chain-of-custody confirmation document only. Must never reference or store the criminal check result.",
+                null=True,
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="screening_vsc_confirmations",
+                to="documents.document",
+                verbose_name="VSC confirmation document",
+            ),
         ),
     ]

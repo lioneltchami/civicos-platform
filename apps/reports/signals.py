@@ -7,6 +7,7 @@ Always use pk references only.
 PIPEDA compliance: only non-identifying integer/Decimal values are passed
 through signal kwargs. Callers must not add name, address, or SIN fields.
 """
+
 from django.dispatch import Signal
 
 # ---------------------------------------------------------------------------

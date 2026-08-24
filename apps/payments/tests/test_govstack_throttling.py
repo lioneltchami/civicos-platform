@@ -52,6 +52,7 @@ Test approach:
   routing is needed since this is testing the throttle class directly, not
   view wiring (except PT-6, which checks the class attribute).
 """
+
 from __future__ import annotations
 
 from django.core.cache import cache
@@ -97,6 +98,7 @@ def _make_request(
 # PT-1 / PT-2: get_cache_key() keys on payer identity, not IP
 # ---------------------------------------------------------------------------
 
+
 class GetCacheKeyIdentityTest(TestCase):
     def test_pt1_different_payer_identities_same_ip_get_different_cache_keys(self):
         """Two different callers behind the same NAT/gateway must not share a bucket."""
@@ -132,6 +134,7 @@ class GetCacheKeyIdentityTest(TestCase):
 # ---------------------------------------------------------------------------
 # PT-3: allow_request() records history under independent cache entries
 # ---------------------------------------------------------------------------
+
 
 class AllowRequestBucketIsolationTest(TestCase):
     def setUp(self):
@@ -175,6 +178,7 @@ class AllowRequestBucketIsolationTest(TestCase):
 # ---------------------------------------------------------------------------
 # PT-4 / PT-5: fallback to stock IP-based behaviour when no payer identity
 # ---------------------------------------------------------------------------
+
 
 class FallbackToIpBasedThrottlingTest(TestCase):
     def setUp(self):
@@ -220,6 +224,7 @@ class FallbackToIpBasedThrottlingTest(TestCase):
 # ---------------------------------------------------------------------------
 # PT-6: GovStackAPIView actually wires in GovStackPaymentsIdentityThrottle
 # ---------------------------------------------------------------------------
+
 
 class ThrottleWiringTest(TestCase):
     def test_pt6_govstack_api_view_uses_identity_throttle(self):

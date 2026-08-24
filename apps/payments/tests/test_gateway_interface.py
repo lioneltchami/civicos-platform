@@ -7,10 +7,8 @@ Covers:
 - get_gateway() lru_cache behaviour (cache_clear between tests)
 - PaymentGateway ABC cannot be instantiated directly
 """
-from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.payments.gateway import PaymentGateway, get_gateway
 
@@ -48,6 +46,7 @@ class PaymentGatewayAbstractTests(SimpleTestCase):
 
     def test_concrete_subclass_missing_methods_cannot_instantiate(self):
         """A partial subclass that skips abstract methods cannot be instantiated."""
+
         class IncompleteGateway(PaymentGateway):
             pass
 
@@ -56,9 +55,17 @@ class PaymentGatewayAbstractTests(SimpleTestCase):
 
     def test_concrete_subclass_implementing_all_methods_can_instantiate(self):
         """A fully-implemented concrete subclass can be instantiated."""
+
         class ConcreteGateway(PaymentGateway):
-            def create_payment_intent(self, amount, currency, idempotency_key, metadata,
-                                      description="", connect_account_id=None):
+            def create_payment_intent(
+                self,
+                amount,
+                currency,
+                idempotency_key,
+                metadata,
+                description="",
+                connect_account_id=None,
+            ):
                 return {}
 
             def retrieve_payment_intent(self, gateway_intent_id):
@@ -70,8 +77,15 @@ class PaymentGatewayAbstractTests(SimpleTestCase):
             def cancel_payment_intent(self, gateway_intent_id):
                 return True
 
-            def create_subscription(self, customer_id, price_id, payment_method_id,
-                                    idempotency_key, metadata, connect_account_id=None):
+            def create_subscription(
+                self,
+                customer_id,
+                price_id,
+                payment_method_id,
+                idempotency_key,
+                metadata,
+                connect_account_id=None,
+            ):
                 return {}
 
             def cancel_subscription(self, gateway_subscription_id):
@@ -100,6 +114,7 @@ class GetGatewayStripeTests(TestCase):
     @override_settings(PAYMENT_GATEWAY="stripe")
     def test_returns_stripe_gateway(self):
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         gw = get_gateway()
         self.assertIsInstance(gw, StripeGateway)
 
@@ -111,6 +126,7 @@ class GetGatewayStripeTests(TestCase):
     def test_default_gateway_is_stripe(self):
         """When PAYMENT_GATEWAY is not set, 'stripe' is the default."""
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         # Remove the setting entirely and verify the default path is taken
         with self.settings(PAYMENT_GATEWAY="stripe"):
             gw = get_gateway()
@@ -143,5 +159,6 @@ class GetGatewayStripeTests(TestCase):
         gw2 = get_gateway()
         # They should both be StripeGateway instances but different objects
         from apps.payments.gateways.stripe_gateway import StripeGateway
+
         self.assertIsInstance(gw1, StripeGateway)
         self.assertIsInstance(gw2, StripeGateway)

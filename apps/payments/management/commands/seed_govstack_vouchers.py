@@ -115,7 +115,8 @@ Usage
 
     # Verbose (shows per-row create/skip details):
     python manage.py seed_govstack_vouchers --verbosity 2
-"""
+"""  # noqa: RUF002
+
 from __future__ import annotations
 
 import logging
@@ -174,32 +175,32 @@ _SEED_STATUS_CONSUMED: str = "consumed"
 _SEED_EXPIRY_DAYS: int = 365
 
 _SEED_VOUCHERS: list[tuple[str, str, str, str, str, int]] = [
-    # ── Primary FOOD range (serials 5550–5555) ───────────────────────────────
-    ("5550",  "FOOD",      "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5551",  "FOOD",      "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5552",  "FOOD",      "200.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5553",  "FOOD",      "150.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5554",  "FOOD",      "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5555",  "FOOD",      "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    # ── HEALTH range (serials 5556–5560) ────────────────────────────────────
-    ("5556",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5557",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5558",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5559",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("5560",  "HEALTH",    "75.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    # ── Primary FOOD range (serials 5550–5555) ───────────────────────────────  # noqa: RUF003
+    ("5550", "FOOD", "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5551", "FOOD", "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5552", "FOOD", "200.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5553", "FOOD", "150.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5554", "FOOD", "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5555", "FOOD", "100.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    # ── HEALTH range (serials 5556–5560) ────────────────────────────────────  # noqa: RUF003
+    ("5556", "HEALTH", "75.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5557", "HEALTH", "75.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5558", "HEALTH", "75.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5559", "HEALTH", "75.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("5560", "HEALTH", "75.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
     # ── Special-cased status serials (voucherstatuscheck / redemption smoke) ──
     # 6001: already CONSUMED → voucherstatuscheck harness scenario expects 458.
-    ("6001",  "FOOD",      "100.00", "CAD", _SEED_STATUS_CONSUMED,    _SEED_EXPIRY_DAYS),
+    ("6001", "FOOD", "100.00", "CAD", _SEED_STATUS_CONSUMED, _SEED_EXPIRY_DAYS),
     # 6002: ACTIVATED but expired 30 days ago (NOT consumed — get_status()
     # checks CONSUMED/458 before expiry/459, so 458 would win if this were
     # also CONSUMED and the 459 scenario would never be reachable).
-    ("6002",  "FOOD",      "100.00", "CAD", _SEED_STATUS_ACTIVATED,   -30),
+    ("6002", "FOOD", "100.00", "CAD", _SEED_STATUS_ACTIVATED, -30),
     # 6004: ACTIVATED (not the usual PREACTIVATED default) — redemption smoke
     # test calls redeem(), which only permits ACTIVATED → CONSUMED.
-    ("6004",  "HEALTH",    "200.00", "CAD", _SEED_STATUS_ACTIVATED,   _SEED_EXPIRY_DAYS),
+    ("6004", "HEALTH", "200.00", "CAD", _SEED_STATUS_ACTIVATED, _SEED_EXPIRY_DAYS),
     # ── 5-digit TRANSPORT range ──────────────────────────────────────────────
-    ("60000", "TRANSPORT", "50.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
-    ("60001", "TRANSPORT", "50.00",  "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("60000", "TRANSPORT", "50.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
+    ("60001", "TRANSPORT", "50.00", "CAD", _SEED_STATUS_PREACTIVATED, _SEED_EXPIRY_DAYS),
 ]
 
 # Placeholder redemption-metadata value stamped onto any seed row created
@@ -257,8 +258,7 @@ _HARNESS_ISSUING_BB: str = "GS-HARNESS"
 _SEED_REGISTERED_BBS: list[tuple[str, str]] = [
     (
         _HARNESS_ISSUING_BB,
-        "GovStack test harness institution. "
-        "Created automatically by seed_govstack_vouchers.",
+        "GovStack test harness institution. " "Created automatically by seed_govstack_vouchers.",
     ),
 ]
 
@@ -283,7 +283,7 @@ class Command(BaseCommand):
     # Argument parsing
     # ------------------------------------------------------------------
 
-    def add_arguments(self, parser) -> None:
+    def add_arguments(self, parser) -> None:  # noqa: ANN001
         parser.add_argument(
             "--reset",
             action="store_true",
@@ -303,7 +303,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:  # noqa: ANN002, ANN003
         # Lazy imports — avoids model loading before Django app registry is ready.
-        from apps.payments.govstack_models import GovStackRegisteredBB, GovStackVoucher  # noqa: PLC0415
+        from apps.payments.govstack_models import (
+            GovStackRegisteredBB,
+            GovStackVoucher,
+        )
 
         verbosity: int = options["verbosity"]
         do_reset: bool = options["reset"]
@@ -314,7 +317,6 @@ class Command(BaseCommand):
         # atomic transaction so that --reset can never leave the seed set in a
         # partially-deleted state if the command crashes mid-loop.
         with transaction.atomic():
-
             # ── Optional reset ────────────────────────────────────────────────
             if do_reset:
                 # Filter by serial_number only (not issuing_bb) so that any row
@@ -352,9 +354,14 @@ class Command(BaseCommand):
             created_count = 0
             skipped_count = 0
 
-            for serial, group_code, amount_str, currency, status, expiry_offset_days in (
-                _SEED_VOUCHERS
-            ):
+            for (
+                serial,
+                group_code,
+                amount_str,
+                currency,
+                status,
+                expiry_offset_days,
+            ) in _SEED_VOUCHERS:
                 expiry = timezone.now() + timedelta(days=expiry_offset_days)
 
                 defaults = {
@@ -395,9 +402,7 @@ class Command(BaseCommand):
                 else:
                     skipped_count += 1
                     if verbosity >= 2:
-                        self.stdout.write(
-                            f"  Skipped  serial={serial!r:>6}  (already exists)"
-                        )
+                        self.stdout.write(f"  Skipped  serial={serial!r:>6}  (already exists)")
 
             # ── Seed GovStackRegisteredBB allowlist rows ──────────────────────
             # Create (or ensure existence of) every row in _SEED_REGISTERED_BBS
@@ -424,9 +429,7 @@ class Command(BaseCommand):
 
                 if verbosity >= 2:
                     action = "Created" if _bb_row_created else "Skipped"
-                    self.stdout.write(
-                        f"  {action}  GovStackRegisteredBB bb_id={bb_id!r}"
-                    )
+                    self.stdout.write(f"  {action}  GovStackRegisteredBB bb_id={bb_id!r}")
 
                 logger.info(
                     "seed_govstack_vouchers.registered_bb bb_id=%r created=%s",

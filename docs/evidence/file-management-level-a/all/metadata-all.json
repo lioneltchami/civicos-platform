@@ -1,0 +1,10 @@
+{
+  "collected": 1159,
+  "django_settings_module": "config.settings.test",
+  "layer": "all",
+  "official_harness_executed": false,
+  "runner": "local/CI File Management candidate runner",
+  "selector": [
+    "apps/documents/tests"
+  ]
+}

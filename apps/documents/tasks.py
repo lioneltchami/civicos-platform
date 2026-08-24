@@ -44,11 +44,11 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from celery import Task, shared_task
 from django.db import transaction
 from django.utils import timezone
 
 from apps.notifications.services import send_email_notification
+from celery import Task, shared_task
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +158,7 @@ def _promote_storage_object_to_active(*, doc_pk: str, storage_key: str) -> str |
     if not storage_key or not storage_key.startswith(_QUARANTINE_PREFIX):
         return None
 
-    new_key = _ACTIVE_PREFIX + storage_key[len(_QUARANTINE_PREFIX):]
+    new_key = _ACTIVE_PREFIX + storage_key[len(_QUARANTINE_PREFIX) :]
 
     from apps.documents.services.upload import (
         _get_bucket_name,
@@ -199,13 +199,9 @@ def _promote_storage_object_to_active(*, doc_pk: str, storage_key: str) -> str |
                     doc_pk,
                 )
                 return None
-            raise _StoragePromotionError(
-                f"S3 copy_object failed: {type(exc).__name__}"
-            ) from exc
+            raise _StoragePromotionError(f"S3 copy_object failed: {type(exc).__name__}") from exc
         except BotoCoreError as exc:
-            raise _StoragePromotionError(
-                f"S3 copy_object failed: {type(exc).__name__}"
-            ) from exc
+            raise _StoragePromotionError(f"S3 copy_object failed: {type(exc).__name__}") from exc
 
         return new_key
 
@@ -230,9 +226,7 @@ def _promote_storage_object_to_active(*, doc_pk: str, storage_key: str) -> str |
         )
         return None
     except Exception as exc:
-        raise _StoragePromotionError(
-            f"storage copy failed: {type(exc).__name__}"
-        ) from exc
+        raise _StoragePromotionError(f"storage copy failed: {type(exc).__name__}") from exc
 
     return str(saved_key)
 
@@ -296,6 +290,7 @@ def _quarantine_on_scan_failure(doc_pk: str, exc: BaseException) -> None:
 
             # Unwrap MaxRetriesExceededError to get the root cause exception type.
             from celery.exceptions import MaxRetriesExceededError as _MaxRetriesExceededError
+
             if isinstance(exc, _MaxRetriesExceededError) and exc.__cause__ is not None:
                 exc = exc.__cause__
             scan_engine_result = f"SCAN_FAILURE:{type(exc).__name__}"
@@ -391,7 +386,7 @@ class _ScanDocumentTask(Task):
     # H-9: explicit name prevents Beat task name breakage on module refactoring.
     name="apps.documents.tasks.scan_document",
 )
-def scan_document(self, doc_pk: str) -> None:
+def scan_document(self, doc_pk: str) -> None:  # noqa: ANN001
     """
     Run a ClamAV virus scan on a newly uploaded document.
 
@@ -447,7 +442,6 @@ def scan_document(self, doc_pk: str) -> None:
     from django.conf import settings
 
     from apps.documents.models import Document
-    from apps.documents.signals import document_quarantined, document_scan_clean
 
     civicos: dict = getattr(settings, "CIVICOS", {})
     clamav_required: bool = civicos.get("CLAMAV_REQUIRED", False)
@@ -471,16 +465,15 @@ def scan_document(self, doc_pk: str) -> None:
         except Document.DoesNotExist as exc:
             # M-6: Document not visible yet (DB replica lag). Retry with
             # exponential backoff so the task can find it once propagated.
-            countdown = (2 ** self.request.retries) * 30
+            countdown = (2**self.request.retries) * 30
             logger.warning(
-                "scan_document: doc pk=%r not found (possible replica lag); "
-                "retry %d/%d in %ds.",
+                "scan_document: doc pk=%r not found (possible replica lag); " "retry %d/%d in %ds.",
                 doc_pk,
                 self.request.retries + 1,
                 self.max_retries,
                 countdown,
             )
-            raise self.retry(exc=exc, countdown=countdown)
+            raise self.retry(exc=exc, countdown=countdown)  # noqa: B904
         return
 
     # ── Wave 3: Full ClamAV integration ──────────────────────────────────────
@@ -506,16 +499,15 @@ def scan_document(self, doc_pk: str) -> None:
             storage_key = doc.storage_key
     except Document.DoesNotExist as exc:
         # DB replica lag: document not yet visible. Retry with backoff (M-6 pattern).
-        countdown = (2 ** self.request.retries) * 30
+        countdown = (2**self.request.retries) * 30
         logger.warning(
-            "scan_document: doc pk=%r not found (possible replica lag); "
-            "retry %d/%d in %ds.",
+            "scan_document: doc pk=%r not found (possible replica lag); " "retry %d/%d in %ds.",
             doc_pk,
             self.request.retries + 1,
             self.max_retries,
             countdown,
         )
-        raise self.retry(exc=exc, countdown=countdown)
+        raise self.retry(exc=exc, countdown=countdown)  # noqa: B904
 
     # Step 2: Perform the ClamAV scan OUTSIDE any transaction.
     # Network I/O must never hold a DB lock: slow ClamAV scans would block
@@ -542,7 +534,7 @@ def scan_document(self, doc_pk: str) -> None:
         return
     except Exception as exc:
         # Transient ClamAV or other failure — retry with exponential backoff.
-        countdown = (2 ** self.request.retries) * 30
+        countdown = (2**self.request.retries) * 30
         logger.warning(
             "scan_document: ClamAV scan failed for doc pk=%r; "
             "retry %d/%d in %ds. Exception type: %s",
@@ -552,7 +544,7 @@ def scan_document(self, doc_pk: str) -> None:
             countdown,
             type(exc).__name__,
         )
-        raise self.retry(exc=exc, countdown=countdown)
+        raise self.retry(exc=exc, countdown=countdown)  # noqa: B904
 
     # Step 3: Persist the scan result.
     try:
@@ -561,7 +553,7 @@ def scan_document(self, doc_pk: str) -> None:
         else:
             _mark_document_quarantined_clamav(doc_pk=doc_pk, virus_name=scan_result)
     except Exception as exc:
-        countdown = (2 ** self.request.retries) * 30
+        countdown = (2**self.request.retries) * 30
         logger.warning(
             "scan_document: failed to persist scan result for doc pk=%r; "
             "retry %d/%d in %ds. scan_result=%r Exception type: %s",
@@ -572,7 +564,7 @@ def scan_document(self, doc_pk: str) -> None:
             scan_result,
             type(exc).__name__,
         )
-        raise self.retry(exc=exc, countdown=countdown)
+        raise self.retry(exc=exc, countdown=countdown)  # noqa: B904
 
 
 def _mark_document_active_dev_bypass(doc_pk: str) -> None:
@@ -832,9 +824,7 @@ def _mark_document_active_clamav(*, doc_pk: str) -> None:
         if old_storage_key:
             # Remove the now-redundant quarantine copy only after the new key
             # is durably committed. on_commit is a no-op if this block rolls back.
-            transaction.on_commit(
-                lambda _key=old_storage_key: _delete_storage_object(_key)
-            )
+            transaction.on_commit(lambda _key=old_storage_key: _delete_storage_object(_key))
 
     # Fire signal outside the lock (send_robust never raises).
     # PIPEDA: kwargs contain only doc.pk — no uploader identity, no filename.
@@ -1100,7 +1090,7 @@ def _purge_orphaned_storage_objects(storage_keys: list[str]) -> int:
     # H-9: explicit name prevents Beat task name breakage on module refactoring.
     name="apps.documents.tasks.cleanup_stale_pending_uploads",
 )
-def cleanup_stale_pending_uploads(self) -> int:
+def cleanup_stale_pending_uploads(self) -> int:  # noqa: ANN001
     """
     Delete Document records stuck in PENDING_UPLOAD beyond the presigned URL TTL.
 
@@ -1176,14 +1166,12 @@ def cleanup_stale_pending_uploads(self) -> int:
     # Chunked to bound both the DELETE ... IN (...) statement size and the
     # storage round-trips per iteration — mirrors the _CHUNK = 500 pattern used
     # by run_disposal_schedule / run_hard_delete_schedule in this module.
-    _CHUNK = 500
+    _CHUNK = 500  # noqa: N806
     for _start in range(0, len(stale), _CHUNK):
         chunk = stale[_start : _start + _CHUNK]
 
         # Storage first, DB row second (see docstring).
-        purged_objects += _purge_orphaned_storage_objects(
-            [key for _pk, key in chunk]
-        )
+        purged_objects += _purge_orphaned_storage_objects([key for _pk, key in chunk])
 
         deleted, _ = Document.objects.filter(
             pk__in=[pk for pk, _key in chunk],
@@ -1222,7 +1210,7 @@ def cleanup_stale_pending_uploads(self) -> int:
     # H-9: explicit name prevents Beat task name breakage on module refactoring.
     name="apps.documents.tasks.run_disposal_schedule",
 )
-def run_disposal_schedule(self) -> dict:
+def run_disposal_schedule(self) -> dict:  # noqa: ANN001
     """
     Celery Beat task: soft-delete all documents past their max retention date.
 
@@ -1261,9 +1249,7 @@ def run_disposal_schedule(self) -> dict:
     # Materialise PKs upfront — avoids cursor timeout for large result sets and
     # ensures we iterate a fixed snapshot (not a live queryset that changes as
     # we soft-delete rows and they drop out of pending_disposal()).
-    eligible_pks = list(
-        Document.objects.pending_disposal().values_list("pk", flat=True)
-    )
+    eligible_pks = list(Document.objects.pending_disposal().values_list("pk", flat=True))
     total = len(eligible_pks)
     soft_deleted_count = 0
     skipped_count = 0
@@ -1273,12 +1259,11 @@ def run_disposal_schedule(self) -> dict:
     # (one SELECT per pk replaced by one SELECT per chunk of 500).
     # soft_delete() re-fetches under select_for_update() inside its own atomic(),
     # so the pre-fetched doc is used for outer loop efficiency only.
-    _CHUNK = 500
+    _CHUNK = 500  # noqa: N806
     for _start in range(0, len(eligible_pks), _CHUNK):
         chunk = eligible_pks[_start : _start + _CHUNK]
         doc_map = {
-            d.pk: d
-            for d in Document.objects.filter(pk__in=chunk).select_related("category")
+            d.pk: d for d in Document.objects.filter(pk__in=chunk).select_related("category")
         }
         for doc_pk in chunk:
             doc = doc_map.get(doc_pk)
@@ -1296,7 +1281,7 @@ def run_disposal_schedule(self) -> dict:
                 logger.info(
                     "run_disposal_schedule: skipped doc pk=%r — %s",
                     str(doc_pk),
-                    exc,  # str(exc) contains the specific guard message (legal_hold, deleted_at, etc.)
+                    exc,  # str(exc) contains the specific guard message (legal_hold, deleted_at, etc.)  # noqa: E501
                 )
                 skipped_count += 1
             except Exception:
@@ -1334,7 +1319,7 @@ def run_disposal_schedule(self) -> dict:
     # H-9: explicit name prevents Beat task name breakage on module refactoring.
     name="apps.documents.tasks.run_hard_delete_schedule",
 )
-def run_hard_delete_schedule(self) -> dict:
+def run_hard_delete_schedule(self) -> dict:  # noqa: ANN001
     """
     Celery Beat task: irreversibly hard-delete soft-deleted documents past
     the 30-day grace period.
@@ -1375,9 +1360,7 @@ def run_hard_delete_schedule(self) -> dict:
     from apps.documents.models import Document
     from apps.documents.services.retention import hard_delete
 
-    eligible_pks = list(
-        Document.objects.pending_hard_delete().values_list("pk", flat=True)
-    )
+    eligible_pks = list(Document.objects.pending_hard_delete().values_list("pk", flat=True))
     total = len(eligible_pks)
     hard_deleted_count = 0
     skipped_count = 0
@@ -1386,12 +1369,11 @@ def run_hard_delete_schedule(self) -> dict:
     # H-4: batch-fetch in chunks of 500 to eliminate N+1 queries.
     # hard_delete() re-fetches under select_for_update() inside its own atomic(),
     # so this pre-fetch is for loop efficiency only.
-    _CHUNK = 500
+    _CHUNK = 500  # noqa: N806
     for _start in range(0, len(eligible_pks), _CHUNK):
         chunk = eligible_pks[_start : _start + _CHUNK]
         doc_map = {
-            d.pk: d
-            for d in Document.objects.filter(pk__in=chunk).select_related("category")
+            d.pk: d for d in Document.objects.filter(pk__in=chunk).select_related("category")
         }
         for doc_pk in chunk:
             doc = doc_map.get(doc_pk)
@@ -1407,7 +1389,7 @@ def run_hard_delete_schedule(self) -> dict:
                 logger.info(
                     "run_hard_delete_schedule: skipped doc pk=%r — %s",
                     str(doc_pk),
-                    exc,  # str(exc) contains the specific guard message (legal_hold, deleted_at, grace period, etc.)
+                    exc,  # str(exc) contains the specific guard message (legal_hold, deleted_at, grace period, etc.)  # noqa: E501
                 )
                 skipped_count += 1
             except Exception:
@@ -1445,7 +1427,7 @@ def run_hard_delete_schedule(self) -> dict:
     # H-9: explicit name prevents Beat task name breakage on module refactoring.
     name="apps.documents.tasks.notify_expiring_documents",
 )
-def notify_expiring_documents(self, days_before: int = 7) -> dict:
+def notify_expiring_documents(self, days_before: int = 7) -> dict:  # noqa: ANN001
     """
     Celery Beat task: notify citizens whose documents expire within ``days_before`` days.
 
@@ -1514,7 +1496,8 @@ def notify_expiring_documents(self, days_before: int = 7) -> dict:
             # Using get_user_model() here keeps the app decoupled from the
             # concrete User model import path.
             from django.contrib.auth import get_user_model
-            User = get_user_model()
+
+            User = get_user_model()  # noqa: N806
             try:
                 recipient = User.objects.get(pk=uploaded_by_id)
             except User.DoesNotExist:
@@ -1600,7 +1583,7 @@ def notify_expiring_documents(self, days_before: int = 7) -> dict:
     # H-9: explicit name prevents Beat task name breakage on module refactoring.
     name="apps.documents.tasks.run_purge_expired_tokens",
 )
-def run_purge_expired_tokens(self) -> int:
+def run_purge_expired_tokens(self) -> int:  # noqa: ANN001
     """
     Celery Beat task: hard-delete expired and used DocumentAccessTokens.
 
@@ -1665,7 +1648,7 @@ def create_beat_schedule() -> None:
 
     Why not every minute? Frequent runs would hammer the DB and risk thundering-herd
     problems if the task takes a long time on a large dataset.
-    """
+    """  # noqa: RUF002
     from django_celery_beat.models import CrontabSchedule, PeriodicTask
 
     # Shared defaults for all entries — task name prefix is the app label.

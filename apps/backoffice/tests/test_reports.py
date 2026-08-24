@@ -134,10 +134,7 @@ class ReportsViewTests(TestCase):
         )
         self.client.login(email="staff@example.com", password="testpass123")
         response = self.client.get(REPORTS_URL)
-        by_channel = {
-            row["channel"]: row["count"]
-            for row in response.context["notif_by_channel"]
-        }
+        by_channel = {row["channel"]: row["count"] for row in response.context["notif_by_channel"]}
         self.assertEqual(by_channel.get(NotificationChannel.EMAIL, 0), 1)
         self.assertEqual(by_channel.get(NotificationChannel.SMS, 0), 1)
 

@@ -17,18 +17,19 @@ View inventory:
     StaffRequestDetailView GET  /portal/staff/requests/<uuid>/
     StaffStatusUpdateView  POST /portal/staff/requests/<uuid>/update-status/
 """
+
 from __future__ import annotations
+
 import logging
 from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.http import Http404, HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse, reverse_lazy
 from django.utils.translation import gettext_lazy as _
 from django.views import View
-from django.views.generic import DetailView, ListView, TemplateView, FormView
+from django.views.generic import DetailView, FormView, ListView, TemplateView
 
 from apps.core.signals import pii_record_accessed
 
@@ -48,23 +49,27 @@ logger = logging.getLogger(__name__)
 # Mixins
 # ---------------------------------------------------------------------------
 
+
 class StaffRequiredMixin(UserPassesTestMixin):
     """Restricts view access to staff users only.
     - Anonymous users → 302 redirect to login
     - Authenticated non-staff → 403 Forbidden
     """
+
     raise_exception = True
 
     def test_func(self) -> bool:
         return self.request.user.is_authenticated and self.request.user.is_staff
 
-    def handle_no_permission(self):
+    def handle_no_permission(self):  # noqa: ANN201
         if not self.request.user.is_authenticated:
             from django.conf import settings as django_settings
             from django.shortcuts import redirect as django_redirect
+
             login_url = getattr(django_settings, "LOGIN_URL", "/account/login/")
             return django_redirect(f"{login_url}?next={self.request.get_full_path()}")
         from django.core.exceptions import PermissionDenied
+
         raise PermissionDenied
 
 
@@ -73,6 +78,7 @@ class OwnRequestMixin:
     Mixin for views operating on a single ServiceRequest.
     Enforces that the citizen can only access their own requests (prevents IDOR).
     """
+
     def get_service_request(self, pk: str) -> ServiceRequest:
         return get_object_or_404(
             ServiceRequest,
@@ -85,11 +91,13 @@ class OwnRequestMixin:
 # Citizen views
 # ---------------------------------------------------------------------------
 
+
 class DashboardView(LoginRequiredMixin, TemplateView):
     """
     Citizen dashboard — landing page after login.
     Shows active request summary and recent activity.
     """
+
     template_name = "portal/dashboard.html"
 
     def get_context_data(self, **kwargs: Any) -> dict:
@@ -100,19 +108,24 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         total = all_requests.count()
         ctx["total_requests"] = total
         ctx["active_requests"] = all_requests.exclude(
-            status__in=[ServiceRequestStatus.APPROVED,
-                        ServiceRequestStatus.REJECTED,
-                        ServiceRequestStatus.CLOSED]
+            status__in=[
+                ServiceRequestStatus.APPROVED,
+                ServiceRequestStatus.REJECTED,
+                ServiceRequestStatus.CLOSED,
+            ]
         ).count()
         ctx["completed_requests"] = all_requests.filter(
-            status__in=[ServiceRequestStatus.APPROVED,
-                        ServiceRequestStatus.REJECTED,
-                        ServiceRequestStatus.CLOSED]
+            status__in=[
+                ServiceRequestStatus.APPROVED,
+                ServiceRequestStatus.REJECTED,
+                ServiceRequestStatus.CLOSED,
+            ]
         ).count()
         ctx["status_choices"] = ServiceRequestStatus.choices
         # Unread notifications — context key matches template {% if unread_notification_count %}
         try:
             from apps.notifications.models import Notification
+
             ctx["unread_notification_count"] = Notification.objects.filter(
                 recipient=self.request.user, read_at__isnull=True
             ).count()
@@ -123,9 +136,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # Imports are lazy (inside try) to prevent circular imports with apps.volunteers.
         # C-2: bare except logs at exception level so DB/import failures are observable.
         try:
-            from apps.volunteers.models import VolunteerProfile, VolunteerApplication, ShiftBooking
-            from django.db.models import Count as _Count  # noqa: PLC0415
+            from django.db.models import Count as _Count
             from django.utils import timezone as _tz_vol
+
+            from apps.volunteers.models import ShiftBooking, VolunteerApplication, VolunteerProfile
+
             try:
                 _profile = VolunteerProfile.objects.get(user=self.request.user)
                 # C-1: FK field on VolunteerApplication is `volunteer`, not `applicant`.
@@ -157,12 +172,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # Imports are lazy (inside try) to prevent circular imports with apps.payments.
         # C-2: bare except logs at exception level so DB/import failures are observable.
         try:
-            from datetime import datetime as _dt  # noqa: PLC0415
-            from decimal import Decimal as _Dec  # noqa: PLC0415
-            from zoneinfo import ZoneInfo as _ZoneInfo  # noqa: PLC0415
-            from django.db.models import Count as _Count, Sum as _Sum  # noqa: PLC0415
-            from django.utils import timezone as _tz_don  # noqa: PLC0415
-            from apps.payments.models import Donation, OfficialDonationReceipt  # noqa: PLC0415
+            from datetime import datetime as _dt
+            from decimal import Decimal as _Dec
+            from zoneinfo import ZoneInfo as _ZoneInfo
+
+            from django.db.models import Count as _Count
+            from django.db.models import Sum as _Sum
+            from django.utils import timezone as _tz_don
+
+            from apps.payments.models import Donation, OfficialDonationReceipt
+
             # H-C: Use explicit America/Toronto timezone for year-boundary arithmetic.
             # make_aware() without timezone= uses settings.TIME_ZONE which may be UTC
             # on the production server. A donation at 22:00 ET on Dec 31 (03:00 UTC
@@ -181,8 +200,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 created_at__lt=_jan_1_next,
             ).aggregate(total=_Sum("amount"), count=_Count("id"))
             _last_receipt = (
-                OfficialDonationReceipt.objects
-                .filter(donation__donor=self.request.user, status="issued")
+                OfficialDonationReceipt.objects.filter(
+                    donation__donor=self.request.user, status="issued"
+                )
                 .order_by("-issued_at")
                 .values("serial_number", "issued_at", "eligible_amount")
                 .first()
@@ -208,11 +228,12 @@ class ServiceRequestListView(LoginRequiredMixin, ListView):
     Paginated list of all citizen's service requests.
     Supports status filtering via GET param ?status=.
     """
+
     template_name = "portal/request_list.html"
     context_object_name = "requests"
     paginate_by = 20
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         status_filter = self.request.GET.get("status", "")
         return get_citizen_requests(self.request.user, status_filter or None)
 
@@ -228,10 +249,11 @@ class ServiceRequestDetailView(LoginRequiredMixin, OwnRequestMixin, DetailView):
     Single service request with full status timeline.
     Fires a PII access audit event.
     """
+
     template_name = "portal/request_detail.html"
     context_object_name = "service_request"
 
-    def get_object(self, queryset=None) -> ServiceRequest:
+    def get_object(self, queryset=None) -> ServiceRequest:  # noqa: ANN001
         obj = self.get_service_request(self.kwargs["pk"])
         # Audit PII access
         pii_record_accessed.send(
@@ -255,6 +277,7 @@ class SubmitRequestView(LoginRequiredMixin, FormView):
     Generic service request submission.
     Citizens fill in service name + description when not coming from a CMS ServicePage.
     """
+
     template_name = "portal/submit_request.html"
     form_class = ServiceRequestSubmitForm
 
@@ -267,7 +290,7 @@ class SubmitRequestView(LoginRequiredMixin, FormView):
             kwargs["initial"] = initial
         return kwargs
 
-    def get_context_data(self, **kwargs) -> dict:
+    def get_context_data(self, **kwargs) -> dict:  # noqa: ANN003
         ctx = super().get_context_data(**kwargs)
         # Used by template to display page heading and pre-fill read-only field
         ctx["service_name"] = self.request.GET.get("service", "")
@@ -290,17 +313,23 @@ class SubmitRequestView(LoginRequiredMixin, FormView):
             messages.success(
                 self.request,
                 # Translators: %(ref)s is the request reference number, e.g. REQ-2026-001234
-                _("Your request has been submitted. Reference number: %(ref)s / "
-                  "Votre demande a été soumise. Numéro de référence : %(ref)s")
+                _(
+                    "Your request has been submitted. Reference number: %(ref)s / "
+                    "Votre demande a été soumise. Numéro de référence : %(ref)s"  # noqa: RUF001
+                )
                 % {"ref": service_request.reference_number},
             )
             return redirect("portal:request-detail", pk=service_request.pk)
         except Exception:
-            logger.exception("Failed to create service request for user_id=%s", self.request.user.pk)
+            logger.exception(
+                "Failed to create service request for user_id=%s", self.request.user.pk
+            )
             messages.error(
                 self.request,
-                _("An error occurred while submitting your request. Please try again. / "
-                  "Une erreur s'est produite lors de la soumission de votre demande. Veuillez réessayer."),
+                _(
+                    "An error occurred while submitting your request. Please try again. / "
+                    "Une erreur s'est produite lors de la soumission de votre demande. Veuillez réessayer."  # noqa: E501
+                ),
             )
             return self.form_invalid(form)
 
@@ -310,13 +339,16 @@ class CancelRequestView(LoginRequiredMixin, OwnRequestMixin, View):
     POST-only: citizen cancels their own request.
     GET returns the confirmation form rendered on the detail page.
     """
-    http_method_names = ["post"]
+
+    http_method_names = ["post"]  # noqa: RUF012
 
     def post(self, request: HttpRequest, pk: str) -> HttpResponse:
         service_request = self.get_service_request(pk)
         form = RequestCancelForm(request.POST)
         if not form.is_valid():
-            messages.error(request, _("Please confirm the cancellation. / Veuillez confirmer l'annulation."))
+            messages.error(
+                request, _("Please confirm the cancellation. / Veuillez confirmer l'annulation.")
+            )
             return redirect("portal:request-detail", pk=pk)
         try:
             cancel_service_request(
@@ -327,8 +359,7 @@ class CancelRequestView(LoginRequiredMixin, OwnRequestMixin, View):
             messages.success(
                 request,
                 # Translators: %(ref)s is the request reference number, e.g. REQ-2026-001234
-                _("Request %(ref)s has been cancelled. / "
-                  "La demande %(ref)s a été annulée.")
+                _("Request %(ref)s has been cancelled. / " "La demande %(ref)s a été annulée.")
                 % {"ref": service_request.reference_number},
             )
         except (ValueError, PermissionError) as exc:
@@ -340,16 +371,18 @@ class CancelRequestView(LoginRequiredMixin, OwnRequestMixin, View):
 # Staff views
 # ---------------------------------------------------------------------------
 
+
 class StaffQueueView(StaffRequiredMixin, ListView):
     """
     Staff case management queue — all requests across all citizens.
     Filtered by status and sorted by oldest first (work the queue).
     """
+
     template_name = "portal/staff/queue.html"
     context_object_name = "requests"
     paginate_by = 30
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         qs = ServiceRequest.objects.select_related("citizen").prefetch_related("status_updates")
         status_filter = self.request.GET.get("status", ServiceRequestStatus.SUBMITTED)
         if status_filter and status_filter in ServiceRequestStatus.values:
@@ -360,7 +393,9 @@ class StaffQueueView(StaffRequiredMixin, ListView):
         ctx = super().get_context_data(**kwargs)
         ctx["status_choices"] = ServiceRequestStatus.choices
         ctx["current_status"] = self.request.GET.get("status", ServiceRequestStatus.SUBMITTED)
-        ctx["current_status_display"] = dict(ServiceRequestStatus.choices).get(ctx["current_status"], "")
+        ctx["current_status_display"] = dict(ServiceRequestStatus.choices).get(
+            ctx["current_status"], ""
+        )
         ctx["counts"] = {
             s: ServiceRequest.objects.filter(status=s).count()
             for s, _ in ServiceRequestStatus.choices
@@ -372,9 +407,12 @@ class StaffRequestDetailView(StaffRequiredMixin, DetailView):
     """
     Staff view of a single request — shows all data including internal notes.
     """
+
     template_name = "portal/staff/request_detail.html"
     context_object_name = "service_request"
-    queryset = ServiceRequest.objects.select_related("citizen").prefetch_related("status_updates__changed_by")
+    queryset = ServiceRequest.objects.select_related("citizen").prefetch_related(
+        "status_updates__changed_by"
+    )
 
     def get_context_data(self, **kwargs: Any) -> dict:
         ctx = super().get_context_data(**kwargs)
@@ -387,7 +425,8 @@ class StaffStatusUpdateView(StaffRequiredMixin, View):
     """
     POST-only: staff updates a service request status.
     """
-    http_method_names = ["post"]
+
+    http_method_names = ["post"]  # noqa: RUF012
 
     def post(self, request: HttpRequest, pk: str) -> HttpResponse:
         service_request = get_object_or_404(ServiceRequest, pk=pk)

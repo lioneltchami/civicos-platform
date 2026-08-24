@@ -8,6 +8,7 @@ PIPEDA RULE: Assert rejection_reason absent from all volunteer-facing responses.
 
 AUTH RULE: Every endpoint must have an anonymous access test returning 401.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -51,6 +52,7 @@ def _uid() -> int:
 # Factory helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_user(email: str | None = None, is_staff: bool = False) -> User:
     n = _uid()
     email = email or f"user{n}@test.gc.ca"
@@ -65,6 +67,7 @@ def _make_coordinator(email: str | None = None) -> User:
     user.groups.add(group)
     # Service layer (apply/reject application, approve/reject hours) checks these Django perms.
     from django.contrib.auth.models import Permission
+
     for codename in ["change_volunteerapplication", "change_hourslog"]:
         try:
             perm = Permission.objects.get(
@@ -166,16 +169,17 @@ def _make_hours_log(
 def _jwt_header(user: User) -> dict:
     """Return Authorization header dict with a valid JWT Bearer token for user."""
     from rest_framework_simplejwt.tokens import RefreshToken
+
     refresh = RefreshToken.for_user(user)
-    return {"HTTP_AUTHORIZATION": f"Bearer {str(refresh.access_token)}"}
+    return {"HTTP_AUTHORIZATION": f"Bearer {refresh.access_token!s}"}
 
 
 # ---------------------------------------------------------------------------
 # Base test case
 # ---------------------------------------------------------------------------
 
-class APIBaseTestCase(TestCase):
 
+class APIBaseTestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
 
@@ -204,8 +208,8 @@ class APIBaseTestCase(TestCase):
 # OpportunityEndpointTests
 # ===========================================================================
 
-class OpportunityEndpointTests(APIBaseTestCase):
 
+class OpportunityEndpointTests(APIBaseTestCase):
     def test_list_returns_200_authenticated(self):
         resp = self.client.get(f"{BASE}/opportunities/", **self._auth())
         self.assertEqual(resp.status_code, 200)
@@ -246,8 +250,8 @@ class OpportunityEndpointTests(APIBaseTestCase):
 # ApplicationEndpointTests
 # ===========================================================================
 
-class ApplicationEndpointTests(APIBaseTestCase):
 
+class ApplicationEndpointTests(APIBaseTestCase):
     def test_submit_application_returns_201(self):
         """Volunteer can submit an application to a published opportunity."""
         resp = self.client.post(
@@ -278,7 +282,9 @@ class ApplicationEndpointTests(APIBaseTestCase):
         self.assertEqual(resp.status_code, 200)
         ids = [r["id"] for r in resp.data.get("results", resp.data)]
         app_ids = list(
-            VolunteerApplication.objects.filter(volunteer=self.vol_profile).values_list("id", flat=True)
+            VolunteerApplication.objects.filter(volunteer=self.vol_profile).values_list(
+                "id", flat=True
+            )
         )
         for app_id in app_ids:
             self.assertNotIn(app_id, ids)
@@ -357,8 +363,8 @@ class ApplicationEndpointTests(APIBaseTestCase):
 # ShiftEndpointTests
 # ===========================================================================
 
-class ShiftEndpointTests(APIBaseTestCase):
 
+class ShiftEndpointTests(APIBaseTestCase):
     def setUp(self):
         super().setUp()
         self.shift = _make_shift(self.opportunity, capacity=5)
@@ -399,7 +405,7 @@ class ShiftEndpointTests(APIBaseTestCase):
 
     def test_cancel_booking_returns_204(self):
         """Volunteer can cancel their own confirmed booking."""
-        booking = ShiftBooking.objects.create(
+        ShiftBooking.objects.create(
             shift=self.shift,
             volunteer=self.vol_profile,
             status=ShiftBooking.STATUS_CONFIRMED,
@@ -419,8 +425,8 @@ class ShiftEndpointTests(APIBaseTestCase):
 # HoursEndpointTests
 # ===========================================================================
 
-class HoursEndpointTests(APIBaseTestCase):
 
+class HoursEndpointTests(APIBaseTestCase):
     def test_my_hours_returns_own_only(self):
         """IDOR: Vol A's hours are invisible to Vol B."""
         _make_hours_log(self.vol_profile, self.opportunity, hours=4)
@@ -453,11 +459,15 @@ class HoursEndpointTests(APIBaseTestCase):
     def test_summary_returns_approved_total(self):
         """Hours summary returns total approved hours for the authenticated volunteer."""
         _make_hours_log(
-            self.vol_profile, self.opportunity, hours=5,
+            self.vol_profile,
+            self.opportunity,
+            hours=5,
             status=HoursLog.STATUS_APPROVED,
         )
         _make_hours_log(
-            self.vol_profile, self.opportunity, hours=3,
+            self.vol_profile,
+            self.opportunity,
+            hours=3,
             status=HoursLog.STATUS_PENDING,
         )
 
@@ -493,8 +503,8 @@ class HoursEndpointTests(APIBaseTestCase):
 # ProfileEndpointTests
 # ===========================================================================
 
-class ProfileEndpointTests(APIBaseTestCase):
 
+class ProfileEndpointTests(APIBaseTestCase):
     def test_get_own_profile_returns_200(self):
         resp = self.client.get(f"{BASE}/profile/", **self._auth())
         self.assertEqual(resp.status_code, 200)
@@ -508,7 +518,7 @@ class ProfileEndpointTests(APIBaseTestCase):
         self.assertNotIn("sin_encrypted", resp.data)
 
     def test_profile_hides_sensitive_fields_without_permission(self):
-        """accommodation_notes and sin_last4 are absent for users without view_accommodation_notes."""
+        """accommodation_notes and sin_last4 are absent for users without view_accommodation_notes."""  # noqa: E501
         resp = self.client.get(f"{BASE}/profile/", **self._auth())
         self.assertEqual(resp.status_code, 200)
         # Without the permission, sensitive fields should be absent
@@ -518,6 +528,7 @@ class ProfileEndpointTests(APIBaseTestCase):
     def test_profile_shows_sensitive_fields_with_permission(self):
         """User with view_accommodation_notes sees accommodation_notes and sin_last4."""
         from django.contrib.auth.models import Permission
+
         perm = Permission.objects.get(
             content_type__app_label="volunteers",
             codename="view_accommodation_notes",
@@ -552,8 +563,8 @@ class ProfileEndpointTests(APIBaseTestCase):
 # CoordinatorApplicationEndpointTests
 # ===========================================================================
 
-class CoordinatorApplicationEndpointTests(APIBaseTestCase):
 
+class CoordinatorApplicationEndpointTests(APIBaseTestCase):
     def setUp(self):
         super().setUp()
         # Second coordinator with their own program
@@ -620,8 +631,8 @@ class CoordinatorApplicationEndpointTests(APIBaseTestCase):
 # CoordinatorHoursEndpointTests
 # ===========================================================================
 
-class CoordinatorHoursEndpointTests(APIBaseTestCase):
 
+class CoordinatorHoursEndpointTests(APIBaseTestCase):
     def setUp(self):
         super().setUp()
         # vol_profile (coord_a's volunteer): apply to coord_a's opportunity
@@ -695,8 +706,8 @@ class CoordinatorHoursEndpointTests(APIBaseTestCase):
 # CoordinatorReportEndpointTests
 # ===========================================================================
 
-class CoordinatorReportEndpointTests(APIBaseTestCase):
 
+class CoordinatorReportEndpointTests(APIBaseTestCase):
     def test_hours_report_returns_200(self):
         resp = self.client.get(
             f"{BASE}/admin/reports/hours/?year=2025",
@@ -741,7 +752,8 @@ class CoordinatorReportEndpointTests(APIBaseTestCase):
         self.assertEqual(resp.status_code, 200)
         impact = resp.json()["impact"]
         self.assertIsInstance(
-            impact["estimated_value_cad"], str,
+            impact["estimated_value_cad"],
+            str,
             "estimated_value_cad must be serialized as a string for safe JSON transport",
         )
 
@@ -760,6 +772,7 @@ class CoordinatorReportEndpointTests(APIBaseTestCase):
 # ===========================================================================
 # Wave 5 Gap Tests
 # ===========================================================================
+
 
 class PaginationEnvelopeTests(APIBaseTestCase):
     """Verify that list endpoints return a paginated DRF envelope (count + results)."""

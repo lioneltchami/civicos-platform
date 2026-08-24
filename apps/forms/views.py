@@ -8,13 +8,15 @@ The citizen-facing form is rendered by Wagtail's page serving mechanism
   - CSV export
   - PIPEDA redaction
 """
+
 from __future__ import annotations
+
 import csv
 import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import UserPassesTestMixin
-from django.http import HttpRequest, HttpResponse, Http404
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -32,18 +34,21 @@ class StaffRequiredMixin(UserPassesTestMixin):
     - Anonymous users → 302 redirect to login
     - Authenticated non-staff → 403 Forbidden
     """
+
     raise_exception = True
 
     def test_func(self) -> bool:
         return self.request.user.is_authenticated and self.request.user.is_staff
 
-    def handle_no_permission(self):
+    def handle_no_permission(self):  # noqa: ANN201
         if not self.request.user.is_authenticated:
             from django.conf import settings as django_settings
             from django.shortcuts import redirect as django_redirect
+
             login_url = getattr(django_settings, "LOGIN_URL", "/account/login/")
             return django_redirect(f"{login_url}?next={self.request.get_full_path()}")
         from django.core.exceptions import PermissionDenied
+
         raise PermissionDenied
 
 
@@ -52,6 +57,7 @@ class SubmissionListView(StaffRequiredMixin, ListView):
     Staff view: paginated list of submissions for a specific FormPage.
     Supports filtering by date range and consent status.
     """
+
     template_name = "forms/staff/submission_list.html"
     context_object_name = "submissions"
     paginate_by = 30
@@ -59,7 +65,7 @@ class SubmissionListView(StaffRequiredMixin, ListView):
     def get_form_page(self) -> FormPage:
         return get_object_or_404(FormPage, pk=self.kwargs["page_id"])
 
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         self.form_page = self.get_form_page()
         qs = FormSubmission.objects.filter(page=self.form_page).order_by("-submit_time")
 
@@ -76,6 +82,7 @@ class SubmissionListView(StaffRequiredMixin, ListView):
         if date_from:
             try:
                 from datetime import date as _date
+
                 _date.fromisoformat(date_from)  # Validate before passing to ORM
                 qs = qs.filter(submit_time__date__gte=date_from)
             except (ValueError, TypeError):
@@ -83,6 +90,7 @@ class SubmissionListView(StaffRequiredMixin, ListView):
         if date_to:
             try:
                 from datetime import date as _date
+
                 _date.fromisoformat(date_to)  # Validate before passing to ORM
                 qs = qs.filter(submit_time__date__lte=date_to)
             except (ValueError, TypeError):
@@ -90,15 +98,12 @@ class SubmissionListView(StaffRequiredMixin, ListView):
 
         return qs
 
-    def get_context_data(self, **kwargs) -> dict:
+    def get_context_data(self, **kwargs) -> dict:  # noqa: ANN003
         ctx = super().get_context_data(**kwargs)
         ctx["form_page"] = self.form_page
-        ctx["field_names"] = list(
-            self.form_page.form_fields.values_list("label", "clean_name")
-        )
+        ctx["field_names"] = list(self.form_page.form_fields.values_list("label", "clean_name"))
         ctx["pii_fields"] = set(
-            self.form_page.form_fields.filter(is_pii=True)
-            .values_list("clean_name", flat=True)
+            self.form_page.form_fields.filter(is_pii=True).values_list("clean_name", flat=True)
         )
         ctx["total_count"] = FormSubmission.objects.filter(page=self.form_page).count()
         ctx["consent_filter"] = self.request.GET.get("consent", "")
@@ -112,30 +117,31 @@ class SubmissionDetailView(StaffRequiredMixin, DetailView):
     Staff view: full detail of a single submission.
     Renders all form fields with PII fields highlighted.
     """
+
     template_name = "forms/staff/submission_detail.html"
     context_object_name = "submission"
     queryset = FormSubmission.objects.select_related("page")
 
-    def get_object(self, queryset=None):
+    def get_object(self, queryset=None):  # noqa: ANN001, ANN201
         return get_object_or_404(
             FormSubmission,
             pk=self.kwargs["submission_id"],
             page__pk=self.kwargs["page_id"],
         )
 
-    def get_context_data(self, **kwargs) -> dict:
+    def get_context_data(self, **kwargs) -> dict:  # noqa: ANN003
         ctx = super().get_context_data(**kwargs)
         ctx["form_page"] = self.object.page
         ctx["fields"] = list(self.object.page.form_fields.values("label", "clean_name", "is_pii"))
         ctx["form_data"] = self.object.form_data or {}
-        ctx["pii_fields"] = {
-            f["clean_name"] for f in ctx["fields"] if f["is_pii"]
-        }
+        ctx["pii_fields"] = {f["clean_name"] for f in ctx["fields"] if f["is_pii"]}
         # Mask IP: only show first two octets to staff (full IP is PII under PIPEDA)
         raw_ip = self.object.submitter_ip or ""
         if raw_ip:
             parts = raw_ip.split(".")
-            ctx["submitter_ip_masked"] = ".".join(parts[:2]) + ".x.x" if len(parts) == 4 else "masked"
+            ctx["submitter_ip_masked"] = (
+                ".".join(parts[:2]) + ".x.x" if len(parts) == 4 else "masked"
+            )
         else:
             ctx["submitter_ip_masked"] = ""
         return ctx
@@ -147,7 +153,8 @@ class SubmissionExportView(StaffRequiredMixin, View):
     Masks IP addresses — keeps first two octets only.
     Adds UTF-8 BOM for Excel compatibility.
     """
-    http_method_names = ["get"]
+
+    http_method_names = ["get"]  # noqa: RUF012
 
     @staticmethod
     def _csv_safe(value: str) -> str:
@@ -193,7 +200,9 @@ class SubmissionExportView(StaffRequiredMixin, View):
 
         logger.info(
             "CSV export: page_id=%s user_id=%s rows=%d",
-            page_id, request.user.pk, submissions.count()
+            page_id,
+            request.user.pk,
+            submissions.count(),
         )
         return response
 
@@ -204,7 +213,8 @@ class SubmissionRedactView(StaffRequiredMixin, View):
     The submission record is retained; only PII-flagged field values are replaced
     with [REDACTED].
     """
-    http_method_names = ["post"]
+
+    http_method_names = ["post"]  # noqa: RUF012
 
     def post(self, request: HttpRequest, page_id: int, submission_id: int) -> HttpResponse:
         form_page = get_object_or_404(FormPage, pk=page_id)
@@ -217,7 +227,8 @@ class SubmissionRedactView(StaffRequiredMixin, View):
                 _(
                     "Personal information has been redacted from submission #%(id)s. / "
                     "Les renseignements personnels ont été supprimés de la soumission nº %(id)s."
-                ) % {"id": submission_id},
+                )
+                % {"id": submission_id},
             )
             self._write_audit(request, submission, form_page)
         except Exception:
@@ -229,9 +240,10 @@ class SubmissionRedactView(StaffRequiredMixin, View):
 
         return redirect("forms:submission-list", page_id=page_id)
 
-    def _write_audit(self, request, submission, form_page) -> None:
+    def _write_audit(self, request, submission, form_page) -> None:  # noqa: ANN001
         try:
             from apps.audit.models import AuditLogEntry
+
             AuditLogEntry.objects.create(
                 event_type="admin.pii.redacted",
                 outcome="success",
@@ -245,7 +257,9 @@ class SubmissionRedactView(StaffRequiredMixin, View):
                 prev_hash="",
                 entry_hash="",
                 request_id="",
-                session_id=(request.session.session_key or "") if hasattr(request, "session") else "",
+                session_id=(request.session.session_key or "")
+                if hasattr(request, "session")
+                else "",
             )
         except Exception:
             logger.exception("Audit log failed for PII redaction submission_id=%s", submission.pk)
@@ -256,7 +270,8 @@ class SubmissionDeleteView(StaffRequiredMixin, View):
     POST: Permanently delete a submission (use only for test data; prefer redact for production).
     Requires superuser — staff alone cannot delete.
     """
-    http_method_names = ["post"]
+
+    http_method_names = ["post"]  # noqa: RUF012
 
     def test_func(self) -> bool:
         return self.request.user.is_authenticated and self.request.user.is_superuser

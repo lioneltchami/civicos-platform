@@ -11,14 +11,13 @@ Covers:
 
 Settings: --settings=config.settings.test
 """
+
 from __future__ import annotations
 
-import uuid
-from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.utils import timezone
 
 User = get_user_model()
@@ -46,40 +45,44 @@ def _make_user(email=None, **kwargs):
 
 def _make_program(**kwargs):
     from apps.volunteers.models import Program
+
     n = _uid()
-    defaults = dict(
-        name_en=f"Program {n}",
-        name_fr=f"Programme {n}",
-        slug=f"pdprog-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"Program {n}",
+        "name_fr": f"Programme {n}",
+        "slug": f"pdprog-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, **kwargs):
     from apps.volunteers.models import Opportunity
+
     n = _uid()
-    defaults = dict(
-        title_en=f"Opportunity {n}",
-        title_fr=f"Opportunité {n}",
-        slug=f"pdopp-{n}",
-        description_en="Desc",
-        description_fr="Desc FR",
-        program=program,
-        status="published",
-    )
+    defaults = {
+        "title_en": f"Opportunity {n}",
+        "title_fr": f"Opportunité {n}",
+        "slug": f"pdopp-{n}",
+        "description_en": "Desc",
+        "description_fr": "Desc FR",
+        "program": program,
+        "status": "published",
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
 
 def _make_profile(user):
     from apps.volunteers.models import VolunteerProfile
+
     return VolunteerProfile.objects.create(user=user)
 
 
 def _make_application(profile, opportunity, *, status="pending"):
     from apps.volunteers.models import VolunteerApplication
+
     return VolunteerApplication.objects.create(
         volunteer=profile,
         opportunity=opportunity,
@@ -89,10 +92,12 @@ def _make_application(profile, opportunity, *, status="pending"):
 
 def _make_shift(opportunity, *, start_datetime=None, end_datetime=None):
     from apps.volunteers.models import Shift
+
     now = timezone.now()
     start = start_datetime or now
     # Ensure end > start
     from datetime import timedelta
+
     end = end_datetime or (start + timedelta(hours=2))
     return Shift.objects.create(
         opportunity=opportunity,
@@ -105,6 +110,7 @@ def _make_shift(opportunity, *, start_datetime=None, end_datetime=None):
 
 def _make_shift_booking(profile, shift, *, status="confirmed"):
     from apps.volunteers.models import ShiftBooking
+
     return ShiftBooking.objects.create(
         volunteer=profile,
         shift=shift,
@@ -113,7 +119,8 @@ def _make_shift_booking(profile, shift, *, status="confirmed"):
 
 
 def _make_donation(user, *, amount="50.00", status="completed", year=None):
-    from apps.payments.models import PaymentIntent, Donation
+    from apps.payments.models import Donation, PaymentIntent
+
     current_year = timezone.localtime(timezone.now()).year
     year = year or current_year
     pi = PaymentIntent.objects.create(
@@ -137,14 +144,17 @@ def _make_donation(user, *, amount="50.00", status="completed", year=None):
     # Set created_at to target year if different from current
     if year != current_year:
         from datetime import datetime as _datetime
+
         target_dt = timezone.make_aware(_datetime(year, 6, 15, 12, 0, 0))
         Donation.objects.filter(pk=donation.pk).update(created_at=target_dt)
     return donation
 
 
 def _make_receipt(donation, *, serial_number=None, eligible_amount=None):
-    from apps.payments.models import OfficialDonationReceipt
     from datetime import date as _date
+
+    from apps.payments.models import OfficialDonationReceipt
+
     n = _uid()
     # serial_number must match r"^\d{4}-\d{6}$"
     sn = serial_number or f"2024-{n:06d}"
@@ -173,6 +183,7 @@ def _make_receipt(donation, *, serial_number=None, eligible_amount=None):
 # ---------------------------------------------------------------------------
 # DashboardAuthTests
 # ---------------------------------------------------------------------------
+
 
 class DashboardAuthTests(TestCase):
     """Authentication and basic access tests for the dashboard."""
@@ -227,6 +238,7 @@ class DashboardAuthTests(TestCase):
 # DashboardVolunteerWidgetTests
 # ---------------------------------------------------------------------------
 
+
 class DashboardVolunteerWidgetTests(TestCase):
     """
     Tests for the volunteer_summary widget.
@@ -250,7 +262,9 @@ class DashboardVolunteerWidgetTests(TestCase):
         vol_sum = response.context.get("volunteer_summary")
         # M-E: must be a dict (not None) with has_profile=False
         self.assertIsNotNone(vol_sum, "volunteer_summary must not be None for authenticated user")
-        self.assertFalse(vol_sum.get("has_profile", True), "has_profile must be False when no profile exists")
+        self.assertFalse(
+            vol_sum.get("has_profile", True), "has_profile must be False when no profile exists"
+        )
 
     def test_user_without_profile_volunteer_summary_has_profile_false(self):
         """No VolunteerProfile → has_profile=False (unconditional)."""
@@ -339,6 +353,7 @@ class DashboardVolunteerWidgetTests(TestCase):
 # ---------------------------------------------------------------------------
 # DashboardDonationWidgetTests
 # ---------------------------------------------------------------------------
+
 
 class DashboardDonationWidgetTests(TestCase):
     """Tests for the donation_summary widget context."""
@@ -506,7 +521,8 @@ class DashboardDonationWidgetTests(TestCase):
         C-3 fix: patch Donation.objects.filter (not Donation.objects) so the
         side_effect actually fires when .filter() is called on the manager.
         """
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
+
         user = _make_user()
         self.client.force_login(user)
         with patch(
@@ -523,6 +539,7 @@ class DashboardDonationWidgetTests(TestCase):
 # ---------------------------------------------------------------------------
 # DashboardTemplateRenderTests
 # ---------------------------------------------------------------------------
+
 
 class DashboardTemplateRenderTests(TestCase):
     """Tests for template rendering of widget sections."""
@@ -554,11 +571,11 @@ class DashboardTemplateRenderTests(TestCase):
     def test_donation_summary_none_renders_without_error(self):
         """Template must handle donation_summary=None gracefully."""
         from unittest.mock import patch
+
         user = _make_user()
         self.client.force_login(user)
         # Patch to force donation_summary = None by raising inside the view
-        with patch("apps.payments.models.Donation.objects.filter",
-                   side_effect=Exception("forced")):
+        with patch("apps.payments.models.Donation.objects.filter", side_effect=Exception("forced")):
             response = self.client.get(DASHBOARD_URL)
         self.assertEqual(response.status_code, 200)
 
@@ -606,6 +623,7 @@ class DashboardTemplateRenderTests(TestCase):
 # DashboardReceiptPipedaTests — M-10
 # ---------------------------------------------------------------------------
 
+
 class DashboardReceiptPipedaTests(TestCase):
     """
     PIPEDA compliance: last_receipt must expose ONLY the three fields fetched
@@ -614,7 +632,7 @@ class DashboardReceiptPipedaTests(TestCase):
     """
 
     # Full set of PII field names that must never appear in last_receipt.
-    _PII_FIELDS = {
+    _PII_FIELDS = {  # noqa: RUF012
         "donor_legal_name",
         "donor_address_line1",
         "donor_address_line2",
@@ -629,7 +647,7 @@ class DashboardReceiptPipedaTests(TestCase):
         "authorized_signatory_title",
     }
 
-    _ALLOWED_KEYS = {"serial_number", "issued_at", "eligible_amount"}
+    _ALLOWED_KEYS = {"serial_number", "issued_at", "eligible_amount"}  # noqa: RUF012
 
     def test_last_receipt_exposes_only_three_allowed_keys(self):
         """last_receipt dict must have exactly the three .values() fields — no more, no less."""
@@ -639,14 +657,17 @@ class DashboardReceiptPipedaTests(TestCase):
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)
         don_sum = response.context.get("donation_summary")
-        self.assertIsNotNone(don_sum, "donation_summary must not be None when Payments BB is installed")
+        self.assertIsNotNone(
+            don_sum, "donation_summary must not be None when Payments BB is installed"
+        )
         last_receipt = don_sum.get("last_receipt")
         self.assertIsNotNone(last_receipt, "last_receipt must be present when a receipt exists")
         # L-6: assertIsInstance catches the case where a developer replaces
         # .values("serial_number", ...) with a full ORM instance — last_receipt.keys()
         # would raise AttributeError rather than a clean AssertionError without this guard.
         self.assertIsInstance(
-            last_receipt, dict,
+            last_receipt,
+            dict,
             "last_receipt must be a plain dict from .values(), not an ORM instance",
         )
         actual_keys = set(last_receipt.keys())
@@ -722,14 +743,16 @@ class DashboardReceiptPipedaTests(TestCase):
         showing the wrong (older) receipt to a citizen is a UX defect and may
         cause confusion during tax filing. Yet it was previously untested.
         """
+        from datetime import timedelta as _td
+
         from apps.payments.models import OfficialDonationReceipt
-        from datetime import date as _date, timedelta as _td
 
         user = _make_user()
         donation_old = _make_donation(user, amount="100.00", status="completed")
         donation_new = _make_donation(user, amount="200.00", status="completed")
 
         from django.utils import timezone as _tz
+
         today = _tz.now()
         # Older receipt
         older = _make_receipt(
@@ -748,9 +771,7 @@ class DashboardReceiptPipedaTests(TestCase):
             serial_number="2026-000020",
             eligible_amount=Decimal("200.00"),
         )
-        OfficialDonationReceipt._base_manager.filter(pk=newer.pk).update(
-            issued_at=today
-        )
+        OfficialDonationReceipt._base_manager.filter(pk=newer.pk).update(issued_at=today)
 
         self.client.force_login(user)
         response = self.client.get(DASHBOARD_URL)

@@ -107,13 +107,16 @@ services:
       # Persist media uploads between restarts
       - media_data:/app/media
     ports:
-      - "8000:8000"
+      # Default preserves normal development access; candidate packages set a
+      # loopback-only CIVICOS_WEB_PORT matching an official GovStack harness.
+      - "${CIVICOS_WEB_PORT:-8000}:8000"
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.development
       DATABASE_URL: postgres://civicos:civicos@db:5432/civicos
       REDIS_URL: redis://redis:6379/0
       DJANGO_DEBUG: "True"
-      DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+      # Required: provide a generated local value in .env; no fixed fallback is allowed.
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env before starting the development stack}
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,web"
       CLAMAV_HOST: clamav
       CLAMAV_PORT: "3310"
@@ -155,7 +158,8 @@ services:
       DJANGO_SETTINGS_MODULE: config.settings.development
       DATABASE_URL: postgres://civicos:civicos@db:5432/civicos
       REDIS_URL: redis://redis:6379/0
-      DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+      # Required: provide a generated local value in .env; no fixed fallback is allowed.
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env before starting the development stack}
       CLAMAV_HOST: clamav
       CLAMAV_PORT: "3310"
     depends_on:
@@ -190,7 +194,8 @@ services:
       DJANGO_SETTINGS_MODULE: config.settings.development
       DATABASE_URL: postgres://civicos:civicos@db:5432/civicos
       REDIS_URL: redis://redis:6379/0
-      DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+      # Required: provide a generated local value in .env; no fixed fallback is allowed.
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env before starting the development stack}
     depends_on:
       db:
         condition: service_healthy
@@ -212,7 +217,8 @@ services:
       DJANGO_SETTINGS_MODULE: config.settings.development
       DATABASE_URL: postgres://civicos:civicos@db:5432/civicos
       REDIS_URL: redis://redis:6379/0
-      DJANGO_SECRET_KEY: dev-secret-key-change-in-production
+      # Required: provide a generated local value in .env; no fixed fallback is allowed.
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env before starting the development stack}
     depends_on:
       db:
         condition: service_healthy

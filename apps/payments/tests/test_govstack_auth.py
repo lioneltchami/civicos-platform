@@ -85,6 +85,7 @@ Setting gate:
   @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True).
   Tests that run in harness mode (False, the default) need no decorator.
 """
+
 from __future__ import annotations
 
 from io import StringIO
@@ -145,6 +146,7 @@ def _make_payer_fi_request(payer_fi_id: str | None = None) -> DRFRequest:
 # ---------------------------------------------------------------------------
 # IsTrustedSourceBB unit tests (AUTH-1 through AUTH-7)
 # ---------------------------------------------------------------------------
+
 
 class IsTrustedSourceBBTest(TestCase):
     """
@@ -462,7 +464,7 @@ class IsTrustedPayerFITest(TestCase):
         request = _make_payer_fi_request(_PAYER_FI_TOO_LONG_ID)
         self.assertFalse(
             self.perm.has_permission(request, None),
-            f"Expected False: {len(_PAYER_FI_TOO_LONG_ID)}-char payer_fi_id rejected in harness mode.",
+            f"Expected False: {len(_PAYER_FI_TOO_LONG_ID)}-char payer_fi_id rejected in harness mode.",  # noqa: E501
         )
 
     # ── PAYERFI — exact 20-char boundary ───────────────────────────────────
@@ -497,6 +499,7 @@ class IsTrustedPayerFITest(TestCase):
 # ---------------------------------------------------------------------------
 # RequirePayerFI unit tests (PAYERFI-FC-1 through PAYERFI-FC-7) — Issue B
 # ---------------------------------------------------------------------------
+
 
 class RequirePayerFITest(TestCase):
     """
@@ -606,6 +609,7 @@ class RequirePayerFITest(TestCase):
 # Admin correctness tests
 # ---------------------------------------------------------------------------
 
+
 class GovStackRegisteredBBAdminTest(TestCase):
     """
     Tests for GovStackRegisteredBBAdmin form field behaviour.
@@ -620,8 +624,10 @@ class GovStackRegisteredBBAdminTest(TestCase):
     """
 
     def setUp(self) -> None:
-        from apps.payments.admin import GovStackRegisteredBBAdmin
         from django.contrib.admin.sites import AdminSite
+
+        from apps.payments.admin import GovStackRegisteredBBAdmin
+
         self.admin_obj = GovStackRegisteredBBAdmin(GovStackRegisteredBB, AdminSite())
 
     def test_admin_add_form_includes_bb_id_field(self) -> None:
@@ -630,10 +636,11 @@ class GovStackRegisteredBBAdminTest(TestCase):
         can type in the BB identifier when creating a new whitelist entry.
         """
         from django.test import RequestFactory
+
         factory = RequestFactory()
         request = factory.get("/admin/payments/govstackregisteredbb/add/")
 
-        Form = self.admin_obj.get_form(request, obj=None)
+        Form = self.admin_obj.get_form(request, obj=None)  # noqa: N806
         self.assertIn(
             "bb_id",
             Form.base_fields,

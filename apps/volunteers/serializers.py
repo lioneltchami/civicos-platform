@@ -8,6 +8,7 @@ PIPEDA rules enforced here:
 - HoursLog rejection_reason is NEVER exposed via this module.
 - All Decimal fields serialized as strings (DecimalField).
 """
+
 from __future__ import annotations
 
 from django.utils import timezone
@@ -22,15 +23,16 @@ from apps.volunteers.models import (
     VolunteerProfile,
 )
 
-
 # ---------------------------------------------------------------------------
 # VolunteerOpportunitySerializer
 # ---------------------------------------------------------------------------
+
 
 class VolunteerOpportunitySerializer(serializers.ModelSerializer):
     """
     Public-facing opportunity listing — no PII, bilingual title fields.
     """
+
     program_slug = serializers.CharField(source="program.slug", read_only=True)
     program_title = serializers.CharField(source="program.title_en", read_only=True)
     title = serializers.CharField(source="title_en", read_only=True)
@@ -40,7 +42,7 @@ class VolunteerOpportunitySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Opportunity
-        fields = [
+        fields = [  # noqa: RUF012
             "slug",
             "title",
             "title_fr",
@@ -58,7 +60,7 @@ class VolunteerOpportunitySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def get_is_open(self, obj) -> bool:
+    def get_is_open(self, obj) -> bool:  # noqa: ANN001
         return obj.is_accepting_applications
 
 
@@ -66,17 +68,19 @@ class VolunteerOpportunitySerializer(serializers.ModelSerializer):
 # ShiftSerializer
 # ---------------------------------------------------------------------------
 
+
 class ShiftSerializer(serializers.ModelSerializer):
     """
     Shift data — capacity vs booking status computed server-side.
     """
+
     opportunity_slug = serializers.CharField(source="opportunity.slug", read_only=True)
     booked_count = serializers.SerializerMethodField()
     is_bookable = serializers.SerializerMethodField()
 
     class Meta:
         model = Shift
-        fields = [
+        fields = [  # noqa: RUF012
             "id",
             "opportunity_slug",
             "start_datetime",
@@ -90,13 +94,13 @@ class ShiftSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def get_booked_count(self, obj) -> int:
+    def get_booked_count(self, obj) -> int:  # noqa: ANN001
         return ShiftBooking.objects.filter(
             shift=obj,
             status=ShiftBooking.STATUS_CONFIRMED,
         ).count()
 
-    def get_is_bookable(self, obj) -> bool:
+    def get_is_bookable(self, obj) -> bool:  # noqa: ANN001
         if obj.is_cancelled:
             return False
         if obj.start_datetime <= timezone.now():
@@ -113,10 +117,12 @@ class ShiftSerializer(serializers.ModelSerializer):
 # VolunteerApplicationSerializer
 # ---------------------------------------------------------------------------
 
+
 class VolunteerApplicationSerializer(serializers.ModelSerializer):
     """
     Application data — NEVER exposes rejection_reason (PIPEDA).
     """
+
     opportunity_slug = serializers.CharField(source="opportunity.slug", read_only=True)
     opportunity_title = serializers.CharField(source="opportunity.title_en", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -125,7 +131,7 @@ class VolunteerApplicationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = VolunteerApplication
-        fields = [
+        fields = [  # noqa: RUF012
             "id",
             "opportunity_slug",
             "opportunity_title",
@@ -134,7 +140,7 @@ class VolunteerApplicationSerializer(serializers.ModelSerializer):
             "applied_at",
             "motivation",
         ]
-        read_only_fields = [
+        read_only_fields = [  # noqa: RUF012
             "id",
             "opportunity_slug",
             "opportunity_title",
@@ -143,7 +149,7 @@ class VolunteerApplicationSerializer(serializers.ModelSerializer):
             "applied_at",
         ]
 
-    def to_representation(self, instance):
+    def to_representation(self, instance):  # noqa: ANN001, ANN201
         data = super().to_representation(instance)
         # Belt-and-suspenders: strip internal fields
         data.pop("rejection_reason", None)
@@ -155,17 +161,19 @@ class VolunteerApplicationSerializer(serializers.ModelSerializer):
 # HoursLogSerializer
 # ---------------------------------------------------------------------------
 
+
 class HoursLogSerializer(serializers.ModelSerializer):
     """
     Hours log — rejection_reason is NEVER exposed via this serializer.
     """
+
     opportunity_title = serializers.CharField(source="opportunity.title_en", read_only=True)
     hours = serializers.DecimalField(max_digits=6, decimal_places=2)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     class Meta:
         model = HoursLog
-        fields = [
+        fields = [  # noqa: RUF012
             "id",
             "opportunity_title",
             "date",
@@ -175,7 +183,7 @@ class HoursLogSerializer(serializers.ModelSerializer):
             "status_display",
             "approved_at",
         ]
-        read_only_fields = [
+        read_only_fields = [  # noqa: RUF012
             "id",
             "opportunity_title",
             "status",
@@ -183,7 +191,7 @@ class HoursLogSerializer(serializers.ModelSerializer):
             "approved_at",
         ]
 
-    def to_representation(self, instance):
+    def to_representation(self, instance):  # noqa: ANN001, ANN201
         data = super().to_representation(instance)
         # PIPEDA: rejection_reason never exposed to volunteers or via API
         data.pop("rejection_reason", None)
@@ -193,6 +201,7 @@ class HoursLogSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 # VolunteerProfileSerializer
 # ---------------------------------------------------------------------------
+
 
 class VolunteerProfileSerializer(serializers.ModelSerializer):
     """
@@ -204,15 +213,14 @@ class VolunteerProfileSerializer(serializers.ModelSerializer):
 
     sin_encrypted is NEVER returned under any circumstances.
     """
+
     display_name = serializers.CharField(read_only=True)
     skills = serializers.StringRelatedField(many=True, read_only=True)
-    total_hours_approved = serializers.DecimalField(
-        max_digits=10, decimal_places=2, read_only=True
-    )
+    total_hours_approved = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = VolunteerProfile
-        fields = [
+        fields = [  # noqa: RUF012
             "id",
             "display_name",
             "preferred_name",
@@ -233,7 +241,7 @@ class VolunteerProfileSerializer(serializers.ModelSerializer):
             "emergency_contact_relationship",
             "sin_last4",
         ]
-        read_only_fields = [
+        read_only_fields = [  # noqa: RUF012
             "id",
             "display_name",
             "skills",
@@ -243,7 +251,7 @@ class VolunteerProfileSerializer(serializers.ModelSerializer):
             "sin_last4",
         ]
 
-    def to_representation(self, instance):
+    def to_representation(self, instance):  # noqa: ANN001, ANN201
         data = super().to_representation(instance)
 
         request = self.context.get("request")

@@ -18,6 +18,7 @@ would break those chains and violate audit requirements.
 PIPEDA: Organization contains no PII — name is an org name, not a person.
 No redaction required.
 """
+
 from __future__ import annotations
 
 import logging
@@ -79,10 +80,10 @@ def _safe_slug(name: str, max_retries: int = 5) -> str:
     """
     base = slugify(name)[:76]  # leave room for "-xxxx" suffix within max_length=80
     candidate = base
-    for attempt in range(max_retries):
+    for _attempt in range(max_retries):
         if not Organization.objects.filter(slug=candidate).exists():
             return candidate
-        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))  # noqa: S311
         candidate = f"{base}-{suffix}"
     raise RuntimeError(
         f"Could not generate a unique slug for name={name!r} after {max_retries} attempts."
@@ -92,6 +93,7 @@ def _safe_slug(name: str, max_retries: int = 5) -> str:
 # ---------------------------------------------------------------------------
 # Public service functions
 # ---------------------------------------------------------------------------
+
 
 def entity_create(
     name: str = "",

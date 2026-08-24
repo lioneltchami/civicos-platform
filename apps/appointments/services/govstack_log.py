@@ -132,6 +132,7 @@ PIPEDA:
   purposes even though they ARE returned in the API response (see log_data
   handling above).
 """
+
 from __future__ import annotations
 
 import json
@@ -155,6 +156,7 @@ _VALID_LOGGER_ROLES: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
+
 
 class LogDataParseError(ValueError):
     """
@@ -181,6 +183,7 @@ class LogEntityMismatchError(ValueError):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _validate_logger_role(logger_role: str) -> None:
     """Raise ValueError if logger_role is not one of BookingAuditLog.actor_role's real choices."""
     if logger_role not in _VALID_LOGGER_ROLES:
@@ -189,7 +192,7 @@ def _validate_logger_role(logger_role: str) -> None:
         )
 
 
-def _parse_datetime_str(value: str):
+def _parse_datetime_str(value: str):  # noqa: ANN202
     """
     Parse an ISO 8601 datetime string, requiring timezone awareness.
 
@@ -287,10 +290,11 @@ def _resolve_booking(event_id: str, subscriber_id: str) -> Booking:
 # Public service functions
 # ---------------------------------------------------------------------------
 
+
 def record_admin_audit_event(
     *,
     action: str,
-    resource_pk,
+    resource_pk,  # noqa: ANN001
     operation: str,
     actor_id: str = "",
     actor_role: str = "",
@@ -341,9 +345,10 @@ def record_admin_audit_event(
         )
     except Exception:
         logger.exception(
-            "record_admin_audit_event: audit write failed action=%s "
-            "resource_pk=%s operation=%s",
-            action, resource_pk, operation,
+            "record_admin_audit_event: audit write failed action=%s " "resource_pk=%s operation=%s",
+            action,
+            resource_pk,
+            operation,
         )
         return None
 
@@ -410,7 +415,9 @@ def log_create(
         actor_role=logger_role,
     )
     logger.debug(
-        "log_create: created BookingAuditLog pk=%s booking_id=%s", entry.pk, booking.pk,
+        "log_create: created BookingAuditLog pk=%s booking_id=%s",
+        entry.pk,
+        booking.pk,
     )
     return entry
 

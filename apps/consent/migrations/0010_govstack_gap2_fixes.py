@@ -4,55 +4,90 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('consent', '0009_govstack_gap_fixes'),
+    dependencies = [  # noqa: RUF012
+        ("consent", "0009_govstack_gap_fixes"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='consentcategory',
-            name='data_controller_logo_image_url',
-            field=models.URLField(blank=True, help_text='URL to the data controller logo image (GovStack dataControllerLogoImageUrl).'),
+            model_name="consentcategory",
+            name="data_controller_logo_image_url",
+            field=models.URLField(
+                blank=True,
+                help_text="URL to the data controller logo image (GovStack dataControllerLogoImageUrl).",
+            ),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='data_usage_policy',
-            field=models.URLField(blank=True, help_text='URL to the data usage policy (GovStack dataUsagePolicy).'),
+            model_name="consentcategory",
+            name="data_usage_policy",
+            field=models.URLField(
+                blank=True, help_text="URL to the data usage policy (GovStack dataUsagePolicy)."
+            ),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='data_use_activity',
-            field=models.TextField(blank=True, help_text='Description of data use activity (GovStack dataUseActivity).'),
+            model_name="consentcategory",
+            name="data_use_activity",
+            field=models.TextField(
+                blank=True, help_text="Description of data use activity (GovStack dataUseActivity)."
+            ),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='data_use_purpose',
-            field=models.CharField(blank=True, help_text='Short purpose label (GovStack dataUsePurpose).', max_length=255),
+            model_name="consentcategory",
+            name="data_use_purpose",
+            field=models.CharField(
+                blank=True,
+                help_text="Short purpose label (GovStack dataUsePurpose).",
+                max_length=255,
+            ),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='data_use_purpose_description',
-            field=models.TextField(blank=True, help_text='Detailed description of the data use purpose (GovStack dataUsePurposeDescription).'),
+            model_name="consentcategory",
+            name="data_use_purpose_description",
+            field=models.TextField(
+                blank=True,
+                help_text="Detailed description of the data use purpose (GovStack dataUsePurposeDescription).",
+            ),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='data_use_purpose_restriction',
-            field=models.TextField(blank=True, help_text='Restrictions on the data use purpose (GovStack dataUsePurposeRestriction).'),
+            model_name="consentcategory",
+            name="data_use_purpose_restriction",
+            field=models.TextField(
+                blank=True,
+                help_text="Restrictions on the data use purpose (GovStack dataUsePurposeRestriction).",
+            ),
         ),
         migrations.AddField(
-            model_name='consentcategory',
-            name='purpose_description',
-            field=models.TextField(blank=True, help_text='Human-readable description of the purpose (GovStack purposeDescription).'),
+            model_name="consentcategory",
+            name="purpose_description",
+            field=models.TextField(
+                blank=True,
+                help_text="Human-readable description of the purpose (GovStack purposeDescription).",
+            ),
         ),
         migrations.AddField(
-            model_name='consentwebhook',
-            name='skipped_headers',
-            field=models.JSONField(blank=True, default=list, help_text='List of HTTP headers to omit when sending the webhook payload (GovStack skippedHeaders).'),
+            model_name="consentwebhook",
+            name="skipped_headers",
+            field=models.JSONField(
+                blank=True,
+                default=list,
+                help_text="List of HTTP headers to omit when sending the webhook payload (GovStack skippedHeaders).",
+            ),
         ),
         migrations.AlterField(
-            model_name='consentrecord',
-            name='state',
-            field=models.CharField(choices=[('unsigned', 'Unsigned'), ('pending', 'Pending'), ('signed', 'Signed'), ('revoked', 'Revoked'), ('pending_signatures', 'Pending Signatures (legacy)')], db_index=True, default='unsigned', help_text='GovStack signing state: unsigned / pending / signed / revoked.', max_length=30),
+            model_name="consentrecord",
+            name="state",
+            field=models.CharField(
+                choices=[
+                    ("unsigned", "Unsigned"),
+                    ("pending", "Pending"),
+                    ("signed", "Signed"),
+                    ("revoked", "Revoked"),
+                    ("pending_signatures", "Pending Signatures (legacy)"),
+                ],
+                db_index=True,
+                default="unsigned",
+                help_text="GovStack signing state: unsigned / pending / signed / revoked.",
+                max_length=30,
+            ),
         ),
     ]

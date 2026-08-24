@@ -1,0 +1,893 @@
+Creating test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+Found 383 test(s).
+Operations to perform:
+  Synchronize unmigrated apps: allauth, anymail, api, backoffice, csp, django_otp, drf_spectacular, humanize, messages, modelcluster, rest_framework, rest_framework_simplejwt, sitemaps, staticfiles, storages, typed_table_block, wagtailsettings, wagtailsites, wagtailsnippets
+  Apply all migrations: account, admin, appointments, audit, auth, auth_extension, authtoken, cms, consent, contenttypes, django_celery_beat, django_celery_results, documents, forms, notifications, otp_static, otp_totp, payments, portal, reports, sessions, simple_translation, sites, socialaccount, taggit, token_blacklist, two_factor, volunteers, wagtailadmin, wagtailcore, wagtaildocs, wagtailembeds, wagtailforms, wagtailimages, wagtailredirects, wagtailsearch, wagtailsearchpromotions, wagtailusers, workflows
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  Applying contenttypes.0001_initial... OK
+  Applying contenttypes.0002_remove_content_type_name... OK
+  Applying auth.0001_initial... OK
+  Applying auth.0002_alter_permission_name_max_length... OK
+  Applying auth.0003_alter_user_email_max_length... OK
+  Applying auth.0004_alter_user_username_opts... OK
+  Applying auth.0005_alter_user_last_login_null... OK
+  Applying auth.0006_require_contenttypes_0002... OK
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying auth.0008_alter_user_username_max_length... OK
+  Applying auth.0009_alter_user_last_name_max_length... OK
+  Applying auth.0010_alter_group_name_max_length... OK
+  Applying auth.0011_update_proxy_permissions... OK
+  Applying auth.0012_alter_user_first_name_max_length... OK
+  Applying auth_extension.0001_initial... OK
+  Applying account.0001_initial... OK
+  Applying account.0002_email_max_length... OK
+  Applying account.0003_alter_emailaddress_create_unique_verified_email... OK
+  Applying account.0004_alter_emailaddress_drop_unique_email... OK
+  Applying account.0005_emailaddress_idx_upper_email... OK
+  Applying account.0006_emailaddress_lower... OK
+  Applying account.0007_emailaddress_idx_email... OK
+  Applying account.0008_emailaddress_unique_primary_email_fixup... OK
+  Applying account.0009_emailaddress_unique_primary_email... OK
+  Applying admin.0001_initial... OK
+  Applying admin.0002_logentry_remove_auto_add... OK
+  Applying admin.0003_logentry_add_action_flag_choices... OK
+  Applying payments.0001_initial... OK
+  Applying payments.0002_add_gateway_intent_id_index_and_event_type_index... OK
+  Applying payments.0003_add_receipt_unique_issued_per_donation... OK
+  Applying payments.0004_wave9_fixes... OK
+  Applying payments.0005_add_receipt_amount_constraints... OK
+  Applying payments.0006_alter_payment_card_brand... OK
+  Applying payments.0007_add_refund_gateway_status... OK
+  Applying payments.0008_add_payment_financial_constraints... OK
+  Applying payments.0009_add_refund_and_servicefeepayment_constraints... OK
+  Applying payments.0010_paymentintent_report_permissions... OK
+  Applying payments.0011_add_manual_gateway_and_honorarium_purpose... OK
+  Applying payments.0012_alter_webhookevent_gateway... OK
+  Applying documents.0001_initial... OK
+  Applying documents.0002_staff_only_flag... OK
+  Applying documents.0003_document_permissions... OK
+  Applying django_celery_beat.0001_initial... OK
+  Applying django_celery_beat.0002_auto_20161118_0346... OK
+  Applying django_celery_beat.0003_auto_20161209_0049... OK
+  Applying django_celery_beat.0004_auto_20170221_0000... OK
+  Applying django_celery_beat.0005_add_solarschedule_events_choices... OK
+  Applying django_celery_beat.0006_auto_20180322_0932... OK
+  Applying django_celery_beat.0007_auto_20180521_0826... OK
+  Applying django_celery_beat.0008_auto_20180914_1922... OK
+  Applying django_celery_beat.0006_auto_20180210_1226... OK
+  Applying django_celery_beat.0006_periodictask_priority... OK
+  Applying django_celery_beat.0009_periodictask_headers... OK
+  Applying django_celery_beat.0010_auto_20190429_0326... OK
+  Applying django_celery_beat.0011_auto_20190508_0153... OK
+  Applying django_celery_beat.0012_periodictask_expire_seconds... OK
+  Applying django_celery_beat.0013_auto_20200609_0727... OK
+  Applying django_celery_beat.0014_remove_clockedschedule_enabled... OK
+  Applying django_celery_beat.0015_edit_solarschedule_events_choices... OK
+  Applying django_celery_beat.0016_alter_crontabschedule_timezone... OK
+  Applying django_celery_beat.0017_alter_crontabschedule_month_of_year... OK
+  Applying django_celery_beat.0018_improve_crontab_helptext... OK
+  Applying documents.0004_document_beat_schedule... OK
+  Applying documents.0005_wave4_fixes... OK
+  Applying documents.0006_add_staff_view_permissions... OK
+  Applying documents.0007_seed_document_categories... OK
+  Applying payments.0013_add_donation_receipt_document_fk... OK
+  Applying payments.0014_drop_donation_receipt_pdf_path... OK
+  Applying payments.0015_alter_officialdonationreceipt_document... OK
+  Applying payments.0016_govstack_models... OK
+  Applying payments.0017_tighten_payee_functional_id_validator... OK
+  Applying payments.0018_tighten_govstackbeneficiary_source_bb_id_validator... OK
+  Applying payments.0019_widen_bulk_correlation_id... OK
+  Applying payments.0020_govstack_p2g_models... OK
+  Applying payments.0021_govstack_registered_bb... OK
+  Applying payments.0022_govstackregisteredbb_role... OK
+  Applying payments.0023_alter_govstackbill_created_at_and_more... OK
+  Applying payments.0024_alter_bulkpaymentbatch_request_id_and_more... OK
+  Applying appointments.0001_initial... OK
+  Applying appointments.0002_add_allow_anonymous_booking_resource_db_index_buffer_validators... OK
+  Applying appointments.0003_wave2_availability_template_staff_exception... OK
+  Applying appointments.0004_wave2_slot... OK
+  Applying appointments.0005_wave2_constraint_fixes... OK
+  Applying appointments.0006_wave2_high_fixes... OK
+  Applying appointments.0007_rename_note_internal_staffexception_internal_note... OK
+  Applying appointments.0008_staffexception_uniqueconstraint... OK
+  Applying appointments.0009_add_created_at_indexes... OK
+  Applying appointments.0010_alter_slot_options_and_more... OK
+  Applying appointments.0011_wave3_bookings... OK
+  Applying appointments.0012_wave3_waitlist_queue... OK
+  Applying appointments.0013_govstack_wave_a... OK
+  Applying appointments.0014_govstack_wave_a_review_fixes... OK
+  Applying appointments.0015_appointmenttype_is_govstack_managed... OK
+  Applying appointments.0016_govstack_appointment_fields... OK
+  Applying appointments.0017_alter_govstacksubscriberprofile_alert_preference_and_more... OK
+  Applying appointments.0018_alter_bookingauditlog_action_and_more... OK
+  Applying appointments.0019_scheduler_runtime_core... OK
+  Applying appointments.0020_scheduler_outbox_publisher_claim... OK
+  Applying appointments.0021_sch01_1_core_admission... OK
+  Applying appointments.0022_sch01_2a_cancel_only... OK
+  Applying audit.0001_initial... OK
+  Applying audit.0002_add_outcome_index... OK
+  Applying audit.0003_alter_auditlogentry_event_type... OK
+  Applying audit.0004_wave4_fixes... OK
+  Applying auth_extension.0002_add_donor_postal_address... OK
+  Applying authtoken.0001_initial... OK
+  Applying authtoken.0002_auto_20160226_1747... OK
+  Applying authtoken.0003_tokenproxy... OK
+  Applying authtoken.0004_alter_tokenproxy_options... OK
+  Applying wagtailcore.0001_squashed_0016_change_page_url_path_to_text_field... OK
+  Applying wagtailcore.0017_change_edit_page_permission_description... OK
+  Applying wagtailcore.0018_pagerevision_submitted_for_moderation_index... OK
+  Applying wagtailcore.0019_verbose_names_cleanup... OK
+  Applying wagtailcore.0020_add_index_on_page_first_published_at... OK
+  Applying wagtailcore.0021_capitalizeverbose... OK
+  Applying wagtailcore.0022_add_site_name... OK
+  Applying wagtailcore.0023_alter_page_revision_on_delete_behaviour... OK
+  Applying wagtailcore.0024_collection... OK
+  Applying wagtailcore.0025_collection_initial_data... OK
+  Applying wagtailcore.0026_group_collection_permission... OK
+  Applying wagtailcore.0027_fix_collection_path_collation... OK
+  Applying wagtailcore.0024_alter_page_content_type_on_delete_behaviour... OK
+  Applying wagtailcore.0028_merge... OK
+  Applying wagtailcore.0029_unicode_slugfield_dj19... OK
+  Applying wagtailcore.0030_index_on_pagerevision_created_at... OK
+  Applying wagtailcore.0031_add_page_view_restriction_types... OK
+  Applying wagtailcore.0032_add_bulk_delete_page_permission... OK
+  Applying wagtailcore.0033_remove_golive_expiry_help_text... OK
+  Applying wagtailcore.0034_page_live_revision... OK
+  Applying wagtailcore.0035_page_last_published_at... OK
+  Applying wagtailcore.0036_populate_page_last_published_at... OK
+  Applying wagtailcore.0037_set_page_owner_editable... OK
+  Applying wagtailcore.0038_make_first_published_at_editable... OK
+  Applying wagtailcore.0039_collectionviewrestriction... OK
+  Applying wagtailcore.0040_page_draft_title... OK
+  Applying wagtailcore.0041_group_collection_permissions_verbose_name_plural... OK
+  Applying wagtailcore.0042_index_on_pagerevision_approved_go_live_at... OK
+  Applying wagtailcore.0043_lock_fields... OK
+  Applying wagtailcore.0044_add_unlock_grouppagepermission... OK
+  Applying wagtailcore.0045_assign_unlock_grouppagepermission... OK
+  Applying wagtailcore.0046_site_name_remove_null... OK
+  Applying wagtailcore.0047_add_workflow_models... OK
+  Applying wagtailcore.0048_add_default_workflows... OK
+  Applying wagtailcore.0049_taskstate_finished_by... OK
+  Applying wagtailcore.0050_workflow_rejected_to_needs_changes... OK
+  Applying wagtailcore.0051_taskstate_comment... OK
+  Applying wagtailcore.0052_pagelogentry... OK
+  Applying wagtailcore.0053_locale_model... OK
+  Applying wagtailcore.0054_initial_locale... OK
+  Applying wagtailcore.0055_page_locale_fields... OK
+  Applying wagtailcore.0056_page_locale_fields_populate... OK
+  Applying wagtailcore.0057_page_locale_fields_notnull... OK
+  Applying wagtailcore.0058_page_alias_of... OK
+  Applying wagtailcore.0059_apply_collection_ordering... OK
+  Applying wagtailcore.0060_fix_workflow_unique_constraint... OK
+  Applying wagtailcore.0061_change_promote_tab_helpt_text_and_verbose_names... OK
+  Applying wagtailcore.0062_comment_models_and_pagesubscription... OK
+  Applying wagtailcore.0063_modellogentry... OK
+  Applying wagtailcore.0064_log_timestamp_indexes... OK
+  Applying wagtailcore.0065_log_entry_uuid... OK
+  Applying wagtailcore.0066_collection_management_permissions... OK
+  Applying wagtailcore.0067_alter_pagerevision_content_json... OK
+  Applying wagtailcore.0068_log_entry_empty_object... OK
+  Applying wagtailcore.0069_log_entry_jsonfield... OK
+  Applying wagtailcore.0070_rename_pagerevision_revision... OK
+  Applying wagtailcore.0071_populate_revision_content_type... OK
+  Applying wagtailcore.0072_alter_revision_content_type_notnull... OK
+  Applying wagtailcore.0073_page_latest_revision... OK
+  Applying wagtailcore.0074_revision_object_str... OK
+  Applying wagtailcore.0075_populate_latest_revision_and_revision_object_str... OK
+  Applying wagtailcore.0076_modellogentry_revision... OK
+  Applying wagtailcore.0077_alter_revision_user... OK
+  Applying wagtailcore.0078_referenceindex... OK
+  Applying wagtailcore.0079_rename_taskstate_page_revision... OK
+  Applying wagtailcore.0080_generic_workflowstate... OK
+  Applying wagtailcore.0081_populate_workflowstate_content_type... OK
+  Applying wagtailcore.0082_alter_workflowstate_content_type_notnull... OK
+  Applying wagtailcore.0083_workflowcontenttype... OK
+  Applying wagtailcore.0084_add_default_page_permissions... OK
+  Applying wagtailcore.0085_add_grouppagepermission_permission... OK
+  Applying wagtailcore.0086_populate_grouppagepermission_permission... OK
+  Applying wagtailcore.0087_alter_grouppagepermission_unique_together_and_more... OK
+  Applying wagtailcore.0088_fix_log_entry_json_timestamps... OK
+  Applying wagtailcore.0089_log_entry_data_json_null_to_object... OK
+  Applying wagtailcore.0090_remove_grouppagepermission_permission_type... OK
+  Applying wagtailcore.0091_remove_revision_submitted_for_moderation... OK
+  Applying wagtailcore.0092_alter_collectionviewrestriction_password_and_more... OK
+  Applying wagtailcore.0093_uploadedfile... OK
+  Applying wagtailcore.0094_alter_page_locale... OK
+  Applying taggit.0001_initial... OK
+  Applying taggit.0002_auto_20150616_2121... OK
+  Applying taggit.0003_taggeditem_add_unique_index... OK
+  Applying taggit.0004_alter_taggeditem_content_type_alter_taggeditem_tag... OK
+  Applying taggit.0005_auto_20220424_2025... OK
+  Applying taggit.0006_rename_taggeditem_content_type_object_id_taggit_tagg_content_8fc721_idx... OK
+  Applying cms.0001_initial... OK
+  Applying cms.0002_alter_newspage_options... OK
+  Applying consent.0001_initial... OK
+  Applying consent.0002_alter_consentcategory_is_required_and_more... OK
+  Applying consent.0003_protect_citizen_fk... OK
+  Applying consent.0004_add_data_export_request_document_fk... OK
+  Applying consent.0005_drop_data_export_request_storage_path... OK
+  Applying consent.0006_alter_dataexportrequest_document... OK
+  Applying consent.0007_govstack_alignment... OK
+  Applying consent.0008_govstack_signature... OK
+  Applying consent.0009_govstack_gap_fixes... OK
+  Applying consent.0010_govstack_gap2_fixes... OK
+  Applying consent.0011_consent_record_history... OK
+  Applying consent.0012_codex_audit_fixes... OK
+  Applying consent.0013_rotate_webhook_secrets... OK
+  Applying consent.0014_remove_pending_signatures_state... OK
+  Applying consent.0015_nullable_download_token... OK
+  Applying consent.0016_consentwebhook_payload_replay... OK
+  Applying consent.0017_consent_record_is_current_unique_constraint... OK
+  Applying consent.0018_consentpolicy_harness_alias_id_and_more... OK
+  Applying consent.0019_alter_consentrevision_serialized_hash... OK
+  Applying consent.0020_remove_consentauditentry_consent_audit_valid_action_and_more... OK
+  Applying django_celery_beat.0019_alter_periodictasks_options... OK
+  Applying django_celery_results.0001_initial... OK
+  Applying django_celery_results.0002_add_task_name_args_kwargs... OK
+  Applying django_celery_results.0003_auto_20181106_1101... OK
+  Applying django_celery_results.0004_auto_20190516_0412... OK
+  Applying django_celery_results.0005_taskresult_worker... OK
+  Applying django_celery_results.0006_taskresult_date_created... OK
+  Applying django_celery_results.0007_remove_taskresult_hidden... OK
+  Applying django_celery_results.0008_chordcounter... OK
+  Applying django_celery_results.0009_groupresult... OK
+  Applying django_celery_results.0010_remove_duplicate_indices... OK
+  Applying django_celery_results.0011_taskresult_periodic_task_name... OK
+  Applying documents.0008_fix_document_category_retention_and_staff_only... OK
+  Applying forms.0001_initial... OK
+  Applying notifications.0001_initial... OK
+  Applying notifications.0002_add_inbox_composite_index... OK
+  Applying notifications.0003_add_sent_at_index... OK
+  Applying otp_static.0001_initial... OK
+  Applying otp_static.0002_throttling... OK
+  Applying otp_static.0003_add_timestamps... OK
+  Applying otp_totp.0001_initial... OK
+  Applying otp_totp.0002_auto_20190420_0723... OK
+  Applying otp_totp.0003_add_timestamps... OK
+  Applying payments.0025_govstackbill_platform_tenant_id... OK
+  Applying payments.0026_govstackregisteredbb_allowed_platform_tenant_ids_and_more... OK
+  Applying payments.0027_item02_failure_lifecycle... OK
+  Applying payments.0028_item02_audit_lifecycle_actions... OK
+  Applying payments.0029_alter_callbackdelivery_created_at_and_more... OK
+  Applying payments.0030_provider_observation... OK
+  Applying payments.0031_alter_providerobservation_created_at_and_more... OK
+  Applying payments.0032_item02_platform_persistence... OK
+  Applying payments.0033_alter_batchlease_created_at_alter_batchlease_id_and_more... OK
+  Applying payments.0034_item02_core_runtime... OK
+  Applying payments.0035_paymentattempt_runtime_claim_fields... OK
+  Applying payments.0036_payment_command_boundary... OK
+  Applying payments.0037_provider_factory_registry... OK
+  Applying payments.0038_payment_execution_intent... OK
+  Applying payments.0039_prepayment_execution... OK
+  Applying payments.0040_paymentcommand_attempt... OK
+  Applying payments.0041_paymentcommandoutbox_acknowledgement... OK
+  Applying payments.0042_paymentattempt_recovery_evidence... OK
+  Applying payments.0043_executionintent_submit_admission... OK
+  Applying payments.0044_item02_rb022_credit_instruction_payment_attempt_binding... OK
+  Applying payments.0045_item02_rb023_govstack_batch_decision... OK
+  Applying portal.0001_initial... OK
+  Applying portal.0002_alter_statusupdate_old_status... OK
+  Applying portal.0003_add_service_name_index... OK
+  Applying reports.0001_initial... OK
+  Applying reports.0002_reports_cleanup... OK
+  Applying reports.0003_exportrecord_actor_pk_bigint... OK
+  Applying reports.0004_add_volunteer_report_types... OK
+  Applying sessions.0001_initial... OK
+  Applying simple_translation.0001_initial... OK
+  Applying sites.0001_initial... OK
+  Applying sites.0002_alter_domain_unique... OK
+  Applying socialaccount.0001_initial... OK
+  Applying socialaccount.0002_token_max_lengths... OK
+  Applying socialaccount.0003_extra_data_default_dict... OK
+  Applying socialaccount.0004_app_provider_id_settings... OK
+  Applying socialaccount.0005_socialtoken_nullable_app... OK
+  Applying socialaccount.0006_alter_socialaccount_extra_data... OK
+  Applying token_blacklist.0001_initial... OK
+  Applying token_blacklist.0002_outstandingtoken_jti_hex... OK
+  Applying token_blacklist.0003_auto_20171017_2007... OK
+  Applying token_blacklist.0004_auto_20171017_2013... OK
+  Applying token_blacklist.0005_remove_outstandingtoken_jti... OK
+  Applying token_blacklist.0006_auto_20171017_2113... OK
+  Applying token_blacklist.0007_auto_20171017_2214... OK
+  Applying token_blacklist.0008_migrate_to_bigautofield... OK
+  Applying token_blacklist.0010_fix_migrate_to_bigautofield... OK
+  Applying token_blacklist.0011_linearizes_history... OK
+  Applying token_blacklist.0012_alter_outstandingtoken_user... OK
+  Applying token_blacklist.0013_alter_blacklistedtoken_options_and_more... OK
+  Applying two_factor.0001_squashed_0008_delete_phonedevice... OK
+  Applying workflows.0001_initial... OK
+  Applying volunteers.0001_initial... OK
+  Applying volunteers.0002_wave1_fixes... OK
+  Applying volunteers.0003_wave1_review_fixes... OK
+  Applying volunteers.0004_h2_h4_h5_fixes... OK
+  Applying volunteers.0005_screening_verified_clear_blank... OK
+  Applying volunteers.0006_volunteer_note_body_max_length... OK
+  Applying volunteers.0007_add_certification_document_fk... OK
+  Applying volunteers.0008_add_honorarium_t4a_document... OK
+  Applying volunteers.0009_add_screening_vsc_confirmation_doc... OK
+  Applying volunteers.0010_drop_certification_document_filefield... OK
+  Applying volunteers.0011_alter_certification_document_v2_and_more... OK
+  Applying wagtailadmin.0001_create_admin_access_permissions... OK
+  Applying wagtailadmin.0002_admin... OK
+  Applying wagtailadmin.0003_admin_managed... OK
+  Applying wagtailadmin.0004_editingsession... OK
+  Applying wagtailadmin.0005_editingsession_is_editing... OK
+  Applying wagtaildocs.0001_initial... OK
+  Applying wagtaildocs.0002_initial_data... OK
+  Applying wagtaildocs.0003_add_verbose_names... OK
+  Applying wagtaildocs.0004_capitalizeverbose... OK
+  Applying wagtaildocs.0005_document_collection... OK
+  Applying wagtaildocs.0006_copy_document_permissions_to_collections... OK
+  Applying wagtaildocs.0005_alter_uploaded_by_user_on_delete_action... OK
+  Applying wagtaildocs.0007_merge... OK
+  Applying wagtaildocs.0008_document_file_size... OK
+  Applying wagtaildocs.0009_document_verbose_name_plural... OK
+  Applying wagtaildocs.0010_document_file_hash... OK
+  Applying wagtaildocs.0011_add_choose_permissions... OK
+  Applying wagtaildocs.0012_uploadeddocument... OK
+  Applying wagtaildocs.0013_delete_uploadeddocument... OK
+  Applying wagtaildocs.0014_alter_document_file_size... OK
+  Applying wagtailembeds.0001_initial... OK
+  Applying wagtailembeds.0002_add_verbose_names... OK
+  Applying wagtailembeds.0003_capitalizeverbose... OK
+  Applying wagtailembeds.0004_embed_verbose_name_plural... OK
+  Applying wagtailembeds.0005_specify_thumbnail_url_max_length... OK
+  Applying wagtailembeds.0006_add_embed_hash... OK
+  Applying wagtailembeds.0007_populate_hash... OK
+  Applying wagtailembeds.0008_allow_long_urls... OK
+  Applying wagtailembeds.0009_embed_cache_until... OK
+  Applying wagtailforms.0001_initial... OK
+  Applying wagtailforms.0002_add_verbose_names... OK
+  Applying wagtailforms.0003_capitalizeverbose... OK
+  Applying wagtailforms.0004_add_verbose_name_plural... OK
+  Applying wagtailforms.0005_alter_formsubmission_form_data... OK
+  Applying wagtailimages.0001_squashed_0021... OK
+  Applying wagtailimages.0022_uploadedimage... OK
+  Applying wagtailimages.0023_add_choose_permissions... OK
+  Applying wagtailimages.0024_index_image_file_hash... OK
+  Applying wagtailimages.0025_alter_image_file_alter_rendition_file... OK
+  Applying wagtailimages.0026_delete_uploadedimage... OK
+  Applying wagtailimages.0027_image_description... OK
+  Applying wagtailredirects.0001_initial... OK
+  Applying wagtailredirects.0002_add_verbose_names... OK
+  Applying wagtailredirects.0003_make_site_field_editable... OK
+  Applying wagtailredirects.0004_set_unique_on_path_and_site... OK
+  Applying wagtailredirects.0005_capitalizeverbose... OK
+  Applying wagtailredirects.0006_redirect_increase_max_length... OK
+  Applying wagtailredirects.0007_add_autocreate_fields... OK
+  Applying wagtailredirects.0008_add_verbose_name_plural... OK
+  Applying wagtailsearch.0001_initial... OK
+  Applying wagtailsearch.0002_add_verbose_names... OK
+  Applying wagtailsearch.0003_remove_editors_pick... OK
+  Applying wagtailsearch.0004_querydailyhits_verbose_name_plural... OK
+  Applying wagtailsearch.0005_create_indexentry... OK
+  Applying wagtailsearch.0006_customise_indexentry... OK
+  Applying wagtailsearch.0007_delete_editorspick... OK
+  Applying wagtailsearch.0008_remove_query_and_querydailyhits_models... OK
+  Applying wagtailsearchpromotions.0001_initial... OK
+  Applying wagtailsearchpromotions.0002_capitalizeverbose... OK
+  Applying wagtailsearchpromotions.0003_query_querydailyhits... OK
+  Applying wagtailsearchpromotions.0004_copy_queries... OK
+  Applying wagtailsearchpromotions.0005_switch_query_model... OK
+  Applying wagtailsearchpromotions.0006_reset_query_sequence... OK
+  Applying wagtailsearchpromotions.0007_searchpromotion_external_link_text_and_more... OK
+  Applying wagtailusers.0001_initial... OK
+  Applying wagtailusers.0002_add_verbose_name_on_userprofile... OK
+  Applying wagtailusers.0003_add_verbose_names... OK
+  Applying wagtailusers.0004_capitalizeverbose... OK
+  Applying wagtailusers.0005_make_related_name_wagtail_specific... OK
+  Applying wagtailusers.0006_userprofile_prefered_language... OK
+  Applying wagtailusers.0007_userprofile_current_time_zone... OK
+  Applying wagtailusers.0008_userprofile_avatar... OK
+  Applying wagtailusers.0009_userprofile_verbose_name_plural... OK
+  Applying wagtailusers.0010_userprofile_updated_comments_notifications... OK
+  Applying wagtailusers.0011_userprofile_dismissibles... OK
+  Applying wagtailusers.0012_userprofile_theme... OK
+  Applying wagtailusers.0013_userprofile_density... OK
+  Applying wagtailusers.0014_userprofile_contrast... OK
+  Applying workflows.0002_workitemcomment_alter_workitemhistory_options_and_more... OK
+  Applying workflows.0003_add_sla_breached_at_index...System check identified some issues:
+
+WARNINGS:
+?: (staticfiles.W004) The directory '/home/ubuntu/rb02-4-test-run/static' in the STATICFILES_DIRS setting does not exist.
+
+System check identified 1 issue (0 silenced).
+test_audit_consent_log (apps.consent.tests.test_govstack_api.AuditAPITests.test_audit_consent_log) ... /usr/local/lib/python3.12/dist-packages/django/core/handlers/base.py:61: UserWarning: No directory at: /home/ubuntu/rb02-4-test-run/staticfiles/
+  mw_instance = middleware(adapted_handler)
+ok
+test_audit_consent_record_detail (apps.consent.tests.test_govstack_api.AuditAPITests.test_audit_consent_record_detail) ... ok
+test_audit_consent_records_list (apps.consent.tests.test_govstack_api.AuditAPITests.test_audit_consent_records_list) ... ok
+test_audit_consent_records_requires_auditor_role (apps.consent.tests.test_govstack_api.AuditAPITests.test_audit_consent_records_requires_auditor_role) ... ok
+test_audit_consent_records_requires_authentication (apps.consent.tests.test_govstack_api.AuditAPITests.test_audit_consent_records_requires_authentication) ... ok
+test_audit_data_agreement_detail (apps.consent.tests.test_govstack_api.AuditAPITests.test_audit_data_agreement_detail) ... ok
+test_audit_data_agreements_list (apps.consent.tests.test_govstack_api.AuditAPITests.test_audit_data_agreements_list) ... ok
+test_malformed_individual_id_returns_400_not_500 (apps.consent.tests.test_govstack_api.AuditConsentLogMalformedFilterTests.test_malformed_individual_id_returns_400_not_500) ... ok
+test_wellformed_nonexistent_individual_id_returns_empty_list (apps.consent.tests.test_govstack_api.AuditConsentLogMalformedFilterTests.test_wellformed_nonexistent_individual_id_returns_empty_list) ... ok
+test_auditor_group_can_list_consent_records (apps.consent.tests.test_govstack_api.AuditEndpointAuthorizationTests.test_auditor_group_can_list_consent_records) ... ok
+test_auditor_group_can_list_data_agreements (apps.consent.tests.test_govstack_api.AuditEndpointAuthorizationTests.test_auditor_group_can_list_data_agreements) ... ok
+test_citizen_cannot_list_audit_consent_records (apps.consent.tests.test_govstack_api.AuditEndpointAuthorizationTests.test_citizen_cannot_list_audit_consent_records) ... ok
+test_citizen_cannot_read_audit_data_agreements (apps.consent.tests.test_govstack_api.AuditEndpointAuthorizationTests.test_citizen_cannot_read_audit_data_agreements) ... ok
+test_staff_can_access_all_audit_endpoints (apps.consent.tests.test_govstack_api.AuditEndpointAuthorizationTests.test_staff_can_access_all_audit_endpoints) ... ok
+test_unauthenticated_gets_401 (apps.consent.tests.test_govstack_api.AuditEndpointAuthorizationTests.test_unauthenticated_gets_401) ... ok
+test_create_data_agreement (apps.consent.tests.test_govstack_api.ConfigDataAgreementTests.test_create_data_agreement)
+NOTE: the request body uses DataAgreementSerializer's actual bound ... ok
+test_create_data_agreement_persists_bilingual_fields (apps.consent.tests.test_govstack_api.ConfigDataAgreementTests.test_create_data_agreement_persists_bilingual_fields)
+Bug 8 fix (MEDIUM): a well-formed request with all bilingual fields ... ok
+test_create_data_agreement_rejects_blank_bilingual_fields (apps.consent.tests.test_govstack_api.ConfigDataAgreementTests.test_create_data_agreement_rejects_blank_bilingual_fields)
+Bug 8 fix (MEDIUM): POST /config/data-agreement/ with a blank or ... ok
+test_delete_data_agreement_deactivates (apps.consent.tests.test_govstack_api.ConfigDataAgreementTests.test_delete_data_agreement_deactivates) ... ok
+test_list_data_agreements (apps.consent.tests.test_govstack_api.ConfigDataAgreementTests.test_list_data_agreements) ... ok
+test_read_data_agreement (apps.consent.tests.test_govstack_api.ConfigDataAgreementTests.test_read_data_agreement) ... ok
+test_update_data_agreement_creates_revision (apps.consent.tests.test_govstack_api.ConfigDataAgreementTests.test_update_data_agreement_creates_revision) ... ok
+test_delete_individual_by_valid_int_pk_returns_200 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_delete_individual_by_valid_int_pk_returns_200) ... ok
+test_delete_individual_malformed_pk_returns_400 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_delete_individual_malformed_pk_returns_400) ... ok
+test_delete_individual_nonexistent_int_pk_returns_404 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_delete_individual_nonexistent_int_pk_returns_404) ... ok
+test_get_individual_by_valid_int_pk_returns_200 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_get_individual_by_valid_int_pk_returns_200) ... ok
+test_get_individual_malformed_pk_returns_400 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_get_individual_malformed_pk_returns_400) ... ok
+test_get_individual_nonexistent_int_pk_returns_404 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_get_individual_nonexistent_int_pk_returns_404) ... ok
+test_put_individual_by_valid_int_pk_returns_200 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_put_individual_by_valid_int_pk_returns_200) ... ok
+test_put_individual_malformed_pk_returns_400 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_put_individual_malformed_pk_returns_400) ... ok
+test_put_individual_nonexistent_int_pk_returns_404 (apps.consent.tests.test_govstack_api.ConfigIndividualDetailTests.test_put_individual_nonexistent_int_pk_returns_404) ... ok
+test_create_policy (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_create_policy) ... ok
+test_create_policy_creates_revision (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_create_policy_creates_revision) ... ok
+test_delete_policy (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_delete_policy) ... ok
+test_list_policies_empty (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_list_policies_empty) ... ok
+test_list_policies_requires_admin (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_list_policies_requires_admin) ... ok
+test_list_policies_requires_auth (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_list_policies_requires_auth) ... ok
+test_list_policy_revisions (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_list_policy_revisions) ... ok
+test_policy_not_found_returns_404 (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_policy_not_found_returns_404) ... ok
+test_read_policy (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_read_policy) ... ok
+test_update_policy_creates_new_revision (apps.consent.tests.test_govstack_api.ConfigPolicyTests.test_update_policy_creates_new_revision) ... ok
+test_create_webhook (apps.consent.tests.test_govstack_api.ConfigWebhookTests.test_create_webhook) ... ok
+test_create_webhook_without_events_succeeds (apps.consent.tests.test_govstack_api.ConfigWebhookTests.test_create_webhook_without_events_succeeds)
+Round 9: spec Webhook schema has NO 'events' property.  The cert harness ... ok
+test_delete_webhook (apps.consent.tests.test_govstack_api.ConfigWebhookTests.test_delete_webhook) ... ok
+test_list_webhooks (apps.consent.tests.test_govstack_api.ConfigWebhookTests.test_list_webhooks) ... ok
+test_update_webhook (apps.consent.tests.test_govstack_api.ConfigWebhookTests.test_update_webhook) ... ok
+test_webhook_response_includes_secret_key (apps.consent.tests.test_govstack_api.ConfigWebhookTests.test_webhook_response_includes_secret_key)
+secretKey is in the GovStack Webhook required schema — must appear in ... ok
+test_all_govstack_views_extend_shared_throttle_base (apps.consent.tests.test_govstack_api.ConsentGovStackThrottleScopeTests.test_all_govstack_views_extend_shared_throttle_base)
+Every class in govstack_views.py ending in "View" (except the base ... ok
+test_representative_views_use_govstack_bb_scope (apps.consent.tests.test_govstack_api.ConsentGovStackThrottleScopeTests.test_representative_views_use_govstack_bb_scope)
+Spot-check one view from each of the 3 GovStack namespaces ... ok
+test_settings_govstack_bb_rate_is_configured (apps.consent.tests.test_govstack_api.ConsentGovStackThrottleScopeTests.test_settings_govstack_bb_rate_is_configured) ... ok
+test_cannot_sign_another_users_record (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_cannot_sign_another_users_record) ... ok
+test_create_signature (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature) ... ok
+test_create_signature_accepts_flat_body (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature_accepts_flat_body) ... ok
+test_create_signature_duplicate_returns_400 (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature_duplicate_returns_400) ... ok
+test_create_signature_missing_required_field_returns_400 (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature_missing_required_field_returns_400) ... ok
+test_create_signature_missing_signature_field_returns_400 (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature_missing_signature_field_returns_400) ... ok
+test_create_signature_missing_verification_signed_by_returns_400 (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature_missing_verification_signed_by_returns_400) ... ok
+test_create_signature_persists_caller_signature_verbatim (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature_persists_caller_signature_verbatim) ... ok
+test_create_signature_persists_caller_verification_signed_by_verbatim (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature_persists_caller_verification_signed_by_verbatim) ... ok
+test_create_signature_sets_record_state_signed (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_create_signature_sets_record_state_signed) ... ok
+test_post_consent_record_includes_signature_key (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_post_consent_record_includes_signature_key)
+POST /service/individual/record/consent-record/ must return {consentRecord, revision, signature}. ... ok
+test_signature_requires_auth (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_signature_requires_auth) ... ok
+test_update_signature (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_update_signature) ... ok
+test_update_signature_accepts_flat_body (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_update_signature_accepts_flat_body)
+Bug 6 regression coverage for PUT. ... ok
+test_update_signature_creates_audit_entry (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_update_signature_creates_audit_entry) ... ok
+test_update_signature_creates_revision (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_update_signature_creates_revision) ... ok
+test_update_signature_does_not_overwrite_caller_signature_with_hash (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_update_signature_does_not_overwrite_caller_signature_with_hash)
+Bug 2/3 combined regression: updating unrelated fields (e.g. ... ok
+test_update_signature_when_none_exists_returns_404 (apps.consent.tests.test_govstack_api.ConsentRecordSignatureTests.test_update_signature_when_none_exists_returns_404) ... ok
+test_data_agreement_revision_serialized_snapshot_matches_spec_envelope (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_data_agreement_revision_serialized_snapshot_matches_spec_envelope)
+Same envelope-shape assertion as above, for a DataAgreement revision. ... ok
+test_policy_list_includes_pagination (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_policy_list_includes_pagination)
+ConfigPolicyListView must support offset/limit (F7 fix). ... ok
+test_policy_revision_is_append_only (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_policy_revision_is_append_only) ... ok
+test_policy_revision_serialized_snapshot_matches_spec_envelope (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_policy_revision_serialized_snapshot_matches_spec_envelope)
+GovStack spec (Revision.serializedSnapshot description, bb-consent ... ok
+test_previous_revision_successor_points_to_new (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_previous_revision_successor_points_to_new) ... ok
+test_revision_chain_links_predecessor (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_revision_chain_links_predecessor) ... ok
+test_revision_hash_is_deterministic (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_revision_hash_is_deterministic) ... ok
+test_revision_serialized_snapshot_is_a_string (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_revision_serialized_snapshot_is_a_string)
+GovStack spec: Revision.serializedSnapshot is type: string, not a ... ok
+test_revision_serializer_admin_actor_in_authorized_by_other (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_revision_serializer_admin_actor_in_authorized_by_other)
+F8 fix: admin/org actors go in authorizedByOther, not authorizedByIndividual. ... ok
+test_revision_serializer_includes_predecessor_signature (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_revision_serializer_includes_predecessor_signature)
+RevisionSerializer must expose predecessorSignature (F7/Round-6 fix). ... ok
+test_revision_serializer_includes_signed_without_object_id (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_revision_serializer_includes_signed_without_object_id)
+RevisionSerializer must expose signedWithoutObjectId (F7/Round-6 fix). ... ok
+test_revision_serializer_includes_successor (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_revision_serializer_includes_successor)
+RevisionSerializer must expose successor (F2a fix). ... ok
+test_revision_serializer_serializedsnapshot_string_reflects_envelope (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_revision_serializer_serializedsnapshot_string_reflects_envelope)
+RevisionSerializer.get_serializedSnapshot() must keep serializing ... ok
+test_snapshot_does_not_contain_predecessor_hash_key (apps.consent.tests.test_govstack_api.ConsentRevisionTests.test_snapshot_does_not_contain_predecessor_hash_key)
+serializedSnapshot must be a clean object snapshot — no _predecessor_hash (F2b fix). ... ok
+test_repost_cannot_backdate_timestamp_without_leaving_a_trail (apps.consent.tests.test_govstack_api.CreateEndpointSignatureAuditTests.test_repost_cannot_backdate_timestamp_without_leaving_a_trail)
+The mutation itself (rewriting timestamp) is still allowed — this BB ... ok
+test_repost_with_signature_creates_audit_entry (apps.consent.tests.test_govstack_api.CreateEndpointSignatureAuditTests.test_repost_with_signature_creates_audit_entry) ... ok
+test_repost_with_signature_for_already_granted_category_creates_revision (apps.consent.tests.test_govstack_api.CreateEndpointSignatureAuditTests.test_repost_with_signature_for_already_granted_category_creates_revision) ... ok
+test_all_accessible_by_any_authenticated_individual (apps.consent.tests.test_govstack_api.DataAgreementAllConsentRecordsTests.test_all_accessible_by_any_authenticated_individual) ... ok
+test_all_citizen2_sees_only_own_record (apps.consent.tests.test_govstack_api.DataAgreementAllConsentRecordsTests.test_all_citizen2_sees_only_own_record) ... ok
+test_all_nonexistent_da_returns_404 (apps.consent.tests.test_govstack_api.DataAgreementAllConsentRecordsTests.test_all_nonexistent_da_returns_404) ... ok
+test_all_pagination (apps.consent.tests.test_govstack_api.DataAgreementAllConsentRecordsTests.test_all_pagination) ... ok
+test_all_requires_auth (apps.consent.tests.test_govstack_api.DataAgreementAllConsentRecordsTests.test_all_requires_auth) ... ok
+test_all_response_includes_total (apps.consent.tests.test_govstack_api.DataAgreementAllConsentRecordsTests.test_all_response_includes_total)
+Pagination envelope standardization: this endpoint must include ... ok
+test_all_returns_only_own_records (apps.consent.tests.test_govstack_api.DataAgreementAllConsentRecordsTests.test_all_returns_only_own_records) ... ok
+test_audit_consent_record_detail_malformed_uuid_returns_400 (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_audit_consent_record_detail_malformed_uuid_returns_400)
+UUID-typed route, audit namespace. ... ok
+test_audit_data_agreement_detail_malformed_int_returns_400 (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_audit_data_agreement_detail_malformed_int_returns_400)
+Integer-typed route, audit namespace. ... ok
+test_config_data_agreement_detail_invalid_id_literal_returns_400 (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_config_data_agreement_detail_invalid_id_literal_returns_400)
+Locks in the upstream bb-consent Gherkin harness's ... ok
+test_config_data_agreement_detail_valid_but_nonexistent_id_still_404s (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_config_data_agreement_detail_valid_but_nonexistent_id_still_404s)
+Sanity check: a well-formed but nonexistent int ID must still 404 ... ok
+test_config_data_agreement_detail_wire_encoded_garbage_id_returns_400 (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_config_data_agreement_detail_wire_encoded_garbage_id_returns_400)
+Same harness scenario, second malformed value: dataAgreementId = ... ok
+test_config_policy_detail_malformed_uuid_returns_400 (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_config_policy_detail_malformed_uuid_returns_400)
+UUID-typed route, config namespace. ... ok
+test_config_webhook_detail_malformed_uuid_returns_400 (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_config_webhook_detail_malformed_uuid_returns_400)
+UUID-typed route, config namespace (webhook). ... ok
+test_service_data_agreement_detail_malformed_int_returns_400 (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_service_data_agreement_detail_malformed_int_returns_400)
+Integer-typed route, service namespace. ... ok
+test_service_individual_record_consent_record_malformed_uuid_returns_400 (apps.consent.tests.test_govstack_api.MalformedPathIdRoutingTests.test_service_individual_record_consent_record_malformed_uuid_returns_400)
+UUID-typed route, service namespace (ConsentRecord). ... ok
+test_config_individuals_list_includes_total (apps.consent.tests.test_govstack_api.PaginationTotalFieldTests.test_config_individuals_list_includes_total) ... ok
+test_config_webhooks_list_includes_total (apps.consent.tests.test_govstack_api.PaginationTotalFieldTests.test_config_webhooks_list_includes_total) ... ok
+test_service_individual_consent_record_list_includes_total (apps.consent.tests.test_govstack_api.PaginationTotalFieldTests.test_service_individual_consent_record_list_includes_total) ... ok
+test_service_individuals_list_includes_total (apps.consent.tests.test_govstack_api.PaginationTotalFieldTests.test_service_individuals_list_includes_total) ... ok
+test_verification_consent_records_list_includes_total (apps.consent.tests.test_govstack_api.PaginationTotalFieldTests.test_verification_consent_records_list_includes_total) ... ok
+test_verification_data_agreements_list_includes_total (apps.consent.tests.test_govstack_api.PaginationTotalFieldTests.test_verification_data_agreements_list_includes_total) ... ok
+test_config_policy_detail_malformed_revision_id_returns_400_not_500 (apps.consent.tests.test_govstack_api.PolicyDetailMalformedRevisionIdTests.test_config_policy_detail_malformed_revision_id_returns_400_not_500) ... ok
+test_config_policy_detail_wellformed_nonexistent_revision_id_still_404 (apps.consent.tests.test_govstack_api.PolicyDetailMalformedRevisionIdTests.test_config_policy_detail_wellformed_nonexistent_revision_id_still_404)
+Preserve pre-fix behavior for a well-formed-but-nonexistent UUID ... ok
+test_service_policy_detail_malformed_revision_id_returns_400_not_500 (apps.consent.tests.test_govstack_api.PolicyDetailMalformedRevisionIdTests.test_service_policy_detail_malformed_revision_id_returns_400_not_500) ... ok
+test_service_policy_detail_wellformed_nonexistent_revision_id_returns_404 (apps.consent.tests.test_govstack_api.PolicyDetailMalformedRevisionIdTests.test_service_policy_detail_wellformed_nonexistent_revision_id_returns_404) ... ok
+test_create_data_agreement_writes_audit_entry (apps.consent.tests.test_govstack_api.Round2PolicyDataAgreementAuditTests.test_create_data_agreement_writes_audit_entry) ... ok
+test_create_policy_writes_audit_entry (apps.consent.tests.test_govstack_api.Round2PolicyDataAgreementAuditTests.test_create_policy_writes_audit_entry) ... ok
+test_data_agreement_update_shows_up_in_audit_consent_log (apps.consent.tests.test_govstack_api.Round2PolicyDataAgreementAuditTests.test_data_agreement_update_shows_up_in_audit_consent_log) ... ok
+test_policy_creation_shows_up_in_audit_consent_log (apps.consent.tests.test_govstack_api.Round2PolicyDataAgreementAuditTests.test_policy_creation_shows_up_in_audit_consent_log)
+AuditConsentLogView's own docstring claims GovStack Sec 6.3 ... ok
+test_update_data_agreement_writes_audit_entry (apps.consent.tests.test_govstack_api.Round2PolicyDataAgreementAuditTests.test_update_data_agreement_writes_audit_entry) ... ok
+test_update_policy_writes_audit_entry (apps.consent.tests.test_govstack_api.Round2PolicyDataAgreementAuditTests.test_update_policy_writes_audit_entry) ... ok
+test_create_webhook_writes_audit_entry (apps.consent.tests.test_govstack_api.Round2WebhookAuditTests.test_create_webhook_writes_audit_entry) ... ok
+test_delete_webhook_writes_audit_entry (apps.consent.tests.test_govstack_api.Round2WebhookAuditTests.test_delete_webhook_writes_audit_entry) ... ok
+test_update_webhook_writes_audit_entry (apps.consent.tests.test_govstack_api.Round2WebhookAuditTests.test_update_webhook_writes_audit_entry) ... ok
+test_grant_idempotent_updates_signature (apps.consent.tests.test_govstack_api.Round9GrantAutoSignatureTests.test_grant_idempotent_updates_signature)
+Calling grant() twice on the same record must not raise an error. ... ok
+test_grant_service_creates_consent_signature_record (apps.consent.tests.test_govstack_api.Round9GrantAutoSignatureTests.test_grant_service_creates_consent_signature_record)
+ConsentService.grant() must persist a ConsentSignature row. ... ok
+test_grant_signature_has_string_verification_type (apps.consent.tests.test_govstack_api.Round9GrantAutoSignatureTests.test_grant_signature_has_string_verification_type)
+Auto-created signature must use verificationMethod='string'. ... ok
+test_grant_via_service_api_returns_non_null_signature (apps.consent.tests.test_govstack_api.Round9GrantAutoSignatureTests.test_grant_via_service_api_returns_non_null_signature)
+POST consent-record must return signature != null (Round 9 / F9 fix). ... ok
+test_rtbf_does_not_delete_required_forgettable_records (apps.consent.tests.test_govstack_api.Round9RTBFRequiredGuardTests.test_rtbf_does_not_delete_required_forgettable_records)
+A category with both is_required=True and forgettable=True must NOT be deleted by RTBF. ... ok
+test_policy_detail_with_invalid_revision_id_returns_404 (apps.consent.tests.test_govstack_api.Round9RevisionIdParamTests.test_policy_detail_with_invalid_revision_id_returns_404)
+Non-existent revisionId → 404. ... ok
+test_policy_detail_with_revision_id_returns_specific_revision (apps.consent.tests.test_govstack_api.Round9RevisionIdParamTests.test_policy_detail_with_revision_id_returns_specific_revision)
+?revisionId=<rev1_id> → returns rev1, not the latest. ... ok
+test_policy_detail_without_revision_id_returns_latest (apps.consent.tests.test_govstack_api.Round9RevisionIdParamTests.test_policy_detail_without_revision_id_returns_latest)
+No ?revisionId → latest revision (successor=None). ... ok
+test_create_webhook_with_disabled_false_creates_active_webhook (apps.consent.tests.test_govstack_api.Round9WebhookDisabledFieldTests.test_create_webhook_with_disabled_false_creates_active_webhook)
+disabled=false must create an active webhook. ... ok
+test_create_webhook_with_disabled_true_creates_disabled_webhook (apps.consent.tests.test_govstack_api.Round9WebhookDisabledFieldTests.test_create_webhook_with_disabled_true_creates_disabled_webhook)
+Spec-minimal payload with disabled=true must create an is_disabled=True webhook. ... ok
+test_update_webhook_with_disabled_field (apps.consent.tests.test_govstack_api.Round9WebhookDisabledFieldTests.test_update_webhook_with_disabled_field)
+PUT with disabled=true must disable the webhook. ... ok
+test_draft_individual_and_data_agreement_are_ids_not_objects (apps.consent.tests.test_govstack_api.ServiceConsentRecordDraftTests.test_draft_individual_and_data_agreement_are_ids_not_objects)
+Round 9: spec ConsentRecord.individual and .dataAgreement use x-fk-model — ... ok
+test_draft_missing_agreement_id_returns_400 (apps.consent.tests.test_govstack_api.ServiceConsentRecordDraftTests.test_draft_missing_agreement_id_returns_400) ... ok
+test_draft_missing_individual_id_returns_400 (apps.consent.tests.test_govstack_api.ServiceConsentRecordDraftTests.test_draft_missing_individual_id_returns_400)
+individualId is now required (F14 fix). ... ok
+test_draft_returns_unsigned_record (apps.consent.tests.test_govstack_api.ServiceConsentRecordDraftTests.test_draft_returns_unsigned_record) ... ok
+test_draft_signature_stub_has_all_required_fields (apps.consent.tests.test_govstack_api.ServiceConsentRecordDraftTests.test_draft_signature_stub_has_all_required_fields)
+Draft response signature stub must include all 8 GovStack Signature schema required fields (F4/Round-6 fix). ... ok
+test_consent_record_requires_auth (apps.consent.tests.test_govstack_api.ServiceConsentRecordTests.test_consent_record_requires_auth) ... ok
+test_delete_on_consent_record_detail_returns_405 (apps.consent.tests.test_govstack_api.ServiceConsentRecordTests.test_delete_on_consent_record_detail_returns_405)
+GovStack spec has NO DELETE on /service/individual/record/consent-record/{id}/. ... ok
+test_get_consent_record_is_read_only_and_does_not_call_boundary (apps.consent.tests.test_govstack_api.ServiceConsentRecordTests.test_get_consent_record_is_read_only_and_does_not_call_boundary)
+Repeated mounted GETs must not mutate consent state or cross the boundary. ... ok
+test_grant_consent_via_service_api (apps.consent.tests.test_govstack_api.ServiceConsentRecordTests.test_grant_consent_via_service_api) ... ok
+test_grant_invalid_agreement_returns_400 (apps.consent.tests.test_govstack_api.ServiceConsentRecordTests.test_grant_invalid_agreement_returns_400) ... ok
+test_list_consent_records_empty (apps.consent.tests.test_govstack_api.ServiceConsentRecordTests.test_list_consent_records_empty) ... ok
+test_withdraw_consent_via_service_api (apps.consent.tests.test_govstack_api.ServiceConsentRecordTests.test_withdraw_consent_via_service_api) ... ok
+test_create_consent_record_by_da_id (apps.consent.tests.test_govstack_api.ServiceDataAgreementConsentRecordTests.test_create_consent_record_by_da_id) ... ok
+test_read_consent_record_by_da_id (apps.consent.tests.test_govstack_api.ServiceDataAgreementConsentRecordTests.test_read_consent_record_by_da_id) ... ok
+test_read_nonexistent_consent_record_returns_404 (apps.consent.tests.test_govstack_api.ServiceDataAgreementConsentRecordTests.test_read_nonexistent_consent_record_returns_404) ... ok
+test_current_record_get_has_bounded_malformed_and_not_found_errors (apps.consent.tests.test_govstack_api.ServiceDataAgreementCurrentConsentRecordParityTests.test_current_record_get_has_bounded_malformed_and_not_found_errors) ... ok
+test_current_record_get_is_read_only_and_never_calls_external_boundary (apps.consent.tests.test_govstack_api.ServiceDataAgreementCurrentConsentRecordParityTests.test_current_record_get_is_read_only_and_never_calls_external_boundary) ... ok
+test_current_record_get_is_scoped_to_authenticated_citizen_and_category (apps.consent.tests.test_govstack_api.ServiceDataAgreementCurrentConsentRecordParityTests.test_current_record_get_is_scoped_to_authenticated_citizen_and_category) ... ok
+test_current_record_get_matches_exact_existing_serializer_allowlist (apps.consent.tests.test_govstack_api.ServiceDataAgreementCurrentConsentRecordParityTests.test_current_record_get_matches_exact_existing_serializer_allowlist) ... ok
+test_current_record_get_requires_authentication (apps.consent.tests.test_govstack_api.ServiceDataAgreementCurrentConsentRecordParityTests.test_current_record_get_requires_authentication) ... ok
+test_current_record_get_returns_only_current_row_not_history (apps.consent.tests.test_govstack_api.ServiceDataAgreementCurrentConsentRecordParityTests.test_current_record_get_returns_only_current_row_not_history) ... ok
+test_admin_get_other_individual_by_valid_int_pk_returns_200 (apps.consent.tests.test_govstack_api.ServiceIndividualDetailTests.test_admin_get_other_individual_by_valid_int_pk_returns_200) ... ok
+test_get_individual_malformed_pk_returns_400 (apps.consent.tests.test_govstack_api.ServiceIndividualDetailTests.test_get_individual_malformed_pk_returns_400) ... ok
+test_get_individual_nonexistent_int_pk_returns_404 (apps.consent.tests.test_govstack_api.ServiceIndividualDetailTests.test_get_individual_nonexistent_int_pk_returns_404) ... ok
+test_get_own_individual_by_valid_int_pk_returns_200 (apps.consent.tests.test_govstack_api.ServiceIndividualDetailTests.test_get_own_individual_by_valid_int_pk_returns_200) ... ok
+test_put_individual_malformed_pk_returns_400 (apps.consent.tests.test_govstack_api.ServiceIndividualDetailTests.test_put_individual_malformed_pk_returns_400) ... ok
+test_put_individual_nonexistent_int_pk_by_admin_returns_404 (apps.consent.tests.test_govstack_api.ServiceIndividualDetailTests.test_put_individual_nonexistent_int_pk_by_admin_returns_404) ... ok
+test_put_own_individual_by_valid_int_pk_returns_200 (apps.consent.tests.test_govstack_api.ServiceIndividualDetailTests.test_put_own_individual_by_valid_int_pk_returns_200) ... ok
+test_individual_response_includes_identity_provider_id (apps.consent.tests.test_govstack_api.ServiceIndividualTests.test_individual_response_includes_identity_provider_id)
+identityProviderId is now a spec-required field (F9 fix). ... ok
+test_list_individuals_as_admin_returns_array (apps.consent.tests.test_govstack_api.ServiceIndividualTests.test_list_individuals_as_admin_returns_array)
+Staff see all individuals as an array under 'individuals' key (F6 fix). ... ok
+test_list_individuals_as_citizen_returns_array (apps.consent.tests.test_govstack_api.ServiceIndividualTests.test_list_individuals_as_citizen_returns_array)
+Non-staff also get the plural 'individuals' array (not singular 'individual'). ... ok
+test_list_individuals_requires_auth (apps.consent.tests.test_govstack_api.ServiceIndividualTests.test_list_individuals_requires_auth) ... ok
+test_rtbf_deletes_forgettable_records (apps.consent.tests.test_govstack_api.ServiceRightToBeForgottenTests.test_rtbf_deletes_forgettable_records) ... ok
+test_rtbf_requires_auth (apps.consent.tests.test_govstack_api.ServiceRightToBeForgottenTests.test_rtbf_requires_auth) ... ok
+test_rtbf_retains_non_forgettable_records (apps.consent.tests.test_govstack_api.ServiceRightToBeForgottenTests.test_rtbf_retains_non_forgettable_records) ... ok
+test_rtbf_writes_audit_entry (apps.consent.tests.test_govstack_api.ServiceRightToBeForgottenTests.test_rtbf_writes_audit_entry) ... ok
+test_malformed_data_agreement_id_returns_400_not_500 (apps.consent.tests.test_govstack_api.ServiceVerificationConsentRecordsMalformedFilterTests.test_malformed_data_agreement_id_returns_400_not_500) ... ok
+test_malformed_individual_id_returns_400_not_500 (apps.consent.tests.test_govstack_api.ServiceVerificationConsentRecordsMalformedFilterTests.test_malformed_individual_id_returns_400_not_500) ... ok
+test_wellformed_nonexistent_data_agreement_id_returns_empty_list (apps.consent.tests.test_govstack_api.ServiceVerificationConsentRecordsMalformedFilterTests.test_wellformed_nonexistent_data_agreement_id_returns_empty_list) ... ok
+test_wellformed_nonexistent_individual_id_returns_empty_list (apps.consent.tests.test_govstack_api.ServiceVerificationConsentRecordsMalformedFilterTests.test_wellformed_nonexistent_individual_id_returns_empty_list)
+A syntactically valid but nonexistent integer individualId must ... ok
+test_verification_consent_record_detail (apps.consent.tests.test_govstack_api.ServiceVerificationTests.test_verification_consent_record_detail)
+Consumer can read a single consent record for verification. ... ok
+test_verification_consent_record_detail_requires_consumer_scope (apps.consent.tests.test_govstack_api.ServiceVerificationTests.test_verification_consent_record_detail_requires_consumer_scope)
+Plain citizen must receive 403 on verification detail endpoint. ... ok
+test_verification_consent_records_requires_consumer_scope (apps.consent.tests.test_govstack_api.ServiceVerificationTests.test_verification_consent_records_requires_consumer_scope)
+Plain citizen must receive 403 on verification list endpoint. ... ok
+test_verification_consent_records_returns_granted (apps.consent.tests.test_govstack_api.ServiceVerificationTests.test_verification_consent_records_returns_granted)
+Consumer can query granted consent records. ... ok
+test_verification_data_agreements_list (apps.consent.tests.test_govstack_api.ServiceVerificationTests.test_verification_data_agreements_list)
+Consumer can list data agreements for verification. ... ok
+test_verification_data_agreements_requires_consumer_scope (apps.consent.tests.test_govstack_api.ServiceVerificationTests.test_verification_data_agreements_requires_consumer_scope)
+Plain citizen (not in data_consumers) must receive 403. ... ok
+test_verification_filter_by_individual (apps.consent.tests.test_govstack_api.ServiceVerificationTests.test_verification_filter_by_individual)
+Staff/admin can filter verification results by individual. ... ok
+test_citizen_a_cannot_access_citizen_b_export_detail (apps.consent.tests.test_api.CitizenIsolationAPITests.test_citizen_a_cannot_access_citizen_b_export_detail) ... ok
+test_citizen_a_cannot_see_citizen_b_consent_records (apps.consent.tests.test_api.CitizenIsolationAPITests.test_citizen_a_cannot_see_citizen_b_consent_records) ... ok
+test_citizen_a_cannot_see_citizen_b_exports (apps.consent.tests.test_api.CitizenIsolationAPITests.test_citizen_a_cannot_see_citizen_b_exports) ... ok
+test_excludes_inactive_categories (apps.consent.tests.test_api.ConsentCategoryListAPITests.test_excludes_inactive_categories) ... ok
+test_response_fields_present (apps.consent.tests.test_api.ConsentCategoryListAPITests.test_response_fields_present) ... ok
+test_returns_active_categories_authenticated (apps.consent.tests.test_api.ConsentCategoryListAPITests.test_returns_active_categories_authenticated) ... ok
+test_unauthenticated_returns_401 (apps.consent.tests.test_api.ConsentCategoryListAPITests.test_unauthenticated_returns_401) ... ok
+test_empty_list_for_new_citizen (apps.consent.tests.test_api.ConsentRecordListAPITests.test_empty_list_for_new_citizen) ... ok
+test_idor_cannot_see_other_citizens_records (apps.consent.tests.test_api.ConsentRecordListAPITests.test_idor_cannot_see_other_citizens_records) ... ok
+test_record_fields_present (apps.consent.tests.test_api.ConsentRecordListAPITests.test_record_fields_present) ... ok
+test_returns_own_records (apps.consent.tests.test_api.ConsentRecordListAPITests.test_returns_own_records) ... ok
+test_unauthenticated_returns_401 (apps.consent.tests.test_api.ConsentRecordListAPITests.test_unauthenticated_returns_401) ... ok
+test_grant_action_updates_status (apps.consent.tests.test_api.ConsentRecordUpdateAPITests.test_grant_action_updates_status) ... ok
+test_invalid_action_returns_400 (apps.consent.tests.test_api.ConsentRecordUpdateAPITests.test_invalid_action_returns_400) ... ok
+test_missing_action_returns_400 (apps.consent.tests.test_api.ConsentRecordUpdateAPITests.test_missing_action_returns_400) ... ok
+test_unauthenticated_returns_401 (apps.consent.tests.test_api.ConsentRecordUpdateAPITests.test_unauthenticated_returns_401) ... ok
+test_unknown_category_returns_400 (apps.consent.tests.test_api.ConsentRecordUpdateAPITests.test_unknown_category_returns_400) ... ok
+test_withdraw_action_updates_status (apps.consent.tests.test_api.ConsentRecordUpdateAPITests.test_withdraw_action_updates_status) ... ok
+test_withdraw_required_category_returns_400 (apps.consent.tests.test_api.ConsentRecordUpdateAPITests.test_withdraw_required_category_returns_400) ... ok
+test_export_response_fields (apps.consent.tests.test_api.DataExportRequestAPITests.test_export_response_fields) ... ok
+test_get_detail_other_citizens_request_returns_404 (apps.consent.tests.test_api.DataExportRequestAPITests.test_get_detail_other_citizens_request_returns_404) ... ok
+test_get_detail_own_request (apps.consent.tests.test_api.DataExportRequestAPITests.test_get_detail_own_request) ... ok
+test_get_returns_own_exports (apps.consent.tests.test_api.DataExportRequestAPITests.test_get_returns_own_exports) ... ok
+test_get_unauthenticated_returns_401 (apps.consent.tests.test_api.DataExportRequestAPITests.test_get_unauthenticated_returns_401) ... ok
+test_post_creates_export_request (apps.consent.tests.test_api.DataExportRequestAPITests.test_post_creates_export_request) ... ok
+test_post_second_request_while_pending_returns_400 (apps.consent.tests.test_api.DataExportRequestAPITests.test_post_second_request_while_pending_returns_400) ... ok
+test_post_unauthenticated_returns_401 (apps.consent.tests.test_api.DataExportRequestAPITests.test_post_unauthenticated_returns_401) ... ok
+test_returns_only_active_categories (apps.consent.tests.test_services.ConsentServiceGetActiveCategoriesTests.test_returns_only_active_categories) ... ok
+test_returns_all_categories_for_citizen (apps.consent.tests.test_services.ConsentServiceGetCitizenConsentsTests.test_returns_all_categories_for_citizen) ... ok
+test_returns_empty_queryset_for_new_citizen (apps.consent.tests.test_services.ConsentServiceGetCitizenConsentsTests.test_returns_empty_queryset_for_new_citizen) ... ok
+test_returns_only_this_citizens_records (apps.consent.tests.test_services.ConsentServiceGetCitizenConsentsTests.test_returns_only_this_citizens_records) ... ok
+test_returns_all_exports_for_citizen (apps.consent.tests.test_services.ConsentServiceGetCitizenExportsTests.test_returns_all_exports_for_citizen) ... ok
+test_returns_empty_for_new_citizen (apps.consent.tests.test_services.ConsentServiceGetCitizenExportsTests.test_returns_empty_for_new_citizen) ... ok
+test_returns_only_this_citizens_exports (apps.consent.tests.test_services.ConsentServiceGetCitizenExportsTests.test_returns_only_this_citizens_exports) ... ok
+test_grant_with_specific_revision_uses_that_revision (apps.consent.tests.test_services.ConsentServiceGrantRevisionTests.test_grant_with_specific_revision_uses_that_revision)
+H-02 fix: when a revision is supplied to grant(), it is used not discarded. ... ok
+test_grant_withdraw_regrant_withdraw_returns_false (apps.consent.tests.test_services.ConsentServiceGrantRevisionTests.test_grant_withdraw_regrant_withdraw_returns_false) ... ok
+test_grant_creates_record_with_granted_status (apps.consent.tests.test_services.ConsentServiceGrantTests.test_grant_creates_record_with_granted_status) ... ok
+test_grant_idempotent_does_not_create_duplicate_audit_entry (apps.consent.tests.test_services.ConsentServiceGrantTests.test_grant_idempotent_does_not_create_duplicate_audit_entry) ... ok
+test_grant_idempotent_does_not_create_duplicate_records (apps.consent.tests.test_services.ConsentServiceGrantTests.test_grant_idempotent_does_not_create_duplicate_records) ... ok
+test_grant_inactive_category_raises_value_error (apps.consent.tests.test_services.ConsentServiceGrantTests.test_grant_inactive_category_raises_value_error) ... ok
+test_grant_logs_audit_entry (apps.consent.tests.test_services.ConsentServiceGrantTests.test_grant_logs_audit_entry) ... ok
+test_grant_re_grants_withdrawn_consent (apps.consent.tests.test_services.ConsentServiceGrantTests.test_grant_re_grants_withdrawn_consent) ... ok
+test_grant_returns_consent_record_instance (apps.consent.tests.test_services.ConsentServiceGrantTests.test_grant_returns_consent_record_instance) ... ok
+test_grant_unknown_slug_raises_value_error (apps.consent.tests.test_services.ConsentServiceGrantTests.test_grant_unknown_slug_raises_value_error) ... ok
+test_returns_false_for_different_citizen (apps.consent.tests.test_services.ConsentServiceHasConsentTests.test_returns_false_for_different_citizen) ... ok
+test_returns_false_when_no_record (apps.consent.tests.test_services.ConsentServiceHasConsentTests.test_returns_false_when_no_record) ... ok
+test_returns_false_when_withdrawn (apps.consent.tests.test_services.ConsentServiceHasConsentTests.test_returns_false_when_withdrawn) ... ok
+test_returns_true_when_granted (apps.consent.tests.test_services.ConsentServiceHasConsentTests.test_returns_true_when_granted) ... ok
+test_can_create_new_export_after_ready (apps.consent.tests.test_services.ConsentServiceRequestExportTests.test_can_create_new_export_after_ready) ... ok
+test_creates_audit_entry_for_export (apps.consent.tests.test_services.ConsentServiceRequestExportTests.test_creates_audit_entry_for_export) ... ok
+test_creates_data_export_request (apps.consent.tests.test_services.ConsentServiceRequestExportTests.test_creates_data_export_request) ... ok
+test_duplicate_pending_request_raises_value_error (apps.consent.tests.test_services.ConsentServiceRequestExportTests.test_duplicate_pending_request_raises_value_error) ... ok
+test_duplicate_processing_request_raises_value_error (apps.consent.tests.test_services.ConsentServiceRequestExportTests.test_duplicate_processing_request_raises_value_error) ... ok
+test_queues_celery_task_on_commit (apps.consent.tests.test_services.ConsentServiceRequestExportTests.test_queues_celery_task_on_commit) ... ok
+test_withdraw_logs_audit_entry (apps.consent.tests.test_services.ConsentServiceWithdrawTests.test_withdraw_logs_audit_entry) ... ok
+test_withdraw_nonexistent_record_raises_value_error (apps.consent.tests.test_services.ConsentServiceWithdrawTests.test_withdraw_nonexistent_record_raises_value_error) ... ok
+test_withdraw_required_category_raises_value_error (apps.consent.tests.test_services.ConsentServiceWithdrawTests.test_withdraw_required_category_raises_value_error) ... ok
+test_withdraw_sets_status_withdrawn (apps.consent.tests.test_services.ConsentServiceWithdrawTests.test_withdraw_sets_status_withdrawn) ... ok
+test_withdraw_sets_withdrawn_at (apps.consent.tests.test_services.ConsentServiceWithdrawTests.test_withdraw_sets_withdrawn_at) ... ok
+test_withdraw_unknown_slug_raises_value_error (apps.consent.tests.test_services.ConsentServiceWithdrawTests.test_withdraw_unknown_slug_raises_value_error) ... ok
+test_recovers_by_refetching_winning_row_on_current_consent_race (apps.consent.tests.test_services.GrantIntegrityErrorRecoveryTests.test_recovers_by_refetching_winning_row_on_current_consent_race)
+Simulates the real concurrent scenario without needing real threads ... ok
+test_unrelated_integrity_error_is_not_swallowed (apps.consent.tests.test_services.GrantIntegrityErrorRecoveryTests.test_unrelated_integrity_error_is_not_swallowed)
+An IntegrityError NOT caused by the current-consent-race constraint ... ok
+test_returns_false_after_withdrawal (apps.consent.tests.test_services.HasConsentFixTests.test_returns_false_after_withdrawal)
+After withdrawal, stale historical granted row must not produce True. ... ok
+test_returns_false_for_unknown_category (apps.consent.tests.test_services.HasConsentFixTests.test_returns_false_for_unknown_category) ... ok
+test_returns_true_for_required_category_without_record (apps.consent.tests.test_services.HasConsentFixTests.test_returns_true_for_required_category_without_record) ... ok
+test_returns_true_when_granted (apps.consent.tests.test_services.HasConsentFixTests.test_returns_true_when_granted) ... ok
+test_non_pii_fields_are_left_untouched_by_rtbf_redaction (apps.consent.tests.test_services.RightToBeForgottenRevisionRedactionTests.test_non_pii_fields_are_left_untouched_by_rtbf_redaction) ... ok
+test_revisions_for_deleted_record_are_redacted_not_deleted (apps.consent.tests.test_services.RightToBeForgottenRevisionRedactionTests.test_revisions_for_deleted_record_are_redacted_not_deleted) ... ok
+test_revisions_for_required_non_forgettable_record_are_untouched (apps.consent.tests.test_services.RightToBeForgottenRevisionRedactionTests.test_revisions_for_required_non_forgettable_record_are_untouched)
+A required category's record is never deleted by RTBF (is_required=False ... ok
+test_rtbf_with_no_forgettable_records_does_not_touch_any_revision (apps.consent.tests.test_services.RightToBeForgottenRevisionRedactionTests.test_rtbf_with_no_forgettable_records_does_not_touch_any_revision)
+No forgettable records at all — right_to_be_forgotten() must be a no-op ... ok
+test_attach_signature_locks_consent_record_row (apps.consent.tests.test_services.SignatureLockingTests.test_attach_signature_locks_consent_record_row) ... ok
+test_update_signature_locks_consent_record_and_signature_rows (apps.consent.tests.test_services.SignatureLockingTests.test_update_signature_locks_consent_record_and_signature_rows) ... ok
+test_actor_nullable (apps.consent.tests.test_models.ConsentAuditEntryModelTests.test_actor_nullable) ... ok
+test_category_nullable (apps.consent.tests.test_models.ConsentAuditEntryModelTests.test_category_nullable) ... ok
+test_create_audit_entry (apps.consent.tests.test_models.ConsentAuditEntryModelTests.test_create_audit_entry) ... ok
+test_details_defaults_to_empty_dict (apps.consent.tests.test_models.ConsentAuditEntryModelTests.test_details_defaults_to_empty_dict) ... ok
+test_export_request_nullable (apps.consent.tests.test_models.ConsentAuditEntryModelTests.test_export_request_nullable) ... ok
+test_str_representation (apps.consent.tests.test_models.ConsentAuditEntryModelTests.test_str_representation) ... ok
+test_timestamp_set_on_creation (apps.consent.tests.test_models.ConsentAuditEntryModelTests.test_timestamp_set_on_creation) ... ok
+test_create_basic_category (apps.consent.tests.test_models.ConsentCategoryModelTests.test_create_basic_category) ... ok
+test_default_sort_order_zero (apps.consent.tests.test_models.ConsentCategoryModelTests.test_default_sort_order_zero) ... ok
+test_inactive_category (apps.consent.tests.test_models.ConsentCategoryModelTests.test_inactive_category) ... ok
+test_optional_category (apps.consent.tests.test_models.ConsentCategoryModelTests.test_optional_category) ... ok
+test_ordering_by_sort_order_then_slug (apps.consent.tests.test_models.ConsentCategoryModelTests.test_ordering_by_sort_order_then_slug) ... ok
+test_required_category (apps.consent.tests.test_models.ConsentCategoryModelTests.test_required_category) ... ok
+test_slug_is_unique (apps.consent.tests.test_models.ConsentCategoryModelTests.test_slug_is_unique) ... ok
+test_str_returns_name_en (apps.consent.tests.test_models.ConsentCategoryModelTests.test_str_returns_name_en) ... ok
+test_create_consent_record (apps.consent.tests.test_models.ConsentRecordModelTests.test_create_consent_record) ... ok
+test_default_source_is_web (apps.consent.tests.test_models.ConsentRecordModelTests.test_default_source_is_web) ... ok
+test_granted_at_can_be_set (apps.consent.tests.test_models.ConsentRecordModelTests.test_granted_at_can_be_set) ... ok
+test_is_current_false_rows_do_not_collide (apps.consent.tests.test_models.ConsentRecordModelTests.test_is_current_false_rows_do_not_collide)
+Any number of is_current=False (historical) rows may coexist. ... ok
+test_multiple_records_per_citizen_category_allowed (apps.consent.tests.test_models.ConsentRecordModelTests.test_multiple_records_per_citizen_category_allowed)
+F4 fix: unique_together removed — multiple ConsentRecord rows per ... ok
+test_second_is_current_row_same_citizen_category_raises_integrity_error (apps.consent.tests.test_models.ConsentRecordModelTests.test_second_is_current_row_same_citizen_category_raises_integrity_error)
+Fix 4: unique_current_consent_record_per_citizen_category (a DB-level ... ok
+test_status_constants (apps.consent.tests.test_models.ConsentRecordModelTests.test_status_constants) ... ok
+test_str_representation (apps.consent.tests.test_models.ConsentRecordModelTests.test_str_representation) ... ok
+test_two_citizens_same_category_allowed (apps.consent.tests.test_models.ConsentRecordModelTests.test_two_citizens_same_category_allowed) ... ok
+test_update_status_to_granted (apps.consent.tests.test_models.ConsentRecordModelTests.test_update_status_to_granted) ... ok
+test_update_status_to_withdrawn (apps.consent.tests.test_models.ConsentRecordModelTests.test_update_status_to_withdrawn) ... ok
+test_withdrawn_at_can_be_set (apps.consent.tests.test_models.ConsentRecordModelTests.test_withdrawn_at_can_be_set) ... ok
+test_delete_on_revision_still_raises_after_redact_pii_added (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_delete_on_revision_still_raises_after_redact_pii_added)
+Regression guard: delete() must remain fully blocked, unaffected by redact_pii(). ... ok
+test_plain_save_on_existing_revision_still_raises_append_only_guard (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_plain_save_on_existing_revision_still_raises_append_only_guard)
+REGRESSION GUARD: redact_pii() must be the ONLY sanctioned way to ... ok
+test_plain_save_with_disallowed_update_fields_still_raises (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_plain_save_with_disallowed_update_fields_still_raises)
+Further regression guard: passing update_fields that include the ... ok
+test_redact_pii_leaves_non_pii_fields_untouched (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_redact_pii_leaves_non_pii_fields_untouched)
+schema_name, object_id, serialized_hash, timestamp, predecessor_hash ... ok
+test_redact_pii_nulls_authorized_by_individual (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_redact_pii_nulls_authorized_by_individual) ... ok
+test_redact_pii_on_revision_with_no_authorized_by_individual_is_safe (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_redact_pii_on_revision_with_no_authorized_by_individual_is_safe)
+A revision created with authorized_by=None (e.g. a system/admin ... ok
+test_redact_pii_redacts_envelope_authorized_by_individual_key (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_redact_pii_redacts_envelope_authorized_by_individual_key) ... ok
+test_redact_pii_redacts_object_data_individual_key (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_redact_pii_redacts_object_data_individual_key) ... ok
+test_successor_only_update_still_allowed (apps.consent.tests.test_models.ConsentRevisionRedactPiiTests.test_successor_only_update_still_allowed)
+Regression guard: the pre-existing successor-only save() allowance is unaffected. ... ok
+test_create_export_request (apps.consent.tests.test_models.DataExportRequestModelTests.test_create_export_request) ... ok
+test_default_format_is_json (apps.consent.tests.test_models.DataExportRequestModelTests.test_default_format_is_json) ... ok
+test_default_status_is_pending (apps.consent.tests.test_models.DataExportRequestModelTests.test_default_status_is_pending) ... ok
+test_download_token_is_unique (apps.consent.tests.test_models.DataExportRequestModelTests.test_download_token_is_unique) ... ok
+test_expires_at_nullable (apps.consent.tests.test_models.DataExportRequestModelTests.test_expires_at_nullable) ... ok
+test_ordering_newest_first (apps.consent.tests.test_models.DataExportRequestModelTests.test_ordering_newest_first) ... ok
+test_status_constants (apps.consent.tests.test_models.DataExportRequestModelTests.test_status_constants) ... ok
+test_str_representation (apps.consent.tests.test_models.DataExportRequestModelTests.test_str_representation) ... ok
+test_empty_for_citizen_with_no_consent_records (apps.consent.tests.test_tasks.BuildExportPayloadTests.test_empty_for_citizen_with_no_consent_records) ... ok
+test_import_error_in_optional_section_is_silently_skipped (apps.consent.tests.test_tasks.BuildExportPayloadTests.test_import_error_in_optional_section_is_silently_skipped)
+The genuinely-expected case (an optional app not installed) must NOT ... ok
+test_non_import_error_in_optional_section_is_logged_not_swallowed (apps.consent.tests.test_tasks.BuildExportPayloadTests.test_non_import_error_in_optional_section_is_logged_not_swallowed)
+BUGFIX regression guard: a genuine bug (anything other than ... ok
+test_payload_includes_consent_revisions_for_this_citizen (apps.consent.tests.test_tasks.BuildExportPayloadTests.test_payload_includes_consent_revisions_for_this_citizen)
+grant() creates 2 ConsentRevisions (unsigned, then signed) per call ... ok
+test_payload_includes_consent_signatures_for_this_citizen (apps.consent.tests.test_tasks.BuildExportPayloadTests.test_payload_includes_consent_signatures_for_this_citizen)
+grant() auto-creates exactly one ConsentSignature (services.py Step 5, ... ok
+test_payload_is_json_serializable (apps.consent.tests.test_tasks.BuildExportPayloadTests.test_payload_is_json_serializable)
+The task json.dumps()'s this payload directly — it must not blow up. ... ok
+test_payload_scopes_revisions_and_signatures_to_this_citizen_only (apps.consent.tests.test_tasks.BuildExportPayloadTests.test_payload_scopes_revisions_and_signatures_to_this_citizen_only)
+A second citizen's revisions/signatures must never leak into this one's export. ... ok
+test_creates_audit_entry_with_export_expired_action (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_creates_audit_entry_with_export_expired_action) ... ok
+test_deletes_storage_file (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_deletes_storage_file)
+When a transitory document is linked, mark_purpose_fulfilled is called. ... ok
+test_does_not_affect_not_expired_ready_requests (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_does_not_affect_not_expired_ready_requests) ... ok
+test_does_not_affect_pending_requests (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_does_not_affect_pending_requests) ... ok
+test_does_not_affect_processing_requests (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_does_not_affect_processing_requests) ... ok
+test_mark_purpose_fulfilled_exception_does_not_abort_loop (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_mark_purpose_fulfilled_exception_does_not_abort_loop)
+When mark_purpose_fulfilled() raises for every export in the batch, ... ok
+test_mark_purpose_fulfilled_exception_does_not_block_expiry (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_mark_purpose_fulfilled_exception_does_not_block_expiry)
+When mark_purpose_fulfilled() raises (e.g. a concurrent legal hold was ... ok
+test_marks_expired_ready_requests_as_expired (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_marks_expired_ready_requests_as_expired) ... ok
+test_processes_multiple_expired_exports (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_processes_multiple_expired_exports) ... ok
+test_recent_processing_not_recovered (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_recent_processing_not_recovered)
+A STATUS_PROCESSING request that is only 30 minutes old must NOT be ... ok
+test_result_returns_zero_recovered_when_none_stuck (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_result_returns_zero_recovered_when_none_stuck)
+When no stuck requests exist, recovered_stuck must be 0 in the result. ... ok
+test_returns_count_of_expired (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_returns_count_of_expired) ... ok
+test_skips_disposal_when_no_document (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_skips_disposal_when_no_document)
+When no Document is linked, mark_purpose_fulfilled must not be called. ... ok
+test_stuck_processing_audit_entry_created (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_stuck_processing_audit_entry_created)
+The stuck-recovery path must write a ConsentAuditEntry with ... ok
+test_stuck_processing_recovered_to_failed (apps.consent.tests.test_tasks.CleanupExportFilesTaskTests.test_stuck_processing_recovered_to_failed)
+A STATUS_PROCESSING request older than 2 hours with processed_at=None ... ok
+test_non_2xx_response_marks_failed_without_overwriting_last_payload (apps.consent.tests.test_tasks.DispatchConsentWebhookDeliveryPersistenceTests.test_non_2xx_response_marks_failed_without_overwriting_last_payload) ... ok
+test_successful_delivery_persists_last_payload_and_status (apps.consent.tests.test_tasks.DispatchConsentWebhookDeliveryPersistenceTests.test_successful_delivery_persists_last_payload_and_status) ... ok
+test_webhook_not_found_is_skipped_gracefully (apps.consent.tests.test_tasks.DispatchConsentWebhookDeliveryPersistenceTests.test_webhook_not_found_is_skipped_gracefully) ... ok
+test_disabled_webhook_is_skipped_no_http_call_made (apps.consent.tests.test_tasks.DispatchConsentWebhookDisabledTests.test_disabled_webhook_is_skipped_no_http_call_made) ... ok
+test_enabled_webhook_is_not_skipped (apps.consent.tests.test_tasks.DispatchConsentWebhookDisabledTests.test_enabled_webhook_is_not_skipped) ... ok
+test_network_error_does_not_mark_delivery_failed_without_retry_exhaustion (apps.consent.tests.test_tasks.DispatchConsentWebhookRetryTests.test_network_error_does_not_mark_delivery_failed_without_retry_exhaustion)
+A transient network error must not silently persist ... ok
+test_network_error_triggers_autoretry (apps.consent.tests.test_tasks.DispatchConsentWebhookRetryTests.test_network_error_triggers_autoretry)
+A RequestException from requests.post must be retried per the task's ... ok
+test_hmac_signature_matches_known_payload_and_secret (apps.consent.tests.test_tasks.DispatchConsentWebhookSignatureTests.test_hmac_signature_matches_known_payload_and_secret)
+Independently recompute the HMAC-SHA256 signature the same way a ... ok
+test_signature_header_name_is_configurable (apps.consent.tests.test_tasks.DispatchConsentWebhookSignatureTests.test_signature_header_name_is_configurable)
+A webhook with a custom signature_header must use that header name. ... ok
+test_creates_audit_entry_with_export_ready_action (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_creates_audit_entry_with_export_ready_action) ... ok
+test_email_subject_mentions_export (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_email_subject_mentions_export) ... ok
+test_failure_sets_status_failed (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_failure_sets_status_failed) ... ok
+test_happy_path_sets_status_ready (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_happy_path_sets_status_ready) ... ok
+test_invalid_pk_returns_error_dict (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_invalid_pk_returns_error_dict) ... ok
+test_result_contains_ready_status (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_result_contains_ready_status) ... ok
+test_sends_email_notification (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_sends_email_notification) ... ok
+test_sets_document_or_storage_path (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_sets_document_or_storage_path)
+After a successful export, the export must have a document or a saved path. ... ok
+test_sets_expires_at (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_sets_expires_at) ... ok
+test_sets_processed_at (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_sets_processed_at) ... ok
+test_sets_status_processing_then_ready (apps.consent.tests.test_tasks.ProcessDataExportTaskTests.test_sets_status_processing_then_ready)
+Processing must appear before READY — verified via audit trail. ... ok
+test_3xx_response_is_treated_as_failed_delivery (apps.consent.tests.test_tasks.WebhookDispatchRedirectHandlingTests.test_3xx_response_is_treated_as_failed_delivery) ... ok
+test_allow_redirects_false_is_passed_to_requests_post (apps.consent.tests.test_tasks.WebhookDispatchRedirectHandlingTests.test_allow_redirects_false_is_passed_to_requests_post) ... ok
+test_dns_resolution_failure_is_skipped_without_calling_requests_post (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_dns_resolution_failure_is_skipped_without_calling_requests_post)
+Fails closed: any DNS error must be treated as unsafe, not crash the task. ... ok
+test_link_local_range_ip_is_skipped_without_calling_requests_post (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_link_local_range_ip_is_skipped_without_calling_requests_post) ... ok
+test_loopback_ip_is_skipped_without_calling_requests_post (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_loopback_ip_is_skipped_without_calling_requests_post) ... ok
+test_metadata_ip_is_skipped_without_calling_requests_post (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_metadata_ip_is_skipped_without_calling_requests_post)
+The canonical SSRF target: the cloud metadata endpoint. ... ok
+test_one_unsafe_ip_among_several_resolved_rejects_whole_url (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_one_unsafe_ip_among_several_resolved_rejects_whole_url)
+A hostname with multiple A/AAAA records is unsafe if ANY resolved IP is unsafe. ... ok
+test_plain_http_url_is_skipped_at_dispatch_time_too (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_plain_http_url_is_skipped_at_dispatch_time_too)
+Belt-and-suspenders: even if a non-HTTPS URL somehow made it into the ... ok
+test_private_10_range_ip_is_skipped_without_calling_requests_post (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_private_10_range_ip_is_skipped_without_calling_requests_post) ... ok
+test_public_ip_still_dispatches_successfully (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_public_ip_still_dispatches_successfully)
+A normal public HTTPS URL must still be dispatched (no regression). ... ok
+test_unsafe_url_skip_does_not_raise_or_mark_delivery_failed (apps.consent.tests.test_tasks.WebhookSSRFProtectionTests.test_unsafe_url_skip_does_not_raise_or_mark_delivery_failed)
+Skipping an unsafe URL must not be recorded as a delivery failure — ... ok
+test_malformed_url_is_rejected (apps.consent.tests.test_tasks.WebhookSerializerHttpsValidationTests.test_malformed_url_is_rejected) ... ok
+test_plain_http_url_is_rejected (apps.consent.tests.test_tasks.WebhookSerializerHttpsValidationTests.test_plain_http_url_is_rejected) ... ok
+test_rejection_does_not_persist_a_webhook_row (apps.consent.tests.test_tasks.WebhookSerializerHttpsValidationTests.test_rejection_does_not_persist_a_webhook_row)
+A rejected non-HTTPS registration must never reach the database. ... ok
+test_valid_https_url_is_accepted (apps.consent.tests.test_tasks.WebhookSerializerHttpsValidationTests.test_valid_https_url_is_accepted) ... ok
+test_authenticated_citizen_gets_200 (apps.consent.tests.test_views.ConsentDashboardViewTests.test_authenticated_citizen_gets_200) ... ok
+test_does_not_show_inactive_categories (apps.consent.tests.test_views.ConsentDashboardViewTests.test_does_not_show_inactive_categories) ... ok
+test_requires_login_anon_gets_redirect (apps.consent.tests.test_views.ConsentDashboardViewTests.test_requires_login_anon_gets_redirect) ... ok
+test_shows_active_categories (apps.consent.tests.test_views.ConsentDashboardViewTests.test_shows_active_categories) ... ok
+test_grant_action_creates_consent_record (apps.consent.tests.test_views.ConsentUpdateViewTests.test_grant_action_creates_consent_record) ... ok
+test_invalid_action_shows_error (apps.consent.tests.test_views.ConsentUpdateViewTests.test_invalid_action_shows_error) ... ok
+test_unauthenticated_post_redirects (apps.consent.tests.test_views.ConsentUpdateViewTests.test_unauthenticated_post_redirects) ... ok
+test_withdraw_action_withdraws_consent (apps.consent.tests.test_views.ConsentUpdateViewTests.test_withdraw_action_withdraws_consent) ... ok
+test_withdraw_on_required_category_does_not_withdraw (apps.consent.tests.test_views.ConsentUpdateViewTests.test_withdraw_on_required_category_does_not_withdraw) ... ok
+test_get_required_category_returns_400 (apps.consent.tests.test_views.ConsentWithdrawConfirmViewTests.test_get_required_category_returns_400) ... ok
+test_get_shows_confirmation_page (apps.consent.tests.test_views.ConsentWithdrawConfirmViewTests.test_get_shows_confirmation_page) ... ok
+test_get_unknown_category_returns_404 (apps.consent.tests.test_views.ConsentWithdrawConfirmViewTests.test_get_unknown_category_returns_404) ... ok
+test_post_performs_withdrawal (apps.consent.tests.test_views.ConsentWithdrawConfirmViewTests.test_post_performs_withdrawal) ... ok
+test_post_required_category_returns_400 (apps.consent.tests.test_views.ConsentWithdrawConfirmViewTests.test_post_required_category_returns_400) ... ok
+test_requires_login (apps.consent.tests.test_views.ConsentWithdrawConfirmViewTests.test_requires_login) ... ok
+test_expired_export_returns_404 (apps.consent.tests.test_views.ExportDownloadViewTests.test_expired_export_returns_404) ... ok
+test_nonexistent_token_returns_404 (apps.consent.tests.test_views.ExportDownloadViewTests.test_nonexistent_token_returns_404) ... ok
+test_requires_login (apps.consent.tests.test_views.ExportDownloadViewTests.test_requires_login) ... ok
+test_status_not_ready_returns_404 (apps.consent.tests.test_views.ExportDownloadViewTests.test_status_not_ready_returns_404) ... ok
+test_successful_download_creates_audit_entry (apps.consent.tests.test_views.ExportDownloadViewTests.test_successful_download_creates_audit_entry) ... ok
+test_successful_download_updates_status_to_delivered (apps.consent.tests.test_views.ExportDownloadViewTests.test_successful_download_updates_status_to_delivered) ... ok
+test_wrong_citizen_gets_404 (apps.consent.tests.test_views.ExportDownloadViewTests.test_wrong_citizen_gets_404)
+Wave 6 IDOR fix: non-owner receives 404 (not 403) to prevent existence leak. ... ok
+test_get_shows_form (apps.consent.tests.test_views.ExportRequestViewTests.test_get_shows_form) ... ok
+test_post_second_request_while_pending_shows_error (apps.consent.tests.test_views.ExportRequestViewTests.test_post_second_request_while_pending_shows_error) ... ok
+test_post_with_confirm_creates_export_request (apps.consent.tests.test_views.ExportRequestViewTests.test_post_with_confirm_creates_export_request) ... ok
+test_post_without_confirm_shows_validation_error (apps.consent.tests.test_views.ExportRequestViewTests.test_post_without_confirm_shows_validation_error) ... ok
+test_requires_login (apps.consent.tests.test_views.ExportRequestViewTests.test_requires_login) ... ok
+test_requires_login (apps.consent.tests.test_views.ExportStatusViewTests.test_requires_login) ... ok
+test_shows_empty_for_new_citizen (apps.consent.tests.test_views.ExportStatusViewTests.test_shows_empty_for_new_citizen) ... ok
+test_shows_export_history (apps.consent.tests.test_views.ExportStatusViewTests.test_shows_export_history) ... ok
+test_exactly_one_current_record_survives_concurrent_first_grant (apps.consent.tests.test_services.ConcurrentFirstGrantTests.test_exactly_one_current_record_survives_concurrent_first_grant) ... skipped "Two independent, permanent SQLite limitations — not a sandbox/CI artifact, and not fixable by config alone — make this test unable to prove what it claims on this backend: (1) Django's sqlite3 backend reports has_select_for_update=False (confirmed via connection.features.has_select_for_update), so ConsentService.grant()'s select_for_update() silently becomes a no-op — the row-level lock this test exists to exercise simply isn't taken; (2) this project's test settings use NAME=':memory:' (config/settings/test.py), and each thread opens its own separate SQLite connection — per SQLite's own semantics, each connection to ':memory:' gets an independent, unshared database, so the two threads below would not even see each other's writes, making 'concurrent race' meaningless here regardless of locking. Real concurrency + real row locking requires PostgreSQL. This is why GrantIntegrityErrorRecoveryTests exists below: it exercises the exact same `except IntegrityError` recovery branch in grant() deterministically via mocking (no threads, no Postgres, SQLite-safe), so the recovery LOGIC has real coverage on every backend even though the true concurrent-locking GUARANTEE can only be verified against Postgres."
+test_concurrent_updates_do_not_fork_the_revision_chain (apps.consent.tests.test_services.ConcurrentSignatureUpdateTests.test_concurrent_updates_do_not_fork_the_revision_chain) ... skipped "Same two permanent SQLite limitations as ConcurrentFirstGrantTests above: (1) sqlite3's has_select_for_update is False, so select_for_update() is a silent no-op — the row lock this test exists to exercise simply isn't taken; (2) this project's test settings use NAME=':memory:', and each thread opens its own independent, unshared in-memory database, so the two threads below would not even observe each other's writes. Real concurrency + real row locking requires PostgreSQL. SignatureLockingTests above exercises the same locking CODE deterministically on every backend."
+
+----------------------------------------------------------------------
+Ran 383 tests in 6.388s
+
+OK (skipped=2)
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+ OK
+TEST_EXIT=0

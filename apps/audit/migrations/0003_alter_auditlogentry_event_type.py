@@ -4,15 +4,43 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('audit', '0002_add_outcome_index'),
+    dependencies = [  # noqa: RUF012
+        ("audit", "0002_add_outcome_index"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='auditlogentry',
-            name='event_type',
-            field=models.CharField(choices=[('auth.login.success', 'Login succeeded'), ('auth.login.failed', 'Login failed'), ('auth.logout', 'Logged out'), ('auth.password.changed', 'Password changed'), ('auth.mfa.enabled', 'MFA enabled'), ('auth.account.locked', 'Account locked'), ('authz.denied', 'Access denied'), ('authz.role.granted', 'Role granted'), ('authz.role.revoked', 'Role revoked'), ('data.viewed', 'Record viewed'), ('data.exported', 'Record exported'), ('data.created', 'Record created'), ('data.updated', 'Record updated'), ('data.deleted', 'Record deleted'), ('workflow.submission.received', 'Submission received'), ('workflow.status.changed', 'Status changed'), ('workflow.item.assigned', 'Item assigned'), ('workflow.item.approved', 'Item approved'), ('workflow.item.rejected', 'Item rejected'), ('system.settings.changed', 'Settings changed'), ('system.user.created', 'User created'), ('security.threat_detected', 'Threat detected'), ('data.purged', 'Record purged')], db_index=True, max_length=64, verbose_name='Event type'),
+            model_name="auditlogentry",
+            name="event_type",
+            field=models.CharField(
+                choices=[
+                    ("auth.login.success", "Login succeeded"),
+                    ("auth.login.failed", "Login failed"),
+                    ("auth.logout", "Logged out"),
+                    ("auth.password.changed", "Password changed"),
+                    ("auth.mfa.enabled", "MFA enabled"),
+                    ("auth.account.locked", "Account locked"),
+                    ("authz.denied", "Access denied"),
+                    ("authz.role.granted", "Role granted"),
+                    ("authz.role.revoked", "Role revoked"),
+                    ("data.viewed", "Record viewed"),
+                    ("data.exported", "Record exported"),
+                    ("data.created", "Record created"),
+                    ("data.updated", "Record updated"),
+                    ("data.deleted", "Record deleted"),
+                    ("workflow.submission.received", "Submission received"),
+                    ("workflow.status.changed", "Status changed"),
+                    ("workflow.item.assigned", "Item assigned"),
+                    ("workflow.item.approved", "Item approved"),
+                    ("workflow.item.rejected", "Item rejected"),
+                    ("system.settings.changed", "Settings changed"),
+                    ("system.user.created", "User created"),
+                    ("security.threat_detected", "Threat detected"),
+                    ("data.purged", "Record purged"),
+                ],
+                db_index=True,
+                max_length=64,
+                verbose_name="Event type",
+            ),
         ),
     ]

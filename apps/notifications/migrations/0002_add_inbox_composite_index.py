@@ -5,15 +5,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('notifications', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("notifications", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddIndex(
-            model_name='notification',
-            index=models.Index(fields=['recipient', 'channel', 'read_at'], name='notificatio_recipie_777071_idx'),
+            model_name="notification",
+            index=models.Index(
+                fields=["recipient", "channel", "read_at"], name="notificatio_recipie_777071_idx"
+            ),
         ),
     ]

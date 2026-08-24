@@ -11,6 +11,7 @@ class WorkflowsConfig(AppConfig):
     def ready(self) -> None:
         # Import handler functions (this module is imported for the first time
         # here, so no double-connect risk from @receiver decorators).
+        from apps.core.signals import service_request_submitted
         from apps.workflows.handlers import (
             audit_work_item_assigned,
             audit_work_item_created,
@@ -18,7 +19,6 @@ class WorkflowsConfig(AppConfig):
             audit_work_item_status_changed,
             on_service_request_submitted,
         )
-        from apps.core.signals import service_request_submitted
         from apps.workflows.signals import (
             work_item_assigned,
             work_item_created,

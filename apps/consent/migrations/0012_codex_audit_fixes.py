@@ -14,16 +14,16 @@ After running this migration in production, re-save each ConsentWebhook via:
         wh.save()  # triggers EncryptedCharField.get_prep_value() to encrypt
     "
 """
+
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("consent", "0011_consent_record_history"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # 1. Composite index on ConsentRecord
         migrations.AddIndex(
             model_name="consentrecord",
@@ -48,13 +48,21 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="consentauditentry",
             constraint=models.CheckConstraint(
-                condition=models.Q(action__in=[
-                    "granted", "withdrawn",
-                    "export_requested", "export_ready",
-                    "export_delivered", "export_expired", "export_failed",
-                    "export_downloaded", "export_marked_delivered",
-                    "rtbf_requested", "rtbf_completed",
-                ]),
+                condition=models.Q(
+                    action__in=[
+                        "granted",
+                        "withdrawn",
+                        "export_requested",
+                        "export_ready",
+                        "export_delivered",
+                        "export_expired",
+                        "export_failed",
+                        "export_downloaded",
+                        "export_marked_delivered",
+                        "rtbf_requested",
+                        "rtbf_completed",
+                    ]
+                ),
                 name="consent_audit_valid_action",
             ),
         ),

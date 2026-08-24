@@ -9,6 +9,7 @@ Covers:
 - ExportStatusView — export history display
 - ExportDownloadView — IDOR guard, status guard, expiry guard, delivered status
 """
+
 import uuid
 from datetime import timedelta
 
@@ -71,7 +72,7 @@ class ConsentDashboardViewTests(TestCase):
 
     def test_shows_active_categories(self):
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
-        cat = _make_category(slug="visible-cat")
+        _make_category(slug="visible-cat")
         resp = self.client.get(reverse("consent:dashboard"))
         self.assertEqual(resp.status_code, 200)
         self.assertIn("consent_items", resp.context)
@@ -171,8 +172,11 @@ class ConsentWithdrawConfirmViewTests(TestCase):
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
         # Grant first so we have a record
         from apps.consent.services import ConsentService
+
         ConsentService.grant(self.citizen, "newsletter")
-        resp = self.client.get(reverse("consent:withdraw-confirm", kwargs={"category_slug": "newsletter"}))
+        resp = self.client.get(
+            reverse("consent:withdraw-confirm", kwargs={"category_slug": "newsletter"})
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertIn("category", resp.context)
 
@@ -193,6 +197,7 @@ class ConsentWithdrawConfirmViewTests(TestCase):
     def test_post_performs_withdrawal(self):
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
         from apps.consent.services import ConsentService
+
         ConsentService.grant(self.citizen, "newsletter")
         resp = self.client.post(
             reverse("consent:withdraw-confirm", kwargs={"category_slug": "newsletter"})
@@ -231,7 +236,9 @@ class ExportRequestViewTests(TestCase):
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
         resp = self.client.post(reverse("consent:export-request"), {})
         self.assertEqual(resp.status_code, 200)
-        self.assertFormError(resp.context["form"], "confirm", "You must confirm to request your data export.")
+        self.assertFormError(
+            resp.context["form"], "confirm", "You must confirm to request your data export."
+        )
 
     def test_post_with_confirm_creates_export_request(self):
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
@@ -241,9 +248,7 @@ class ExportRequestViewTests(TestCase):
                 {"confirm": "on"},
             )
         self.assertEqual(resp.status_code, 302)
-        self.assertTrue(
-            DataExportRequest.objects.filter(citizen=self.citizen).exists()
-        )
+        self.assertTrue(DataExportRequest.objects.filter(citizen=self.citizen).exists())
 
     def test_post_second_request_while_pending_shows_error(self):
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
@@ -270,7 +275,9 @@ class ExportStatusViewTests(TestCase):
 
     def test_shows_export_history(self):
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
-        DataExportRequest.objects.create(citizen=self.citizen, status=DataExportRequest.STATUS_READY)
+        DataExportRequest.objects.create(
+            citizen=self.citizen, status=DataExportRequest.STATUS_READY
+        )
         resp = self.client.get(reverse("consent:export-status"))
         self.assertEqual(resp.status_code, 200)
         self.assertIn("exports", resp.context)
@@ -302,8 +309,10 @@ class ExportDownloadViewTests(TestCase):
         download view now reads from req.document._storage_key.
         """
         import json
+
         from django.core.files.base import ContentFile
         from django.core.files.storage import default_storage
+
         from apps.documents.models import Document, DocumentCategory
 
         citizen = citizen or self.citizen
@@ -388,9 +397,7 @@ class ExportDownloadViewTests(TestCase):
     def test_nonexistent_token_returns_404(self):
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
         fake_token = uuid.uuid4()
-        resp = self.client.get(
-            reverse("consent:export-download", kwargs={"token": fake_token})
-        )
+        resp = self.client.get(reverse("consent:export-download", kwargs={"token": fake_token}))
         self.assertEqual(resp.status_code, 404)
 
     def test_requires_login(self):
@@ -403,9 +410,7 @@ class ExportDownloadViewTests(TestCase):
     def test_successful_download_creates_audit_entry(self):
         export = self._make_ready_export()
         self.client.login(email=self.citizen.email, password=VALID_PASSWORD)
-        self.client.get(
-            reverse("consent:export-download", kwargs={"token": export.download_token})
-        )
+        self.client.get(reverse("consent:export-download", kwargs={"token": export.download_token}))
         entry = ConsentAuditEntry.objects.filter(
             citizen=self.citizen, action="export_downloaded"
         ).first()

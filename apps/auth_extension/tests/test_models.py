@@ -1,6 +1,7 @@
 """Tests for the custom User model."""
-from django.test import TestCase, override_settings
+
 from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
 
 User = get_user_model()
 VALID_PASSWORD = "SecureTestPass123!"
@@ -17,6 +18,7 @@ class UserModelTest(TestCase):
     def test_email_is_unique(self):
         User.objects.create_user(email="dup@example.com", password=VALID_PASSWORD)
         from django.db import IntegrityError
+
         with self.assertRaises(IntegrityError):
             User.objects.create_user(email="dup@example.com", password=VALID_PASSWORD)
 
@@ -68,8 +70,7 @@ class UserModelTest(TestCase):
 
     def test_get_full_name_returns_combined_names(self):
         user = User.objects.create_user(
-            email="i@example.com", password=VALID_PASSWORD,
-            first_name="Alice", last_name="Smith"
+            email="i@example.com", password=VALID_PASSWORD, first_name="Alice", last_name="Smith"
         )
         self.assertEqual(user.get_full_name(), "Alice Smith")
 
@@ -90,8 +91,7 @@ class UserModelTest(TestCase):
 
     def test_display_name_uses_full_name_when_available(self):
         user = User.objects.create_user(
-            email="m@example.com", password=VALID_PASSWORD,
-            first_name="Marie", last_name="Dupont"
+            email="m@example.com", password=VALID_PASSWORD, first_name="Marie", last_name="Dupont"
         )
         self.assertEqual(user.display_name, "Marie Dupont")
 

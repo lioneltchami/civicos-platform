@@ -16,9 +16,10 @@ M-B: cancel() and mark_superseded() on OfficialDonationReceipt now pass
 M-C: Payment model now has DB-level CheckConstraints preventing negative
      financial values and processor_fee > amount_paid.
 """
+
 import inspect
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -41,6 +42,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_user(email=None):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -128,6 +130,7 @@ def _make_payment(intent, **kwargs):
 # M-B: cancel() and mark_superseded() must update updated_at
 # ---------------------------------------------------------------------------
 
+
 class ReceiptCancelUpdatesTimestampTests(TestCase):
     """
     cancel() must write updated_at via QuerySet.update() — auto_now=True is
@@ -192,7 +195,9 @@ class ReceiptMarkSupersededUpdatesTimestampTests(TestCase):
         # Second intent + donation + receipt (the replacement)
         self.intent2 = _make_intent(self.user)
         self.donation2 = _make_donation(self.user, self.intent2)
-        self.receipt2 = _make_receipt(self.donation2, status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED)
+        self.receipt2 = _make_receipt(
+            self.donation2, status=OfficialDonationReceipt.RECEIPT_STATUS_ISSUED
+        )
 
     def test_mark_superseded_sets_updated_at_in_db(self):
         """After mark_superseded(), updated_at in the DB must be greater than before."""
@@ -232,6 +237,7 @@ class ReceiptMarkSupersededUpdatesTimestampTests(TestCase):
 # M-C: Payment model CheckConstraints on financial fields
 # ---------------------------------------------------------------------------
 
+
 class PaymentFinancialConstraintsTests(TestCase):
     """
     DB-level CheckConstraints must reject nonsensical financial values that
@@ -261,17 +267,13 @@ class PaymentFinancialConstraintsTests(TestCase):
         """DB must reject Payment with negative amount_paid."""
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                Payment.objects.create(
-                    **self._make_payment_kwargs(amount_paid=Decimal("-1.00"))
-                )
+                Payment.objects.create(**self._make_payment_kwargs(amount_paid=Decimal("-1.00")))
 
     def test_payment_processor_fee_non_negative_constraint(self):
         """DB must reject Payment with negative processor_fee."""
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                Payment.objects.create(
-                    **self._make_payment_kwargs(processor_fee=Decimal("-0.50"))
-                )
+                Payment.objects.create(**self._make_payment_kwargs(processor_fee=Decimal("-0.50")))
 
     def test_payment_net_amount_non_negative_constraint(self):
         """DB must reject Payment where net_amount would be negative."""
@@ -342,6 +344,7 @@ class PaymentFinancialConstraintsTests(TestCase):
 # L1: PaymentAuditEntry.save() — force_insert avoids spurious SELECT EXISTS
 # ---------------------------------------------------------------------------
 
+
 class PaymentAuditEntryForceInsertTests(TestCase):
     """
     L1 fix: PaymentAuditEntry.save() must always pass force_insert=True.
@@ -387,6 +390,7 @@ class PaymentAuditEntryForceInsertTests(TestCase):
 # L4: User.__str__ — must not return email (PIPEDA)
 # ---------------------------------------------------------------------------
 
+
 class UserStrPIITests(TestCase):
     """
     L4 fix: User.__str__ must not return email address.
@@ -398,9 +402,7 @@ class UserStrPIITests(TestCase):
 
     def test_user_str_never_returns_email(self):
         """str(user) must not contain the user's email address."""
-        user = User.objects.create_user(
-            email="pipeda_test@example.com", password="pw"
-        )
+        user = User.objects.create_user(email="pipeda_test@example.com", password="pw")
         self.assertNotIn(
             "pipeda_test@example.com",
             str(user),
@@ -419,9 +421,7 @@ class UserStrPIITests(TestCase):
 
     def test_user_str_without_name_returns_pk_placeholder(self):
         """str(user) returns 'User #<pk>' when no name is set."""
-        user = User.objects.create_user(
-            email="noname@example.com", password="pw"
-        )
+        user = User.objects.create_user(email="noname@example.com", password="pw")
         result = str(user)
         self.assertIn(str(user.pk), result)
         self.assertTrue(

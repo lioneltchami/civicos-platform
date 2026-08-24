@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "candidate_id": "civicos-scheduler-testing",
+  "building_block": "Scheduler",
+  "official_repository": "GovStackWorkingGroup/bb-scheduler",
+  "official_revision": "d425be5cc0d6c606f351e5bf89be6d5c6c83c468",
+  "official_suite": "test/openAPI",
+  "official_candidate_convention": "examples/<candidate>/test_entrypoint.sh --config api-suite",
+  "local_candidate_url": "${SCHEDULER_API_BASE:-http://127.0.0.1:3333/}",
+  "civicos_surface": [
+    "apps/appointments/govstack_urls.py",
+    "apps/appointments/govstack_views.py",
+    "apps/appointments/govstack_auth.py",
+    "apps/appointments/tests/test_govstack_auth.py"
+  ],
+  "deployment_scope": "single-government",
+  "adapter": {
+    "enabled": true,
+    "policy": "Local-only adapter readiness; never targets production and does not imply official-suite success or certification."
+  },
+  "target_policy": "local-only",
+  "config_schema": "examples/civicos-scheduler/config.schema.json",
+  "claim_boundary": "candidate preparation only; not an API compliance result or certification"
+}

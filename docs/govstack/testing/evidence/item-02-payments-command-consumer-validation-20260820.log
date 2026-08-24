@@ -1,0 +1,29 @@
+Step 2 - Fetching and parsing CSS - CSS string
+Step 2 - Fetching and parsing CSS - CSS string
+Step 2 - Fetching and parsing CSS - CSS string
+volunteers: VOLUNTEER_SIN_FERNET_KEYS is not set. SIN encryption is non-functional. Set this to a list of Fernet keys in your environment.
+CIVICOS['CLAMAV_HOST'] is not configured. Document uploads will bypass ClamAV virus scanning. Set CIVICOS['CLAMAV_HOST'] to the clamd socket host.
+pikepdf C++ to Python logger bridge initialized
+System check identified some issues:
+
+WARNINGS:
+?: (staticfiles.W004) The directory '/home/ubuntu/item02-command-consumer-validation/static' in the STATICFILES_DIRS setting does not exist.
+/usr/local/lib/python3.12/dist-packages/django/core/management/commands/makemigrations.py:161: RuntimeWarning: Got an error checking a consistent migration history performed for database connection 'default': connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for user "civicos"
+connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for user "civicos"
+  warnings.warn(
+No changes detected in app 'payments'
+Creating test database for alias 'default'...
+System check identified some issues:
+
+WARNINGS:
+?: (staticfiles.W004) The directory '/home/ubuntu/item02-command-consumer-validation/static' in the STATICFILES_DIRS setting does not exist.
+
+System check identified 1 issue (0 silenced).
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 1.394s
+
+OK
+Destroying test database for alias 'default'...
+Found 11 test(s).
+migration_status=0 test_status=0

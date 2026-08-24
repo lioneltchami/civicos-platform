@@ -8,19 +8,20 @@ Covers:
   - send_receipt_email() sanitises charity_legal_name before embedding it in
     the email Subject header, preventing MIME header injection attacks.
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
 from apps.payments.services.receipt_email import _clean_header, send_receipt_email
 
-
 # ---------------------------------------------------------------------------
 # _clean_header unit tests
 # ---------------------------------------------------------------------------
+
 
 class CleanHeaderTests(TestCase):
     """M-F: _clean_header() must neutralise all newline variants."""
@@ -64,6 +65,7 @@ class CleanHeaderTests(TestCase):
 # send_receipt_email — header injection regression tests
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_receipt(charity_legal_name="Test Charity Inc.", serial_number=None):
     """Build a minimal mock receipt object for send_receipt_email()."""
     serial_number = serial_number or f"2024-{str(uuid.uuid4().int % 1000000).zfill(6)}"
@@ -100,8 +102,6 @@ class SendReceiptEmailHeaderInjectionTests(TestCase):
         )
         pdf_bytes = b"%PDF-1.4 fake"
 
-        sent_messages = []
-
         def capture_send(fail_silently=False):
             # 'self' inside EmailMessage.send() refers to the email instance,
             # but we patch at the EmailMessage level via the captured reference.
@@ -113,9 +113,7 @@ class SendReceiptEmailHeaderInjectionTests(TestCase):
             "apps.payments.services.receipt_email.render_to_string",
             return_value="<html>receipt body</html>",
         ):
-            with patch(
-                "apps.payments.services.receipt_email.EmailMessage"
-            ) as MockEmailMessage:
+            with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmailMessage:  # noqa: N806
                 mock_email_instance = MagicMock()
                 mock_email_instance.send.return_value = 1
                 MockEmailMessage.return_value = mock_email_instance
@@ -125,7 +123,9 @@ class SendReceiptEmailHeaderInjectionTests(TestCase):
         # Extract the subject passed to EmailMessage(subject=...)
         self.assertTrue(MockEmailMessage.called, "EmailMessage was never instantiated")
         init_kwargs = MockEmailMessage.call_args[1]  # keyword args
-        subject = init_kwargs.get("subject", MockEmailMessage.call_args[0][0] if MockEmailMessage.call_args[0] else "")
+        subject = init_kwargs.get(
+            "subject", MockEmailMessage.call_args[0][0] if MockEmailMessage.call_args[0] else ""
+        )
         return subject, result
 
     def test_clean_charity_name_appears_verbatim_in_subject(self):
@@ -172,7 +172,7 @@ class SendReceiptEmailHeaderInjectionTests(TestCase):
             "apps.payments.services.receipt_email.render_to_string",
             return_value="<html></html>",
         ):
-            with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmail:
+            with patch("apps.payments.services.receipt_email.EmailMessage") as MockEmail:  # noqa: N806
                 result = send_receipt_email(receipt, b"%PDF fake")
 
         self.assertFalse(result)

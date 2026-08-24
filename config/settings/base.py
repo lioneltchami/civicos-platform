@@ -123,21 +123,21 @@ INSTALLED_APPS = DJANGO_APPS + WAGTAIL_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "csp.middleware.CSPMiddleware",          # Must be before WhiteNoise so static responses carry CSP headers
+    "csp.middleware.CSPMiddleware",  # Must be before WhiteNoise so static responses carry CSP headers  # noqa: E501
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.locale.LocaleMiddleware",           # i18n language detection
+    "django.middleware.locale.LocaleMiddleware",  # i18n language detection
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django_otp.middleware.OTPMiddleware",                 # MFA — sets request.user.otp_device
-    "apps.core.middleware.WagtailMFAMiddleware",          # H-E: enforces OTP for /cms/ admin
+    "django_otp.middleware.OTPMiddleware",  # MFA — sets request.user.otp_device
+    "apps.core.middleware.WagtailMFAMiddleware",  # H-E: enforces OTP for /cms/ admin
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "wagtail.contrib.redirects.middleware.RedirectMiddleware",
-    "apps.core.middleware.RequestIDMiddleware",            # Injects X-Request-ID
-    "apps.core.middleware.AuditMiddleware",               # Attaches actor to request
-    "apps.core.middleware.GovStackHeaderMiddleware",      # X-GovStack-BB-Version header
+    "apps.core.middleware.RequestIDMiddleware",  # Injects X-Request-ID
+    "apps.core.middleware.AuditMiddleware",  # Attaches actor to request
+    "apps.core.middleware.GovStackHeaderMiddleware",  # X-GovStack-BB-Version header
     "allauth.account.middleware.AccountMiddleware",
 ]
 
@@ -259,6 +259,23 @@ SOCIALACCOUNT_ADAPTER = "apps.auth_extension.adapters.CivicOSSocialAccountAdapte
 LOGIN_URL = "two_factor:login"
 LOGIN_REDIRECT_URL = "/"
 
+# GovStack Scheduler deployment boundary. Multi-government registered-BB role
+# isolation is not implemented in this release, so unsupported scopes fail closed
+# in the authentication boundary rather than silently enabling cross-government use.
+GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE = env(
+    "GOVSTACK_SCHEDULER_DEPLOYMENT_SCOPE", default="single-government"
+)
+
+GOVSTACK_SCHEDULER_PUBLISH_MAX_ATTEMPTS = env.int(
+    "GOVSTACK_SCHEDULER_PUBLISH_MAX_ATTEMPTS", default=3
+)
+GOVSTACK_SCHEDULER_PUBLISH_RETRY_BASE_SECONDS = env.int(
+    "GOVSTACK_SCHEDULER_PUBLISH_RETRY_BASE_SECONDS", default=30
+)
+GOVSTACK_SCHEDULER_PUBLISH_RETRY_MAX_SECONDS = env.int(
+    "GOVSTACK_SCHEDULER_PUBLISH_RETRY_MAX_SECONDS", default=900
+)
+
 # ---------------------------------------------------------------------------
 # Internationalisation
 # ---------------------------------------------------------------------------
@@ -315,16 +332,14 @@ EMAIL_SUBJECT_PREFIX = "[CivicOS] "
 
 # Admins receive 500 error emails via AdminEmailHandler (requires LOGGING config)
 # Format: comma-separated "Name:email@example.ca" pairs
-ADMINS = [
-    tuple(pair.split(":", 1))
-    for pair in env.list("DJANGO_ADMINS", default=[])
-]
+ADMINS = [tuple(pair.split(":", 1)) for pair in env.list("DJANGO_ADMINS", default=[])]
 
 # ---------------------------------------------------------------------------
 # Celery
 # ---------------------------------------------------------------------------
 
 from celery.schedules import crontab  # noqa: E402 — imported here for Beat schedule clarity
+
 
 def _derive_celery_broker_url() -> str:
     explicit_broker_url = env("CELERY_BROKER_URL", default=None)
@@ -387,12 +402,12 @@ CELERY_TASK_ROUTES = {
     # GovStack Payments BB — async G2P batch processing and prepayment validation.
     # Dispatched via transaction.on_commit() in BulkPaymentView / PrepaymentValidationView.
     "payments.process_bulk_payment_batch": {"queue": "payments"},
-    "payments.validate_prepayment_async":  {"queue": "payments"},
+    "payments.validate_prepayment_async": {"queue": "payments"},
 }
 
 # Task time limits — prevent runaway workers
-CELERY_TASK_SOFT_TIME_LIMIT = 300   # 5 min — SoftTimeLimitExceeded is raised
-CELERY_TASK_TIME_LIMIT = 360        # 6 min — worker SIGKILL after this
+CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 min — SoftTimeLimitExceeded is raised
+CELERY_TASK_TIME_LIMIT = 360  # 6 min — worker SIGKILL after this
 
 # Periodic task schedule (static Beat entries; dynamic schedules use DatabaseScheduler).
 CELERY_BEAT_SCHEDULE = {
@@ -429,19 +444,19 @@ CELERY_BEAT_SCHEDULE = {
 # Employment Standards Act schedule.
 # Source: Government of Canada labour standards table, last updated 2024-10.
 VOLUNTEER_MINIMUM_WAGES: dict[str, float] = {
-    "AB": 15.00,   # Alberta
-    "BC": 17.40,   # British Columbia
-    "MB": 15.80,   # Manitoba
-    "NB": 15.30,   # New Brunswick
-    "NL": 15.60,   # Newfoundland & Labrador
-    "NS": 15.70,   # Nova Scotia
-    "NT": 16.05,   # Northwest Territories
-    "NU": 16.00,   # Nunavut
-    "ON": 17.20,   # Ontario
-    "PE": 16.00,   # Prince Edward Island
-    "QC": 15.75,   # Québec
-    "SK": 14.00,   # Saskatchewan
-    "YT": 17.59,   # Yukon
+    "AB": 15.00,  # Alberta
+    "BC": 17.40,  # British Columbia
+    "MB": 15.80,  # Manitoba
+    "NB": 15.30,  # New Brunswick
+    "NL": 15.60,  # Newfoundland & Labrador
+    "NS": 15.70,  # Nova Scotia
+    "NT": 16.05,  # Northwest Territories
+    "NU": 16.00,  # Nunavut
+    "ON": 17.20,  # Ontario
+    "PE": 16.00,  # Prince Edward Island
+    "QC": 15.75,  # Québec
+    "SK": 14.00,  # Saskatchewan
+    "YT": 17.59,  # Yukon
     "FED": 17.30,  # Federal (Canada Labour Code)
 }
 
@@ -454,13 +469,13 @@ VOLUNTEER_CRA_T4A_THRESHOLD: float = 500.00
 VOLUNTEER_CRA_HARD_BLOCK: float = 1_000.00
 
 # Fernet keys for general encrypted model fields (payments and other PII).
-# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"  # noqa: E501
 # Supports key rotation: list multiple keys; first is current, rest are decryption-only.
 FERNET_KEYS: list[str] = [k for k in env.list("FERNET_KEYS", default=[]) if k]
 
 # Fernet keys for volunteer SIN encryption. MUST be set in production.py.
 # Never use the Django SECRET_KEY for this purpose — key rotation would corrupt all SINs.
-# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"  # noqa: E501
 # Supports key rotation: list multiple keys; first is current, rest are decryption-only.
 VOLUNTEER_SIN_FERNET_KEYS: list[str] = [
     k for k in env.list("VOLUNTEER_SIN_FERNET_KEYS", default=[]) if k
@@ -471,7 +486,9 @@ VOLUNTEER_SIN_FERNET_KEYS: list[str] = [
 # ---------------------------------------------------------------------------
 
 WAGTAIL_SITE_NAME = env("WAGTAIL_SITE_NAME", default="CivicOS")
-WAGTAILADMIN_BASE_URL = env("WAGTAILADMIN_BASE_URL", default="http://localhost:8000")  # Override to https:// in production env
+WAGTAILADMIN_BASE_URL = env(
+    "WAGTAILADMIN_BASE_URL", default="http://localhost:8000"
+)  # Override to https:// in production env
 
 WAGTAILIMAGES_IMAGE_MODEL = "cms.CustomImage"
 WAGTAILDOCS_DOCUMENT_MODEL = "cms.CustomDocument"
@@ -503,12 +520,12 @@ SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 # Stripe requires js.stripe.com in script-src and frame-src.
 # See: https://stripe.com/docs/security/guide#content-security-policy
 CSP_DEFAULT_SRC = ("'self'",)
-CSP_SCRIPT_SRC  = ("'self'", "https://js.stripe.com")
+CSP_SCRIPT_SRC = ("'self'", "https://js.stripe.com")
 CSP_CONNECT_SRC = ("'self'", "https://api.stripe.com")
-CSP_FRAME_SRC   = ("https://js.stripe.com",)
-CSP_IMG_SRC     = ("'self'", "data:")
-CSP_STYLE_SRC   = ("'self'",)  # H-G: unsafe-inline removed; nonces used for inline styles
-CSP_FONT_SRC    = ("'self'",)
+CSP_FRAME_SRC = ("https://js.stripe.com",)
+CSP_IMG_SRC = ("'self'", "data:")
+CSP_STYLE_SRC = ("'self'",)  # H-G: unsafe-inline removed; nonces used for inline styles
+CSP_FONT_SRC = ("'self'",)
 CSP_FRAME_ANCESTORS = ("'none'",)
 # Wagtail CMS admin requires inline styles (JS-driven rich-text editor).
 # Exempt /cms/ from the global CSP rather than re-adding unsafe-inline globally.
@@ -581,9 +598,7 @@ CIVICOS = {
     "MAX_LOGIN_ATTEMPTS": env.int("MAX_LOGIN_ATTEMPTS", default=5),
     # GC Notify API key (used by notifications app)
     "GC_NOTIFY_API_KEY": env("GC_NOTIFY_API_KEY", default=""),
-
     # ── Document Management BB ────────────────────────────────────────────────
-
     # ClamAV daemon connection settings.
     # CLAMAV_HOST: empty string → ClamAV unavailable; uploads still accepted but skipped in dev.
     # CLAMAV_REQUIRED=True in production.py will raise ImproperlyConfigured if host unset.
@@ -601,7 +616,6 @@ CIVICOS = {
     # as a transient scan failure and burns the task's retry budget, ending in
     # a spurious quarantine.
     "CLAMAV_TIMEOUT": env.int("CLAMAV_TIMEOUT", default=30),
-
     # Maximum file upload sizes (bytes).
     # Citizens: 10 MB default. Staff uploads (backoffice): 50 MB.
     # Per-category overrides available via DocumentCategory.max_size_bytes.
@@ -610,7 +624,7 @@ CIVICOS = {
     # apps.documents.tasks._scan_with_clamav() streams the whole file into
     # clamd via the INSTREAM protocol. clamd REFUSES any stream larger than
     # its StreamMaxLength directive (upstream default: 25M), which is BELOW
-    # the 50 MB staff cap here — every clean 25–50 MB staff upload would be
+    # the 50 MB staff cap here — every clean 25–50 MB staff upload would be  # noqa: RUF003
     # rejected by clamd, retried until the budget was exhausted, and then
     # permanently quarantined as a "scan failure".
     # docker-compose.yml and docker-compose.prod.yml therefore set
@@ -625,50 +639,40 @@ CIVICOS = {
     "DOCUMENT_MAX_STAFF_UPLOAD_BYTES": env.int(
         "DOCUMENT_MAX_STAFF_UPLOAD_BYTES", default=50 * 1024 * 1024
     ),
-
     # Presigned POST URL TTL in seconds (how long the browser has to POST to S3).
     # Must be long enough for slow connections; short enough to limit replay attacks.
     "DOCUMENT_PRESIGNED_POST_TTL_SECONDS": env.int(
-        "DOCUMENT_PRESIGNED_POST_TTL_SECONDS", default=900  # 15 minutes
+        "DOCUMENT_PRESIGNED_POST_TTL_SECONDS",
+        default=900,  # 15 minutes
     ),
-
     # Presigned download URL TTL in seconds (S3 GET URL returned to browser).
     # Short to limit sharing. Default 300 s = 5 minutes.
     "DOCUMENT_PRESIGNED_URL_TTL_SECONDS": env.int(
         "DOCUMENT_PRESIGNED_URL_TTL_SECONDS", default=300
     ),
-
     # DocumentAccessToken TTL in seconds (opaque token issued by Django download view).
     # Must be ≤ DOCUMENT_PRESIGNED_URL_TTL_SECONDS.
-    "DOCUMENT_ACCESS_TOKEN_TTL_SECONDS": env.int(
-        "DOCUMENT_ACCESS_TOKEN_TTL_SECONDS", default=300
-    ),
-
+    "DOCUMENT_ACCESS_TOKEN_TTL_SECONDS": env.int("DOCUMENT_ACCESS_TOKEN_TTL_SECONDS", default=300),
     # Grace period (days) between soft-delete and hard-delete.
     # Hard deletion is irreversible. 30 days allows recovery from mistakes.
     # NIST SP 800-88 / OPC guidance: hard deletion must be irreversible.
-    "DOCUMENT_HARD_DELETE_GRACE_DAYS": env.int(
-        "DOCUMENT_HARD_DELETE_GRACE_DAYS", default=30
-    ),
-
+    "DOCUMENT_HARD_DELETE_GRACE_DAYS": env.int("DOCUMENT_HARD_DELETE_GRACE_DAYS", default=30),
     # S3 prefix for document storage. Must NOT include a trailing slash.
     # Layout under this prefix: quarantine/{uuid}/{uuid}.bin
     #                           active/{uuid}/{uuid}.bin
     #                           deleted/{uuid}/{uuid}.bin
     "DOCUMENT_STORAGE_PREFIX": env("DOCUMENT_STORAGE_PREFIX", default="documents"),
-
     # ZIP bomb detection thresholds (CVE-2024-0450, Sep 2024).
     # Reject if a ZIP/DOCX/XLSX has more entries than this limit.
     "DOCUMENT_ZIP_MAX_ENTRIES": env.int("DOCUMENT_ZIP_MAX_ENTRIES", default=1000),
     # Reject if any ZIP entry's compression ratio exceeds this (uncompressed / compressed).
     "DOCUMENT_ZIP_MAX_RATIO": env.int("DOCUMENT_ZIP_MAX_RATIO", default=100),
-
     # Proxy threshold: files <= this size are proxied through Django (as file response).
     # Files > this size get a presigned URL redirect. Avoids memory pressure on workers.
     "DOCUMENT_PROXY_MAX_BYTES": env.int(
-        "DOCUMENT_PROXY_MAX_BYTES", default=1 * 1024 * 1024  # 1 MB
+        "DOCUMENT_PROXY_MAX_BYTES",
+        default=1 * 1024 * 1024,  # 1 MB
     ),
-
     # ── Appointments / Scheduling Building Block ─────────────────────────────
     # Spec: SPEC_APPOINTMENTS_BB.md
     # Key path: settings.CIVICOS["APPOINTMENTS"]["KEY"]
@@ -676,48 +680,81 @@ CIVICOS = {
         # Booking window defaults (overridden by SchedulingPolicy on specific types)
         "DEFAULT_MIN_LEAD_HOURS": env.int("APPOINTMENTS_DEFAULT_MIN_LEAD_HOURS", default=1),
         "DEFAULT_MAX_ADVANCE_DAYS": env.int("APPOINTMENTS_DEFAULT_MAX_ADVANCE_DAYS", default=180),
-        "DEFAULT_MAX_ACTIVE_BOOKINGS": env.int("APPOINTMENTS_DEFAULT_MAX_ACTIVE_BOOKINGS", default=3),
-
+        "DEFAULT_MAX_ACTIVE_BOOKINGS": env.int(
+            "APPOINTMENTS_DEFAULT_MAX_ACTIVE_BOOKINGS", default=3
+        ),
         # Reminder schedule — list of int hours before appointment to send reminders.
         "REMINDER_HOURS": [
             int(h) for h in env.list("APPOINTMENTS_REMINDER_HOURS", default=["72", "24", "2"])
         ],
-
         # Waitlist
-        "WAITLIST_ACCEPTANCE_WINDOW_HOURS": env.int("APPOINTMENTS_WAITLIST_ACCEPTANCE_WINDOW_HOURS", default=2),
+        "WAITLIST_ACCEPTANCE_WINDOW_HOURS": env.int(
+            "APPOINTMENTS_WAITLIST_ACCEPTANCE_WINDOW_HOURS", default=2
+        ),
         "WAITLIST_NOTIFY_BATCH_SIZE": env.int("APPOINTMENTS_WAITLIST_NOTIFY_BATCH_SIZE", default=3),
-
         # iCalendar (RFC 5545) — ORGANIZER field in .ics attachments.
         # Leave blank to omit ORGANIZER (not recommended — some clients reject such files).
         "ICS_ORGANIZER_EMAIL": env("APPOINTMENTS_ICS_ORGANIZER_EMAIL", default=""),
-        "ICS_ORGANIZER_NAME_EN": env("APPOINTMENTS_ICS_ORGANIZER_NAME_EN", default="CivicOS Scheduler"),
-        "ICS_ORGANIZER_NAME_FR": env("APPOINTMENTS_ICS_ORGANIZER_NAME_FR", default="Planificateur CivicOS"),
-
+        "ICS_ORGANIZER_NAME_EN": env(
+            "APPOINTMENTS_ICS_ORGANIZER_NAME_EN", default="CivicOS Scheduler"
+        ),
+        "ICS_ORGANIZER_NAME_FR": env(
+            "APPOINTMENTS_ICS_ORGANIZER_NAME_FR", default="Planificateur CivicOS"
+        ),
         # No-show thresholds — global fallbacks if SchedulingPolicy does not set them.
-        "GLOBAL_NO_SHOW_WARNING_THRESHOLD": env.int("APPOINTMENTS_GLOBAL_NO_SHOW_WARNING_THRESHOLD", default=1),
-        "GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD": env.int("APPOINTMENTS_GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD", default=3),
-
+        "GLOBAL_NO_SHOW_WARNING_THRESHOLD": env.int(
+            "APPOINTMENTS_GLOBAL_NO_SHOW_WARNING_THRESHOLD", default=1
+        ),
+        "GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD": env.int(
+            "APPOINTMENTS_GLOBAL_NO_SHOW_SUSPENSION_THRESHOLD", default=3
+        ),
         # Slot generation (Wave 2+)
-        "DEFAULT_SLOT_DURATION_MINUTES": env.int("APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES", default=30),
-        "DEFAULT_SLOT_INTERVAL_MINUTES": env.int("APPOINTMENTS_DEFAULT_SLOT_INTERVAL_MINUTES", default=15),
-        "DEFAULT_BUFFER_BEFORE_MINUTES": env.int("APPOINTMENTS_DEFAULT_BUFFER_BEFORE_MINUTES", default=0),
-        "DEFAULT_BUFFER_AFTER_MINUTES": env.int("APPOINTMENTS_DEFAULT_BUFFER_AFTER_MINUTES", default=0),
-        "DEFAULT_BOOKING_FREQUENCY_DAYS": env.int("APPOINTMENTS_DEFAULT_BOOKING_FREQUENCY_DAYS", default=0),
+        "DEFAULT_SLOT_DURATION_MINUTES": env.int(
+            "APPOINTMENTS_DEFAULT_SLOT_DURATION_MINUTES", default=30
+        ),
+        "DEFAULT_SLOT_INTERVAL_MINUTES": env.int(
+            "APPOINTMENTS_DEFAULT_SLOT_INTERVAL_MINUTES", default=15
+        ),
+        "DEFAULT_BUFFER_BEFORE_MINUTES": env.int(
+            "APPOINTMENTS_DEFAULT_BUFFER_BEFORE_MINUTES", default=0
+        ),
+        "DEFAULT_BUFFER_AFTER_MINUTES": env.int(
+            "APPOINTMENTS_DEFAULT_BUFFER_AFTER_MINUTES", default=0
+        ),
+        "DEFAULT_BOOKING_FREQUENCY_DAYS": env.int(
+            "APPOINTMENTS_DEFAULT_BOOKING_FREQUENCY_DAYS", default=0
+        ),
         "DEFAULT_TIMEZONE": env("APPOINTMENTS_DEFAULT_TIMEZONE", default="America/Toronto"),
-        "SLOT_GENERATION_HORIZON_DAYS": env.int("APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS", default=60),
-        "PENDING_BOOKING_TIMEOUT_MINUTES": env.int("APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES", default=15),
-
+        "SLOT_GENERATION_HORIZON_DAYS": env.int(
+            "APPOINTMENTS_SLOT_GENERATION_HORIZON_DAYS", default=60
+        ),
+        "PENDING_BOOKING_TIMEOUT_MINUTES": env.int(
+            "APPOINTMENTS_PENDING_BOOKING_TIMEOUT_MINUTES", default=15
+        ),
         # PIPEDA data retention (spec §20.1)
-        "BOOKING_RETENTION_DAYS": env.int("APPOINTMENTS_BOOKING_RETENTION_DAYS", default=2555),       # 7 years
-        "CANCELLED_BOOKING_RETENTION_DAYS": env.int("APPOINTMENTS_CANCELLED_BOOKING_RETENTION_DAYS", default=365),   # 1 year
-        "NO_SHOW_RECORD_RETENTION_DAYS": env.int("APPOINTMENTS_NO_SHOW_RECORD_RETENTION_DAYS", default=730),        # 2 years
-
+        "BOOKING_RETENTION_DAYS": env.int(
+            "APPOINTMENTS_BOOKING_RETENTION_DAYS", default=2555
+        ),  # 7 years
+        "CANCELLED_BOOKING_RETENTION_DAYS": env.int(
+            "APPOINTMENTS_CANCELLED_BOOKING_RETENTION_DAYS", default=365
+        ),  # 1 year
+        "NO_SHOW_RECORD_RETENTION_DAYS": env.int(
+            "APPOINTMENTS_NO_SHOW_RECORD_RETENTION_DAYS", default=730
+        ),  # 2 years
         # Session and token TTLs
-        "BOOKING_SESSION_TIMEOUT_SECONDS": env.int("APPOINTMENTS_BOOKING_SESSION_TIMEOUT_SECONDS", default=900),     # 15 min
-        "WAITLIST_TOKEN_TTL_SECONDS": env.int("APPOINTMENTS_WAITLIST_TOKEN_TTL_SECONDS", default=7200),              # 2 hours
-        "ANON_BOOKING_TOKEN_TTL_DAYS": env.int("APPOINTMENTS_ANON_BOOKING_TOKEN_TTL_DAYS", default=7),
+        "BOOKING_SESSION_TIMEOUT_SECONDS": env.int(
+            "APPOINTMENTS_BOOKING_SESSION_TIMEOUT_SECONDS", default=900
+        ),  # 15 min
+        "WAITLIST_TOKEN_TTL_SECONDS": env.int(
+            "APPOINTMENTS_WAITLIST_TOKEN_TTL_SECONDS", default=7200
+        ),  # 2 hours
+        "ANON_BOOKING_TOKEN_TTL_DAYS": env.int(
+            "APPOINTMENTS_ANON_BOOKING_TOKEN_TTL_DAYS", default=7
+        ),
         # Queue retention
-        "QUEUE_ENTRY_RETENTION_DAYS": env.int("APPOINTMENTS_QUEUE_ENTRY_RETENTION_DAYS", default=90),
+        "QUEUE_ENTRY_RETENTION_DAYS": env.int(
+            "APPOINTMENTS_QUEUE_ENTRY_RETENTION_DAYS", default=90
+        ),
         # Video URL auto-null (minutes after slot end)
         "VIDEO_URL_EXPIRY_MINUTES": env.int("APPOINTMENTS_VIDEO_URL_EXPIRY_MINUTES", default=60),
         # Video conference credentials (Wave 7)
@@ -735,7 +772,7 @@ CIVICOS = {
         "TWILIO_FROM_NUMBER": env("TWILIO_FROM_NUMBER", default=""),
         "SMS_ENABLED": env.bool("APPOINTMENTS_SMS_ENABLED", default=False),
         "SMS_QUIET_HOURS_START": 21,  # 9 PM recipient local time — do not SMS after this hour
-        "SMS_QUIET_HOURS_END": 8,    # 8 AM recipient local time — do not SMS before this hour
+        "SMS_QUIET_HOURS_END": 8,  # 8 AM recipient local time — do not SMS before this hour
     },
 }
 
@@ -772,7 +809,7 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "apps.api.schema.GovStackAutoSchema",
     "EXCEPTION_HANDLER": "apps.api.exceptions.civicos_exception_handler",
     # NOTE: do NOT set UNAUTHENTICATED_USER: None — doing so causes DRF to raise
     # PermissionDenied (403) for unauthenticated requests instead of NotAuthenticated
@@ -801,7 +838,7 @@ SIMPLE_JWT = {
     # Explicitly check is_active on token refresh — do NOT rely on simplejwt version
     # defaults.  Without this, a deactivated user can continue refreshing tokens
     # until their refresh token expires (up to 1 day).
-    "USER_AUTHENTICATION_RULE": "rest_framework_simplejwt.authentication.default_user_authentication_rule",
+    "USER_AUTHENTICATION_RULE": "rest_framework_simplejwt.authentication.default_user_authentication_rule",  # noqa: E501
 }
 
 # ---------------------------------------------------------------------------
@@ -908,12 +945,15 @@ GOVSTACK_REQUIRE_REGISTERED_PAYER_FI = env.bool(
     "GOVSTACK_REQUIRE_REGISTERED_PAYER_FI", default=False
 )
 # Handled by apps.payments.govstack_views.GovStackAPIView._validate_platform_tenant_id().
-GOVSTACK_REQUIRE_PLATFORM_TENANT_ID = env.bool(
-    "GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", default=False
-)
+GOVSTACK_REQUIRE_PLATFORM_TENANT_ID = env.bool("GOVSTACK_REQUIRE_PLATFORM_TENANT_ID", default=False)
 # Handled by apps.payments.govstack_auth.HasVoucherJWT.has_permission().
 GOVSTACK_VOUCHER_REQUIRE_JWT = env.bool("GOVSTACK_VOUCHER_REQUIRE_JWT", default=False)
 # Handled by apps.payments.govstack_services._is_unregistered_gov_stack_bb().
 GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB = env.bool(
     "GOVSTACK_VOUCHER_REQUIRE_REGISTERED_BB", default=False
 )
+
+# RB-02.3: controls only the persisted batch-decision action for an all-final
+# rejected/partial batch. The worker never executes a refund in this increment.
+GOVSTACK_BULK_RETURN_FUNDS_ENABLED = env.bool("GOVSTACK_BULK_RETURN_FUNDS_ENABLED", default=False)
+GOVSTACK_BULK_FAILURE_THRESHOLD = env.float("GOVSTACK_BULK_FAILURE_THRESHOLD", default=0.25)

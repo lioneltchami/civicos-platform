@@ -13,7 +13,6 @@ SLA policy (hours to resolution, measured from WorkItem.created_at):
 
 import logging
 from datetime import timedelta
-from typing import Any
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
@@ -22,7 +21,6 @@ from django.utils import timezone
 from apps.workflows.models import (
     SLA_HOURS,
     TERMINAL_STATUSES,
-    VALID_TRANSITIONS,
     WorkItem,
     WorkItemComment,
     WorkItemHistory,
@@ -44,10 +42,11 @@ logger = logging.getLogger(__name__)
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _record_history(
     work_item: WorkItem,
     action: str,
-    actor,
+    actor,  # noqa: ANN001
     *,
     old_status: str = "",
     new_status: str = "",
@@ -64,7 +63,7 @@ def _record_history(
     )
 
 
-def _compute_due_at(priority: int):
+def _compute_due_at(priority: int):  # noqa: ANN202
     hours = SLA_HOURS.get(priority, SLA_HOURS[WorkItemPriority.NORMAL])
     return timezone.now() + timedelta(hours=hours)
 
@@ -73,14 +72,15 @@ def _compute_due_at(priority: int):
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def create_work_item(
-    content_object,
+    content_object,  # noqa: ANN001
     *,
     title: str,
-    actor,
+    actor,  # noqa: ANN001
     description: str = "",
     priority: int = WorkItemPriority.NORMAL,
-    due_at=None,
+    due_at=None,  # noqa: ANN001
 ) -> WorkItem:
     """
     Create a WorkItem linked to any content object (ServiceRequest, etc.).
@@ -120,7 +120,7 @@ def create_work_item(
     return work_item
 
 
-def claim_work_item(work_item: WorkItem, actor) -> WorkItem:
+def claim_work_item(work_item: WorkItem, actor) -> WorkItem:  # noqa: ANN001
     """
     Staff member self-assigns an unassigned work item and moves it to IN_PROGRESS.
 
@@ -146,27 +146,33 @@ def claim_work_item(work_item: WorkItem, actor) -> WorkItem:
         work_item.status = new_status
         work_item.save(update_fields=["assigned_to", "status", "updated_at"])
         _record_history(
-            work_item, "claimed", actor,
-            old_status=old_status, new_status=new_status,
+            work_item,
+            "claimed",
+            actor,
+            old_status=old_status,
+            new_status=new_status,
         )
         # Capture PKs; reload fresh instances in on_commit to avoid stale data.
-        transaction.on_commit(
-            lambda: _fire_claim_signals(_pk, _actor_pk, old_status, new_status)
-        )
+        transaction.on_commit(lambda: _fire_claim_signals(_pk, _actor_pk, old_status, new_status))
     return work_item
 
 
-def _fire_claim_signals(work_item_pk, actor_pk, old_status, new_status):
+def _fire_claim_signals(work_item_pk, actor_pk, old_status, new_status) -> None:  # noqa: ANN001
     """Reload fresh instances from DB before firing signals (avoids stale-data bugs)."""
     from django.contrib.auth import get_user_model
-    User = get_user_model()
+
+    User = get_user_model()  # noqa: N806
     try:
         work_item = WorkItem.objects.get(pk=work_item_pk)
         actor = User.objects.get(pk=actor_pk)
     except (WorkItem.DoesNotExist, User.DoesNotExist):
-        logger.warning("_fire_claim_signals: work_item or actor no longer exists pk=%s", work_item_pk)
+        logger.warning(
+            "_fire_claim_signals: work_item or actor no longer exists pk=%s", work_item_pk
+        )
         return
-    work_item_assigned.send_robust(sender=WorkItem, work_item=work_item, assignee=actor, actor=actor)
+    work_item_assigned.send_robust(
+        sender=WorkItem, work_item=work_item, assignee=actor, actor=actor
+    )
     work_item_status_changed.send_robust(
         sender=WorkItem,
         work_item=work_item,
@@ -177,7 +183,7 @@ def _fire_claim_signals(work_item_pk, actor_pk, old_status, new_status):
     )
 
 
-def assign_work_item(work_item: WorkItem, assignee, actor) -> WorkItem:
+def assign_work_item(work_item: WorkItem, assignee, actor) -> WorkItem:  # noqa: ANN001
     """
     Supervisor assigns a work item to a specific staff member.
 
@@ -199,18 +205,19 @@ def assign_work_item(work_item: WorkItem, assignee, actor) -> WorkItem:
         work_item.assigned_to = assignee
         work_item.save(update_fields=["assigned_to", "updated_at"])
         _record_history(
-            work_item, "assigned", actor,
+            work_item,
+            "assigned",
+            actor,
             notes=f"Assigned to {assignee.display_name}",
         )
-        transaction.on_commit(
-            lambda: _fire_assigned_signal(_pk, _assignee_pk, _actor_pk)
-        )
+        transaction.on_commit(lambda: _fire_assigned_signal(_pk, _assignee_pk, _actor_pk))
     return work_item
 
 
-def _fire_assigned_signal(work_item_pk, assignee_pk, actor_pk):
+def _fire_assigned_signal(work_item_pk, assignee_pk, actor_pk) -> None:  # noqa: ANN001
     from django.contrib.auth import get_user_model
-    User = get_user_model()
+
+    User = get_user_model()  # noqa: N806
     try:
         work_item = WorkItem.objects.get(pk=work_item_pk)
         assignee = User.objects.get(pk=assignee_pk)
@@ -218,14 +225,17 @@ def _fire_assigned_signal(work_item_pk, assignee_pk, actor_pk):
     except (WorkItem.DoesNotExist, User.DoesNotExist):
         return
     work_item_assigned.send_robust(
-        sender=WorkItem, work_item=work_item, assignee=assignee, actor=actor,
+        sender=WorkItem,
+        work_item=work_item,
+        assignee=assignee,
+        actor=actor,
     )
 
 
 def update_work_item_status(
     work_item: WorkItem,
     new_status: str,
-    actor,
+    actor,  # noqa: ANN001
     *,
     notes: str = "",
 ) -> WorkItem:
@@ -241,9 +251,7 @@ def update_work_item_status(
     if new_status not in WorkItemStatus.values:
         raise ValueError(f"'{new_status}' is not a valid WorkItemStatus.")
     if not work_item.can_transition_to(new_status):
-        raise ValueError(
-            f"Cannot transition from '{work_item.status}' to '{new_status}'."
-        )
+        raise ValueError(f"Cannot transition from '{work_item.status}' to '{new_status}'.")
 
     old_status = work_item.status
     _pk = work_item.pk
@@ -259,8 +267,12 @@ def update_work_item_status(
 
         work_item.save(update_fields=update_fields)
         _record_history(
-            work_item, f"status_changed_to_{new_status}", actor,
-            old_status=old_status, new_status=new_status, notes=notes,
+            work_item,
+            f"status_changed_to_{new_status}",
+            actor,
+            old_status=old_status,
+            new_status=new_status,
+            notes=notes,
         )
         transaction.on_commit(
             lambda: _fire_status_changed_signal(_pk, _actor_pk, old_status, new_status, notes)
@@ -268,9 +280,10 @@ def update_work_item_status(
     return work_item
 
 
-def _fire_status_changed_signal(work_item_pk, actor_pk, old_status, new_status, notes):
+def _fire_status_changed_signal(work_item_pk, actor_pk, old_status, new_status, notes) -> None:  # noqa: ANN001
     from django.contrib.auth import get_user_model
-    User = get_user_model()
+
+    User = get_user_model()  # noqa: N806
     try:
         work_item = WorkItem.objects.get(pk=work_item_pk)
         actor = User.objects.get(pk=actor_pk)
@@ -286,7 +299,7 @@ def _fire_status_changed_signal(work_item_pk, actor_pk, old_status, new_status, 
     )
 
 
-def escalate_work_item(work_item: WorkItem, actor, *, reason: str = "") -> WorkItem:
+def escalate_work_item(work_item: WorkItem, actor, *, reason: str = "") -> WorkItem:  # noqa: ANN001
     """
     Increment escalation_level (max 2: supervisor → director).
 
@@ -311,30 +324,35 @@ def escalate_work_item(work_item: WorkItem, actor, *, reason: str = "") -> WorkI
             work_item.escalated_at = now
         work_item.save(update_fields=["escalation_level", "escalated_at", "updated_at"])
         _record_history(
-            work_item, "escalated", actor,
+            work_item,
+            "escalated",
+            actor,
             notes=reason or f"Escalated to level {work_item.escalation_level}",
         )
         _level = work_item.escalation_level
-        transaction.on_commit(
-            lambda: _fire_escalated_signal(_pk, _actor_pk, _level, reason)
-        )
+        transaction.on_commit(lambda: _fire_escalated_signal(_pk, _actor_pk, _level, reason))
     return work_item
 
 
-def _fire_escalated_signal(work_item_pk, actor_pk, level, reason):
+def _fire_escalated_signal(work_item_pk, actor_pk, level, reason) -> None:  # noqa: ANN001
     from django.contrib.auth import get_user_model
-    User = get_user_model()
+
+    User = get_user_model()  # noqa: N806
     try:
         work_item = WorkItem.objects.get(pk=work_item_pk)
         actor = User.objects.get(pk=actor_pk)
     except (WorkItem.DoesNotExist, User.DoesNotExist):
         return
     work_item_escalated.send_robust(
-        sender=WorkItem, work_item=work_item, level=level, actor=actor, reason=reason,
+        sender=WorkItem,
+        work_item=work_item,
+        level=level,
+        actor=actor,
+        reason=reason,
     )
 
 
-def add_comment(work_item: WorkItem, actor, body: str) -> WorkItemComment:
+def add_comment(work_item: WorkItem, actor, body: str) -> WorkItemComment:  # noqa: ANN001
     """
     Add an internal staff comment to a WorkItem.
 
@@ -344,9 +362,7 @@ def add_comment(work_item: WorkItem, actor, body: str) -> WorkItemComment:
     if not getattr(actor, "is_staff", False):
         raise PermissionError("Only staff users can comment on work items.")
     if work_item.status in TERMINAL_STATUSES:
-        raise ValueError(
-            f"Cannot add a comment to a {work_item.status} work item."
-        )
+        raise ValueError(f"Cannot add a comment to a {work_item.status} work item.")
     body = body.strip()
     if not body:
         raise ValueError("Comment body cannot be empty.")
@@ -362,15 +378,14 @@ def add_comment(work_item: WorkItem, actor, body: str) -> WorkItemComment:
         )
         _record_history(work_item, "commented", actor, notes=body[:200])
         _comment_pk = comment.pk
-        transaction.on_commit(
-            lambda: _fire_commented_signal(_pk, _actor_pk, _comment_pk)
-        )
+        transaction.on_commit(lambda: _fire_commented_signal(_pk, _actor_pk, _comment_pk))
     return comment
 
 
-def _fire_commented_signal(work_item_pk, actor_pk, comment_pk):
+def _fire_commented_signal(work_item_pk, actor_pk, comment_pk) -> None:  # noqa: ANN001
     from django.contrib.auth import get_user_model
-    User = get_user_model()
+
+    User = get_user_model()  # noqa: N806
     try:
         work_item = WorkItem.objects.get(pk=work_item_pk)
         actor = User.objects.get(pk=actor_pk)
@@ -378,12 +393,15 @@ def _fire_commented_signal(work_item_pk, actor_pk, comment_pk):
     except (WorkItem.DoesNotExist, User.DoesNotExist, WorkItemComment.DoesNotExist):
         return
     work_item_commented.send_robust(
-        sender=WorkItem, work_item=work_item, comment=comment, actor=actor,
+        sender=WorkItem,
+        work_item=work_item,
+        comment=comment,
+        actor=actor,
     )
 
 
-def get_staff_queue(
-    actor,
+def get_staff_queue(  # noqa: ANN201
+    actor,  # noqa: ANN001
     *,
     status_filter: str | None = None,
     assigned_to_me: bool = False,
@@ -443,18 +461,20 @@ def check_sla_breaches() -> int:
             updated_at=now,
         )
 
-        WorkItemHistory.objects.bulk_create([
-            WorkItemHistory(
-                work_item=item,
-                action="sla_breached",
-                actor=None,
-                notes=(
-                    f"SLA deadline {item.due_at:%Y-%m-%d %H:%M} UTC "
-                    "passed without resolution."
-                ),
-            )
-            for item in breached_items
-        ])
+        WorkItemHistory.objects.bulk_create(
+            [
+                WorkItemHistory(
+                    work_item=item,
+                    action="sla_breached",
+                    actor=None,
+                    notes=(
+                        f"SLA deadline {item.due_at:%Y-%m-%d %H:%M} UTC "
+                        "passed without resolution."
+                    ),
+                )
+                for item in breached_items
+            ]
+        )
 
     count = len(breached_ids)
     if count:

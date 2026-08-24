@@ -30,7 +30,6 @@ import uuid
 from unittest.mock import ANY, MagicMock, create_autospec, patch
 
 import pyclamd
-from celery.exceptions import Retry
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -44,6 +43,7 @@ from apps.documents.tasks import (
     _scan_with_clamav,
     scan_document,
 )
+from celery.exceptions import Retry
 
 User = get_user_model()
 
@@ -277,7 +277,7 @@ class ClamAVCleanPathTests(TestCase):
         If the document is already QUARANTINED (e.g. another worker ran first),
         the task must be a no-op: status unchanged, neither signal fired.
         """
-        from apps.documents.signals import document_scan_clean, document_quarantined
+        from apps.documents.signals import document_quarantined, document_scan_clean
 
         doc = make_document(self.user, self.category, scan_status=Document.ScanStatus.QUARANTINED)
 
@@ -1303,7 +1303,7 @@ class MarkDocumentQuarantinedClamavTests(TestCase):
         handler = lambda sender, **kw: received.append(kw)  # noqa: E731
         document_quarantined.connect(handler, weak=False)
         try:
-            with patch("django.core.files.storage.default_storage") as mock_storage:
+            with patch("django.core.files.storage.default_storage"):
                 _mark_document_quarantined_clamav(
                     doc_pk=str(doc.pk),
                     virus_name="Eicar-Test-Signature",

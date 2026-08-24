@@ -22,17 +22,12 @@ URL layout:
 
 Views are imported lazily inside urlpatterns to keep startup imports minimal.
 """
+
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.urls import path
 
-from apps.reports.views.financial import (
-    FinancialDashboardView,
-    MonthlySummaryPdfView,
-    ReconciliationExportView,
-    ReconciliationView,
-    RevenueExportView,
-)
+from apps.reports.views.combined import CombinedImpactView
 from apps.reports.views.donations import (
     AnnualDonationView,
     DonationDashboardView,
@@ -40,12 +35,18 @@ from apps.reports.views.donations import (
     T3010PrepExportView,
     T3010PrepView,
 )
+from apps.reports.views.financial import (
+    FinancialDashboardView,
+    MonthlySummaryPdfView,
+    ReconciliationExportView,
+    ReconciliationView,
+    RevenueExportView,
+)
 from apps.reports.views.operational import (
     OperationalDashboardView,
     TaskFailureDetailView,
 )
 from apps.reports.views.volunteers import VolunteerImpactDashboardView
-from apps.reports.views.combined import CombinedImpactView
 
 app_name = "reports"
 

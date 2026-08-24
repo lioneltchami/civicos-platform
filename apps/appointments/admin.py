@@ -69,25 +69,34 @@ class OrganizationAdmin(admin.ModelAdmin):
     list_filter = ("organization_type", "is_active")
     search_fields = ("name_en", "name_fr", "slug")
     ordering = ("name_en",)
-    prepopulated_fields = {"slug": ("name_en",)}
+    prepopulated_fields = {"slug": ("name_en",)}  # noqa: RUF012
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (
-        (None, {
-            "fields": (
-                ("name_en", "name_fr"),
-                "slug",
-                "organization_type",
-                "is_active",
-            ),
-        }),
-        (_("Description"), {
-            "classes": ("collapse",),
-            "fields": ("description_en", "description_fr"),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    ("name_en", "name_fr"),
+                    "slug",
+                    "organization_type",
+                    "is_active",
+                ),
+            },
+        ),
+        (
+            _("Description"),
+            {
+                "classes": ("collapse",),
+                "fields": ("description_en", "description_fr"),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
     @admin.display(description=_("Active"), boolean=False)
@@ -115,41 +124,66 @@ class SchedulingPolicyAdmin(admin.ModelAdmin):
     ordering = ("name",)
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (
-        (None, {
-            "fields": ("name", "description"),
-        }),
-        (_("Booking window"), {
-            "fields": (
-                ("min_lead_time_hours", "max_advance_days"),
-            ),
-        }),
-        (_("Slot configuration"), {
-            "fields": (
-                ("slot_interval_minutes", "buffer_before_minutes", "buffer_after_minutes"),
-            ),
-        }),
-        (_("Citizen limits"), {
-            "fields": (
-                "max_active_bookings_per_citizen",
-                "booking_frequency_days",
-                ("cancellation_notice_hours", "reschedule_notice_hours", "max_reschedule_count"),
-            ),
-        }),
-        (_("Waitlist"), {
-            "fields": (
-                "waitlist_enabled",
-                ("waitlist_acceptance_window_hours", "max_waitlist_per_slot", "waitlist_notify_batch_size"),
-            ),
-        }),
-        (_("No-show thresholds"), {
-            "fields": (
-                ("no_show_warning_threshold", "no_show_suspension_threshold"),
-            ),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": ("name", "description"),
+            },
+        ),
+        (
+            _("Booking window"),
+            {
+                "fields": (("min_lead_time_hours", "max_advance_days"),),
+            },
+        ),
+        (
+            _("Slot configuration"),
+            {
+                "fields": (
+                    ("slot_interval_minutes", "buffer_before_minutes", "buffer_after_minutes"),
+                ),
+            },
+        ),
+        (
+            _("Citizen limits"),
+            {
+                "fields": (
+                    "max_active_bookings_per_citizen",
+                    "booking_frequency_days",
+                    (
+                        "cancellation_notice_hours",
+                        "reschedule_notice_hours",
+                        "max_reschedule_count",
+                    ),
+                ),
+            },
+        ),
+        (
+            _("Waitlist"),
+            {
+                "fields": (
+                    "waitlist_enabled",
+                    (
+                        "waitlist_acceptance_window_hours",
+                        "max_waitlist_per_slot",
+                        "waitlist_notify_batch_size",
+                    ),
+                ),
+            },
+        ),
+        (
+            _("No-show thresholds"),
+            {
+                "fields": (("no_show_warning_threshold", "no_show_suspension_threshold"),),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
 
@@ -173,33 +207,45 @@ class ServiceTypeAdmin(admin.ModelAdmin):
     list_filter = ("category", "sector", "privacy_sensitivity", "is_active")
     search_fields = ("slug", "name_en", "name_fr")
     ordering = ("sort_order", "name_en")
-    prepopulated_fields = {"slug": ("name_en",)}
+    prepopulated_fields = {"slug": ("name_en",)}  # noqa: RUF012
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (
-        (None, {
-            "fields": (
-                ("name_en", "name_fr"),
-                "slug",
-                ("category", "sector", "privacy_sensitivity"),
-                ("is_active", "sort_order"),
-            ),
-        }),
-        (_("Description"), {
-            "classes": ("collapse",),
-            "fields": ("description_en", "description_fr"),
-        }),
-        (_("Eligibility"), {
-            "classes": ("collapse",),
-            "fields": (
-                "requires_eligibility_screening",
-                "eligibility_description_en",
-                "eligibility_description_fr",
-            ),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    ("name_en", "name_fr"),
+                    "slug",
+                    ("category", "sector", "privacy_sensitivity"),
+                    ("is_active", "sort_order"),
+                ),
+            },
+        ),
+        (
+            _("Description"),
+            {
+                "classes": ("collapse",),
+                "fields": ("description_en", "description_fr"),
+            },
+        ),
+        (
+            _("Eligibility"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "requires_eligibility_screening",
+                    "eligibility_description_en",
+                    "eligibility_description_fr",
+                ),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
     @admin.display(description=_("Active"), boolean=False)
@@ -222,10 +268,10 @@ class AppointmentTypeStaffInline(admin.TabularInline):
     can_delete = False
     readonly_fields = ("staffprofile", "appointmenttype")
 
-    def has_add_permission(self, request, obj=None):  # type: ignore[override]
+    def has_add_permission(self, request, obj=None) -> bool:  # type: ignore[override]  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None):  # type: ignore[override]
+    def has_change_permission(self, request, obj=None) -> bool:  # type: ignore[override]  # noqa: ANN001
         return False
 
 
@@ -246,55 +292,82 @@ class AppointmentTypeAdmin(admin.ModelAdmin):
     search_fields = ("slug", "name_en", "name_fr", "service_type__slug")
     ordering = ("sort_order", "name_en")
     autocomplete_fields = ("service_type", "scheduling_policy")
-    prepopulated_fields = {"slug": ("name_en",)}
+    prepopulated_fields = {"slug": ("name_en",)}  # noqa: RUF012
     readonly_fields = ("created_at", "updated_at")
-    inlines = [AppointmentTypeStaffInline]
+    inlines = [AppointmentTypeStaffInline]  # noqa: RUF012
     fieldsets = (
-        (None, {
-            "fields": (
-                "service_type",
-                ("name_en", "name_fr"),
-                "slug",
-                ("mode", "duration_minutes", "capacity_per_slot"),
-                "scheduling_policy",
-                ("is_active", "sort_order"),
-            ),
-        }),
-        (_("Description"), {
-            "classes": ("collapse",),
-            "fields": ("description_en", "description_fr"),
-        }),
-        (_("Booking rules"), {
-            "fields": (
-                ("requires_staff_confirmation", "allow_citizen_self_booking", "allow_walk_in"),
-                "non_punitive_no_show",
-                "interpreter_required_option",
-            ),
-        }),
-        (_("Document requirement"), {
-            "classes": ("collapse",),
-            "fields": ("requires_document_upload", "required_document_category_slug"),
-        }),
-        (_("Payment"), {
-            "classes": ("collapse",),
-            "fields": ("requires_payment", "fee_code"),
-        }),
-        (_("Consent"), {
-            "classes": ("collapse",),
-            "fields": ("requires_consent", "consent_category_slug"),
-        }),
-        (_("Intake form schema (JSON Schema draft-07)"), {
-            "classes": ("collapse",),
-            "fields": ("intake_form_schema",),
-        }),
-        (_("CMS"), {
-            "classes": ("collapse",),
-            "fields": ("cms_page_id",),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "service_type",
+                    ("name_en", "name_fr"),
+                    "slug",
+                    ("mode", "duration_minutes", "capacity_per_slot"),
+                    "scheduling_policy",
+                    ("is_active", "sort_order"),
+                ),
+            },
+        ),
+        (
+            _("Description"),
+            {
+                "classes": ("collapse",),
+                "fields": ("description_en", "description_fr"),
+            },
+        ),
+        (
+            _("Booking rules"),
+            {
+                "fields": (
+                    ("requires_staff_confirmation", "allow_citizen_self_booking", "allow_walk_in"),
+                    "non_punitive_no_show",
+                    "interpreter_required_option",
+                ),
+            },
+        ),
+        (
+            _("Document requirement"),
+            {
+                "classes": ("collapse",),
+                "fields": ("requires_document_upload", "required_document_category_slug"),
+            },
+        ),
+        (
+            _("Payment"),
+            {
+                "classes": ("collapse",),
+                "fields": ("requires_payment", "fee_code"),
+            },
+        ),
+        (
+            _("Consent"),
+            {
+                "classes": ("collapse",),
+                "fields": ("requires_consent", "consent_category_slug"),
+            },
+        ),
+        (
+            _("Intake form schema (JSON Schema draft-07)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("intake_form_schema",),
+            },
+        ),
+        (
+            _("CMS"),
+            {
+                "classes": ("collapse",),
+                "fields": ("cms_page_id",),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
     @admin.display(description=_("Active"), boolean=False)
@@ -317,10 +390,10 @@ class ResourceInline(admin.TabularInline):
     can_delete = False
     readonly_fields = ("name_en", "name_fr", "resource_type", "capacity", "is_active")
 
-    def has_add_permission(self, request, obj=None):  # type: ignore[override]
+    def has_add_permission(self, request, obj=None) -> bool:  # type: ignore[override]  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None):  # type: ignore[override]
+    def has_change_permission(self, request, obj=None) -> bool:  # type: ignore[override]  # noqa: ANN001
         return False
 
 
@@ -341,43 +414,61 @@ class LocationAdmin(admin.ModelAdmin):
     search_fields = ("slug", "name_en", "name_fr", "city")
     ordering = ("name_en",)
     autocomplete_fields = ("organization", "scheduling_policy")
-    prepopulated_fields = {"slug": ("name_en",)}
+    prepopulated_fields = {"slug": ("name_en",)}  # noqa: RUF012
     readonly_fields = ("created_at", "updated_at")
-    inlines = [ResourceInline]
+    inlines = [ResourceInline]  # noqa: RUF012
     fieldsets = (
-        (None, {
-            "fields": (
-                "organization",
-                ("name_en", "name_fr"),
-                "slug",
-                ("is_virtual", "is_active"),
-                "scheduling_policy",
-                ("privacy_regime", "timezone"),
-            ),
-        }),
-        (_("Physical address"), {
-            "classes": ("collapse",),
-            "fields": (
-                "street_address",
-                ("city", "province", "postal_code"),
-            ),
-        }),
-        (_("Contact"), {
-            "classes": ("collapse",),
-            "fields": (("phone_en", "phone_fr"), "tty_phone", "email"),
-        }),
-        (_("Accessibility"), {
-            "classes": ("collapse",),
-            "fields": ("accessibility_features_en", "accessibility_features_fr"),
-        }),
-        (_("Business hours (JSON)"), {
-            "classes": ("collapse",),
-            "fields": ("business_hours",),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "organization",
+                    ("name_en", "name_fr"),
+                    "slug",
+                    ("is_virtual", "is_active"),
+                    "scheduling_policy",
+                    ("privacy_regime", "timezone"),
+                ),
+            },
+        ),
+        (
+            _("Physical address"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "street_address",
+                    ("city", "province", "postal_code"),
+                ),
+            },
+        ),
+        (
+            _("Contact"),
+            {
+                "classes": ("collapse",),
+                "fields": (("phone_en", "phone_fr"), "tty_phone", "email"),
+            },
+        ),
+        (
+            _("Accessibility"),
+            {
+                "classes": ("collapse",),
+                "fields": ("accessibility_features_en", "accessibility_features_fr"),
+            },
+        ),
+        (
+            _("Business hours (JSON)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("business_hours",),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
     @admin.display(description=_("Active"), boolean=False)
@@ -411,26 +502,38 @@ class ResourceAdmin(admin.ModelAdmin):
     autocomplete_fields = ("location",)
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (
-        (None, {
-            "fields": (
-                "location",
-                ("name_en", "name_fr"),
-                ("resource_type", "capacity"),
-                "is_active",
-            ),
-        }),
-        (_("Features (JSON)"), {
-            "classes": ("collapse",),
-            "fields": ("features",),
-        }),
-        (_("Calendar integration (Wave 7)"), {
-            "classes": ("collapse",),
-            "fields": ("calendar_provider", "external_calendar_id"),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "location",
+                    ("name_en", "name_fr"),
+                    ("resource_type", "capacity"),
+                    "is_active",
+                ),
+            },
+        ),
+        (
+            _("Features (JSON)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("features",),
+            },
+        ),
+        (
+            _("Calendar integration (Wave 7)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("calendar_provider", "external_calendar_id"),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
     @admin.display(description=_("Active"), boolean=False)
@@ -460,7 +563,12 @@ class StaffProfileAdmin(admin.ModelAdmin):
         "accepts_walk_ins_icon",
         "created_at",
     )
-    list_filter = ("is_accepting_bookings", "accepts_walk_ins", "location__organization", "video_provider")
+    list_filter = (
+        "is_accepting_bookings",
+        "accepts_walk_ins",
+        "location__organization",
+        "video_provider",
+    )
     search_fields = ("location__name_en",)
     # Do NOT add search_fields for user__email — that would expose PII in search.
     ordering = ("user_id",)
@@ -479,39 +587,54 @@ class StaffProfileAdmin(admin.ModelAdmin):
     filter_horizontal = ("appointment_types",)
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (
-        (None, {
-            "description": _(
-                "⚠ PIPEDA: This record contains personal information. "
-                "Access is logged. Do not export or share this data outside "
-                "authorized channels."
-            ),
-            "fields": (
-                "user",
-                "location",
-                ("is_accepting_bookings", "accepts_walk_ins"),
-                "max_daily_appointments",
-                "appointment_types",
-            ),
-        }),
-        (_("Citizen-facing display name (optional)"), {
-            "classes": ("collapse",),
-            "fields": ("display_name_en", "display_name_fr"),
-        }),
-        (_("Video integration (Wave 7)"), {
-            "classes": ("collapse",),
-            "fields": ("video_provider", "video_external_user_id"),
-        }),
-        (_("Calendar integration (Wave 7)"), {
-            "classes": ("collapse",),
-            "fields": ("calendar_integration_provider", "external_calendar_id"),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "description": _(
+                    "⚠ PIPEDA: This record contains personal information. "
+                    "Access is logged. Do not export or share this data outside "
+                    "authorized channels."
+                ),
+                "fields": (
+                    "user",
+                    "location",
+                    ("is_accepting_bookings", "accepts_walk_ins"),
+                    "max_daily_appointments",
+                    "appointment_types",
+                ),
+            },
+        ),
+        (
+            _("Citizen-facing display name (optional)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("display_name_en", "display_name_fr"),
+            },
+        ),
+        (
+            _("Video integration (Wave 7)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("video_provider", "video_external_user_id"),
+            },
+        ),
+        (
+            _("Calendar integration (Wave 7)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("calendar_integration_provider", "external_calendar_id"),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
-    def get_queryset(self, request):
+    def get_queryset(self, request):  # noqa: ANN001, ANN201
         """
         H-7 security fix: scope queryset to the acting admin's own organization.
 
@@ -569,9 +692,9 @@ class SlotAdminForm(forms.ModelForm):
 
     class Meta:
         model = Slot
-        fields = "__all__"
+        fields = "__all__"  # noqa: DJ007
 
-    def clean_capacity(self):
+    def clean_capacity(self):  # noqa: ANN201
         capacity = self.cleaned_data.get("capacity")
         # Only validate on existing instances (not on slot creation).
         if self.instance and self.instance.pk:
@@ -614,7 +737,7 @@ class StaffExceptionAdminForm(forms.ModelForm):
         model = StaffException
         # Exclude internal_note from direct editing; it is shown as a
         # readonly display field and updated only via note_addition.
-        exclude = ("internal_note",)
+        exclude = ("internal_note",)  # noqa: DJ006
 
 
 class AvailabilityTemplateInline(admin.TabularInline):
@@ -630,10 +753,10 @@ class AvailabilityTemplateInline(admin.TabularInline):
     can_delete = False
     readonly_fields = ("day_of_week", "start_time", "end_time", "valid_from", "valid_until")
 
-    def has_add_permission(self, request, obj=None):  # type: ignore[override]
+    def has_add_permission(self, request, obj=None) -> bool:  # type: ignore[override]  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None):  # type: ignore[override]
+    def has_change_permission(self, request, obj=None) -> bool:  # type: ignore[override]  # noqa: ANN001
         return False
 
 
@@ -658,21 +781,27 @@ class AvailabilityTemplateAdmin(admin.ModelAdmin):
     ordering = ("staff_id", "day_of_week", "start_time")
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (
-        (None, {
-            "fields": (
-                "staff",
-                "day_of_week",
-                ("start_time", "end_time"),
-                ("valid_from", "valid_until"),
-            ),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "staff",
+                    "day_of_week",
+                    ("start_time", "end_time"),
+                    ("valid_from", "valid_until"),
+                ),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
-    def get_queryset(self, request):
+    def get_queryset(self, request):  # noqa: ANN001, ANN201
         """
         H-3 security fix: scope queryset to the acting admin's own organization.
 
@@ -723,29 +852,38 @@ class StaffExceptionAdmin(admin.ModelAdmin):
     ordering = ("-exception_date",)
     readonly_fields = ("created_at", "updated_at", "internal_note")
     fieldsets = (
-        (None, {
-            "fields": (
-                "staff",
-                "exception_date",
-                "exception_type",
-                ("override_start_time", "override_end_time"),
-            ),
-        }),
-        (_("Internal note (staff only)"), {
-            "description": _(
-                "⚠ This note is for staff and admin use only. "
-                "Never display to citizens. "
-                "Notes are append-only and include a UTC timestamp and actor ID."
-            ),
-            "fields": ("internal_note", "note_addition"),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "staff",
+                    "exception_date",
+                    "exception_type",
+                    ("override_start_time", "override_end_time"),
+                ),
+            },
+        ),
+        (
+            _("Internal note (staff only)"),
+            {
+                "description": _(
+                    "⚠ This note is for staff and admin use only. "
+                    "Never display to citizens. "
+                    "Notes are append-only and include a UTC timestamp and actor ID."
+                ),
+                "fields": ("internal_note", "note_addition"),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
-    def get_queryset(self, request):
+    def get_queryset(self, request):  # noqa: ANN001, ANN201
         """
         H-3 security fix: scope queryset to the acting admin's own organization.
 
@@ -762,7 +900,7 @@ class StaffExceptionAdmin(admin.ModelAdmin):
         except AttributeError:
             return qs.none()
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request, obj, form, change) -> None:  # noqa: ANN001
         """
         M-7: Append note_addition to internal_note with a UTC timestamp and
         the acting admin's user PK. No name or email is stored (PIPEDA).
@@ -850,42 +988,54 @@ class SlotAdmin(admin.ModelAdmin):
         "updated_at",
     )
     fieldsets = (
-        (None, {
-            "fields": (
-                "id",
-                "appointment_type",
-                ("staff", "location", "resource"),
-                ("start_datetime", "end_datetime"),
-                ("effective_start", "effective_end"),
-                ("capacity", "spaces_used"),
-                ("status", "is_walk_in_slot"),
-            ),
-        }),
-        (_("Internal note (staff only)"), {
-            "classes": ("collapse",),
-            "fields": ("internal_note",),
-        }),
-        (_("Video (Wave 7) — restricted"), {
-            "classes": ("collapse",),
-            "description": _(
-                "⚠ SECURITY: Citizen video join URL must NEVER appear in "
-                "unauthenticated email. Visible only to users with "
-                "appointments.view_slot_video_urls permission."
-            ),
-            "fields": (
-                "video_join_url_citizen",
-                "video_join_url_staff",
-                "video_meeting_id",
-                "video_provider",
-            ),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "id",
+                    "appointment_type",
+                    ("staff", "location", "resource"),
+                    ("start_datetime", "end_datetime"),
+                    ("effective_start", "effective_end"),
+                    ("capacity", "spaces_used"),
+                    ("status", "is_walk_in_slot"),
+                ),
+            },
+        ),
+        (
+            _("Internal note (staff only)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("internal_note",),
+            },
+        ),
+        (
+            _("Video (Wave 7) — restricted"),
+            {
+                "classes": ("collapse",),
+                "description": _(
+                    "⚠ SECURITY: Citizen video join URL must NEVER appear in "
+                    "unauthenticated email. Visible only to users with "
+                    "appointments.view_slot_video_urls permission."
+                ),
+                "fields": (
+                    "video_join_url_citizen",
+                    "video_join_url_staff",
+                    "video_meeting_id",
+                    "video_provider",
+                ),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
-    def get_readonly_fields(self, request, obj=None):
+    def get_readonly_fields(self, request, obj=None):  # noqa: ANN001, ANN201
         """Gate video URLs behind explicit permission."""
         ro = list(self.readonly_fields)
         if not request.user.has_perm("appointments.view_slot_video_urls"):
@@ -897,7 +1047,7 @@ class SlotAdmin(admin.ModelAdmin):
             ]
         return ro
 
-    def get_fieldsets(self, request, obj=None):
+    def get_fieldsets(self, request, obj=None):  # noqa: ANN001, ANN201
         """
         H-6 security fix: strip the entire video fieldset for users who lack
         appointments.view_slot_video_urls permission.
@@ -911,7 +1061,12 @@ class SlotAdmin(admin.ModelAdmin):
         if not request.user.has_perm("appointments.view_slot_video_urls"):
             # Strip any fieldset that contains video URL or video provider fields.
             _video_fields = frozenset(
-                ("video_join_url_citizen", "video_join_url_staff", "video_meeting_id", "video_provider")
+                (
+                    "video_join_url_citizen",
+                    "video_join_url_staff",
+                    "video_meeting_id",
+                    "video_provider",
+                )
             )
             fieldsets = [
                 (title, opts)
@@ -920,7 +1075,7 @@ class SlotAdmin(admin.ModelAdmin):
             ]
         return fieldsets
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request, obj, form, change) -> None:  # noqa: ANN001
         """
         M-1 / H-8: Call Slot.clean() before saving so that CheckConstraint
         violations produce a friendly ValidationError in the admin rather than
@@ -932,7 +1087,6 @@ class SlotAdmin(admin.ModelAdmin):
         ValidationError raised from save_model() and displays it as a non-field
         form error, so this is the correct and idiomatic approach.
         """
-        from django.core.exceptions import ValidationError
         obj.clean()  # Raises ValidationError if constraints are violated.
         super().save_model(request, obj, form, change)
 
@@ -952,17 +1106,23 @@ class SlotAdmin(admin.ModelAdmin):
 
 class BookingAuditLogInline(admin.TabularInline):
     """Read-only inline showing the audit trail for a booking."""
+
     model = BookingAuditLog
     extra = 0
     can_delete = False
-    readonly_fields = [
-        "timestamp", "action_display", "actor_id", "actor_ip",
-        "previous_status", "new_status", "detail",
+    readonly_fields = [  # noqa: RUF012
+        "timestamp",
+        "action_display",
+        "actor_id",
+        "actor_ip",
+        "previous_status",
+        "new_status",
+        "detail",
     ]
-    ordering = ["-timestamp"]
+    ordering = ["-timestamp"]  # noqa: RUF012
 
     @admin.display(description="Action")
-    def action_display(self, obj):
+    def action_display(self, obj):  # noqa: ANN001, ANN201
         """
         Renders BookingAuditLog.action as its raw stored string, bypassing
         Django admin's default choices-lookup rendering for readonly fields
@@ -978,10 +1138,10 @@ class BookingAuditLogInline(admin.TabularInline):
         """
         return obj.action
 
-    def has_add_permission(self, request, obj=None):
+    def has_add_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
@@ -995,7 +1155,8 @@ class BookingAdmin(admin.ModelAdmin):
     - form_responses hidden unless appointments.view_booking_form_responses
     - internal_notes hidden unless appointments.view_internal_notes
     """
-    list_display = [
+
+    list_display = [  # noqa: RUF012
         "pk_short",
         "citizen_pk",
         "slot_start",
@@ -1005,11 +1166,11 @@ class BookingAdmin(admin.ModelAdmin):
         "booking_channel",
         "created_at",
     ]
-    list_filter = ["status", "no_show", "appointment_mode", "booking_channel", "language"]
-    search_fields = ["pk"]  # Only PK — no PII search
-    ordering = ["-created_at"]
-    inlines = [BookingAuditLogInline]
-    readonly_fields = [
+    list_filter = ["status", "no_show", "appointment_mode", "booking_channel", "language"]  # noqa: RUF012
+    search_fields = ["pk"]  # Only PK — no PII search  # noqa: RUF012
+    ordering = ["-created_at"]  # noqa: RUF012
+    inlines = [BookingAuditLogInline]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "pk",
         "citizen_pk_display",
         "slot",
@@ -1025,73 +1186,101 @@ class BookingAdmin(admin.ModelAdmin):
         "service_request_id",
     ]
     fieldsets = (
-        (None, {
-            "fields": (
-                "pk",
-                ("citizen_pk_display", "slot"),
-                ("status", "no_show"),
-                ("appointment_mode", "booking_channel", "language"),
-            ),
-        }),
-        (_("Rescheduling"), {
-            "classes": ("collapse",),
-            "fields": ("rescheduled_from", "reschedule_count"),
-        }),
-        (_("Cancellation"), {
-            "classes": ("collapse",),
-            "fields": (
-                "cancelled_at",
-                "cancelled_by",
-                "cancellation_reason",
-                "late_cancellation",
-            ),
-        }),
-        (_("Intake (Protected B — permission gated)"), {
-            "classes": ("collapse",),
-            "fields": (
-                "form_responses",
-                "interpreter_needed",
-                "interpreter_language",
-                "accessibility_needs",
-            ),
-        }),
-        (_("Staff Notes (permission gated)"), {
-            "classes": ("collapse",),
-            "fields": ("internal_notes",),
-        }),
-        (_("Consent & Compliance"), {
-            "classes": ("collapse",),
-            "fields": ("consent_recorded_at", "consent_version"),
-        }),
-        (_("System Links"), {
-            "classes": ("collapse",),
-            "fields": ("work_item_id", "service_request_id"),
-        }),
-        (_("Timestamps"), {
-            "classes": ("collapse",),
-            "fields": ("created_at", "updated_at"),
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "pk",
+                    ("citizen_pk_display", "slot"),
+                    ("status", "no_show"),
+                    ("appointment_mode", "booking_channel", "language"),
+                ),
+            },
+        ),
+        (
+            _("Rescheduling"),
+            {
+                "classes": ("collapse",),
+                "fields": ("rescheduled_from", "reschedule_count"),
+            },
+        ),
+        (
+            _("Cancellation"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "cancelled_at",
+                    "cancelled_by",
+                    "cancellation_reason",
+                    "late_cancellation",
+                ),
+            },
+        ),
+        (
+            _("Intake (Protected B — permission gated)"),
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "form_responses",
+                    "interpreter_needed",
+                    "interpreter_language",
+                    "accessibility_needs",
+                ),
+            },
+        ),
+        (
+            _("Staff Notes (permission gated)"),
+            {
+                "classes": ("collapse",),
+                "fields": ("internal_notes",),
+            },
+        ),
+        (
+            _("Consent & Compliance"),
+            {
+                "classes": ("collapse",),
+                "fields": ("consent_recorded_at", "consent_version"),
+            },
+        ),
+        (
+            _("System Links"),
+            {
+                "classes": ("collapse",),
+                "fields": ("work_item_id", "service_request_id"),
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "classes": ("collapse",),
+                "fields": ("created_at", "updated_at"),
+            },
+        ),
     )
 
-    def pk_short(self, obj):
+    def pk_short(self, obj):  # noqa: ANN001, ANN201
         return str(obj.pk)[:8] + "…"
+
     pk_short.short_description = "PK (short)"
 
-    def citizen_pk(self, obj):
+    def citizen_pk(self, obj):  # noqa: ANN001, ANN201
         """Display citizen PK only — NEVER email or name (PIPEDA)."""
         return str(obj.citizen_id)
+
     citizen_pk.short_description = "Citizen PK"
     citizen_pk.admin_order_field = "citizen_id"
 
-    def citizen_pk_display(self, obj):
+    def citizen_pk_display(self, obj):  # noqa: ANN001, ANN201
         return str(obj.citizen_id)
+
     citizen_pk_display.short_description = "Citizen PK"
 
-    def slot_start(self, obj):
+    def slot_start(self, obj):  # noqa: ANN001, ANN201
         return obj.slot.start_datetime.isoformat() if obj.slot_id else "—"
+
     slot_start.short_description = "Slot start (UTC)"
 
-    def get_readonly_fields(self, request, obj=None):
+    def get_readonly_fields(self, request, obj=None):  # noqa: ANN001, ANN201
         """Gate Protected B fields behind explicit permission."""
         ro = list(self.readonly_fields)
         if not request.user.has_perm("appointments.view_booking_form_responses"):
@@ -1100,7 +1289,7 @@ class BookingAdmin(admin.ModelAdmin):
             ro += ["internal_notes"]
         return ro
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         """Bookings are audit-relevant records — no deletion via admin."""
         return False
 
@@ -1111,7 +1300,8 @@ class ClientNoShowRecordAdmin(admin.ModelAdmin):
     Admin for ClientNoShowRecord. Access gated by manage_no_shows permission.
     PIPEDA: citizen referenced by PK only in list view.
     """
-    list_display = [
+
+    list_display = [  # noqa: RUF012
         "citizen_pk",
         "no_show_count",
         "late_cancellation_count",
@@ -1120,9 +1310,9 @@ class ClientNoShowRecordAdmin(admin.ModelAdmin):
         "is_suspended",
         "updated_at",
     ]
-    list_filter = ["is_flagged", "is_suspended"]
-    ordering = ["-updated_at"]
-    readonly_fields = [
+    list_filter = ["is_flagged", "is_suspended"]  # noqa: RUF012
+    ordering = ["-updated_at"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "citizen",
         "no_show_count",
         "late_cancellation_count",
@@ -1133,29 +1323,30 @@ class ClientNoShowRecordAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     ]
-    actions = ["clear_flag_action", "clear_suspension_action"]
+    actions = ["clear_flag_action", "clear_suspension_action"]  # noqa: RUF012
 
-    def citizen_pk(self, obj):
+    def citizen_pk(self, obj):  # noqa: ANN001, ANN201
         return str(obj.citizen_id)
+
     citizen_pk.short_description = "Citizen PK"
 
-    def has_module_perms(self, request):
+    def has_module_perms(self, request):  # noqa: ANN001, ANN201
         return request.user.has_perm("appointments.manage_no_shows")
 
-    def has_view_permission(self, request, obj=None):
+    def has_view_permission(self, request, obj=None):  # noqa: ANN001, ANN201
         return request.user.has_perm("appointments.manage_no_shows")
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None):  # noqa: ANN001, ANN201
         return request.user.has_perm("appointments.manage_no_shows")
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False  # Created only by the booking service
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False  # Retention-protected
 
     @admin.action(description=_("Clear flag (unflag selected citizens)"))
-    def clear_flag_action(self, request, queryset):
+    def clear_flag_action(self, request, queryset) -> None:  # noqa: ANN001
         if not request.user.has_perm("appointments.manage_no_shows"):
             self.message_user(request, _("Permission denied."), level="error")
             return
@@ -1163,20 +1354,19 @@ class ClientNoShowRecordAdmin(admin.ModelAdmin):
         self.message_user(request, _(f"{updated} record(s) unflagged."))
 
     @admin.action(description=_("Clear suspension (re-enable self-booking)"))
-    def clear_suspension_action(self, request, queryset):
+    def clear_suspension_action(self, request, queryset) -> None:  # noqa: ANN001
         if not request.user.has_perm("appointments.manage_no_shows"):
             self.message_user(request, _("Permission denied."), level="error")
             return
-        updated = queryset.filter(is_suspended=True).update(
-            is_suspended=False, suspension_note=""
-        )
+        updated = queryset.filter(is_suspended=True).update(is_suspended=False, suspension_note="")
         self.message_user(request, _(f"{updated} record(s) unsuspended."))
 
 
 @admin.register(WaitlistEntry)
 class WaitlistEntryAdmin(admin.ModelAdmin):
     """Read-only admin view for waitlist entries. Mutations via service layer only."""
-    list_display = [
+
+    list_display = [  # noqa: RUF012
         "pk",
         "citizen_pk",
         "slot",
@@ -1186,9 +1376,9 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
         "notification_sent_at",
         "joined_at",
     ]
-    list_filter = ["status", "priority_class"]
-    ordering = ["slot", "position"]
-    readonly_fields = [
+    list_filter = ["status", "priority_class"]  # noqa: RUF012
+    ordering = ["slot", "position"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
         "slot",
         "citizen_pk_display",
         "priority_class",
@@ -1202,23 +1392,25 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
         "updated_at",
     ]
 
-    def citizen_pk(self, obj):
+    def citizen_pk(self, obj):  # noqa: ANN001, ANN201
         return str(obj.citizen_id)
+
     citizen_pk.short_description = "Citizen PK"
 
-    def citizen_pk_display(self, obj):
+    def citizen_pk_display(self, obj):  # noqa: ANN001, ANN201
         return str(obj.citizen_id)
+
     citizen_pk_display.short_description = "Citizen PK"
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
 # Add AvailabilityTemplate inline to StaffProfileAdmin
-StaffProfileAdmin.inlines = list(StaffProfileAdmin.inlines) + [AvailabilityTemplateInline]
+StaffProfileAdmin.inlines = [*list(StaffProfileAdmin.inlines), AvailabilityTemplateInline]
 
 
 # ===========================================================================
@@ -1323,14 +1515,14 @@ class GovStackBBCredentialAdmin(admin.ModelAdmin):
     # even as a readonly field, to keep the hash out of the admin HTML entirely.
     fields = ("bb", "token_prefix", "last_used_at", "rotated_at", "created_at", "updated_at")
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Credentials are provisioned only via govstack_generate_bb_credential
         # (which handles plaintext generation + hashing). No add form here —
         # there is no safe way to let an admin type in a "secret" through a
         # plain HTML form field without it being logged/cached in transit.
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Rotation is a generate-new-secret operation, not a field edit —
         # done exclusively via the management command's --rotate flag.
         return False

@@ -1,0 +1,13 @@
+{
+  "building_block": "Consent",
+  "official_repository": "GovStackWorkingGroup/bb-consent",
+  "official_revision": "7af4b62a1c0b0d7073d42b37c71b0f08bea63dda",
+  "execution_scope": "local-only",
+  "command": "CONSENTBB_API_HOST=host.docker.internal:8888 CONSENTBB_API_PATH= bash test/gherkin/test_entrypoint.sh",
+  "result": "passed",
+  "feature_summary": "2 passed, 0 failed",
+  "scenario_summary": "4 passed, 0 failed",
+  "step_summary": "16 passed, 0 failed",
+  "adapter_endpoint": "https://host.docker.internal:8888",
+  "interpretation": "Pinned official suite passed locally through the constrained inbound Consent adapter; this is not a testing-site submission or certification claim."
+}

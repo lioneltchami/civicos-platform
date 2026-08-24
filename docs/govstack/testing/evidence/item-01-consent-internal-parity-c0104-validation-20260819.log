@@ -1,0 +1,11 @@
+Creating test database for alias 'default'...
+/usr/local/lib/python3.12/dist-packages/django/core/handlers/base.py:61: UserWarning: No directory at: /home/ubuntu/item01-c0104-validation/staticfiles/
+  mw_instance = middleware(adapted_handler)
+..................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 178 tests in 3.199s
+
+OK
+Destroying test database for alias 'default'...
+Found 178 test(s).
+System check identified no issues (0 silenced).

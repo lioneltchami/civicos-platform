@@ -1,5 +1,8 @@
 # Master BB Certifiability Report — CivicOS / GovStack
 
+> **Historical-status notice (2026-08-18):** This report preserves a prior internal assessment and must not be read as a current certification, official-harness result, or proof of GovStack wire conformance. Consult [`docs/govstack/SCOPE.md`](docs/govstack/SCOPE.md), the pinned authority manifest, and traceability inventory for the current boundary. Messaging/Workflow/CMS are local-only; remaining catalog Building Blocks are **Not Done Yet**.
+
+
 **Date:** 2026-07-26, updated 2026-07-27 (twice)
 **Git HEAD (at last update):** `77966f3` (Round 2: fix all 9 findings from fresh adversarial re-audit — 3 parallel agents), following `a9a6eb5` (Payments Round 1 fix pass).
 **Scope:** Documents Management BB, Appointments/Scheduler BB, Consent BB, and Payments BB — all four GovStack Building Blocks that exist in this codebase (confirmed via repo-wide search that `apps/api/{notifications,portal,volunteers,workflows}` have zero GovStack scope).

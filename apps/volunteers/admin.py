@@ -20,7 +20,8 @@ All admin actions are logged to AuditLogEntry via the standard Django admin
 log (LogEntry), which is supplementary to the apps/audit AuditLogEntry.
 Critical actions (accommodation_notes read, SIN access, export) are separately
 written to AuditLogEntry in the service / view layer.
-"""
+"""  # noqa: E501
+
 from __future__ import annotations
 
 from django.contrib import admin
@@ -28,8 +29,8 @@ from django.utils.translation import gettext_lazy as _
 
 from .models import (
     Certification,
-    HoursLog,
     Honorarium,
+    HoursLog,
     Opportunity,
     Program,
     RecognitionMilestone,
@@ -42,12 +43,12 @@ from .models import (
     VolunteerProfile,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _has_accommodation_perm(request) -> bool:
+
+def _has_accommodation_perm(request) -> bool:  # noqa: ANN001
     """True if the request user has the view_accommodation_notes permission."""
     return request.user.has_perm("volunteers.view_accommodation_notes")
 
@@ -74,7 +75,7 @@ def _mask_ip_for_audit(ip: str | None) -> str | None:
     if ip is None:
         return None
     if not ip:
-        return "0.0.0.0"
+        return "0.0.0.0"  # noqa: S104
     try:
         addr = _ipaddress.ip_address(ip.strip())
         if isinstance(addr, _ipaddress.IPv4Address):
@@ -84,12 +85,12 @@ def _mask_ip_for_audit(ip: str | None) -> str | None:
             network = _ipaddress.ip_network(f"{addr}/32", strict=False)
             return str(network.network_address)
     except ValueError:
-        return "0.0.0.0"
+        return "0.0.0.0"  # noqa: S104
 
 
 def _write_volunteer_audit(
     event_type: str,
-    request,
+    request,  # noqa: ANN001
     resource_id: str,
     detail: dict | None = None,
     resource_type: str = "volunteers.VolunteerProfile",
@@ -102,6 +103,7 @@ def _write_volunteer_audit(
     field names, per the PIPEDA minimum-data principle.
     """
     import logging
+
     logger = logging.getLogger(__name__)
     try:
         from apps.audit.models import AuditLogEntry
@@ -119,6 +121,7 @@ def _write_volunteer_audit(
 
         # IP extraction: only trust X-Forwarded-For when behind a known proxy.
         from django.conf import settings as dj_settings
+
         actor_ip = None
         if getattr(dj_settings, "SECURE_PROXY_SSL_HEADER", None):
             xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
@@ -156,32 +159,32 @@ def _write_volunteer_audit(
 # SkillTag
 # ---------------------------------------------------------------------------
 
+
 @admin.register(SkillTag)
 class SkillTagAdmin(admin.ModelAdmin):
-    list_display = ["name_en", "name_fr", "slug", "category", "is_active"]
-    list_filter = ["is_active", "category"]
-    search_fields = ["name_en", "name_fr", "slug"]
-    prepopulated_fields = {"slug": ("name_en",)}
-    ordering = ["name_en"]
+    list_display = ["name_en", "name_fr", "slug", "category", "is_active"]  # noqa: RUF012
+    list_filter = ["is_active", "category"]  # noqa: RUF012
+    search_fields = ["name_en", "name_fr", "slug"]  # noqa: RUF012
+    prepopulated_fields = {"slug": ("name_en",)}  # noqa: RUF012
+    ordering = ["name_en"]  # noqa: RUF012
 
 
 # ---------------------------------------------------------------------------
 # Program
 # ---------------------------------------------------------------------------
 
+
 @admin.register(Program)
 class ProgramAdmin(admin.ModelAdmin):
-    list_display = [
-        "name_en", "slug", "cra_category", "coordinator_pk", "is_active"
-    ]
-    list_filter = ["is_active", "cra_category"]
-    search_fields = ["name_en", "name_fr", "slug"]
-    prepopulated_fields = {"slug": ("name_en",)}
-    ordering = ["name_en"]
-    raw_id_fields = ["coordinator"]
+    list_display = ["name_en", "slug", "cra_category", "coordinator_pk", "is_active"]  # noqa: RUF012
+    list_filter = ["is_active", "cra_category"]  # noqa: RUF012
+    search_fields = ["name_en", "name_fr", "slug"]  # noqa: RUF012
+    prepopulated_fields = {"slug": ("name_en",)}  # noqa: RUF012
+    ordering = ["name_en"]  # noqa: RUF012
+    raw_id_fields = ["coordinator"]  # noqa: RUF012
 
     @admin.display(description=_("Coordinator PK"), ordering="coordinator_id")
-    def coordinator_pk(self, obj):
+    def coordinator_pk(self, obj):  # noqa: ANN001, ANN201
         # PIPEDA: display PK, not username/email
         return obj.coordinator_id
 
@@ -190,76 +193,109 @@ class ProgramAdmin(admin.ModelAdmin):
 # Opportunity
 # ---------------------------------------------------------------------------
 
+
 class ShiftInline(admin.TabularInline):
     model = Shift
     extra = 0
-    fields = [
-        "start_datetime", "end_datetime", "capacity",
-        "waitlist_enabled", "is_cancelled",
+    fields = [  # noqa: RUF012
+        "start_datetime",
+        "end_datetime",
+        "capacity",
+        "waitlist_enabled",
+        "is_cancelled",
     ]
-    readonly_fields = ["is_cancelled", "cancelled_at"]
-    ordering = ["start_datetime"]
+    readonly_fields = ["is_cancelled", "cancelled_at"]  # noqa: RUF012
+    ordering = ["start_datetime"]  # noqa: RUF012
     show_change_link = True
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Shifts cannot be deleted from admin — cancel via coordinator view.
         return False
 
 
 @admin.register(Opportunity)
 class OpportunityAdmin(admin.ModelAdmin):
-    list_display = [
-        "title_en", "program", "status", "volunteer_capacity",
-        "requires_vulnerable_sector_check", "published_at",
+    list_display = [  # noqa: RUF012
+        "title_en",
+        "program",
+        "status",
+        "volunteer_capacity",
+        "requires_vulnerable_sector_check",
+        "published_at",
     ]
-    list_filter = ["status", "program", "requires_vulnerable_sector_check", "is_remote"]
-    search_fields = ["title_en", "title_fr", "slug"]
-    prepopulated_fields = {"slug": ("title_en",)}
-    ordering = ["-published_at"]
-    raw_id_fields = ["program", "volunteer_agreement"]
-    inlines = [ShiftInline]
-    readonly_fields = ["published_at"]
+    list_filter = ["status", "program", "requires_vulnerable_sector_check", "is_remote"]  # noqa: RUF012
+    search_fields = ["title_en", "title_fr", "slug"]  # noqa: RUF012
+    prepopulated_fields = {"slug": ("title_en",)}  # noqa: RUF012
+    ordering = ["-published_at"]  # noqa: RUF012
+    raw_id_fields = ["program", "volunteer_agreement"]  # noqa: RUF012
+    inlines = [ShiftInline]  # noqa: RUF012
+    readonly_fields = ["published_at"]  # noqa: RUF012
 
-    fieldsets = [
-        (None, {
-            "fields": [
-                "program", "title_en", "title_fr", "slug",
-                "description_en", "description_fr",
-                "responsibilities_en", "responsibilities_fr",
-            ],
-        }),
-        (_("Location"), {
-            "fields": ["location_name", "location_address", "is_remote"],
-        }),
-        (_("Requirements"), {
-            "fields": [
-                "required_skills", "minimum_age",
-                "requires_vulnerable_sector_check",
-                "requires_police_record_check",
-                "requires_reference_check",
-                "requires_own_vehicle",
-                "required_profile_fields",
-            ],
-        }),
-        (_("Capacity & publishing"), {
-            "fields": [
-                "volunteer_capacity", "status", "published_at", "closes_at",
-            ],
-        }),
-        (_("Agreement & honorarium"), {
-            "fields": ["volunteer_agreement", "honorarium_per_shift"],
-        }),
+    fieldsets = [  # noqa: RUF012
+        (
+            None,
+            {
+                "fields": [
+                    "program",
+                    "title_en",
+                    "title_fr",
+                    "slug",
+                    "description_en",
+                    "description_fr",
+                    "responsibilities_en",
+                    "responsibilities_fr",
+                ],
+            },
+        ),
+        (
+            _("Location"),
+            {
+                "fields": ["location_name", "location_address", "is_remote"],
+            },
+        ),
+        (
+            _("Requirements"),
+            {
+                "fields": [
+                    "required_skills",
+                    "minimum_age",
+                    "requires_vulnerable_sector_check",
+                    "requires_police_record_check",
+                    "requires_reference_check",
+                    "requires_own_vehicle",
+                    "required_profile_fields",
+                ],
+            },
+        ),
+        (
+            _("Capacity & publishing"),
+            {
+                "fields": [
+                    "volunteer_capacity",
+                    "status",
+                    "published_at",
+                    "closes_at",
+                ],
+            },
+        ),
+        (
+            _("Agreement & honorarium"),
+            {
+                "fields": ["volunteer_agreement", "honorarium_per_shift"],
+            },
+        ),
     ]
 
-    actions = ["publish_opportunities", "close_opportunities"]
+    actions = ["publish_opportunities", "close_opportunities"]  # noqa: RUF012
 
     # NOTE: This action uses QuerySet.update() which bypasses model save() and
     # Django signals. Wave 2 notification receivers (opportunity published → notify
     # subscribed volunteers) will NOT fire from this admin action.
     # If notifications are required, replace with a loop calling obj.save().
     @admin.action(description=_("Publish selected opportunities"))
-    def publish_opportunities(self, request, queryset):
+    def publish_opportunities(self, request, queryset) -> None:  # noqa: ANN001
         from django.utils import timezone
+
         count = queryset.filter(status=Opportunity.STATUS_DRAFT).update(
             status=Opportunity.STATUS_PUBLISHED,
             published_at=timezone.now(),
@@ -271,7 +307,7 @@ class OpportunityAdmin(admin.ModelAdmin):
     # subscribed volunteers) will NOT fire from this admin action.
     # If notifications are required, replace with a loop calling obj.save().
     @admin.action(description=_("Close selected opportunities"))
-    def close_opportunities(self, request, queryset):
+    def close_opportunities(self, request, queryset) -> None:  # noqa: ANN001
         count = queryset.exclude(status=Opportunity.STATUS_CLOSED).update(
             status=Opportunity.STATUS_CLOSED,
         )
@@ -282,124 +318,161 @@ class OpportunityAdmin(admin.ModelAdmin):
 # VolunteerProfile — field-level PII gate for sensitive fields
 # ---------------------------------------------------------------------------
 
+
 class CertificationInline(admin.TabularInline):
     model = Certification
     extra = 0
-    fields = ["cert_type", "cert_type_other", "issued_date", "expires_date", "verified_at"]
-    readonly_fields = ["verified_at", "verified_by"]
-    ordering = ["-issued_date"]
+    fields = ["cert_type", "cert_type_other", "issued_date", "expires_date", "verified_at"]  # noqa: RUF012
+    readonly_fields = ["verified_at", "verified_by"]  # noqa: RUF012
+    ordering = ["-issued_date"]  # noqa: RUF012
     show_change_link = True
 
 
 class ScreeningRecordInline(admin.TabularInline):
     model = ScreeningRecord
     extra = 0
-    fields = ["check_type", "completed_date", "expires_date", "verified_clear", "verified_at"]
-    readonly_fields = ["verified_at", "verified_by"]
-    ordering = ["-completed_date"]
+    fields = ["check_type", "completed_date", "expires_date", "verified_clear", "verified_at"]  # noqa: RUF012
+    readonly_fields = ["verified_at", "verified_by"]  # noqa: RUF012
+    ordering = ["-completed_date"]  # noqa: RUF012
     # SECURITY: show_change_link=False prevents click-through to ScreeningRecordAdmin
     # change view, which would expose `notes` without the view_accommodation_notes
     # permission gate that guards the standalone admin.
     show_change_link = False
 
-    def has_add_permission(self, request, obj=None):
+    def has_add_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Inline add is blocked to match the standalone ScreeningRecordAdmin policy.
         # Adding via the inline would bypass coordinator-view validations.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Screening records cannot be deleted — PIPEDA audit trail.
         return False
 
 
 @admin.register(VolunteerProfile)
 class VolunteerProfileAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "status",
+    list_display = [  # noqa: RUF012
+        "pk",
+        "status",
     ]
-    list_filter = ["status", "preferred_language", "available_weekdays",
-                   "available_weekends", "available_evenings"]
+    list_filter = [  # noqa: RUF012
+        "status",
+        "preferred_language",
+        "available_weekdays",
+        "available_weekends",
+        "available_evenings",
+    ]
     # PIPEDA: search by profile PK only. preferred_name is PII — do not expose in search.
-    search_fields = ["pk"]
-    ordering = ["-created_at"]
-    raw_id_fields = ["user", "status_changed_by", "photo_consent"]
-    inlines = [ScreeningRecordInline, CertificationInline]
+    search_fields = ["pk"]  # noqa: RUF012
+    ordering = ["-created_at"]  # noqa: RUF012
+    raw_id_fields = ["user", "status_changed_by", "photo_consent"]  # noqa: RUF012
+    inlines = [ScreeningRecordInline, CertificationInline]  # noqa: RUF012
     # sin_encrypted is NEVER in readonly_fields or fieldsets — PIPEDA + security requirement.
-    readonly_fields = [
-        "pk", "user_pk", "total_hours_approved",
-        "status_changed_at", "status_changed_by",
+    readonly_fields = [  # noqa: RUF012
+        "pk",
+        "user_pk",
+        "total_hours_approved",
+        "status_changed_at",
+        "status_changed_by",
     ]
 
-    def get_fieldsets(self, request, obj=None):
+    def get_fieldsets(self, request, obj=None):  # noqa: ANN001, ANN201
         """
         Return fieldsets with sensitive sections shown only to users with
         volunteers.view_accommodation_notes permission.
         """
         base_fieldsets = [
-            (None, {
-                "fields": [
-                    "user_pk", "preferred_name", "preferred_language",
-                    "phone_number", "status", "total_hours_approved",
-                ],
-            }),
-            (_("Availability"), {
-                "fields": [
-                    "availability_notes",
-                    "available_weekdays", "available_weekends", "available_evenings",
-                ],
-            }),
-            (_("Skills"), {
-                "fields": ["skills"],
-            }),
+            (
+                None,
+                {
+                    "fields": [
+                        "user_pk",
+                        "preferred_name",
+                        "preferred_language",
+                        "phone_number",
+                        "status",
+                        "total_hours_approved",
+                    ],
+                },
+            ),
+            (
+                _("Availability"),
+                {
+                    "fields": [
+                        "availability_notes",
+                        "available_weekdays",
+                        "available_weekends",
+                        "available_evenings",
+                    ],
+                },
+            ),
+            (
+                _("Skills"),
+                {
+                    "fields": ["skills"],
+                },
+            ),
         ]
 
         if _has_accommodation_perm(request):
             base_fieldsets += [
-                (_("Emergency contact ⚠ SENSITIVE"), {
-                    "classes": ["collapse"],
-                    "fields": [
-                        "emergency_contact_name",
-                        "emergency_contact_phone",
-                        "emergency_contact_relationship",
-                    ],
-                }),
-                (_("Accommodation ⚠ SENSITIVE"), {
-                    "classes": ["collapse"],
-                    "fields": ["accommodation_notes"],
-                }),
-                (_("Age verification ⚠ SENSITIVE"), {
-                    "classes": ["collapse"],
-                    "fields": ["date_of_birth"],
-                }),
-                (_("SIN ⚠ SENSITIVE — last 4 only"), {
-                    "classes": ["collapse"],
-                    "description": _(
-                        "SIN is stored Fernet-encrypted. Only the last 4 digits "
-                        "are displayed here for confirmation. The encrypted value "
-                        "is never shown."
-                    ),
-                    "fields": ["sin_last4"],
-                }),
+                (
+                    _("Emergency contact ⚠ SENSITIVE"),
+                    {
+                        "classes": ["collapse"],
+                        "fields": [
+                            "emergency_contact_name",
+                            "emergency_contact_phone",
+                            "emergency_contact_relationship",
+                        ],
+                    },
+                ),
+                (
+                    _("Accommodation ⚠ SENSITIVE"),
+                    {
+                        "classes": ["collapse"],
+                        "fields": ["accommodation_notes"],
+                    },
+                ),
+                (
+                    _("Age verification ⚠ SENSITIVE"),
+                    {
+                        "classes": ["collapse"],
+                        "fields": ["date_of_birth"],
+                    },
+                ),
+                (
+                    _("SIN ⚠ SENSITIVE — last 4 only"),
+                    {
+                        "classes": ["collapse"],
+                        "description": _(
+                            "SIN is stored Fernet-encrypted. Only the last 4 digits "
+                            "are displayed here for confirmation. The encrypted value "
+                            "is never shown."
+                        ),
+                        "fields": ["sin_last4"],
+                    },
+                ),
             ]
 
         return base_fieldsets
 
-    def get_fields(self, request, obj=None):
+    def get_fields(self, request, obj=None):  # noqa: ANN001, ANN201
         fields = super().get_fields(request, obj)
         # sin_encrypted is NEVER exposed in admin — PIPEDA + security requirement.
         # Access only via services/volunteers.py decrypt_sin().
         return [f for f in fields if f != "sin_encrypted"]
 
     @admin.display(description=_("Preferred name"), ordering="preferred_name")
-    def preferred_name_display(self, obj):
+    def preferred_name_display(self, obj):  # noqa: ANN001, ANN201
         # Shows preferred_name if set; masks identity for list display.
-        return obj.preferred_name or f"(not set)"
+        return obj.preferred_name or "(not set)"
 
     @admin.display(description=_("User PK"))
-    def user_pk(self, obj):
+    def user_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.user_id
 
-    def change_view(self, request, object_id, form_url="", extra_context=None):
+    def change_view(self, request, object_id, form_url="", extra_context=None):  # noqa: ANN001, ANN201
         """
         Audit-log every admin change-form view of a VolunteerProfile.
 
@@ -440,11 +513,11 @@ class VolunteerProfileAdmin(admin.ModelAdmin):
 
         return response
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Profiles are created via the application flow, not directly.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Profiles are deactivated (status=inactive), never hard-deleted via admin.
         return False
 
@@ -453,46 +526,55 @@ class VolunteerProfileAdmin(admin.ModelAdmin):
 # VolunteerApplication
 # ---------------------------------------------------------------------------
 
+
 @admin.register(VolunteerApplication)
 class VolunteerApplicationAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "opportunity", "volunteer_pk", "status", "reviewed_by_pk", "created_at"
-    ]
-    list_filter = ["status", "opportunity__program"]
-    search_fields = ["pk", "opportunity__slug"]
-    ordering = ["-created_at"]
-    raw_id_fields = ["opportunity", "volunteer", "reviewed_by", "consent_record", "work_item"]
-    readonly_fields = [
-        "pk", "opportunity", "volunteer_pk", "created_at", "updated_at",
+    list_display = ["pk", "opportunity", "volunteer_pk", "status", "reviewed_by_pk", "created_at"]  # noqa: RUF012
+    list_filter = ["status", "opportunity__program"]  # noqa: RUF012
+    search_fields = ["pk", "opportunity__slug"]  # noqa: RUF012
+    ordering = ["-created_at"]  # noqa: RUF012
+    raw_id_fields = ["opportunity", "volunteer", "reviewed_by", "consent_record", "work_item"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
+        "pk",
+        "opportunity",
+        "volunteer_pk",
+        "created_at",
+        "updated_at",
         "work_item",
     ]
 
-    def get_fieldsets(self, request, obj=None):
+    def get_fieldsets(self, request, obj=None):  # noqa: ANN001, ANN201
         base = [
-            (None, {"fields": ["opportunity", "volunteer", "status", "reviewed_by", "reviewed_at"]}),
+            (
+                None,
+                {"fields": ["opportunity", "volunteer", "status", "reviewed_by", "reviewed_at"]},
+            ),
             (_("Consent"), {"fields": ["consent_record", "work_item"]}),
         ]
         if _has_accommodation_perm(request):
             base.append(
-                (_("Screening (restricted)"), {
-                    "fields": ["motivation", "screening_notes", "rejection_reason"],
-                    "description": _(
-                        "Visible only to users with volunteers.view_accommodation_notes. "
-                        "PIPEDA: never shown to the applicant."
-                    ),
-                })
+                (
+                    _("Screening (restricted)"),
+                    {
+                        "fields": ["motivation", "screening_notes", "rejection_reason"],
+                        "description": _(
+                            "Visible only to users with volunteers.view_accommodation_notes. "
+                            "PIPEDA: never shown to the applicant."
+                        ),
+                    },
+                )
             )
         return base
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk(self, obj):
+    def volunteer_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
     @admin.display(description=_("Reviewed by PK"), ordering="reviewed_by_id")
-    def reviewed_by_pk(self, obj):
+    def reviewed_by_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.reviewed_by_id
 
-    def get_queryset(self, request):
+    def get_queryset(self, request):  # noqa: ANN001, ANN201
         """
         Scope list view to applications within the coordinator's own programmes.
 
@@ -506,11 +588,11 @@ class VolunteerApplicationAdmin(admin.ModelAdmin):
             return qs
         return qs.filter(opportunity__program__coordinator=request.user)
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Applications are created via the volunteer portal only.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Application records are retained for audit trail.
         return False
 
@@ -519,66 +601,70 @@ class VolunteerApplicationAdmin(admin.ModelAdmin):
 # Shift / ShiftBooking
 # ---------------------------------------------------------------------------
 
+
 class ShiftBookingInline(admin.TabularInline):
     model = ShiftBooking
     extra = 0
-    fields = ["volunteer_pk_display", "status", "waitlist_position", "cancelled_at"]
-    readonly_fields = ["volunteer_pk_display", "cancelled_at"]
-    ordering = ["status", "waitlist_position"]
+    fields = ["volunteer_pk_display", "status", "waitlist_position", "cancelled_at"]  # noqa: RUF012
+    readonly_fields = ["volunteer_pk_display", "cancelled_at"]  # noqa: RUF012
+    ordering = ["status", "waitlist_position"]  # noqa: RUF012
     show_change_link = True
 
     @admin.display(description=_("Volunteer PK"))
-    def volunteer_pk_display(self, obj):
+    def volunteer_pk_display(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
-    def has_add_permission(self, request, obj=None):
+    def has_add_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
 @admin.register(Shift)
 class ShiftAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "opportunity", "start_datetime", "end_datetime",
-        "duration_hours", "capacity", "is_cancelled",
+    list_display = [  # noqa: RUF012
+        "pk",
+        "opportunity",
+        "start_datetime",
+        "end_datetime",
+        "duration_hours",
+        "capacity",
+        "is_cancelled",
     ]
-    list_filter = ["is_cancelled", "opportunity__program"]
-    search_fields = ["pk", "opportunity__slug"]
-    ordering = ["-start_datetime"]
-    raw_id_fields = ["opportunity", "coordinator", "cancelled_by"]
-    inlines = [ShiftBookingInline]
-    readonly_fields = ["is_cancelled", "cancelled_at", "cancelled_by", "duration_hours"]
+    list_filter = ["is_cancelled", "opportunity__program"]  # noqa: RUF012
+    search_fields = ["pk", "opportunity__slug"]  # noqa: RUF012
+    ordering = ["-start_datetime"]  # noqa: RUF012
+    raw_id_fields = ["opportunity", "coordinator", "cancelled_by"]  # noqa: RUF012
+    inlines = [ShiftBookingInline]  # noqa: RUF012
+    readonly_fields = ["is_cancelled", "cancelled_at", "cancelled_by", "duration_hours"]  # noqa: RUF012
 
     @admin.display(description=_("Duration (hours)"), ordering=None)
-    def duration_hours(self, obj):
+    def duration_hours(self, obj):  # noqa: ANN001, ANN201
         return obj.duration_hours
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Shifts are cancelled, not deleted.
         return False
 
 
 @admin.register(ShiftBooking)
 class ShiftBookingAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "shift", "volunteer_pk", "status", "waitlist_position", "created_at"
-    ]
-    list_filter = ["status"]
-    search_fields = ["pk", "shift__pk"]
-    ordering = ["-created_at"]
-    raw_id_fields = ["shift", "volunteer"]
-    readonly_fields = ["pk", "created_at", "updated_at", "reminder_24h_sent", "reminder_2h_sent"]
+    list_display = ["pk", "shift", "volunteer_pk", "status", "waitlist_position", "created_at"]  # noqa: RUF012
+    list_filter = ["status"]  # noqa: RUF012
+    search_fields = ["pk", "shift__pk"]  # noqa: RUF012
+    ordering = ["-created_at"]  # noqa: RUF012
+    raw_id_fields = ["shift", "volunteer"]  # noqa: RUF012
+    readonly_fields = ["pk", "created_at", "updated_at", "reminder_24h_sent", "reminder_2h_sent"]  # noqa: RUF012
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk(self, obj):
+    def volunteer_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
@@ -586,37 +672,44 @@ class ShiftBookingAdmin(admin.ModelAdmin):
 # HoursLog
 # ---------------------------------------------------------------------------
 
+
 @admin.register(HoursLog)
 class HoursLogAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "volunteer_pk", "opportunity", "date", "hours", "status", "approved_by_pk"
+    list_display = [  # noqa: RUF012
+        "pk",
+        "volunteer_pk",
+        "opportunity",
+        "date",
+        "hours",
+        "status",
+        "approved_by_pk",
     ]
-    list_filter = ["status", "opportunity__program"]
-    search_fields = ["pk", "opportunity__slug"]
-    ordering = ["-date"]
-    raw_id_fields = ["volunteer", "opportunity", "shift", "approved_by"]
-    readonly_fields = ["pk", "created_at", "updated_at", "approved_at"]
+    list_filter = ["status", "opportunity__program"]  # noqa: RUF012
+    search_fields = ["pk", "opportunity__slug"]  # noqa: RUF012
+    ordering = ["-date"]  # noqa: RUF012
+    raw_id_fields = ["volunteer", "opportunity", "shift", "approved_by"]  # noqa: RUF012
+    readonly_fields = ["pk", "created_at", "updated_at", "approved_at"]  # noqa: RUF012
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk(self, obj):
+    def volunteer_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
     @admin.display(description=_("Approved by PK"), ordering="approved_by_id")
-    def approved_by_pk(self, obj):
+    def approved_by_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.approved_by_id
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Hours are logged via volunteer portal or coordinator view.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None):  # noqa: ANN001, ANN201
         # Approved hours are immutable financial/audit records — never deletable.
         # Pending and rejected entries may be deleted by coordinators to correct mistakes.
         if obj is not None and obj.status == "approved":
             return False
         return request.user.has_perm("volunteers.delete_hourslog")
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None):  # noqa: ANN001, ANN201
         # Approved records cannot be mutated via admin.
         if obj and obj.status == HoursLog.STATUS_APPROVED:
             return False
@@ -627,34 +720,40 @@ class HoursLogAdmin(admin.ModelAdmin):
 # ScreeningRecord
 # ---------------------------------------------------------------------------
 
+
 @admin.register(ScreeningRecord)
 class ScreeningRecordAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "volunteer_pk", "check_type", "completed_date",
-        "expires_date", "verified_clear", "is_expired_display",
+    list_display = [  # noqa: RUF012
+        "pk",
+        "volunteer_pk",
+        "check_type",
+        "completed_date",
+        "expires_date",
+        "verified_clear",
+        "is_expired_display",
     ]
-    list_filter = ["check_type", "verified_clear"]
-    search_fields = ["pk"]
-    ordering = ["-completed_date"]
-    raw_id_fields = ["volunteer", "opportunity", "verified_by"]
-    readonly_fields = ["pk", "created_at", "updated_at"]
+    list_filter = ["check_type", "verified_clear"]  # noqa: RUF012
+    search_fields = ["pk"]  # noqa: RUF012
+    ordering = ["-completed_date"]  # noqa: RUF012
+    raw_id_fields = ["volunteer", "opportunity", "verified_by"]  # noqa: RUF012
+    readonly_fields = ["pk", "created_at", "updated_at"]  # noqa: RUF012
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk(self, obj):
+    def volunteer_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
     @admin.display(description=_("Expired?"), boolean=True)
-    def is_expired_display(self, obj):
+    def is_expired_display(self, obj):  # noqa: ANN001, ANN201
         return obj.is_expired
 
-    def get_readonly_fields(self, request, obj=None):
+    def get_readonly_fields(self, request, obj=None):  # noqa: ANN001, ANN201
         base = list(self.readonly_fields)
         if obj and obj.verified_clear is not None:
             # Once VSC is verified (cleared or not), the result is immutable.
             base += ["verified_clear", "verified_at", "verified_by"]
         return base
 
-    def save_model(self, request, obj, form, change):
+    def save_model(self, request, obj, form, change) -> None:  # noqa: ANN001
         """
         Audit-log every write to a ScreeningRecord.
 
@@ -678,11 +777,11 @@ class ScreeningRecordAdmin(admin.ModelAdmin):
         )
         super().save_model(request, obj, form, change)
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Screening records created via coordinator view only.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Screening records are permanent — part of the due diligence audit trail.
         return False
 
@@ -691,27 +790,33 @@ class ScreeningRecordAdmin(admin.ModelAdmin):
 # Certification
 # ---------------------------------------------------------------------------
 
+
 @admin.register(Certification)
 class CertificationAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "volunteer_pk", "cert_type", "issued_date",
-        "expires_date", "verified_at", "is_expired_display",
+    list_display = [  # noqa: RUF012
+        "pk",
+        "volunteer_pk",
+        "cert_type",
+        "issued_date",
+        "expires_date",
+        "verified_at",
+        "is_expired_display",
     ]
-    list_filter = ["cert_type"]
-    search_fields = ["pk"]
-    ordering = ["-issued_date"]
-    raw_id_fields = ["volunteer", "verified_by"]
-    readonly_fields = ["pk", "created_at", "updated_at"]
+    list_filter = ["cert_type"]  # noqa: RUF012
+    search_fields = ["pk"]  # noqa: RUF012
+    ordering = ["-issued_date"]  # noqa: RUF012
+    raw_id_fields = ["volunteer", "verified_by"]  # noqa: RUF012
+    readonly_fields = ["pk", "created_at", "updated_at"]  # noqa: RUF012
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk(self, obj):
+    def volunteer_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
     @admin.display(description=_("Expired?"), boolean=True)
-    def is_expired_display(self, obj):
+    def is_expired_display(self, obj):  # noqa: ANN001, ANN201
         return obj.is_expired
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
 
@@ -719,53 +824,80 @@ class CertificationAdmin(admin.ModelAdmin):
 # Honorarium
 # ---------------------------------------------------------------------------
 
+
 @admin.register(Honorarium)
 class HonorariumAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "volunteer_pk_display", "payment_type", "amount", "currency",
-        "calendar_year", "t4a_required", "t4a_issued", "payment_date",
+    list_display = [  # noqa: RUF012
+        "pk",
+        "volunteer_pk_display",
+        "payment_type",
+        "amount",
+        "currency",
+        "calendar_year",
+        "t4a_required",
+        "t4a_issued",
+        "payment_date",
     ]
-    list_filter = ["payment_type", "calendar_year", "t4a_required", "t4a_issued"]
-    search_fields = ["pk"]
-    ordering = ["-payment_date"]
-    raw_id_fields = ["volunteer", "created_by", "payment"]
-    readonly_fields = [
-        "pk", "created_at", "updated_at",
-        "calendar_year",         # Derived from payment_date on save.
-        "t4a_required",          # Set by service layer.
+    list_filter = ["payment_type", "calendar_year", "t4a_required", "t4a_issued"]  # noqa: RUF012
+    search_fields = ["pk"]  # noqa: RUF012
+    ordering = ["-payment_date"]  # noqa: RUF012
+    raw_id_fields = ["volunteer", "created_by", "payment"]  # noqa: RUF012
+    readonly_fields = [  # noqa: RUF012
+        "pk",
+        "created_at",
+        "updated_at",
+        "calendar_year",  # Derived from payment_date on save.
+        "t4a_required",  # Set by service layer.
         "volunteer_pk_display",  # Computed display field — read-only.
     ]
 
-    fieldsets = [
-        (None, {
-            "fields": [
-                "pk", "volunteer_pk_display", "payment_type",
-                "amount", "currency", "description",
-                "payment_date", "calendar_year",
-            ],
-        }),
-        (_("T4A"), {
-            "fields": ["t4a_required", "t4a_issued", "t4a_issued_at"],
-        }),
-        (_("Payments BB link"), {
-            "fields": ["payment"],
-            "classes": ["collapse"],
-        }),
-        (_("Metadata"), {
-            "fields": ["created_by", "created_at", "updated_at"],
-            "classes": ["collapse"],
-        }),
+    fieldsets = [  # noqa: RUF012
+        (
+            None,
+            {
+                "fields": [
+                    "pk",
+                    "volunteer_pk_display",
+                    "payment_type",
+                    "amount",
+                    "currency",
+                    "description",
+                    "payment_date",
+                    "calendar_year",
+                ],
+            },
+        ),
+        (
+            _("T4A"),
+            {
+                "fields": ["t4a_required", "t4a_issued", "t4a_issued_at"],
+            },
+        ),
+        (
+            _("Payments BB link"),
+            {
+                "fields": ["payment"],
+                "classes": ["collapse"],
+            },
+        ),
+        (
+            _("Metadata"),
+            {
+                "fields": ["created_by", "created_at", "updated_at"],
+                "classes": ["collapse"],
+            },
+        ),
     ]
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk_display(self, obj):
+    def volunteer_pk_display(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Honoraria created via coordinator admin view with CRA threshold validation.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Immutable financial record — CRA audit trail.
         return False
 
@@ -774,28 +906,29 @@ class HonorariumAdmin(admin.ModelAdmin):
 # VolunteerNote
 # ---------------------------------------------------------------------------
 
+
 @admin.register(VolunteerNote)
 class VolunteerNoteAdmin(admin.ModelAdmin):
-    list_display = ["pk", "volunteer_pk", "author_pk", "created_at"]
-    search_fields = ["pk"]
-    ordering = ["-created_at"]
-    raw_id_fields = ["volunteer", "author"]
-    readonly_fields = ["pk", "created_at", "updated_at"]
+    list_display = ["pk", "volunteer_pk", "author_pk", "created_at"]  # noqa: RUF012
+    search_fields = ["pk"]  # noqa: RUF012
+    ordering = ["-created_at"]  # noqa: RUF012
+    raw_id_fields = ["volunteer", "author"]  # noqa: RUF012
+    readonly_fields = ["pk", "created_at", "updated_at"]  # noqa: RUF012
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk(self, obj):
+    def volunteer_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
     @admin.display(description=_("Author PK"), ordering="author_id")
-    def author_pk(self, obj):
+    def author_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.author_id
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # Notes are created via the coordinator portal view, not directly in admin.
         # This ensures author, timestamp, and audit fields are set by the service layer.
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Notes are append-only; deletion via admin not permitted.
         return False
 
@@ -804,28 +937,27 @@ class VolunteerNoteAdmin(admin.ModelAdmin):
 # RecognitionMilestone
 # ---------------------------------------------------------------------------
 
+
 @admin.register(RecognitionMilestone)
 class RecognitionMilestoneAdmin(admin.ModelAdmin):
-    list_display = [
-        "pk", "volunteer_pk", "hours_threshold", "achieved_at", "notification_sent"
-    ]
-    list_filter = ["notification_sent"]
-    search_fields = ["pk"]
-    ordering = ["-achieved_at"]
-    raw_id_fields = ["volunteer"]
-    readonly_fields = ["pk", "achieved_at"]
+    list_display = ["pk", "volunteer_pk", "hours_threshold", "achieved_at", "notification_sent"]  # noqa: RUF012
+    list_filter = ["notification_sent"]  # noqa: RUF012
+    search_fields = ["pk"]  # noqa: RUF012
+    ordering = ["-achieved_at"]  # noqa: RUF012
+    raw_id_fields = ["volunteer"]  # noqa: RUF012
+    readonly_fields = ["pk", "achieved_at"]  # noqa: RUF012
 
     @admin.display(description=_("Volunteer PK"), ordering="volunteer_id")
-    def volunteer_pk(self, obj):
+    def volunteer_pk(self, obj):  # noqa: ANN001, ANN201
         return obj.volunteer_id
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request) -> bool:  # noqa: ANN001
         # System-created only (via services/hours.py on approval).
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request, obj=None) -> bool:  # noqa: ANN001
         # Read-only records.
         return False

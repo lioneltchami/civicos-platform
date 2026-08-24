@@ -15,6 +15,7 @@ Conventions:
   - No time.sleep() — all temporal assertions use mocked now().
   - PIPEDA: volunteers referenced by profile PK only.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -60,27 +61,27 @@ def _make_user(email=None, password="testpass!", **kwargs):
 
 def _make_program(**kwargs):
     n = _uid()
-    defaults = dict(
-        name_en=f"Program {n}",
-        name_fr=f"Programme {n}",
-        slug=f"sprog-{n}",
-        cra_category="welfare",
-    )
+    defaults = {
+        "name_en": f"Program {n}",
+        "name_fr": f"Programme {n}",
+        "slug": f"sprog-{n}",
+        "cra_category": "welfare",
+    }
     defaults.update(kwargs)
     return Program.objects.create(**defaults)
 
 
 def _make_opportunity(program, *, slug=None, status="published", **kwargs):
     n = _uid()
-    defaults = dict(
-        title_en=f"Opportunity {n}",
-        title_fr=f"Opportunité {n}",
-        slug=slug or f"sopp-{n}",
-        description_en="Description",
-        description_fr="Description FR",
-        program=program,
-        status=status,
-    )
+    defaults = {
+        "title_en": f"Opportunity {n}",
+        "title_fr": f"Opportunité {n}",
+        "slug": slug or f"sopp-{n}",
+        "description_en": "Description",
+        "description_fr": "Description FR",
+        "program": program,
+        "status": status,
+    }
     defaults.update(kwargs)
     return Opportunity.objects.create(**defaults)
 
@@ -104,6 +105,7 @@ def _grant_perm(user, codename):
 # ---------------------------------------------------------------------------
 # Shared base setup
 # ---------------------------------------------------------------------------
+
 
 class ScreeningBaseTestCase(TestCase):
     """
@@ -133,8 +135,8 @@ class ScreeningBaseTestCase(TestCase):
 # record_check() tests
 # ===========================================================================
 
-class RecordCheckTests(ScreeningBaseTestCase):
 
+class RecordCheckTests(ScreeningBaseTestCase):
     def test_creates_screening_record_with_defaults(self):
         """Happy path: record_check() creates a ScreeningRecord with verified_clear=None."""
         record = record_check(
@@ -241,8 +243,8 @@ class RecordCheckTests(ScreeningBaseTestCase):
 # complete_check() tests
 # ===========================================================================
 
-class CompleteCheckTests(ScreeningBaseTestCase):
 
+class CompleteCheckTests(ScreeningBaseTestCase):
     def _pending_record(self, check_type=None, opportunity=None):
         """Create a pending ScreeningRecord for use in complete_check() tests."""
         return record_check(
@@ -409,6 +411,7 @@ class CompleteCheckTests(ScreeningBaseTestCase):
 # check_expiring_soon() tests
 # ===========================================================================
 
+
 class CheckExpiringSoonTests(ScreeningBaseTestCase):
     """
     C-2 fix: patch django.utils.timezone.now to freeze "today" so tests
@@ -417,14 +420,12 @@ class CheckExpiringSoonTests(ScreeningBaseTestCase):
 
     # Frozen instant: 2026-06-15 10:00 UTC.  localtime() in any timezone
     # within UTC-9..UTC+14 resolves to 2026-06-15, matching _today.
-    _frozen_now = datetime.datetime(2026, 6, 15, 10, 0, 0,
-                                    tzinfo=datetime.timezone.utc)
+    _frozen_now = datetime.datetime(2026, 6, 15, 10, 0, 0, tzinfo=datetime.UTC)
     _today = datetime.date(2026, 6, 15)
 
     def setUp(self):
         super().setUp()
-        self._patcher = patch("django.utils.timezone.now",
-                              return_value=self._frozen_now)
+        self._patcher = patch("django.utils.timezone.now", return_value=self._frozen_now)
         self._patcher.start()
 
     def tearDown(self):
@@ -447,9 +448,7 @@ class CheckExpiringSoonTests(ScreeningBaseTestCase):
 
     def test_returns_records_within_window(self):
         """Records expiring within the default 30-day window are returned."""
-        expiring_soon = self._cleared_record(
-            expires_date=self._today + datetime.timedelta(days=15)
-        )
+        expiring_soon = self._cleared_record(expires_date=self._today + datetime.timedelta(days=15))
         qs = check_expiring_soon(days_ahead=30)
         pks = list(qs.values_list("pk", flat=True))
         self.assertIn(expiring_soon.pk, pks)
@@ -525,9 +524,7 @@ class CheckExpiringSoonTests(ScreeningBaseTestCase):
     def test_default_window_is_30_days(self):
         """check_expiring_soon() with no args uses a 30-day window by default."""
         # Record at 29 days — inside the default 30-day window.
-        rec_29 = self._cleared_record(
-            expires_date=self._today + datetime.timedelta(days=29)
-        )
+        rec_29 = self._cleared_record(expires_date=self._today + datetime.timedelta(days=29))
         # Record at 31 days — outside the default 30-day window.
         vol2_user = _make_user()
         vol2 = _make_profile(vol2_user)
@@ -571,6 +568,7 @@ class CheckExpiringSoonTests(ScreeningBaseTestCase):
 # ScreeningRecord model property tests
 # ===========================================================================
 
+
 class ScreeningPropertyTests(TestCase):
     """
     Unit tests for ScreeningRecord.is_expired and .expires_within_30_days.
@@ -580,9 +578,7 @@ class ScreeningPropertyTests(TestCase):
     """
 
     def setUp(self):
-        self.user = User.objects.create_user(
-            email="prop@example.gc.ca", password="testpass!"
-        )
+        self.user = User.objects.create_user(email="prop@example.gc.ca", password="testpass!")
         self.profile = VolunteerProfile.objects.create(user=self.user)
 
     def _make_record(self, expires_date=None):
@@ -598,8 +594,7 @@ class ScreeningPropertyTests(TestCase):
     def _fixed_now(self, date_str: str):
         """Return a timezone-aware datetime for the given YYYY-MM-DD string."""
         d = datetime.date.fromisoformat(date_str)
-        return datetime.datetime(d.year, d.month, d.day, 12, 0, 0,
-                                 tzinfo=datetime.timezone.utc)
+        return datetime.datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=datetime.UTC)
 
     # --- is_expired ---
 
@@ -623,7 +618,7 @@ class ScreeningPropertyTests(TestCase):
             self.assertTrue(record.is_expired)
 
     def test_is_expired_false_on_exact_date(self):
-        """is_expired is False when expires_date equals today (expires AT end of day, not expired)."""
+        """is_expired is False when expires_date equals today (expires AT end of day, not expired)."""  # noqa: E501
         fixed_now = self._fixed_now("2026-06-15")
         with patch("django.utils.timezone.now", return_value=fixed_now):
             record = self._make_record(expires_date=datetime.date(2026, 6, 15))

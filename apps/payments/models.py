@@ -9,19 +9,20 @@ Security invariants:
 - Currency always CAD.
 - PII never written to application logs.
 """
+
 from __future__ import annotations
 
 import secrets
 import uuid
 from decimal import Decimal
+from typing import Never
 
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericRelation
 from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
-from django.contrib.contenttypes.fields import GenericRelation
 
 from apps.core.fields import EncryptedCharField, _get_fernet  # noqa: F401
 from apps.core.models import TimestampedModel
@@ -38,7 +39,7 @@ def _generate_payment_reference() -> str:
 
 GATEWAY_STRIPE = "stripe"
 GATEWAY_MONERIS = "moneris"
-GATEWAY_MANUAL = "manual"       # offline / manual payments (honoraria, bank transfers)
+GATEWAY_MANUAL = "manual"  # offline / manual payments (honoraria, bank transfers)
 GATEWAY_CHOICES = [
     (GATEWAY_STRIPE, "Stripe"),
     (GATEWAY_MONERIS, "Moneris"),
@@ -49,6 +50,7 @@ GATEWAY_CHOICES = [
 # ---------------------------------------------------------------------------
 # PaymentIntent
 # ---------------------------------------------------------------------------
+
 
 class PaymentIntent(TimestampedModel):
     """
@@ -64,7 +66,7 @@ class PaymentIntent(TimestampedModel):
     STATUS_CANCELLED = "cancelled"
     STATUS_REFUNDED = "refunded"
 
-    STATUS_CHOICES = [
+    STATUS_CHOICES = [  # noqa: RUF012
         (STATUS_PENDING, "Pending"),
         (STATUS_PROCESSING, "Processing"),
         (STATUS_COMPLETED, "Completed"),
@@ -85,7 +87,7 @@ class PaymentIntent(TimestampedModel):
     PURPOSE_FINE = "fine"
     PURPOSE_HONORARIUM = "honorarium"
 
-    PURPOSE_CHOICES = [
+    PURPOSE_CHOICES = [  # noqa: RUF012
         (PURPOSE_SERVICE_FEE, "Service Fee"),
         (PURPOSE_DONATION, "Donation"),
         (PURPOSE_FINE, "Fine / Penalty"),
@@ -93,7 +95,7 @@ class PaymentIntent(TimestampedModel):
     ]
 
     # Allowed status transitions
-    ALLOWED_TRANSITIONS = {
+    ALLOWED_TRANSITIONS = {  # noqa: RUF012
         STATUS_PENDING: [STATUS_PROCESSING, STATUS_CANCELLED, STATUS_FAILED],
         STATUS_PROCESSING: [STATUS_COMPLETED, STATUS_FAILED],
         STATUS_COMPLETED: [STATUS_REFUNDED],
@@ -182,14 +184,14 @@ class PaymentIntent(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = _("Payment Intent")
         verbose_name_plural = _("Payment Intents")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["payer", "status"], name="payments_intent_payer_status"),
             models.Index(fields=["status"], name="payments_intent_status"),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(amount__gt=0),
                 name="payments_intent_amount_positive",
@@ -202,19 +204,19 @@ class PaymentIntent(TimestampedModel):
         # Custom permissions used by the Analytics & Reporting BB.
         # Defined here (payments app) so that permission_required strings
         # "payments.view_financialreport" etc. resolve correctly.
-        permissions = [
-            ("view_financialreport",  "Can view financial reports"),
+        permissions = [  # noqa: RUF012
+            ("view_financialreport", "Can view financial reports"),
             ("export_financialreport", "Can export financial reports"),
-            ("view_donationreport",   "Can view donation & CRA reports"),
+            ("view_donationreport", "Can view donation & CRA reports"),
             ("export_donationreport", "Can export donation & CRA reports"),
-            ("view_operationalreport",  "Can view operational reports"),
+            ("view_operationalreport", "Can view operational reports"),
             ("export_operationalreport", "Can export operational reports"),
         ]
 
     def __str__(self) -> str:
         return self.reference or str(self.id)
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         if not self.id:
             self.id = uuid.uuid4()
         # reference is populated via default=_generate_payment_reference; no fallback needed.
@@ -226,11 +228,10 @@ class PaymentIntent(TimestampedModel):
         Raises ValueError if the transition is not permitted.
         """
         from django.db import transaction
+
         with transaction.atomic():
             # Re-fetch from DB with row lock
-            refreshed = (
-                self.__class__.objects.select_for_update().get(pk=self.pk)
-            )
+            refreshed = self.__class__.objects.select_for_update().get(pk=self.pk)
             allowed = self.ALLOWED_TRANSITIONS.get(refreshed.status, [])
             if new_status not in allowed:
                 raise ValueError(
@@ -247,6 +248,7 @@ class PaymentIntent(TimestampedModel):
 # Payment
 # ---------------------------------------------------------------------------
 
+
 class Payment(TimestampedModel):
     """
     The confirmed, captured payment record produced after a gateway charge succeeds.
@@ -255,7 +257,7 @@ class Payment(TimestampedModel):
 
     PAYMENT_METHOD_CARD = "card"
     PAYMENT_METHOD_BANK = "bank_transfer"
-    PAYMENT_METHOD_CHOICES = [
+    PAYMENT_METHOD_CHOICES = [  # noqa: RUF012
         (PAYMENT_METHOD_CARD, "Card"),
         (PAYMENT_METHOD_BANK, "Bank Transfer"),
     ]
@@ -269,7 +271,7 @@ class Payment(TimestampedModel):
     CARD_BRAND_DINERS = "diners"
     CARD_BRAND_UNIONPAY = "unionpay"
     CARD_BRAND_OTHER = "other"
-    CARD_BRAND_CHOICES = [
+    CARD_BRAND_CHOICES = [  # noqa: RUF012
         (CARD_BRAND_VISA, "Visa"),
         (CARD_BRAND_MASTERCARD, "Mastercard"),
         (CARD_BRAND_AMEX, "Amex"),
@@ -343,10 +345,10 @@ class Payment(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-paid_at"]
+        ordering = ["-paid_at"]  # noqa: RUF012
         verbose_name = _("Payment")
         verbose_name_plural = _("Payments")
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(amount_paid__gte=0),
                 name="payments_payment_amount_paid_non_negative",
@@ -368,7 +370,7 @@ class Payment(TimestampedModel):
     def __str__(self) -> str:
         return f"Payment {self.gateway_charge_id}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         self.net_amount = self.amount_paid - self.processor_fee
         super().save(*args, **kwargs)
 
@@ -376,6 +378,7 @@ class Payment(TimestampedModel):
 # ---------------------------------------------------------------------------
 # Refund
 # ---------------------------------------------------------------------------
+
 
 class Refund(TimestampedModel):
     """
@@ -388,7 +391,7 @@ class Refund(TimestampedModel):
     REASON_CUSTOMER = "requested_by_customer"
     REASON_NOT_RENDERED = "service_not_rendered"
 
-    REASON_CHOICES = [
+    REASON_CHOICES = [  # noqa: RUF012
         (REASON_DUPLICATE, "Duplicate"),
         (REASON_FRAUDULENT, "Fraudulent"),
         (REASON_CUSTOMER, "Requested by Customer"),
@@ -398,7 +401,7 @@ class Refund(TimestampedModel):
     GATEWAY_STATUS_PENDING = "pending"
     GATEWAY_STATUS_SUCCEEDED = "succeeded"
     GATEWAY_STATUS_FAILED = "failed"
-    GATEWAY_STATUS_CHOICES = [
+    GATEWAY_STATUS_CHOICES = [  # noqa: RUF012
         ("pending", "Pending"),
         ("succeeded", "Succeeded"),
         ("failed", "Failed"),
@@ -469,13 +472,11 @@ class Refund(TimestampedModel):
             raise ValidationError({"amount": _("Refund amount must be greater than zero.")})
 
         if self.amount is not None and self.payment_id is not None:
-            already_refunded = (
-                Refund.objects.filter(payment_id=self.payment_id)
-                .exclude(pk=self.pk)
-                .exclude(gateway_status=self.GATEWAY_STATUS_FAILED)
-                .aggregate(total=models.Sum("amount"))["total"]
-                or Decimal("0.00")
-            )
+            already_refunded = Refund.objects.filter(payment_id=self.payment_id).exclude(
+                pk=self.pk
+            ).exclude(gateway_status=self.GATEWAY_STATUS_FAILED).aggregate(
+                total=models.Sum("amount")
+            )["total"] or Decimal("0.00")
             try:
                 max_refundable = self.payment.amount_paid - already_refunded
             except Exception:
@@ -492,10 +493,10 @@ class Refund(TimestampedModel):
                 )
 
     class Meta:
-        ordering = ["-refunded_at"]
+        ordering = ["-refunded_at"]  # noqa: RUF012
         verbose_name = _("Refund")
         verbose_name_plural = _("Refunds")
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(amount__gt=0),
                 name="payments_refund_amount_positive",
@@ -509,6 +510,7 @@ class Refund(TimestampedModel):
 # ---------------------------------------------------------------------------
 # WebhookEvent
 # ---------------------------------------------------------------------------
+
 
 class WebhookEvent(TimestampedModel):
     """
@@ -569,10 +571,10 @@ class WebhookEvent(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = _("Webhook Event")
         verbose_name_plural = _("Webhook Events")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["processed", "gateway"], name="payments_webhook_proc_gw"),
             models.Index(fields=["event_type"], name="payments_wh_event_type_idx"),
         ]
@@ -585,16 +587,17 @@ class WebhookEvent(TimestampedModel):
 # PaymentAuditEntry — APPEND-ONLY
 # ---------------------------------------------------------------------------
 
+
 class PaymentAuditEntryQuerySet(models.QuerySet):
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> Never:  # noqa: ANN003
         raise ValueError("PaymentAuditEntry is append-only and cannot be updated.")
 
-    def delete(self):
+    def delete(self) -> Never:
         raise ValueError("PaymentAuditEntry is append-only and cannot be deleted.")
 
 
 class PaymentAuditEntryManager(models.Manager):
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return PaymentAuditEntryQuerySet(self.model, using=self._db)
 
 
@@ -605,7 +608,7 @@ class PaymentAuditEntry(TimestampedModel):
     and admin levels.
     """
 
-    ACTION_CHOICES = [
+    ACTION_CHOICES = [  # noqa: RUF012
         ("intent_created", "Intent Created"),
         ("intent_processing", "Intent Processing"),
         ("payment_completed", "Payment Completed"),
@@ -686,14 +689,14 @@ class PaymentAuditEntry(TimestampedModel):
     )
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  # noqa: RUF012
         verbose_name = _("Payment Audit Entry")
         verbose_name_plural = _("Payment Audit Entries")
-        indexes = [
+        indexes = [  # noqa: RUF012
             models.Index(fields=["payment_intent"], name="payments_audit_intent"),
             models.Index(fields=["created_at"], name="payments_audit_timestamp"),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(
                     action__in=[
@@ -724,11 +727,12 @@ class PaymentAuditEntry(TimestampedModel):
     def __str__(self) -> str:
         return f"{self.action} @ {self.created_at}"
 
-    def _mask_ip(self, ip):
+    def _mask_ip(self, ip):  # noqa: ANN001, ANN202
         if not ip:
             return ip
         try:
             import ipaddress
+
             parsed = ipaddress.ip_address(ip)
             if parsed.version == 4:
                 parts = ip.split(".")
@@ -741,7 +745,7 @@ class PaymentAuditEntry(TimestampedModel):
         except ValueError:
             return ""  # Invalid IP — store empty rather than PII
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         # PaymentAuditEntry is append-only: always INSERT, never UPDATE.
         # Use self._state.adding (set by Django to True for unsaved instances,
         # False after the first successful save) rather than SELECT EXISTS to
@@ -755,7 +759,7 @@ class PaymentAuditEntry(TimestampedModel):
         kwargs.setdefault("force_insert", True)
         super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, **kwargs) -> Never:  # noqa: ANN002, ANN003
         raise ValueError("PaymentAuditEntry is append-only and cannot be deleted.")
 
 
@@ -819,14 +823,15 @@ class TenantPaymentConfig(TimestampedModel):
         mode = "TEST" if self.is_test_mode else "LIVE"
         return f"TenantPaymentConfig ({mode})"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         self.pk = _SINGLETON_PK
         super().save(*args, **kwargs)
 
     @classmethod
-    def get_solo(cls) -> "TenantPaymentConfig":
+    def get_solo(cls) -> TenantPaymentConfig:
         """Return the singleton config row, creating it if it does not exist."""
         from django.db import IntegrityError
+
         try:
             obj, _ = cls.objects.get_or_create(pk=_SINGLETON_PK)
         except IntegrityError:
@@ -837,6 +842,7 @@ class TenantPaymentConfig(TimestampedModel):
 # ---------------------------------------------------------------------------
 # CharitySettings
 # ---------------------------------------------------------------------------
+
 
 class CharitySettings(TimestampedModel):
     """
@@ -913,7 +919,7 @@ class CharitySettings(TimestampedModel):
     class Meta:
         verbose_name = _("Charity Settings")
         verbose_name_plural = _("Charity Settings")
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["is_active"],
                 condition=models.Q(is_active=True),
@@ -926,6 +932,7 @@ class CharitySettings(TimestampedModel):
 
     def get_name(self) -> str:
         from django.utils.translation import get_language
+
         if get_language() and get_language().startswith("fr"):
             return self.name_fr or self.name_en
         return self.name_en or self.charity_legal_name
@@ -934,6 +941,7 @@ class CharitySettings(TimestampedModel):
 # ---------------------------------------------------------------------------
 # FeeSchedule
 # ---------------------------------------------------------------------------
+
 
 class FeeSchedule(TimestampedModel):
     """
@@ -996,8 +1004,8 @@ class FeeSchedule(TimestampedModel):
     class Meta:
         verbose_name = _("Fee Schedule")
         verbose_name_plural = _("Fee Schedules")
-        ordering = ["fee_code", "-effective_date"]
-        constraints = [
+        ordering = ["fee_code", "-effective_date"]  # noqa: RUF012
+        constraints = [  # noqa: RUF012
             models.UniqueConstraint(
                 fields=["fee_code", "province", "effective_date"],
                 name="payments_feeschedule_code_province_date_unique",
@@ -1007,7 +1015,8 @@ class FeeSchedule(TimestampedModel):
                 name="payments_feeschedule_amount_nonneg",
             ),
             models.CheckConstraint(
-                check=models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gt=models.F("effective_date")),
+                check=models.Q(expiry_date__isnull=True)
+                | models.Q(expiry_date__gt=models.F("effective_date")),
                 name="payments_feeschedule_dates_valid",
             ),
         ]
@@ -1016,22 +1025,25 @@ class FeeSchedule(TimestampedModel):
         return f"{self.fee_code} ({self.province}) — ${self.amount}"
 
     @classmethod
-    def get_current(cls, fee_code: str, province: str, as_of=None) -> "FeeSchedule | None":
+    def get_current(cls, fee_code: str, province: str, as_of=None) -> FeeSchedule | None:  # noqa: ANN001
         """Return the currently active fee for the given fee_code and province."""
         if as_of is None:
             as_of = timezone.now().date()
-        qs = cls.objects.filter(
-            fee_code=fee_code,
-            province=province,
-            is_active=True,
-            effective_date__lte=as_of,
-        ).filter(
-            models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gte=as_of)
-        ).order_by("-effective_date")
+        qs = (
+            cls.objects.filter(
+                fee_code=fee_code,
+                province=province,
+                is_active=True,
+                effective_date__lte=as_of,
+            )
+            .filter(models.Q(expiry_date__isnull=True) | models.Q(expiry_date__gte=as_of))
+            .order_by("-effective_date")
+        )
         return qs.first()
 
     def get_description(self) -> str:
         from django.utils.translation import get_language
+
         if get_language() and get_language().startswith("fr"):
             return self.description_fr or self.description_en
         return self.description_en
@@ -1040,6 +1052,7 @@ class FeeSchedule(TimestampedModel):
 # ---------------------------------------------------------------------------
 # TaxRate
 # ---------------------------------------------------------------------------
+
 
 class TaxRate(TimestampedModel):
     """
@@ -1094,17 +1107,18 @@ class TaxRate(TimestampedModel):
     class Meta:
         verbose_name = _("Tax Rate")
         verbose_name_plural = _("Tax Rates")
-        ordering = ["province"]
+        ordering = ["province"]  # noqa: RUF012
 
     def __str__(self) -> str:
         return f"{self.province} — {self.tax_name_en} ({self.combined_rate * 100:.2f}%)"
 
     @classmethod
-    def get_for_province(cls, province: str) -> "TaxRate | None":
+    def get_for_province(cls, province: str) -> TaxRate | None:
         return cls.objects.filter(province=province).order_by("-effective_date").first()
 
     def get_tax_name(self) -> str:
         from django.utils.translation import get_language
+
         if get_language() and get_language().startswith("fr"):
             return self.tax_name_fr or self.tax_name_en
         return self.tax_name_en
@@ -1113,6 +1127,7 @@ class TaxRate(TimestampedModel):
 # ---------------------------------------------------------------------------
 # ServiceFeePayment
 # ---------------------------------------------------------------------------
+
 
 class ServiceFeePayment(TimestampedModel):
     """
@@ -1185,7 +1200,7 @@ class ServiceFeePayment(TimestampedModel):
     class Meta:
         verbose_name = _("Service Fee Payment")
         verbose_name_plural = _("Service Fee Payments")
-        constraints = [
+        constraints = [  # noqa: RUF012
             # M-E: base_amount and tax_amount must be non-negative
             models.CheckConstraint(
                 check=models.Q(base_amount__gte=Decimal("0.00")),
@@ -1204,6 +1219,7 @@ class ServiceFeePayment(TimestampedModel):
 # ---------------------------------------------------------------------------
 # DonationCampaign
 # ---------------------------------------------------------------------------
+
 
 class DonationCampaign(TimestampedModel):
     """
@@ -1285,25 +1301,28 @@ class DonationCampaign(TimestampedModel):
     class Meta:
         verbose_name = _("Donation Campaign")
         verbose_name_plural = _("Donation Campaigns")
-        ordering = ["sort_order", "name_en"]
+        ordering = ["sort_order", "name_en"]  # noqa: RUF012
 
     def __str__(self) -> str:
         return self.name_en
 
     def get_name(self) -> str:
         from django.utils.translation import get_language
+
         if get_language() and get_language().startswith("fr"):
             return self.name_fr or self.name_en
         return self.name_en
 
     def get_description(self) -> str:
         from django.utils.translation import get_language
+
         if get_language() and get_language().startswith("fr"):
             return self.description_fr or self.description_en
         return self.description_en
 
     def get_advantage_description(self) -> str:
         from django.utils.translation import get_language
+
         if get_language() and get_language().startswith("fr"):
             return self.advantage_description_fr or self.advantage_description_en
         return self.advantage_description_en
@@ -1402,10 +1421,12 @@ class RecurringGiftPlan(TimestampedModel):
     class Meta:
         verbose_name = _("Recurring Gift Plan")
         verbose_name_plural = _("Recurring Gift Plans")
-        ordering = ["-created_at"]
-        indexes = [
+        ordering = ["-created_at"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["donor", "status"], name="payments_plan_donor_status"),
-            models.Index(fields=["next_charge_date", "status"], name="payments_plan_charge_date_st"),
+            models.Index(
+                fields=["next_charge_date", "status"], name="payments_plan_charge_date_st"
+            ),
         ]
 
     def __str__(self) -> str:
@@ -1416,10 +1437,11 @@ class RecurringGiftPlan(TimestampedModel):
 # Donation
 # ---------------------------------------------------------------------------
 
+
 class DonationQuerySet(models.QuerySet):
     _FINANCIAL_FIELDS = frozenset({"amount", "advantage_amount", "eligible_amount"})
 
-    def update(self, **kwargs):
+    def update(self, **kwargs):  # noqa: ANN003, ANN201
         blocked = self._FINANCIAL_FIELDS & set(kwargs)
         if blocked:
             raise ValueError(
@@ -1430,7 +1452,7 @@ class DonationQuerySet(models.QuerySet):
 
 
 class DonationManager(models.Manager):
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return DonationQuerySet(self.model, using=self._db)
 
 
@@ -1559,13 +1581,13 @@ class Donation(TimestampedModel):
     class Meta:
         verbose_name = _("Donation")
         verbose_name_plural = _("Donations")
-        ordering = ["-created_at"]
-        indexes = [
+        ordering = ["-created_at"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["donor"], name="payments_donation_donor"),
             models.Index(fields=["campaign", "status"], name="payments_donation_camp_status"),
             models.Index(fields=["status"], name="payments_donation_status"),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(amount__gt=0),
                 name="payments_donation_amount_positive",
@@ -1591,7 +1613,7 @@ class Donation(TimestampedModel):
     def __str__(self) -> str:
         return f"Donation ${self.amount} ({self.status})"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         # CRA rule: eligible amount must never be negative
         self.eligible_amount = max(
             Decimal("0.00"),
@@ -1604,16 +1626,17 @@ class Donation(TimestampedModel):
 # OfficialDonationReceipt — APPEND-ONLY with status transition exception
 # ---------------------------------------------------------------------------
 
+
 class OfficialDonationReceiptQuerySet(models.QuerySet):
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> Never:  # noqa: ANN003
         raise ValueError("OfficialDonationReceipt records cannot be bulk-updated.")
 
-    def delete(self):
+    def delete(self) -> Never:
         raise ValueError("OfficialDonationReceipt records cannot be deleted.")
 
 
 class OfficialDonationReceiptManager(models.Manager):
-    def get_queryset(self):
+    def get_queryset(self):  # noqa: ANN201
         return OfficialDonationReceiptQuerySet(self.model, using=self._db)
 
 
@@ -1631,34 +1654,36 @@ class OfficialDonationReceipt(TimestampedModel):
     RECEIPT_STATUS_CANCELLED = "cancelled"
     RECEIPT_STATUS_SUPERSEDED = "superseded"
 
-    RECEIPT_STATUS_CHOICES = [
+    RECEIPT_STATUS_CHOICES = [  # noqa: RUF012
         (RECEIPT_STATUS_ISSUED, "Issued"),
         (RECEIPT_STATUS_CANCELLED, "Cancelled"),
         (RECEIPT_STATUS_SUPERSEDED, "Superseded"),
     ]
 
     # Fields that must never change after first save
-    _IMMUTABLE_FIELDS = frozenset({
-        "donation_id",
-        "serial_number",
-        "donor_legal_name",
-        "donor_address_line1",
-        "donor_city",
-        "donor_province",
-        "donor_postal_code",
-        "donation_date",
-        "receipt_date",
-        "eligible_amount",
-        "advantage_amount",
-        "advantage_description",
-        "charity_legal_name",
-        "charity_registration_number",
-        "charity_address",
-        "place_of_issue",
-        "authorized_signatory_name",
-        "authorized_signatory_title",
-        "is_annual_consolidated",
-    })
+    _IMMUTABLE_FIELDS = frozenset(
+        {
+            "donation_id",
+            "serial_number",
+            "donor_legal_name",
+            "donor_address_line1",
+            "donor_city",
+            "donor_province",
+            "donor_postal_code",
+            "donation_date",
+            "receipt_date",
+            "eligible_amount",
+            "advantage_amount",
+            "advantage_description",
+            "charity_legal_name",
+            "charity_registration_number",
+            "charity_address",
+            "place_of_issue",
+            "authorized_signatory_name",
+            "authorized_signatory_title",
+            "is_annual_consolidated",
+        }
+    )
 
     objects = OfficialDonationReceiptManager()
 
@@ -1810,12 +1835,15 @@ class OfficialDonationReceipt(TimestampedModel):
     class Meta:
         verbose_name = _("Official Donation Receipt")
         verbose_name_plural = _("Official Donation Receipts")
-        ordering = ["-issued_at"]
-        indexes = [
+        ordering = ["-issued_at"]  # noqa: RUF012
+        indexes = [  # noqa: RUF012
             models.Index(fields=["donation", "status"], name="payments_receipt_don_status"),
-            models.Index(fields=["is_annual_consolidated", "receipt_date"], name="payments_receipt_annual_date"),
+            models.Index(
+                fields=["is_annual_consolidated", "receipt_date"],
+                name="payments_receipt_annual_date",
+            ),
         ]
-        constraints = [
+        constraints = [  # noqa: RUF012
             models.CheckConstraint(
                 check=models.Q(eligible_amount__gte=0),
                 name="payments_receipt_eligible_nonneg",
@@ -1852,10 +1880,11 @@ class OfficialDonationReceipt(TimestampedModel):
         """True if a PDF document has been stored for this receipt."""
         return bool(self.document_id)
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
         if not self.serial_number:
             from django.db import connection
             from django.utils.timezone import localtime
+
             year = localtime(timezone.now()).year
             with connection.cursor() as cursor:
                 cursor.execute("SELECT nextval('payments_receipt_serial_seq')")
@@ -1882,8 +1911,7 @@ class OfficialDonationReceipt(TimestampedModel):
                 pass  # Brand-new record — allow
             else:
                 changed_immutable = [
-                    f for f in self._IMMUTABLE_FIELDS
-                    if getattr(self, f) != getattr(original, f)
+                    f for f in self._IMMUTABLE_FIELDS if getattr(self, f) != getattr(original, f)
                 ]
                 if changed_immutable:
                     raise ValueError(
@@ -1893,14 +1921,15 @@ class OfficialDonationReceipt(TimestampedModel):
                     )
         super().save(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, **kwargs) -> Never:  # noqa: ANN002, ANN003
         raise ValueError(
             "OfficialDonationReceipt cannot be deleted. Cancel it and issue a new one."
         )
 
-    def cancel(self, reason: str, superseded_by: "OfficialDonationReceipt | None" = None) -> None:
+    def cancel(self, reason: str, superseded_by: OfficialDonationReceipt | None = None) -> None:
         """Cancel this receipt. Only 'issued' receipts can be cancelled."""
         from django.db import transaction
+
         now = timezone.now()
         with transaction.atomic():
             updated = self.__class__._base_manager.filter(
@@ -1922,9 +1951,10 @@ class OfficialDonationReceipt(TimestampedModel):
             if superseded_by:
                 self.superseded_by = superseded_by
 
-    def mark_superseded(self, new_receipt: "OfficialDonationReceipt") -> None:
+    def mark_superseded(self, new_receipt: OfficialDonationReceipt) -> None:
         """Mark this receipt as superseded by a corrected re-issue."""
         from django.db import transaction
+
         now = timezone.now()
         with transaction.atomic():
             updated = self.__class__._base_manager.filter(
@@ -1942,3 +1972,72 @@ class OfficialDonationReceipt(TimestampedModel):
             self.status = self.RECEIPT_STATUS_SUPERSEDED
             self.superseded_by = new_receipt
             self.updated_at = now
+
+
+# ---------------------------------------------------------------------------
+# Item 02 blueprint command boundary
+# ---------------------------------------------------------------------------
+class PaymentCommand(TimestampedModel):
+    """Immutable request command reserved before provider-executable work."""
+
+    STATUS_RESERVED = "reserved"
+    STATUS_DISPATCHED = "dispatched"
+    STATUS_CHOICES = [  # noqa: RUF012
+        (STATUS_RESERVED, "Reserved"),
+        (STATUS_DISPATCHED, "Dispatched"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant_id = models.CharField(max_length=100, db_index=True)
+    caller_bb_id = models.CharField(max_length=20)
+    operation = models.CharField(max_length=64)
+    request_identity = models.CharField(max_length=255)
+    fingerprint = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_RESERVED)
+    attempt = models.OneToOneField(
+        "payments.PaymentAttempt",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payment_command",
+    )
+
+    class Meta:
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(
+                fields=["tenant_id", "operation", "request_identity"],
+                name="payment_command_identity_uniq",
+            )
+        ]
+        indexes = [  # noqa: RUF012
+            models.Index(
+                fields=["tenant_id", "operation", "created_at"],
+                name="payment_command_scope_idx",
+            )
+        ]
+
+
+class PaymentCommandOutbox(TimestampedModel):
+    """One publishable post-commit handoff record for a PaymentCommand."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    command = models.OneToOneField(
+        PaymentCommand,
+        on_delete=models.PROTECT,
+        related_name="outbox",
+    )
+    topic = models.CharField(max_length=120)
+    payload = models.JSONField(default=dict)
+    published_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    acknowledgement_token = models.CharField(max_length=64, null=True, blank=True)
+    acknowledgement_result = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        indexes = [  # noqa: RUF012
+            models.Index(
+                fields=["acknowledged_at", "created_at"],
+                name="payment_outbox_due_idx",
+            )
+        ]

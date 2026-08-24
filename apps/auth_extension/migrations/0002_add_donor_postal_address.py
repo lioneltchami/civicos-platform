@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('auth_extension', '0001_initial'),
+    dependencies = [  # noqa: RUF012
+        ("auth_extension", "0001_initial"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AddField(
-            model_name='user',
-            name='postal_address',
-            field=models.CharField(blank=True, help_text='Full mailing address for CRA charitable donation receipts. Format: street, city, province, postal code. Required for official tax receipts under CRA IT-110R3.', max_length=500, verbose_name='Postal address'),
+            model_name="user",
+            name="postal_address",
+            field=models.CharField(
+                blank=True,
+                help_text="Full mailing address for CRA charitable donation receipts. Format: street, city, province, postal code. Required for official tax receipts under CRA IT-110R3.",
+                max_length=500,
+                verbose_name="Postal address",
+            ),
         ),
     ]

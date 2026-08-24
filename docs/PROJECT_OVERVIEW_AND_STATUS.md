@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-07-02  
 **Git HEAD:** 9f86c52  
-**Status:** ✅ All 13 building blocks complete — production-ready
+**Status:** CivicOS has 13 application modules in this dated V1 inventory. This is **not** a GovStack Building Block conformance, certification, official-harness, or production-readiness statement. The current GovStack evidence boundary is [`docs/govstack/SCOPE.md`](govstack/SCOPE.md): four local implementations are tracked separately, while Messaging/Workflow/CMS are local-only and remaining catalog Building Blocks are **Not Done Yet**.
 
 ---
 
@@ -10,7 +10,7 @@
 
 CivicOS is a modular digital government services platform built with Django 5.2, Wagtail, and Celery. It is designed for municipal and public-sector organizations that need a secure, accessible, bilingual (English/French) platform covering everything from public-facing CMS pages to internal staff workflows, payment processing, and financial reporting.
 
-The platform is structured as independent "building blocks" (BBs) — one Django app per capability. Each BB can evolve independently and is fully tested in isolation.
+The platform is structured as independent application modules (historically called "building blocks") — one Django app per capability. This product-architecture terminology must not be confused with a GovStack Building Block claim; see [`docs/govstack/SCOPE.md`](govstack/SCOPE.md) for the authoritative GovStack boundary.
 
 ---
 

@@ -6,16 +6,18 @@ CivicOSAccountAdapter overrides key allauth hooks to:
 - Capture preferred_language on signup
 - Log auth events without PII in application logs
 """
+
 from __future__ import annotations
-from typing import TYPE_CHECKING
+
 import logging
-from django.conf import settings
-from django.http import HttpRequest
+from typing import TYPE_CHECKING
+
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from django.http import HttpRequest
 
 if TYPE_CHECKING:
-    from apps.auth_extension.models import User
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -39,5 +41,5 @@ class CivicOSAccountAdapter(DefaultAccountAdapter):
 
 
 class CivicOSSocialAccountAdapter(DefaultSocialAccountAdapter):
-    def is_open_for_signup(self, request: HttpRequest, sociallogin) -> bool:
+    def is_open_for_signup(self, request: HttpRequest, sociallogin) -> bool:  # noqa: ANN001
         return True

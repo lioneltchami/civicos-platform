@@ -19,11 +19,11 @@ Permission model:
   - approve_application() / reject_application() — actor must hold the Django
     permission "volunteers.change_volunteerapplication".
 """
+
 from __future__ import annotations
 
 import logging
 
-from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _assert_is_volunteer_actor(application, actor) -> None:
+
+def _assert_is_volunteer_actor(application, actor) -> None:  # noqa: ANN001
     """Raise PermissionDenied if actor is not the volunteer's User."""
     if application.volunteer.user_id != actor.pk:
         raise PermissionDenied(
@@ -43,7 +44,7 @@ def _assert_is_volunteer_actor(application, actor) -> None:
         )
 
 
-def _assert_coordinator_permission(actor) -> None:
+def _assert_coordinator_permission(actor) -> None:  # noqa: ANN001
     """
     Raise PermissionDenied if actor lacks volunteers.change_volunteerapplication.
 
@@ -60,15 +61,16 @@ def _assert_coordinator_permission(actor) -> None:
 # apply()
 # ---------------------------------------------------------------------------
 
+
 def apply(
     *,
-    volunteer_profile,
-    opportunity,
+    volunteer_profile,  # noqa: ANN001
+    opportunity,  # noqa: ANN001
     motivation: str = "",
     availability_json: dict | None = None,
-    consent_record=None,
-    actor,
-) -> "VolunteerApplication":
+    consent_record=None,  # noqa: ANN001
+    actor,  # noqa: ANN001
+) -> VolunteerApplication:  # noqa: F821
     """
     Submit a volunteer application to an opportunity.
 
@@ -102,8 +104,8 @@ def apply(
     # Lazy imports to avoid circular-import cycles at module load time.
     from apps.volunteers.models import VolunteerApplication
     from apps.volunteers.signals import application_submitted
-    from apps.workflows.services import create_work_item
     from apps.workflows.models import WorkItemPriority
+    from apps.workflows.services import create_work_item
 
     # --- Permission check ---
     if volunteer_profile.user_id != actor.pk:
@@ -151,31 +153,21 @@ def apply(
         # Lock ALL rows for this (opportunity, volunteer) pair — there can only
         # ever be one due to unique_together, but select_for_update() serialises
         # concurrent apply() calls so the check→write is atomic.
-        existing = (
-            VolunteerApplication.objects
-            .select_for_update()
-            .filter(
-                opportunity=opportunity,
-                volunteer=volunteer_profile,
-            )
+        existing = VolunteerApplication.objects.select_for_update().filter(
+            opportunity=opportunity,
+            volunteer=volunteer_profile,
         )
 
         # Check for an already-active (non-withdrawn) application first.
         active = existing.exclude(status=VolunteerApplication.STATUS_WITHDRAWN)
         if active.exists():
             raise ValidationError(
-                {
-                    "opportunity": (
-                        "You already have an active application for this opportunity."
-                    )
-                }
+                {"opportunity": ("You already have an active application for this opportunity.")}
             )
 
         # Check for a previously withdrawn application — reuse the existing row
         # rather than inserting a new one (unique_together blocks the INSERT).
-        withdrawn = existing.filter(
-            status=VolunteerApplication.STATUS_WITHDRAWN
-        ).first()
+        withdrawn = existing.filter(status=VolunteerApplication.STATUS_WITHDRAWN).first()
 
         if withdrawn:
             # Reactivate: reset the withdrawn row to pending for the new cycle.
@@ -192,15 +184,17 @@ def apply(
             withdrawn.reviewed_at = None
             withdrawn.rejection_reason = ""
             withdrawn.full_clean()
-            withdrawn.save(update_fields=[
-                "status",
-                "motivation",
-                "consent_record",
-                "reviewed_by",
-                "reviewed_at",
-                "rejection_reason",
-                "updated_at",
-            ])
+            withdrawn.save(
+                update_fields=[
+                    "status",
+                    "motivation",
+                    "consent_record",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "rejection_reason",
+                    "updated_at",
+                ]
+            )
             # Reassign so the _post_commit closure below captures the correct instance.
             application = withdrawn
         else:
@@ -213,7 +207,7 @@ def apply(
                 application.save()
             except IntegrityError:
                 # Lost the race — another concurrent request saved first.
-                raise ValidationError(
+                raise ValidationError(  # noqa: B904
                     {
                         "opportunity": (
                             "You already have an active application for this opportunity."
@@ -239,7 +233,7 @@ def apply(
         # create_work_item() wraps itself in atomic(), which is fine as a savepoint
         # inside the outer request transaction. Its own work_item_created signal fires
         # on commit of that inner savepoint (i.e. effectively on outer commit).
-        def _post_commit():
+        def _post_commit() -> None:
             application_submitted.send_robust(
                 sender=VolunteerApplication,
                 instance=application,
@@ -281,11 +275,12 @@ def apply(
 # withdraw()
 # ---------------------------------------------------------------------------
 
+
 def withdraw(
     *,
-    application,
-    actor,
-) -> "VolunteerApplication":
+    application,  # noqa: ANN001
+    actor,  # noqa: ANN001
+) -> VolunteerApplication:  # noqa: F821
     """
     Volunteer withdraws their own pending or approved application.
 
@@ -322,27 +317,19 @@ def withdraw(
         # application while this withdraw is in-flight (or vice-versa): the
         # second writer will block on the lock, then re-read the already-changed
         # status and raise ValidationError rather than silently overwriting.
-        application = (
-            VolunteerApplication.objects
-            .select_for_update()
-            .get(pk=application.pk)
-        )
+        application = VolunteerApplication.objects.select_for_update().get(pk=application.pk)
 
         # --- Business rule: only pending or approved applications can be withdrawn ---
         # H7 fix: volunteers should also be able to cancel after being approved
         # (e.g. change of availability).  Terminal states (withdrawn, rejected)
         # raise immediately.
-        _WITHDRAWABLE = {
+        _WITHDRAWABLE = {  # noqa: N806
             VolunteerApplication.STATUS_PENDING,
             VolunteerApplication.STATUS_APPROVED,
         }
         if application.status not in _WITHDRAWABLE:
             raise ValidationError(
-                {
-                    "status": (
-                        "This application cannot be withdrawn in its current state."
-                    )
-                }
+                {"status": ("This application cannot be withdrawn in its current state.")}
             )
 
         application.status = VolunteerApplication.STATUS_WITHDRAWN
@@ -357,8 +344,7 @@ def withdraw(
         )
 
     logger.info(
-        "volunteers.services.applications: application #%s withdrawn by "
-        "volunteer profile #%s.",
+        "volunteers.services.applications: application #%s withdrawn by " "volunteer profile #%s.",
         application.pk,
         application.volunteer_id,
     )
@@ -370,11 +356,12 @@ def withdraw(
 # approve_application()
 # ---------------------------------------------------------------------------
 
+
 def approve_application(
     *,
-    application,
-    actor,
-) -> "VolunteerApplication":
+    application,  # noqa: ANN001
+    actor,  # noqa: ANN001
+) -> VolunteerApplication:  # noqa: F821
     """
     Coordinator approves a pending volunteer application.
 
@@ -403,11 +390,13 @@ def approve_application(
     # H-1 fix: broaden guard from STATUS_PENDING-only to the full set of non-terminal
     # statuses that a coordinator may still act on.  STATUS_APPROVED, STATUS_REJECTED,
     # and STATUS_WITHDRAWN are terminal — they must not be re-transitioned here.
-    _approvable = frozenset({
-        VolunteerApplication.STATUS_PENDING,
-        VolunteerApplication.STATUS_IN_REVIEW,
-        VolunteerApplication.STATUS_WAITLISTED,
-    })
+    _approvable = frozenset(
+        {
+            VolunteerApplication.STATUS_PENDING,
+            VolunteerApplication.STATUS_IN_REVIEW,
+            VolunteerApplication.STATUS_WAITLISTED,
+        }
+    )
 
     # H-5 fix: wrap save + on_commit registration in atomic() so that when this
     # function is called from a Celery task or management command (no outer
@@ -420,8 +409,7 @@ def approve_application(
         # second writer blocks on the lock, re-reads the changed status, and
         # raises ValidationError rather than silently overwriting.
         application = (
-            VolunteerApplication.objects
-            .select_for_update(of=("self",))
+            VolunteerApplication.objects.select_for_update(of=("self",))
             .select_related("opportunity__program")
             .get(pk=application.pk)
         )
@@ -439,11 +427,7 @@ def approve_application(
         # --- Business rule: only pending/in-review/waitlisted applications can be approved ---
         if application.status not in _approvable:
             raise ValidationError(
-                {
-                    "status": (
-                        "This application cannot be approved from its current state."
-                    )
-                }
+                {"status": ("This application cannot be approved from its current state.")}
             )
 
         now = timezone.now()
@@ -477,12 +461,13 @@ def approve_application(
 # reject_application()
 # ---------------------------------------------------------------------------
 
+
 def reject_application(
     *,
-    application,
+    application,  # noqa: ANN001
     rejection_reason: str = "",
-    actor,
-) -> "VolunteerApplication":
+    actor,  # noqa: ANN001
+) -> VolunteerApplication:  # noqa: F821
     """
     Coordinator rejects a pending volunteer application.
 
@@ -513,27 +498,29 @@ def reject_application(
 
     # H-1 fix: broaden guard from STATUS_PENDING-only to the full set of non-terminal
     # statuses that a coordinator may still act on.  Mirrors approve_application().
-    _rejectable = frozenset({
-        VolunteerApplication.STATUS_PENDING,
-        VolunteerApplication.STATUS_IN_REVIEW,
-        VolunteerApplication.STATUS_WAITLISTED,
-    })
+    _rejectable = frozenset(
+        {
+            VolunteerApplication.STATUS_PENDING,
+            VolunteerApplication.STATUS_IN_REVIEW,
+            VolunteerApplication.STATUS_WAITLISTED,
+        }
+    )
 
-    def _reject_post_commit():
+    def _reject_post_commit() -> None:
         # Re-fetch a sanitised instance using .only() to whitelist safe fields.
         # Django defers ALL fields not in this list — they are inaccessible without
         # an explicit additional SELECT.  This means rejection_reason AND
         # screening_notes are both deferred: signal receivers cannot read either
         # field via the instance reference without triggering a new query, which
         # is an auditable, traceable access (PIPEDA defence-in-depth).
-        safe_instance = (
-            VolunteerApplication.objects
-            .only(
-                "pk", "status", "opportunity_id", "volunteer_id",
-                "reviewed_by_id", "reviewed_at",
-            )
-            .get(pk=application.pk)
-        )
+        safe_instance = VolunteerApplication.objects.only(
+            "pk",
+            "status",
+            "opportunity_id",
+            "volunteer_id",
+            "reviewed_by_id",
+            "reviewed_at",
+        ).get(pk=application.pk)
         application_rejected.send_robust(
             sender=VolunteerApplication,
             instance=safe_instance,
@@ -556,8 +543,7 @@ def reject_application(
         # the lock, re-reads the changed status, and raises ValidationError rather
         # than silently overwriting.
         application = (
-            VolunteerApplication.objects
-            .select_for_update(of=("self",))
+            VolunteerApplication.objects.select_for_update(of=("self",))
             .select_related("opportunity__program")
             .get(pk=application.pk)
         )
@@ -574,11 +560,7 @@ def reject_application(
         # --- Business rule: only pending/in-review/waitlisted applications can be rejected ---
         if application.status not in _rejectable:
             raise ValidationError(
-                {
-                    "status": (
-                        "This application cannot be rejected from its current state."
-                    )
-                }
+                {"status": ("This application cannot be rejected from its current state.")}
             )
 
         now = timezone.now()

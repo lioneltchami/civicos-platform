@@ -22,29 +22,29 @@ PIPEDA invariants verified:
   - actor_pk stores integer pk — no email or name
   - Log/audit context: amounts and counts only
 """
+
 from __future__ import annotations
 
 import itertools
 import uuid
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from io import StringIO
 
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.test import TestCase
 from django.urls import reverse
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
+    DONATION_STATUS_PENDING,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
-    DONATION_STATUS_PENDING,
 )
 from apps.reports.forms import (
-    FiscalYearEndForm,
     MAX_RECEIPT_EXPORT_DAYS,
+    FiscalYearEndForm,
     ReceiptExportForm,
 )
 from apps.reports.models import ExportRecord, ReportSnapshot
@@ -78,8 +78,10 @@ _RECEIPT_SERIAL_COUNTER: itertools.count = itertools.count(1)
 # Factories
 # ---------------------------------------------------------------------------
 
+
 def _make_user(*, is_staff=True, perms=None):
     from django.contrib.auth.models import Permission
+
     user = User.objects.create_user(
         email=f"staff-{uuid.uuid4().hex[:8]}@example.com",
         password="testpass123",
@@ -180,27 +182,27 @@ def _make_receipt(
     if serial_number is None:
         serial_number = f"2024-{next(_RECEIPT_SERIAL_COUNTER):06d}"
 
-    create_kwargs = dict(
-        donation=donation,
-        serial_number=serial_number,
-        status=status,
-        donor_legal_name="Test Donor",
-        donor_address_line1="123 Main St",
-        donor_city="Ottawa",
-        donor_province="ON",
-        donor_postal_code="K1A 0A9",
-        donation_date=date(2024, 6, 1),
-        receipt_date=date(2024, 6, 2),
-        eligible_amount=donation.eligible_amount,
-        advantage_amount=donation.advantage_amount,
-        charity_legal_name="Test Charity",
-        charity_registration_number="123456789RR0001",
-        charity_address="1 Charity Lane, Ottawa ON",
-        place_of_issue="Ottawa, ON",
-        authorized_signatory_name="Jane Smith",
-        authorized_signatory_title="Treasurer",
-        is_annual_consolidated=False,
-    )
+    create_kwargs = {
+        "donation": donation,
+        "serial_number": serial_number,
+        "status": status,
+        "donor_legal_name": "Test Donor",
+        "donor_address_line1": "123 Main St",
+        "donor_city": "Ottawa",
+        "donor_province": "ON",
+        "donor_postal_code": "K1A 0A9",
+        "donation_date": date(2024, 6, 1),
+        "receipt_date": date(2024, 6, 2),
+        "eligible_amount": donation.eligible_amount,
+        "advantage_amount": donation.advantage_amount,
+        "charity_legal_name": "Test Charity",
+        "charity_registration_number": "123456789RR0001",
+        "charity_address": "1 Charity Lane, Ottawa ON",
+        "place_of_issue": "Ottawa, ON",
+        "authorized_signatory_name": "Jane Smith",
+        "authorized_signatory_title": "Treasurer",
+        "is_annual_consolidated": False,
+    }
 
     if issued_at is not None:
         # Patch django.utils.timezone.now, which DateTimeField.pre_save() calls
@@ -217,21 +219,22 @@ def _make_receipt(
 # Helper function tests
 # ============================================================================
 
+
 class MonthUtcRangeTests(TestCase):
     def test_regular_month(self):
         start, end = _month_utc_range(2024, 6)
-        self.assertEqual(start, datetime(2024, 6, 1, tzinfo=dt_timezone.utc))
-        self.assertEqual(end, datetime(2024, 7, 1, tzinfo=dt_timezone.utc))
+        self.assertEqual(start, datetime(2024, 6, 1, tzinfo=UTC))
+        self.assertEqual(end, datetime(2024, 7, 1, tzinfo=UTC))
 
     def test_december_wraps_year(self):
         start, end = _month_utc_range(2024, 12)
-        self.assertEqual(start, datetime(2024, 12, 1, tzinfo=dt_timezone.utc))
-        self.assertEqual(end, datetime(2025, 1, 1, tzinfo=dt_timezone.utc))
+        self.assertEqual(start, datetime(2024, 12, 1, tzinfo=UTC))
+        self.assertEqual(end, datetime(2025, 1, 1, tzinfo=UTC))
 
     def test_january(self):
         start, end = _month_utc_range(2024, 1)
-        self.assertEqual(start, datetime(2024, 1, 1, tzinfo=dt_timezone.utc))
-        self.assertEqual(end, datetime(2024, 2, 1, tzinfo=dt_timezone.utc))
+        self.assertEqual(start, datetime(2024, 1, 1, tzinfo=UTC))
+        self.assertEqual(end, datetime(2024, 2, 1, tzinfo=UTC))
 
     def test_range_is_half_open(self):
         """The range is [start, end) — start inclusive, end exclusive."""
@@ -303,11 +306,12 @@ class StrDecimalsTests(TestCase):
 # get_monthly_donation_summary
 # ============================================================================
 
+
 class GetMonthlyDonationSummaryTests(TestCase):
     def setUp(self):
-        self.june_start = datetime(2024, 6, 1, tzinfo=dt_timezone.utc)
-        self.june_mid = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
-        self.july_start = datetime(2024, 7, 1, tzinfo=dt_timezone.utc)
+        self.june_start = datetime(2024, 6, 1, tzinfo=UTC)
+        self.june_mid = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
+        self.july_start = datetime(2024, 7, 1, tzinfo=UTC)
 
     def test_empty_month_returns_zeroes(self):
         result = get_monthly_donation_summary(2024, 6)
@@ -388,8 +392,12 @@ class GetMonthlyDonationSummaryTests(TestCase):
         _make_donation(amount=Decimal("100.00"), created_at=self.june_mid)
         result = get_monthly_donation_summary(2024, 6)
         pii_keys = {
-            "donor_name", "donor_email", "donor_address",
-            "legal_name", "email", "address",
+            "donor_name",
+            "donor_email",
+            "donor_address",
+            "legal_name",
+            "email",
+            "address",
         }
         all_keys = set(result.keys())
         for row in result.get("by_campaign", []):
@@ -410,13 +418,13 @@ class GetMonthlyDonationSummaryTests(TestCase):
 # get_annual_donation_summary
 # ============================================================================
 
-class GetAnnualDonationSummaryTests(TestCase):
 
+class GetAnnualDonationSummaryTests(TestCase):
     def _jan_ts(self, day=15):
-        return datetime(2024, 1, day, 12, 0, tzinfo=dt_timezone.utc)
+        return datetime(2024, 1, day, 12, 0, tzinfo=UTC)
 
     def _jun_ts(self, day=15):
-        return datetime(2024, 6, day, 12, 0, tzinfo=dt_timezone.utc)
+        return datetime(2024, 6, day, 12, 0, tzinfo=UTC)
 
     def test_empty_year_returns_zeroes(self):
         result = get_annual_donation_summary(2024)
@@ -449,7 +457,7 @@ class GetAnnualDonationSummaryTests(TestCase):
         self.assertIn(6, months)
 
     def test_excludes_previous_year(self):
-        prev_year_ts = datetime(2023, 12, 31, 23, 0, tzinfo=dt_timezone.utc)
+        prev_year_ts = datetime(2023, 12, 31, 23, 0, tzinfo=UTC)
         _make_donation(amount=Decimal("500.00"), created_at=prev_year_ts)
         result = get_annual_donation_summary(2024)
         self.assertEqual(result["donation_count"], 0)
@@ -481,10 +489,10 @@ class GetAnnualDonationSummaryTests(TestCase):
 # get_t3010_preparatory_data
 # ============================================================================
 
-class GetT3010PreparatoryDataTests(TestCase):
 
+class GetT3010PreparatoryDataTests(TestCase):
     def _ts(self, year, month, day=15):
-        return datetime(year, month, day, 12, 0, tzinfo=dt_timezone.utc)
+        return datetime(year, month, day, 12, 0, tzinfo=UTC)
 
     def test_empty_fiscal_year(self):
         result = get_t3010_preparatory_data(date(2024, 12, 31))
@@ -507,7 +515,7 @@ class GetT3010PreparatoryDataTests(TestCase):
         d1 = _make_donation(amount=Decimal("200.00"), created_at=self._ts(2024, 3))
         _make_receipt(d1, status="issued", issued_at=self._ts(2024, 3))
 
-        d2 = _make_donation(amount=Decimal("100.00"), created_at=self._ts(2024, 6))
+        _make_donation(amount=Decimal("100.00"), created_at=self._ts(2024, 6))
         # d2 has NO issued receipt — should NOT count toward line 4500
 
         result = get_t3010_preparatory_data(date(2024, 12, 31))
@@ -533,12 +541,19 @@ class GetT3010PreparatoryDataTests(TestCase):
         result = get_t3010_preparatory_data(date(2024, 12, 31))
 
         # Counts must not be inflated — one donation, not two.
-        self.assertEqual(result["donation_count"], 1,
-                         "donation_count must be 1, not 2 (JOIN inflation bug)")
-        self.assertEqual(result["total_eligible_amount"], Decimal("150.00"),
-                         "total_eligible_amount must not be doubled")
-        self.assertEqual(result["total_receipted_donations"], Decimal("150.00"),
-                         "total_receipted_donations must be 150, not doubled")
+        self.assertEqual(
+            result["donation_count"], 1, "donation_count must be 1, not 2 (JOIN inflation bug)"
+        )
+        self.assertEqual(
+            result["total_eligible_amount"],
+            Decimal("150.00"),
+            "total_eligible_amount must not be doubled",
+        )
+        self.assertEqual(
+            result["total_receipted_donations"],
+            Decimal("150.00"),
+            "total_receipted_donations must be 150, not doubled",
+        )
 
     def test_large_donation_count_flag(self):
         _make_donation(amount=Decimal("10000.00"), created_at=self._ts(2024, 5))
@@ -586,18 +601,18 @@ class GetT3010PreparatoryDataTests(TestCase):
 # get_receipt_list_queryset
 # ============================================================================
 
-class GetReceiptListQuerysetTests(TestCase):
 
+class GetReceiptListQuerysetTests(TestCase):
     def test_returns_receipts_in_range(self):
         d = _make_donation(amount=Decimal("100.00"))
-        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
+        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         _make_receipt(d, issued_at=issued_at)
         qs = get_receipt_list_queryset(date(2024, 6, 1), date(2024, 6, 30))
         self.assertEqual(qs.count(), 1)
 
     def test_excludes_receipts_outside_range(self):
         d = _make_donation(amount=Decimal("100.00"))
-        issued_at = datetime(2024, 7, 15, 12, 0, tzinfo=dt_timezone.utc)
+        issued_at = datetime(2024, 7, 15, 12, 0, tzinfo=UTC)
         _make_receipt(d, issued_at=issued_at)
         qs = get_receipt_list_queryset(date(2024, 6, 1), date(2024, 6, 30))
         self.assertEqual(qs.count(), 0)
@@ -607,8 +622,8 @@ class GetReceiptListQuerysetTests(TestCase):
         d1 = _make_donation(amount=Decimal("100.00"))
         d2 = _make_donation(amount=Decimal("200.00"))
         # Both timestamps are solidly mid-month (well clear of Toronto midnight)
-        june_early = datetime(2024, 6, 8, 14, 0, tzinfo=dt_timezone.utc)   # 10:00 EDT
-        june_late = datetime(2024, 6, 22, 18, 0, tzinfo=dt_timezone.utc)   # 14:00 EDT
+        june_early = datetime(2024, 6, 8, 14, 0, tzinfo=UTC)  # 10:00 EDT
+        june_late = datetime(2024, 6, 22, 18, 0, tzinfo=UTC)  # 14:00 EDT
         _make_receipt(d1, issued_at=june_early)
         _make_receipt(d2, issued_at=june_late)
         qs = get_receipt_list_queryset(date(2024, 6, 1), date(2024, 6, 30))
@@ -617,7 +632,7 @@ class GetReceiptListQuerysetTests(TestCase):
     def test_has_select_related(self):
         """QuerySet should hit donation+campaign in single join, not N+1."""
         d = _make_donation(amount=Decimal("100.00"))
-        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
+        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         _make_receipt(d, issued_at=issued_at)
         qs = get_receipt_list_queryset(date(2024, 6, 1), date(2024, 6, 30))
         receipt = qs.first()
@@ -627,8 +642,8 @@ class GetReceiptListQuerysetTests(TestCase):
     def test_ordered_by_issued_at(self):
         d1 = _make_donation(amount=Decimal("100.00"))
         d2 = _make_donation(amount=Decimal("200.00"))
-        early = datetime(2024, 6, 5, 12, 0, tzinfo=dt_timezone.utc)
-        late = datetime(2024, 6, 20, 12, 0, tzinfo=dt_timezone.utc)
+        early = datetime(2024, 6, 5, 12, 0, tzinfo=UTC)
+        late = datetime(2024, 6, 20, 12, 0, tzinfo=UTC)
         r1 = _make_receipt(d1, issued_at=late)
         r2 = _make_receipt(d2, issued_at=early)
         qs = get_receipt_list_queryset(date(2024, 6, 1), date(2024, 6, 30))
@@ -640,8 +655,8 @@ class GetReceiptListQuerysetTests(TestCase):
 # compute_donations_snapshot
 # ============================================================================
 
-class ComputeDonationsSnapshotTests(TestCase):
 
+class ComputeDonationsSnapshotTests(TestCase):
     def test_returns_required_keys(self):
         result = compute_donations_snapshot(2024, 6)
         self.assertIn("donations", result)
@@ -652,9 +667,9 @@ class ComputeDonationsSnapshotTests(TestCase):
 
     def test_decimals_serialized_to_strings(self):
         """Decimal values must be strings for JSONB storage."""
-        d = _make_donation(
+        _make_donation(
             amount=Decimal("250.00"),
-            created_at=datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc),
+            created_at=datetime(2024, 6, 15, 12, 0, tzinfo=UTC),
         )
         result = compute_donations_snapshot(2024, 6)
         total = result["donations"]["total_donations"]
@@ -664,7 +679,7 @@ class ComputeDonationsSnapshotTests(TestCase):
     def test_row_count_equals_donation_count(self):
         _make_donation(
             amount=Decimal("100.00"),
-            created_at=datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc),
+            created_at=datetime(2024, 6, 15, 12, 0, tzinfo=UTC),
         )
         result = compute_donations_snapshot(2024, 6)
         self.assertEqual(result["row_count"], 1)
@@ -678,13 +693,15 @@ class ComputeDonationsSnapshotTests(TestCase):
 # Form validation
 # ============================================================================
 
-class ReceiptExportFormTests(TestCase):
 
+class ReceiptExportFormTests(TestCase):
     def test_valid_range_within_366_days(self):
-        form = ReceiptExportForm(data={
-            "start": "2024-01-01",
-            "end": "2024-12-31",
-        })
+        form = ReceiptExportForm(
+            data={
+                "start": "2024-01-01",
+                "end": "2024-12-31",
+            }
+        )
         self.assertTrue(form.is_valid())
 
     def test_end_before_start_invalid(self):
@@ -711,7 +728,6 @@ class ReceiptExportFormTests(TestCase):
 
 
 class FiscalYearEndFormTests(TestCase):
-
     def test_valid_past_date(self):
         form = FiscalYearEndForm(data={"fiscal_year_end": "2023-12-31"})
         self.assertTrue(form.is_valid())
@@ -725,6 +741,7 @@ class FiscalYearEndFormTests(TestCase):
 
     def test_today_is_valid(self):
         from datetime import date as _date
+
         today = _date.today().isoformat()
         form = FiscalYearEndForm(data={"fiscal_year_end": today})
         self.assertTrue(form.is_valid())
@@ -738,8 +755,8 @@ class FiscalYearEndFormTests(TestCase):
 # View: DonationDashboardView
 # ============================================================================
 
-class DonationDashboardViewTests(TestCase):
 
+class DonationDashboardViewTests(TestCase):
     def setUp(self):
         self.url = reverse("reports:donations-dashboard")
         self.view_perm_user = _make_user(perms=["view_donationreport"])
@@ -747,8 +764,9 @@ class DonationDashboardViewTests(TestCase):
 
     def test_redirect_unauthenticated(self):
         response = self.client.get(self.url)
-        self.assertRedirects(response, f"{_LOGIN_URL}?next={self.url}",
-                             fetch_redirect_response=False)
+        self.assertRedirects(
+            response, f"{_LOGIN_URL}?next={self.url}", fetch_redirect_response=False
+        )
 
     def test_403_without_permission(self):
         self.client.force_login(self.no_perm_user)
@@ -828,8 +846,8 @@ class DonationDashboardViewTests(TestCase):
 # View: AnnualDonationView
 # ============================================================================
 
-class AnnualDonationViewTests(TestCase):
 
+class AnnualDonationViewTests(TestCase):
     def setUp(self):
         self.url = reverse("reports:donations-annual")
         self.view_perm_user = _make_user(perms=["view_donationreport"])
@@ -837,8 +855,9 @@ class AnnualDonationViewTests(TestCase):
 
     def test_redirect_unauthenticated(self):
         response = self.client.get(self.url)
-        self.assertRedirects(response, f"{_LOGIN_URL}?next={self.url}",
-                             fetch_redirect_response=False)
+        self.assertRedirects(
+            response, f"{_LOGIN_URL}?next={self.url}", fetch_redirect_response=False
+        )
 
     def test_403_without_permission(self):
         self.client.force_login(self.no_perm_user)
@@ -874,8 +893,8 @@ class AnnualDonationViewTests(TestCase):
 # View: T3010PrepView
 # ============================================================================
 
-class T3010PrepViewTests(TestCase):
 
+class T3010PrepViewTests(TestCase):
     def setUp(self):
         self.url = reverse("reports:t3010-prep")
         self.view_perm_user = _make_user(perms=["view_donationreport"])
@@ -883,8 +902,9 @@ class T3010PrepViewTests(TestCase):
 
     def test_redirect_unauthenticated(self):
         response = self.client.get(self.url)
-        self.assertRedirects(response, f"{_LOGIN_URL}?next={self.url}",
-                             fetch_redirect_response=False)
+        self.assertRedirects(
+            response, f"{_LOGIN_URL}?next={self.url}", fetch_redirect_response=False
+        )
 
     def test_403_without_permission(self):
         self.client.force_login(self.no_perm_user)
@@ -922,20 +942,19 @@ class T3010PrepViewTests(TestCase):
 # View: ReceiptsExportView
 # ============================================================================
 
-class ReceiptsExportViewTests(TestCase):
 
+class ReceiptsExportViewTests(TestCase):
     def setUp(self):
         self.url = reverse("reports:receipts-export")
-        self.export_perm_user = _make_user(
-            perms=["view_donationreport", "export_donationreport"]
-        )
+        self.export_perm_user = _make_user(perms=["view_donationreport", "export_donationreport"])
         self.view_only_user = _make_user(perms=["view_donationreport"])
         self.no_perm_user = _make_user(perms=[])
 
     def test_redirect_unauthenticated(self):
         response = self.client.get(self.url + "?start=2024-01-01&end=2024-03-31")
         self.assertRedirects(
-            response, f"{_LOGIN_URL}?next={self.url}%3Fstart%3D2024-01-01%26end%3D2024-03-31",
+            response,
+            f"{_LOGIN_URL}?next={self.url}%3Fstart%3D2024-01-01%26end%3D2024-03-31",
             fetch_redirect_response=False,
         )
 
@@ -992,7 +1011,7 @@ class ReceiptsExportViewTests(TestCase):
 
     def test_row_count_in_export_record(self):
         d = _make_donation(amount=Decimal("100.00"))
-        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
+        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         _make_receipt(d, issued_at=issued_at)
         self.client.force_login(self.export_perm_user)
         self.client.get(self.url + "?start=2024-06-01&end=2024-06-30")
@@ -1002,26 +1021,29 @@ class ReceiptsExportViewTests(TestCase):
     def test_csv_pipeda_no_donor_pii_columns(self):
         """Exported CSV must not contain donor PII column headers anywhere."""
         d = _make_donation(amount=Decimal("100.00"))
-        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
+        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         _make_receipt(d, issued_at=issued_at)
         self.client.force_login(self.export_perm_user)
         response = self.client.get(self.url + "?start=2024-01-01&end=2024-12-31")
         content = b"".join(response.streaming_content).decode("utf-8-sig")
         pii_columns = [
-            "donor_legal_name", "donor_address", "donor_city",
-            "donor_province", "donor_postal_code", "donor_name",
+            "donor_legal_name",
+            "donor_address",
+            "donor_city",
+            "donor_province",
+            "donor_postal_code",
+            "donor_name",
             "email",
         ]
         # assertNotIn on the full content string — not on a sliced list of tokens
         # (the list-element check would miss substrings in the middle of a cell).
         for col in pii_columns:
-            self.assertNotIn(col, content.lower(),
-                             msg=f"PII column '{col}' found in CSV output")
+            self.assertNotIn(col, content.lower(), msg=f"PII column '{col}' found in CSV output")
 
     def test_csv_whitelisted_columns_present(self):
         """Exported CSV must contain CRA-required non-PII fields."""
         d = _make_donation(amount=Decimal("100.00"))
-        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
+        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         _make_receipt(d, issued_at=issued_at)
         self.client.force_login(self.export_perm_user)
         response = self.client.get(self.url + "?start=2024-01-01&end=2024-12-31")
@@ -1035,7 +1057,7 @@ class ReceiptsExportViewTests(TestCase):
         self.client.force_login(self.export_perm_user)
         response = self.client.get(self.url + "?start=2024-01-01&end=2024-01-31")
         content = b"".join(response.streaming_content).decode("utf-8-sig")
-        lines = [l for l in content.split("\r\n") if l.strip()]
+        lines = [l for l in content.split("\r\n") if l.strip()]  # noqa: E741
         self.assertEqual(len(lines), 1)  # only header
 
 
@@ -1043,13 +1065,11 @@ class ReceiptsExportViewTests(TestCase):
 # View: T3010PrepExportView
 # ============================================================================
 
-class T3010PrepExportViewTests(TestCase):
 
+class T3010PrepExportViewTests(TestCase):
     def setUp(self):
         self.url = reverse("reports:t3010-prep-export")
-        self.export_perm_user = _make_user(
-            perms=["view_donationreport", "export_donationreport"]
-        )
+        self.export_perm_user = _make_user(perms=["view_donationreport", "export_donationreport"])
         self.no_perm_user = _make_user(perms=[])
 
     def test_redirect_unauthenticated(self):
@@ -1090,9 +1110,9 @@ class T3010PrepExportViewTests(TestCase):
     def test_csv_has_summary_monthly_campaign_sections(self):
         d = _make_donation(
             amount=Decimal("100.00"),
-            created_at=datetime(2023, 6, 15, 12, 0, tzinfo=dt_timezone.utc),
+            created_at=datetime(2023, 6, 15, 12, 0, tzinfo=UTC),
         )
-        _make_receipt(d, status="issued", issued_at=datetime(2023, 6, 15, 12, 0, tzinfo=dt_timezone.utc))
+        _make_receipt(d, status="issued", issued_at=datetime(2023, 6, 15, 12, 0, tzinfo=UTC))
         self.client.force_login(self.export_perm_user)
         response = self.client.get(self.url + "?fiscal_year_end=2023-12-31")
         content = b"".join(response.streaming_content).decode("utf-8-sig")
@@ -1111,9 +1131,9 @@ class T3010PrepExportViewTests(TestCase):
         """row_count = summary rows + monthly rows + campaign rows."""
         d = _make_donation(
             amount=Decimal("100.00"),
-            created_at=datetime(2023, 6, 15, 12, 0, tzinfo=dt_timezone.utc),
+            created_at=datetime(2023, 6, 15, 12, 0, tzinfo=UTC),
         )
-        _make_receipt(d, status="issued", issued_at=datetime(2023, 6, 15, 12, 0, tzinfo=dt_timezone.utc))
+        _make_receipt(d, status="issued", issued_at=datetime(2023, 6, 15, 12, 0, tzinfo=UTC))
         self.client.force_login(self.export_perm_user)
         self.client.get(self.url + "?fiscal_year_end=2023-12-31")
         record = ExportRecord.objects.latest("created_at")
@@ -1125,22 +1145,24 @@ class T3010PrepExportViewTests(TestCase):
 # CSV export functions
 # ============================================================================
 
-class ExportReceiptsCsvTests(TestCase):
 
+class ExportReceiptsCsvTests(TestCase):
     def test_streams_csv_with_bom(self):
         from apps.reports.exports.csv_export import export_receipts_csv
+
         d = _make_donation(amount=Decimal("150.00"))
-        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
+        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         _make_receipt(d, issued_at=issued_at)
         response = export_receipts_csv(date(2024, 6, 1), date(2024, 6, 30))
         content = b"".join(response.streaming_content).decode("utf-8-sig")
-        lines = [l for l in content.split("\r\n") if l.strip()]
+        lines = [l for l in content.split("\r\n") if l.strip()]  # noqa: E741
         self.assertGreaterEqual(len(lines), 2)  # header + at least 1 data row
 
     def test_whitelist_excludes_pii(self):
         from apps.reports.exports.csv_export import export_receipts_csv
+
         d = _make_donation(amount=Decimal("100.00"))
-        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=dt_timezone.utc)
+        issued_at = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
         _make_receipt(d, issued_at=issued_at)
         response = export_receipts_csv(date(2024, 6, 1), date(2024, 6, 30))
         content = b"".join(response.streaming_content).decode("utf-8-sig")
@@ -1150,6 +1172,7 @@ class ExportReceiptsCsvTests(TestCase):
 
     def test_filename_contains_dates_not_pii(self):
         from apps.reports.exports.csv_export import export_receipts_csv
+
         response = export_receipts_csv(date(2024, 1, 1), date(2024, 3, 31))
         disposition = response["Content-Disposition"]
         self.assertIn("2024-01-01", disposition)
@@ -1158,14 +1181,14 @@ class ExportReceiptsCsvTests(TestCase):
 
 
 class ExportT3010PrepCsvTests(TestCase):
-
     def test_streams_summary_monthly_campaign(self):
         from apps.reports.exports.csv_export import export_t3010_prep_csv
+
         d = _make_donation(
             amount=Decimal("300.00"),
-            created_at=datetime(2023, 9, 10, 12, 0, tzinfo=dt_timezone.utc),
+            created_at=datetime(2023, 9, 10, 12, 0, tzinfo=UTC),
         )
-        _make_receipt(d, status="issued", issued_at=datetime(2023, 9, 10, 12, 0, tzinfo=dt_timezone.utc))
+        _make_receipt(d, status="issued", issued_at=datetime(2023, 9, 10, 12, 0, tzinfo=UTC))
         response = export_t3010_prep_csv(date(2023, 12, 31))
         content = b"".join(response.streaming_content).decode("utf-8-sig")
         self.assertIn("SUMMARY", content)
@@ -1174,17 +1197,19 @@ class ExportT3010PrepCsvTests(TestCase):
 
     def test_line_4500_appears_in_csv(self):
         from apps.reports.exports.csv_export import export_t3010_prep_csv
+
         d = _make_donation(
             amount=Decimal("500.00"),
-            created_at=datetime(2023, 3, 10, 12, 0, tzinfo=dt_timezone.utc),
+            created_at=datetime(2023, 3, 10, 12, 0, tzinfo=UTC),
         )
-        _make_receipt(d, status="issued", issued_at=datetime(2023, 3, 10, 12, 0, tzinfo=dt_timezone.utc))
+        _make_receipt(d, status="issued", issued_at=datetime(2023, 3, 10, 12, 0, tzinfo=UTC))
         response = export_t3010_prep_csv(date(2023, 12, 31))
         content = b"".join(response.streaming_content).decode("utf-8-sig")
         self.assertIn("4500", content)
 
     def test_no_pii_in_output(self):
         from apps.reports.exports.csv_export import export_t3010_prep_csv
+
         response = export_t3010_prep_csv(date(2023, 12, 31))
         content = b"".join(response.streaming_content).decode("utf-8-sig")
         for pii in ["donor_legal_name", "donor_address", "email@", "Jane Doe"]:
@@ -1199,6 +1224,7 @@ class ExportT3010PrepCsvTests(TestCase):
 # M-J: DashboardReceiptPipedaTests — receipt ordering
 # ============================================================================
 
+
 class DashboardReceiptPipedaTests(TestCase):
     """
     M-J: Tests for PIPEDA-compliant receipt listing — ordering, date boundaries,
@@ -1206,7 +1232,7 @@ class DashboardReceiptPipedaTests(TestCase):
     """
 
     def _ts(self, year, month, day, hour=12):
-        return datetime(year, month, day, hour, 0, tzinfo=dt_timezone.utc)
+        return datetime(year, month, day, hour, 0, tzinfo=UTC)
 
     def test_receipts_ordered_by_issued_at_ascending(self):
         """
@@ -1302,10 +1328,10 @@ class DashboardReceiptPipedaTests(TestCase):
 
 
 class ComputeAllSnapshotsTaskTests(TestCase):
-
     def test_donations_snapshot_written(self):
         """_compute_all_snapshots must write a DONATIONS-type ReportSnapshot."""
         from apps.reports.tasks import _compute_all_snapshots
+
         written = _compute_all_snapshots(2024, 5)
         self.assertGreaterEqual(written, 1)
         self.assertTrue(
@@ -1319,6 +1345,7 @@ class ComputeAllSnapshotsTaskTests(TestCase):
     def test_donations_snapshot_is_idempotent(self):
         """Running _compute_all_snapshots twice must update, not duplicate."""
         from apps.reports.tasks import _compute_all_snapshots
+
         _compute_all_snapshots(2024, 5)
         _compute_all_snapshots(2024, 5)
         count = ReportSnapshot.objects.filter(
@@ -1331,9 +1358,10 @@ class ComputeAllSnapshotsTaskTests(TestCase):
     def test_donations_snapshot_data_structure(self):
         """Snapshot data must have 'donations', 'receipts', 'row_count' keys."""
         from apps.reports.tasks import _compute_all_snapshots
+
         _make_donation(
             amount=Decimal("100.00"),
-            created_at=datetime(2024, 5, 15, 12, 0, tzinfo=dt_timezone.utc),
+            created_at=datetime(2024, 5, 15, 12, 0, tzinfo=UTC),
         )
         _compute_all_snapshots(2024, 5)
         snap = ReportSnapshot.objects.get(
@@ -1348,9 +1376,10 @@ class ComputeAllSnapshotsTaskTests(TestCase):
     def test_donations_snapshot_decimal_as_string(self):
         """Decimal values in snapshot.data must be strings (JSONB-safe)."""
         from apps.reports.tasks import _compute_all_snapshots
+
         _make_donation(
             amount=Decimal("250.00"),
-            created_at=datetime(2024, 5, 15, 12, 0, tzinfo=dt_timezone.utc),
+            created_at=datetime(2024, 5, 15, 12, 0, tzinfo=UTC),
         )
         _compute_all_snapshots(2024, 5)
         snap = ReportSnapshot.objects.get(

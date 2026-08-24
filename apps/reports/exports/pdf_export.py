@@ -15,11 +15,12 @@ WeasyPrint is imported inside the function body to allow the module to load in
 environments where WeasyPrint's C libraries (libcairo, libpango) may not be
 available (e.g., some CI containers that only run unit tests without rendering).
 """
+
 from __future__ import annotations
 
 import calendar
 import logging
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from django.http import HttpResponse
@@ -50,7 +51,7 @@ def export_monthly_summary_pdf(year: int, month: int) -> HttpResponse:
 
     PIPEDA: all data rendered is pre-aggregated — no donor names, addresses,
     or emails appear in the PDF output.
-    """
+    """  # noqa: RUF002
     from apps.reports.services.financial import (
         get_failed_payments,
         get_monthly_revenue,
@@ -67,12 +68,11 @@ def export_monthly_summary_pdf(year: int, month: int) -> HttpResponse:
     period_end = date(year, month, last_day)
     month_label = f"{calendar.month_name[month]} {year}"
 
-    net_after_refunds = (
-        revenue.get("total_gross", Decimal("0.00"))
-        - refunds.get("total_refunded", Decimal("0.00"))
+    net_after_refunds = revenue.get("total_gross", Decimal("0.00")) - refunds.get(
+        "total_refunded", Decimal("0.00")
     )
 
-    generated_at = datetime.now(tz=dt_timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    generated_at = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
 
     ctx = {
         "year": year,
@@ -88,14 +88,12 @@ def export_monthly_summary_pdf(year: int, month: int) -> HttpResponse:
     }
 
     # ── Render HTML → PDF ────────────────────────────────────────────────────
-    html_string = render_to_string(
-        "reports/financial/monthly_summary_pdf.html", ctx
-    )
+    html_string = render_to_string("reports/financial/monthly_summary_pdf.html", ctx)
 
     # Import WeasyPrint here so the module can still be imported in environments
     # where WeasyPrint's native libraries aren't present (unit test CI containers).
     try:
-        import weasyprint  # noqa: PLC0415
+        import weasyprint
     except ImportError as exc:
         logger.error("reports.exports.pdf_export: WeasyPrint not available — %s", exc)
         raise
@@ -104,7 +102,9 @@ def export_monthly_summary_pdf(year: int, month: int) -> HttpResponse:
 
     logger.info(
         "reports.exports.pdf_export.monthly_summary year=%s month=%s bytes=%s",
-        year, month, len(pdf_bytes),
+        year,
+        month,
+        len(pdf_bytes),
     )
 
     # ── Build response ───────────────────────────────────────────────────────

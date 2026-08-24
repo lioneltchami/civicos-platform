@@ -38,7 +38,7 @@ class DocumentsConfig(AppConfig):
         2. Validate ClamAV configuration in production.
         """
         # Import signals to register them with Django's signal dispatcher.
-        import apps.documents.signals  # noqa: F401  # registers signals
+        import apps.documents.signals  # registers signals
 
         # Import receivers to connect signal handlers.
         # (Receivers are in a separate module to keep signals.py declaration-only.)

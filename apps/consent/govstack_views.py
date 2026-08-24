@@ -16,6 +16,7 @@ Security:
 GovStack OpenAPI spec:
   https://raw.githubusercontent.com/GovStackWorkingGroup/bb-consent/v23Q4/api/consent-openapi.yaml
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,6 +24,7 @@ import uuid as uuid_module
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -30,7 +32,6 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from drf_spectacular.utils import extend_schema
 
 from apps.api.authentication import CivicOSTokenAuthentication
 
@@ -61,7 +62,7 @@ User = get_user_model()
 _AUTH = [CivicOSTokenAuthentication, JWTAuthentication]
 
 
-def _safe_int(value, default: int, min_val: int = 0, max_val: int = 10_000) -> int:
+def _safe_int(value, default: int, min_val: int = 0, max_val: int = 10_000) -> int:  # noqa: ANN001
     """
     F22 fix: safely convert a query-param string to an integer.
 
@@ -87,7 +88,7 @@ def _parse_uuid_param(value: str, field_name: str) -> str:
     try:
         return str(uuid_module.UUID(str(value)))
     except (ValueError, AttributeError, TypeError):
-        raise ValidationError(f"{field_name} must be a valid UUID.")
+        raise ValidationError(f"{field_name} must be a valid UUID.")  # noqa: B904
 
 
 def _parse_int_param(value: str, field_name: str) -> int:
@@ -95,7 +96,7 @@ def _parse_int_param(value: str, field_name: str) -> int:
     try:
         return int(value)
     except (ValueError, TypeError):
-        raise ValidationError(f"{field_name} must be a valid integer.")
+        raise ValidationError(f"{field_name} must be a valid integer.")  # noqa: B904
 
 
 def _resolve_policy_pk_or_alias(value: str) -> tuple[str, str | int]:
@@ -129,7 +130,7 @@ def _resolve_policy_pk_or_alias(value: str) -> tuple[str, str | int]:
     try:
         alias = int(value)
     except (ValueError, TypeError):
-        raise ValidationError("policyId must be a valid UUID.")
+        raise ValidationError("policyId must be a valid UUID.")  # noqa: B904
     if alias <= 0:
         raise ValidationError("policyId must be a valid UUID.")
     return "harness_alias_id", alias
@@ -146,7 +147,8 @@ class IsAuditorUser(BasePermission):
     This preserves backwards compatibility — existing admins (is_staff) retain
     audit access; external auditors get a dedicated group.
     """
-    def has_permission(self, request, view):
+
+    def has_permission(self, request, view):  # noqa: ANN001, ANN201
         if not request.user or not request.user.is_authenticated:
             return False
         if request.user.is_staff:
@@ -169,7 +171,8 @@ class IsConsumerUser(BasePermission):
       - serviceVerificationConsentRecordRead
       - serviceVerificationDataAgreementList
     """
-    def has_permission(self, request, view):
+
+    def has_permission(self, request, view):  # noqa: ANN001, ANN201
         if not request.user or not request.user.is_authenticated:
             return False
         if request.user.is_staff:
@@ -189,7 +192,8 @@ class IsConsentAdminUser(BasePermission):
     excluded group-based consent admins. This class unifies the admin check
     with the pattern used elsewhere in the service layer.
     """
-    def has_permission(self, request, view):
+
+    def has_permission(self, request, view):  # noqa: ANN001, ANN201
         if not request.user or not request.user.is_authenticated:
             return False
         if request.user.is_staff:
@@ -222,9 +226,10 @@ class _PublicReadOrAuthenticated(BasePermission):
     change — the real harness never touches those, and blanket-loosening
     them would be a real PII exposure for zero certification benefit.
     """
+
     fallback_permission_classes: tuple = (IsAuthenticated,)
 
-    def has_permission(self, request, view) -> bool:
+    def has_permission(self, request, view) -> bool:  # noqa: ANN001
         if not getattr(settings, "GOVSTACK_REQUIRE_CONSENT_AUTH", False):
             return True
         return all(
@@ -234,12 +239,14 @@ class _PublicReadOrAuthenticated(BasePermission):
 
 
 class PublicPolicyReadPermission(_PublicReadOrAuthenticated):
-    """GET /service/policy/{id}/ — falls back to IsAuthenticated (any authenticated caller may read a policy)."""
+    """GET /service/policy/{id}/ — falls back to IsAuthenticated (any authenticated caller may read a policy)."""  # noqa: E501
+
     fallback_permission_classes = (IsAuthenticated,)
 
 
 class PublicDataAgreementReadPermission(_PublicReadOrAuthenticated):
-    """GET /config/data-agreement/{id}/ — falls back to IsAuthenticated + IsConsentAdminUser (this view's normal permission)."""
+    """GET /config/data-agreement/{id}/ — falls back to IsAuthenticated + IsConsentAdminUser (this view's normal permission)."""  # noqa: E501
+
     fallback_permission_classes = (IsAuthenticated, IsConsentAdminUser)
 
 
@@ -272,7 +279,8 @@ class ConsentGovStackAPIView(APIView):
     change (all existing permission_classes/authentication_classes on each
     view are unaffected).
     """
-    throttle_classes = [ScopedRateThrottle]
+
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "govstack_bb"
 
 
@@ -282,23 +290,25 @@ class ConsentGovStackAPIView(APIView):
 #                 /config/policy/{id}/revisions/
 # ===========================================================================
 
+
 class ConfigPolicyListView(ConsentGovStackAPIView):
     """
     GET  /config/policies/       — list all policies
     POST /config/policy/         — create a new policy + initial revision
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def get(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack configPolicyList"""
         qs = ConsentPolicy.objects.filter(is_active=True).order_by("-created_at")
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        page = qs[offset: offset + limit]
+        page = qs[offset : offset + limit]
         return Response({"policies": PolicySerializer(page, many=True).data, "total": qs.count()})
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         """CREATE — GovStack configPolicyCreate"""
         serializer = PolicySerializer(data=request.data.get("policy", request.data))
         serializer.is_valid(raise_exception=True)
@@ -306,22 +316,24 @@ class ConfigPolicyListView(ConsentGovStackAPIView):
         # Use all validated data — includes description and third_party_data_sharing
         data = dict(serializer.validated_data)
         policy, revision = ConsentService.create_policy(data, actor=request.user)
-        return Response({
-            "policy": PolicySerializer(policy).data,
-            "revision": RevisionSerializer(revision).data,
-        })
+        return Response(
+            {
+                "policy": PolicySerializer(policy).data,
+                "revision": RevisionSerializer(revision).data,
+            }
+        )
 
 
 class ConfigPolicyCreateView(ConfigPolicyListView):
     """POST /config/policy/ — create a new policy + initial revision."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
 
 class ConfigPolicyCollectionView(ConfigPolicyListView):
     """GET /config/policies/ — list all policies."""
 
-    http_method_names = ["get"]
+    http_method_names = ["get"]  # noqa: RUF012
 
 
 class ConfigPolicyDetailView(ConsentGovStackAPIView):
@@ -330,17 +342,18 @@ class ConfigPolicyDetailView(ConsentGovStackAPIView):
     PUT    /config/policy/{policyId}/  — update policy + new revision
     DELETE /config/policy/{policyId}/  — soft-delete (is_active=False)
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def _get_policy(self, pk):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def _get_policy(self, pk):  # noqa: ANN001, ANN202
         pk = _parse_uuid_param(pk, "policyId")
         try:
             return ConsentPolicy.objects.get(pk=pk)
         except ConsentPolicy.DoesNotExist:
-            raise NotFound("Policy not found.")
+            raise NotFound("Policy not found.")  # noqa: B904
 
-    def get(self, request, policy_id):
+    def get(self, request, policy_id):  # noqa: ANN001, ANN201
         """READ — GovStack configPolicyRead"""
         policy = self._get_policy(policy_id)
         # GovStack spec: optional ?revisionId= query param selects a specific revision.
@@ -354,37 +367,41 @@ class ConfigPolicyDetailView(ConsentGovStackAPIView):
                     object_id=str(policy.pk),
                 )
             except ConsentRevision.DoesNotExist:
-                raise NotFound("Revision not found for this policy.")
+                raise NotFound("Revision not found for this policy.")  # noqa: B904
         else:
-            revision = (
-                ConsentRevision.objects.filter(
-                    schema_name="Policy",
-                    object_id=str(policy.pk),
-                    successor__isnull=True,
-                ).first()
-            )
-        return Response({
-            "policy": PolicySerializer(policy).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-        })
+            revision = ConsentRevision.objects.filter(
+                schema_name="Policy",
+                object_id=str(policy.pk),
+                successor__isnull=True,
+            ).first()
+        return Response(
+            {
+                "policy": PolicySerializer(policy).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+            }
+        )
 
-    def put(self, request, policy_id):
+    def put(self, request, policy_id):  # noqa: ANN001, ANN201
         """UPDATE — GovStack configPolicyUpdate"""
         policy = self._get_policy(policy_id)
-        serializer = PolicySerializer(policy, data=request.data.get("policy", request.data), partial=True)
+        serializer = PolicySerializer(
+            policy, data=request.data.get("policy", request.data), partial=True
+        )
         serializer.is_valid(raise_exception=True)
         policy, revision = ConsentService.update_policy(
             policy,
             serializer.validated_data,
             actor=request.user,
         )
-        return Response({
-            "policy": PolicySerializer(policy).data,
-            "revision": RevisionSerializer(revision).data,
-        })
+        return Response(
+            {
+                "policy": PolicySerializer(policy).data,
+                "revision": RevisionSerializer(revision).data,
+            }
+        )
 
     @extend_schema(responses={200: None})
-    def delete(self, request, policy_id):
+    def delete(self, request, policy_id):  # noqa: ANN001, ANN201
         """DELETE (soft) — GovStack configPolicyDelete"""
         policy = self._get_policy(policy_id)
         if ConsentCategory.objects.filter(policy=policy, is_active=True).exists():
@@ -399,28 +416,31 @@ class ConfigPolicyDetailView(ConsentGovStackAPIView):
 
 class ConfigPolicyRevisionsView(ConsentGovStackAPIView):
     """GET /config/policy/{policyId}/revisions/ — list all revisions"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def get(self, request, policy_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def get(self, request, policy_id):  # noqa: ANN001, ANN201
         """LIST — GovStack configPolicyRevisionsList"""
         policy_id = _parse_uuid_param(policy_id, "policyId")
         try:
             policy = ConsentPolicy.objects.get(pk=policy_id)
         except ConsentPolicy.DoesNotExist:
-            raise NotFound("Policy not found.")
+            raise NotFound("Policy not found.")  # noqa: B904
         revisions = ConsentRevision.objects.filter(
             schema_name="Policy",
             object_id=str(policy.pk),
         ).order_by("timestamp")
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        page = revisions[offset: offset + limit]
-        return Response({
-            "policy": PolicySerializer(policy).data,
-            "revisions": RevisionSerializer(page, many=True).data,
-            "total": revisions.count(),
-        })
+        page = revisions[offset : offset + limit]
+        return Response(
+            {
+                "policy": PolicySerializer(policy).data,
+                "revisions": RevisionSerializer(page, many=True).data,
+                "total": revisions.count(),
+            }
+        )
 
 
 # ===========================================================================
@@ -429,29 +449,33 @@ class ConfigPolicyRevisionsView(ConsentGovStackAPIView):
 #                 /config/data-agreements/
 # ===========================================================================
 
+
 class ConfigDataAgreementListView(ConsentGovStackAPIView):
     """
     GET  /config/data-agreements/   — list all data agreements
     POST /config/data-agreement/    — create a new data agreement
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def get(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack configDataAgreementList"""
         qs = ConsentCategory.objects.order_by("sort_order", "slug").select_related("policy")
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        page = qs[offset: offset + limit]
+        page = qs[offset : offset + limit]
         # GovStack spec: GET /config/data-agreements/ response key is "dataAgreement"
         # (singular), even though the value is an array.  This is an intentional spec
         # choice — see v23Q4 YAML components/schemas response property name.
-        return Response({
-            "dataAgreement": DataAgreementSerializer(page, many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "dataAgreement": DataAgreementSerializer(page, many=True).data,
+                "total": qs.count(),
+            }
+        )
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         """CREATE — GovStack configDataAgreementCreate"""
         payload = request.data.get("dataAgreement", request.data)
         # Normalize: accept both GovStack camelCase and CivicOS snake_case keys
@@ -463,22 +487,24 @@ class ConfigDataAgreementListView(ConsentGovStackAPIView):
             data,
             actor=request.user,
         )
-        return Response({
-            "dataAgreement": DataAgreementSerializer(category).data,
-            "revision": RevisionSerializer(revision).data,
-        })
+        return Response(
+            {
+                "dataAgreement": DataAgreementSerializer(category).data,
+                "revision": RevisionSerializer(revision).data,
+            }
+        )
 
 
 class ConfigDataAgreementCreateView(ConfigDataAgreementListView):
     """POST /config/data-agreement/ — create a new data agreement."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
 
 class ConfigDataAgreementCollectionView(ConfigDataAgreementListView):
     """GET /config/data-agreements/ — list all data agreements."""
 
-    http_method_names = ["get"]
+    http_method_names = ["get"]  # noqa: RUF012
 
 
 class ConfigDataAgreementDetailView(ConsentGovStackAPIView):
@@ -493,30 +519,33 @@ class ConfigDataAgreementDetailView(ConsentGovStackAPIView):
     since the real GovStack harness only ever performs a GET here and
     mutating endpoints must never be loosened for harness compatibility.
     """
+
     authentication_classes = _AUTH
 
-    def get_permissions(self):
+    def get_permissions(self):  # noqa: ANN201
         if self.request.method == "GET":
             return [PublicDataAgreementReadPermission()]
         return [IsAuthenticated(), IsConsentAdminUser()]
 
-    def _get_category(self, pk):
+    def _get_category(self, pk):  # noqa: ANN001, ANN202
         pk = _parse_int_param(pk, "dataAgreementId")
         try:
             return ConsentCategory.objects.get(pk=pk)
         except ConsentCategory.DoesNotExist:
-            raise NotFound("DataAgreement not found.")
+            raise NotFound("DataAgreement not found.")  # noqa: B904
 
-    def get(self, request, data_agreement_id):
+    def get(self, request, data_agreement_id):  # noqa: ANN001, ANN201
         """READ — GovStack configDataAgreementRead"""
         category = self._get_category(data_agreement_id)
         revision = ConsentService._get_latest_revision(category)
-        return Response({
-            "dataAgreement": DataAgreementSerializer(category).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-        })
+        return Response(
+            {
+                "dataAgreement": DataAgreementSerializer(category).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+            }
+        )
 
-    def put(self, request, data_agreement_id):
+    def put(self, request, data_agreement_id):  # noqa: ANN001, ANN201
         """UPDATE — GovStack configDataAgreementUpdate"""
         category = self._get_category(data_agreement_id)
         payload = request.data.get("dataAgreement", request.data)
@@ -529,13 +558,15 @@ class ConfigDataAgreementDetailView(ConsentGovStackAPIView):
             data,
             actor=request.user,
         )
-        return Response({
-            "dataAgreement": DataAgreementSerializer(category).data,
-            "revision": RevisionSerializer(revision).data,
-        })
+        return Response(
+            {
+                "dataAgreement": DataAgreementSerializer(category).data,
+                "revision": RevisionSerializer(revision).data,
+            }
+        )
 
     @extend_schema(responses={200: None})
-    def delete(self, request, data_agreement_id):
+    def delete(self, request, data_agreement_id):  # noqa: ANN001, ANN201
         """DELETE (deactivate) — GovStack configDataAgreementDelete"""
         category = self._get_category(data_agreement_id)
         category.is_active = False
@@ -549,23 +580,27 @@ class ConfigDataAgreementDetailView(ConsentGovStackAPIView):
 # GovStack paths: /config/individual/, /config/individual/{id}/, /config/individuals/
 # ===========================================================================
 
+
 class ConfigIndividualListView(ConsentGovStackAPIView):
     """GET /config/individuals/ + POST /config/individual/"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def get(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack configIndividualList"""
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
         base_qs = User.objects.filter(is_active=True).order_by("date_joined")
-        qs = base_qs[offset: offset + limit]
-        return Response({
-            "individuals": IndividualSerializer(qs, many=True).data,
-            "total": base_qs.count(),
-        })
+        qs = base_qs[offset : offset + limit]
+        return Response(
+            {
+                "individuals": IndividualSerializer(qs, many=True).data,
+                "total": base_qs.count(),
+            }
+        )
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         """CREATE — GovStack configIndividualCreate (creates a Django User)"""
         payload = request.data.get("individual", request.data)
         # In CivicOS, individuals are Django Users — creation goes through the
@@ -582,32 +617,33 @@ class ConfigIndividualListView(ConsentGovStackAPIView):
 class ConfigIndividualCreateView(ConfigIndividualListView):
     """POST /config/individual/ — create a Django-backed individual."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
 
 class ConfigIndividualCollectionView(ConfigIndividualListView):
     """GET /config/individuals/ — list all active individuals."""
 
-    http_method_names = ["get"]
+    http_method_names = ["get"]  # noqa: RUF012
 
 
 class ConfigIndividualDetailView(ConsentGovStackAPIView):
     """GET/PUT/DELETE /config/individual/{id}/"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def _get_user(self, individual_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def _get_user(self, individual_id):  # noqa: ANN001, ANN202
         individual_id = _parse_int_param(individual_id, "individualId")
         try:
             return User.objects.get(pk=individual_id)
         except (User.DoesNotExist, ValueError):
-            raise NotFound("Individual not found.")
+            raise NotFound("Individual not found.")  # noqa: B904
 
-    def get(self, request, individual_id):
+    def get(self, request, individual_id):  # noqa: ANN001, ANN201
         """READ — GovStack configIndividualRead"""
         return Response({"individual": IndividualSerializer(self._get_user(individual_id)).data})
 
-    def put(self, request, individual_id):
+    def put(self, request, individual_id):  # noqa: ANN001, ANN201
         """UPDATE — GovStack configIndividualUpdate"""
         user = self._get_user(individual_id)
         payload = request.data.get("individual", request.data)
@@ -619,7 +655,7 @@ class ConfigIndividualDetailView(ConsentGovStackAPIView):
         return Response({"individual": IndividualSerializer(user).data})
 
     @extend_schema(responses={200: None})
-    def delete(self, request, individual_id):
+    def delete(self, request, individual_id):  # noqa: ANN001, ANN201
         """DELETE — GovStack configIndividualDelete (deactivates the account)"""
         user = self._get_user(individual_id)
         user.is_active = False
@@ -632,22 +668,26 @@ class ConfigIndividualDetailView(ConsentGovStackAPIView):
 # GovStack paths: /config/webhook/, /config/webhook/{id}/, /config/webhooks/
 # ===========================================================================
 
+
 class ConfigWebhookListView(ConsentGovStackAPIView):
     """GET /config/webhooks/ + POST /config/webhook/"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def get(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack configWebhookList"""
         qs = ConsentWebhook.objects.all()
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        return Response({
-            "webhooks": WebhookSerializer(qs[offset: offset + limit], many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "webhooks": WebhookSerializer(qs[offset : offset + limit], many=True).data,
+                "total": qs.count(),
+            }
+        )
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         """CREATE — GovStack configWebhookCreate"""
         payload = request.data.get("webhook", request.data)
         serializer = WebhookSerializer(data=payload)
@@ -665,7 +705,9 @@ class ConfigWebhookListView(ConsentGovStackAPIView):
             is_disabled=is_disabled,
             secret_key=serializer.validated_data["secret_key"],
             subscribed_events=serializer.validated_data.get("subscribed_events", []),
-            signature_header=serializer.validated_data.get("signature_header", "X-GovStack-Signature"),
+            signature_header=serializer.validated_data.get(
+                "signature_header", "X-GovStack-Signature"
+            ),
             skipped_headers=serializer.validated_data.get("skipped_headers", []),
         )
         # Round 2 Fix 2 (MASTER_BB_CERTIFIABILITY_REPORT.md "Consent BB"):
@@ -687,31 +729,32 @@ class ConfigWebhookListView(ConsentGovStackAPIView):
 class ConfigWebhookCreateView(ConfigWebhookListView):
     """POST /config/webhook/ — create a webhook."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
 
 class ConfigWebhookCollectionView(ConfigWebhookListView):
     """GET /config/webhooks/ — list webhooks."""
 
-    http_method_names = ["get"]
+    http_method_names = ["get"]  # noqa: RUF012
 
 
 class ConfigWebhookDetailView(ConsentGovStackAPIView):
     """GET /config/webhook/{id}/ + PUT + DELETE"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def _get_webhook(self, pk):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def _get_webhook(self, pk):  # noqa: ANN001, ANN202
         pk = _parse_uuid_param(pk, "webhookId")
         try:
             return ConsentWebhook.objects.get(pk=pk)
         except ConsentWebhook.DoesNotExist:
-            raise NotFound("Webhook not found.")
+            raise NotFound("Webhook not found.")  # noqa: B904
 
-    def get(self, request, webhook_id):
+    def get(self, request, webhook_id):  # noqa: ANN001, ANN201
         return Response({"webhook": WebhookSerializer(self._get_webhook(webhook_id)).data})
 
-    def put(self, request, webhook_id):
+    def put(self, request, webhook_id):  # noqa: ANN001, ANN201
         webhook = self._get_webhook(webhook_id)
         payload = request.data.get("webhook", request.data)
         serializer = WebhookSerializer(webhook, data=payload, partial=True)
@@ -734,7 +777,7 @@ class ConfigWebhookDetailView(ConsentGovStackAPIView):
         return Response({"webhook": WebhookSerializer(webhook).data})
 
     @extend_schema(responses={200: None})
-    def delete(self, request, webhook_id):
+    def delete(self, request, webhook_id):  # noqa: ANN001, ANN201
         webhook = self._get_webhook(webhook_id)
         webhook_id_str = str(webhook.pk)
         webhook_url = webhook.payload_url
@@ -757,34 +800,38 @@ class ConfigWebhookPayloadView(ConsentGovStackAPIView):
     Returns the last payload delivered to this webhook (ping/test endpoint).
     GovStack operationId: configWebhookPayload
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsentAdminUser]
 
-    def get(self, request, webhook_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsentAdminUser]  # noqa: RUF012
+
+    def get(self, request, webhook_id):  # noqa: ANN001, ANN201
         webhook_id = _parse_uuid_param(webhook_id, "webhookId")
         try:
             webhook = ConsentWebhook.objects.get(pk=webhook_id)
         except ConsentWebhook.DoesNotExist:
-            raise NotFound("Webhook not found.")
+            raise NotFound("Webhook not found.")  # noqa: B904
         # Return the webhook configuration and the last delivered payload.
         # last_payload is populated by consent.dispatch_consent_webhook on
         # every successful HTTP delivery and null until the first delivery.
-        return Response({
-            "webhook": WebhookSerializer(webhook).data,
-            "payload": webhook.last_payload,
-            "deliveredAt": (
-                webhook.last_delivery_at.isoformat()
-                if webhook.last_delivery_at is not None
-                else None
-            ),
-            "status": webhook.last_delivery_status,
-        })
+        return Response(
+            {
+                "webhook": WebhookSerializer(webhook).data,
+                "payload": webhook.last_payload,
+                "deliveredAt": (
+                    webhook.last_delivery_at.isoformat()
+                    if webhook.last_delivery_at is not None
+                    else None
+                ),
+                "status": webhook.last_delivery_status,
+            }
+        )
 
 
 # ===========================================================================
 # Service API — Individual (self-service)
 # GovStack paths: /service/individual/, /service/individual/{id}/, /service/individuals/
 # ===========================================================================
+
 
 class ServiceIndividualView(ConsentGovStackAPIView):
     """
@@ -793,10 +840,11 @@ class ServiceIndividualView(ConsentGovStackAPIView):
     GET  /service/individual/{id}/    — read by ID (admin reads any; citizen reads own)
     PUT  /service/individual/{id}/    — update own record
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request, individual_id=None):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def get(self, request, individual_id=None):  # noqa: ANN001, ANN201
         """READ — GovStack serviceIndividualRead / serviceIndividualList"""
         if individual_id:
             individual_id = _parse_int_param(individual_id, "individualId")
@@ -805,7 +853,7 @@ class ServiceIndividualView(ConsentGovStackAPIView):
                 try:
                     user = User.objects.get(pk=individual_id)
                 except User.DoesNotExist:
-                    raise NotFound("Individual not found.")
+                    raise NotFound("Individual not found.")  # noqa: B904
             else:
                 raise PermissionDenied("You may only read your own record.")
             return Response({"individual": IndividualSerializer(user).data})
@@ -817,12 +865,14 @@ class ServiceIndividualView(ConsentGovStackAPIView):
             qs = User.objects.filter(pk=request.user.pk)
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        return Response({
-            "individuals": IndividualSerializer(qs[offset: offset + limit], many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "individuals": IndividualSerializer(qs[offset : offset + limit], many=True).data,
+                "total": qs.count(),
+            }
+        )
 
-    def post(self, request, individual_id=None):
+    def post(self, request, individual_id=None):  # noqa: ANN001, ANN201
         """CREATE/register — GovStack serviceIndividualCreate"""
         payload = request.data.get("individual", request.data)
         email = payload.get("email")
@@ -838,7 +888,7 @@ class ServiceIndividualView(ConsentGovStackAPIView):
         )
         return Response({"individual": IndividualSerializer(user).data})
 
-    def put(self, request, individual_id=None):
+    def put(self, request, individual_id=None):  # noqa: ANN001, ANN201
         """UPDATE own individual — limited field set"""
         user = request.user
         if individual_id:
@@ -849,7 +899,7 @@ class ServiceIndividualView(ConsentGovStackAPIView):
             try:
                 user = User.objects.get(pk=individual_id)
             except User.DoesNotExist:
-                raise NotFound("Individual not found.")
+                raise NotFound("Individual not found.")  # noqa: B904
         payload = request.data.get("individual", request.data)
         allowed = {"first_name", "last_name"}
         for field in allowed:
@@ -862,19 +912,19 @@ class ServiceIndividualView(ConsentGovStackAPIView):
 class ServiceIndividualCreateView(ServiceIndividualView):
     """POST /service/individual/ — register self."""
 
-    http_method_names = ["post"]
+    http_method_names = ["post"]  # noqa: RUF012
 
 
 class ServiceIndividualCollectionView(ServiceIndividualView):
     """GET /service/individuals/ — list individuals in service scope."""
 
-    http_method_names = ["get"]
+    http_method_names = ["get"]  # noqa: RUF012
 
 
 class ServiceIndividualDetailView(ServiceIndividualView):
     """GET/PUT /service/individual/{id}/ — read or update an individual."""
 
-    http_method_names = ["get", "put"]
+    http_method_names = ["get", "put"]  # noqa: RUF012
 
 
 # ===========================================================================
@@ -882,29 +932,34 @@ class ServiceIndividualDetailView(ServiceIndividualView):
 # GovStack path: /service/data-agreement/{id}/
 # ===========================================================================
 
+
 class ServiceDataAgreementDetailView(ConsentGovStackAPIView):
     """GET /service/data-agreement/{id}/ — read a Data Agreement"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request, data_agreement_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def get(self, request, data_agreement_id):  # noqa: ANN001, ANN201
         """READ — GovStack serviceDataAgreementRead"""
         data_agreement_id = _parse_int_param(data_agreement_id, "dataAgreementId")
         try:
             category = ConsentCategory.objects.get(pk=data_agreement_id, is_active=True)
         except ConsentCategory.DoesNotExist:
-            raise NotFound("DataAgreement not found.")
+            raise NotFound("DataAgreement not found.")  # noqa: B904
         revision = ConsentService._get_latest_revision(category)
-        return Response({
-            "dataAgreement": DataAgreementSerializer(category).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-        })
+        return Response(
+            {
+                "dataAgreement": DataAgreementSerializer(category).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+            }
+        )
 
 
 # ===========================================================================
 # Service API — Policy (read-only for individuals)
 # GovStack path: /service/policy/{id}/
 # ===========================================================================
+
 
 class ServicePolicyDetailView(ConsentGovStackAPIView):
     """
@@ -916,16 +971,17 @@ class ServicePolicyDetailView(ConsentGovStackAPIView):
     is what lets the upstream GovStackWorkingGroup/bb-consent reference
     harness's hardcoded GET /service/policy/1/ smoke test succeed.
     """
-    authentication_classes = _AUTH
-    permission_classes = [PublicPolicyReadPermission]
 
-    def get(self, request, policy_id):
+    authentication_classes = _AUTH
+    permission_classes = [PublicPolicyReadPermission]  # noqa: RUF012
+
+    def get(self, request, policy_id):  # noqa: ANN001, ANN201
         """READ — GovStack servicePolicyRead"""
         lookup_field, lookup_value = _resolve_policy_pk_or_alias(policy_id)
         try:
             policy = ConsentPolicy.objects.get(**{lookup_field: lookup_value}, is_active=True)
         except ConsentPolicy.DoesNotExist:
-            raise NotFound("Policy not found.")
+            raise NotFound("Policy not found.")  # noqa: B904
         # GovStack spec: optional ?revisionId= query param selects a specific revision.
         revision_id = request.query_params.get("revisionId")
         if revision_id:
@@ -937,19 +993,19 @@ class ServicePolicyDetailView(ConsentGovStackAPIView):
                     object_id=str(policy.pk),
                 )
             except ConsentRevision.DoesNotExist:
-                raise NotFound("Revision not found for this policy.")
+                raise NotFound("Revision not found for this policy.")  # noqa: B904
         else:
-            revision = (
-                ConsentRevision.objects.filter(
-                    schema_name="Policy",
-                    object_id=str(policy.pk),
-                    successor__isnull=True,
-                ).first()
-            )
-        return Response({
-            "policy": PolicySerializer(policy).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-        })
+            revision = ConsentRevision.objects.filter(
+                schema_name="Policy",
+                object_id=str(policy.pk),
+                successor__isnull=True,
+            ).first()
+        return Response(
+            {
+                "policy": PolicySerializer(policy).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+            }
+        )
 
 
 # ===========================================================================
@@ -959,24 +1015,30 @@ class ServicePolicyDetailView(ConsentGovStackAPIView):
 #                 /service/verification/consent-record/{id}/
 # ===========================================================================
 
+
 class ServiceVerificationDataAgreementsView(ConsentGovStackAPIView):
     """
     GET /service/verification/data-agreements/
     LIST — fetch Data Agreements for data consumers to verify consent against.
     GovStack security: [{consumer: []}]
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsumerUser]
 
-    def get(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsumerUser]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack serviceVerificationDataAgreementList"""
         qs = ConsentCategory.objects.filter(is_active=True).order_by("sort_order")
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        return Response({
-            "dataAgreements": DataAgreementSerializer(qs[offset: offset + limit], many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "dataAgreements": DataAgreementSerializer(
+                    qs[offset : offset + limit], many=True
+                ).data,
+                "total": qs.count(),
+            }
+        )
 
 
 class ServiceVerificationConsentRecordsView(ConsentGovStackAPIView):
@@ -986,23 +1048,28 @@ class ServiceVerificationConsentRecordsView(ConsentGovStackAPIView):
     Supports ?individual_id= and ?data_agreement_id= filters.
     GovStack security: [{consumer: []}]
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsumerUser]
 
-    def get(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsumerUser]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack serviceVerificationConsentRecordList"""
         # Filter on the GovStack canonical state field, not the legacy status field.
         # STATE_SIGNED is the authoritative indicator that an individual has consented.
-        qs = ConsentRecord.objects.filter(
-            state=ConsentRecord.STATE_SIGNED
-        ).select_related("category", "citizen", "signature_obj", "data_agreement_revision")
+        qs = ConsentRecord.objects.filter(state=ConsentRecord.STATE_SIGNED).select_related(
+            "category", "citizen", "signature_obj", "data_agreement_revision"
+        )
 
-        individual_id = request.query_params.get("individualId") or request.query_params.get("individual_id")
+        individual_id = request.query_params.get("individualId") or request.query_params.get(
+            "individual_id"
+        )
         if individual_id:
             individual_id = _parse_int_param(individual_id, "individualId")
             qs = qs.filter(citizen_id=individual_id)
 
-        agreement_id = request.query_params.get("dataAgreementId") or request.query_params.get("data_agreement_id")
+        agreement_id = request.query_params.get("dataAgreementId") or request.query_params.get(
+            "data_agreement_id"
+        )
         if agreement_id:
             agreement_id = _parse_int_param(agreement_id, "dataAgreementId")
             qs = qs.filter(category_id=agreement_id)
@@ -1010,10 +1077,14 @@ class ServiceVerificationConsentRecordsView(ConsentGovStackAPIView):
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
 
-        return Response({
-            "consentRecords": ConsentRecordGovStackSerializer(qs[offset: offset + limit], many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "consentRecords": ConsentRecordGovStackSerializer(
+                    qs[offset : offset + limit], many=True
+                ).data,
+                "total": qs.count(),
+            }
+        )
 
 
 class ServiceVerificationConsentRecordDetailView(ConsentGovStackAPIView):
@@ -1022,10 +1093,11 @@ class ServiceVerificationConsentRecordDetailView(ConsentGovStackAPIView):
     READ — read a single consent record for verification.
     GovStack security: [{consumer: []}]
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsConsumerUser]
 
-    def get(self, request, consent_record_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsConsumerUser]  # noqa: RUF012
+
+    def get(self, request, consent_record_id):  # noqa: ANN001, ANN201
         """READ — GovStack serviceVerificationConsentRecordRead"""
         consent_record_id = _parse_uuid_param(consent_record_id, "consentRecordId")
         try:
@@ -1033,14 +1105,16 @@ class ServiceVerificationConsentRecordDetailView(ConsentGovStackAPIView):
                 pk=consent_record_id
             )
         except ConsentRecord.DoesNotExist:
-            raise NotFound("ConsentRecord not found.")
+            raise NotFound("ConsentRecord not found.")  # noqa: B904
         revision = None
         if record.data_agreement_revision_id:
             revision = record.data_agreement_revision
-        return Response({
-            "consentRecord": ConsentRecordGovStackSerializer(record).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-        })
+        return Response(
+            {
+                "consentRecord": ConsentRecordGovStackSerializer(record).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+            }
+        )
 
 
 # ===========================================================================
@@ -1052,6 +1126,7 @@ class ServiceVerificationConsentRecordDetailView(ConsentGovStackAPIView):
 #                 /service/individual/record/ (DELETE = RTBF)
 # ===========================================================================
 
+
 class ServiceIndividualConsentRecordListView(ConsentGovStackAPIView):
     """
     GET  /service/individual/record/consent-record/
@@ -1060,22 +1135,27 @@ class ServiceIndividualConsentRecordListView(ConsentGovStackAPIView):
     POST /service/individual/record/consent-record/
          CREATE — create a consent record for a data agreement (grant/opt-in).
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack serviceIndividualConsentRecordList"""
-        qs = ConsentRecord.objects.filter(
-            citizen=request.user
-        ).select_related("category", "signature_obj", "data_agreement_revision")
+        qs = ConsentRecord.objects.filter(citizen=request.user).select_related(
+            "category", "signature_obj", "data_agreement_revision"
+        )
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        return Response({
-            "consentRecords": ConsentRecordGovStackSerializer(qs[offset: offset + limit], many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "consentRecords": ConsentRecordGovStackSerializer(
+                    qs[offset : offset + limit], many=True
+                ).data,
+                "total": qs.count(),
+            }
+        )
 
-    def post(self, request):
+    def post(self, request):  # noqa: ANN001, ANN201
         """CREATE (grant consent) — GovStack serviceIndividualConsentRecordSignatureCreate"""
         payload = request.data.get("consentRecord", request.data)
         # F10 fix: accept all three field names the spec and clients may use:
@@ -1092,7 +1172,7 @@ class ServiceIndividualConsentRecordListView(ConsentGovStackAPIView):
         try:
             category = ConsentCategory.objects.get(pk=category_id, is_active=True)
         except (ConsentCategory.DoesNotExist, ValueError, TypeError):
-            raise ValidationError({"dataAgreement": "DataAgreement not found or inactive."})
+            raise ValidationError({"dataAgreement": "DataAgreement not found or inactive."})  # noqa: B904
 
         record = ConsentService.grant(
             citizen=request.user,
@@ -1134,7 +1214,9 @@ class ServiceIndividualConsentRecordListView(ConsentGovStackAPIView):
                     )
                 else:
                     vtype = sig_serializer.validated_data.get("verification_type", "string")
-                    vpayload = sig_serializer.validated_data.get("verification_payload", caller_sig_data)
+                    vpayload = sig_serializer.validated_data.get(
+                        "verification_payload", caller_sig_data
+                    )
                     sig = ConsentService.attach_signature(
                         record=record,
                         verification_type=vtype,
@@ -1142,18 +1224,22 @@ class ServiceIndividualConsentRecordListView(ConsentGovStackAPIView):
                             vpayload if isinstance(vpayload, dict) else {"raw": str(vpayload)}
                         ),
                         signature=sig_serializer.validated_data.get("signature"),
-                        verification_signed_by=sig_serializer.validated_data.get("verification_signed_by"),
+                        verification_signed_by=sig_serializer.validated_data.get(
+                            "verification_signed_by"
+                        ),
                         request=request,
                     )
             else:
                 # Caller supplied a malformed signature — reject
                 raise ValidationError({"signature": sig_serializer.errors})
 
-        return Response({
-            "consentRecord": ConsentRecordGovStackSerializer(record).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-            "signature": SignatureSerializer(sig).data if sig else None,
-        })
+        return Response(
+            {
+                "consentRecord": ConsentRecordGovStackSerializer(record).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+                "signature": SignatureSerializer(sig).data if sig else None,
+            }
+        )
 
 
 class ServiceIndividualConsentRecordDetailView(ConsentGovStackAPIView):
@@ -1166,28 +1252,29 @@ class ServiceIndividualConsentRecordDetailView(ConsentGovStackAPIView):
     which enforces forgettable=True and emits an audit entry. A per-record delete
     outside that flow would bypass forgettable checks and the audit trail.
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
 
-    def _get_record(self, request, pk):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def _get_record(self, request, pk):  # noqa: ANN001, ANN202
         pk = _parse_uuid_param(pk, "consentRecordId")
         try:
-            return ConsentRecord.objects.select_related("category").get(
-                pk=pk, citizen=request.user
-            )
+            return ConsentRecord.objects.select_related("category").get(pk=pk, citizen=request.user)
         except ConsentRecord.DoesNotExist:
-            raise NotFound("ConsentRecord not found.")
+            raise NotFound("ConsentRecord not found.")  # noqa: B904
 
-    def get(self, request, consent_record_id):
+    def get(self, request, consent_record_id):  # noqa: ANN001, ANN201
         """READ — GovStack serviceIndividualConsentRecordRead"""
         record = self._get_record(request, consent_record_id)
         revision = record.data_agreement_revision
-        return Response({
-            "consentRecord": ConsentRecordGovStackSerializer(record).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-        })
+        return Response(
+            {
+                "consentRecord": ConsentRecordGovStackSerializer(record).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+            }
+        )
 
-    def put(self, request, consent_record_id):
+    def put(self, request, consent_record_id):  # noqa: ANN001, ANN201
         """UPDATE — GovStack serviceIndividualConsentRecordUpdate"""
         record = self._get_record(request, consent_record_id)
         payload = request.data.get("consentRecord", request.data)
@@ -1208,10 +1295,12 @@ class ServiceIndividualConsentRecordDetailView(ConsentGovStackAPIView):
                 request=request,
             )
         revision = record.data_agreement_revision
-        return Response({
-            "consentRecord": ConsentRecordGovStackSerializer(record).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-        })
+        return Response(
+            {
+                "consentRecord": ConsentRecordGovStackSerializer(record).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+            }
+        )
 
 
 class ServiceIndividualDataAgreementConsentRecordView(ConsentGovStackAPIView):
@@ -1222,17 +1311,18 @@ class ServiceIndividualDataAgreementConsentRecordView(ConsentGovStackAPIView):
     POST /service/individual/record/data-agreement/{id}/
          CREATE — grant consent for a specific DataAgreement.
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
 
-    def _get_category(self, data_agreement_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def _get_category(self, data_agreement_id):  # noqa: ANN001, ANN202
         data_agreement_id = _parse_int_param(data_agreement_id, "dataAgreementId")
         try:
             return ConsentCategory.objects.get(pk=data_agreement_id)
         except ConsentCategory.DoesNotExist:
-            raise NotFound("DataAgreement not found.")
+            raise NotFound("DataAgreement not found.")  # noqa: B904
 
-    def get(self, request, data_agreement_id):
+    def get(self, request, data_agreement_id):  # noqa: ANN001, ANN201
         """READ — GovStack serviceIndividualConsentRecordRead"""
         category = self._get_category(data_agreement_id)
         try:
@@ -1242,10 +1332,10 @@ class ServiceIndividualDataAgreementConsentRecordView(ConsentGovStackAPIView):
                 citizen=request.user, category=category, is_current=True
             )
         except ConsentRecord.DoesNotExist:
-            raise NotFound("No ConsentRecord found for this DataAgreement.")
+            raise NotFound("No ConsentRecord found for this DataAgreement.")  # noqa: B904
         return Response({"consentRecord": ConsentRecordGovStackSerializer(record).data})
 
-    def post(self, request, data_agreement_id):
+    def post(self, request, data_agreement_id):  # noqa: ANN001, ANN201
         """
         CREATE — GovStack serviceIndividualConsentRecordCreate
 
@@ -1262,25 +1352,24 @@ class ServiceIndividualDataAgreementConsentRecordView(ConsentGovStackAPIView):
             raise ValidationError("DataAgreement is not active.")
 
         # F9: parse individualId — non-admins may only grant for themselves
-        individual_id = (
-            request.query_params.get("individualId")
-            or request.query_params.get("individual_id")
+        individual_id = request.query_params.get("individualId") or request.query_params.get(
+            "individual_id"
         )
         if individual_id and str(request.user.pk) != str(individual_id):
-            if not (request.user.is_staff or
-                    request.user.groups.filter(name="consent_admins").exists()):
+            if not (
+                request.user.is_staff or request.user.groups.filter(name="consent_admins").exists()
+            ):
                 raise PermissionDenied("You may only create consent records for yourself.")
             try:
                 individual = User.objects.get(pk=individual_id)
             except (User.DoesNotExist, ValueError, TypeError):
-                raise NotFound("Individual not found.")
+                raise NotFound("Individual not found.")  # noqa: B904
         else:
             individual = request.user
 
         # F9: parse revisionId — validate it belongs to this DataAgreement
-        revision_id = (
-            request.query_params.get("revisionId")
-            or request.query_params.get("revision_id")
+        revision_id = request.query_params.get("revisionId") or request.query_params.get(
+            "revision_id"
         )
         target_revision = None
         if revision_id:
@@ -1291,7 +1380,7 @@ class ServiceIndividualDataAgreementConsentRecordView(ConsentGovStackAPIView):
                     object_id=str(category.pk),
                 )
             except (ConsentRevision.DoesNotExist, ValueError, TypeError):
-                raise NotFound("Revision not found for this DataAgreement.")
+                raise NotFound("Revision not found for this DataAgreement.")  # noqa: B904
 
         record = ConsentService.grant(
             citizen=individual,
@@ -1300,10 +1389,12 @@ class ServiceIndividualDataAgreementConsentRecordView(ConsentGovStackAPIView):
             revision=target_revision,
         )
         revision = record.data_agreement_revision
-        return Response({
-            "consentRecord": ConsentRecordGovStackSerializer(record).data,
-            "revision": RevisionSerializer(revision).data if revision else None,
-        })
+        return Response(
+            {
+                "consentRecord": ConsentRecordGovStackSerializer(record).data,
+                "revision": RevisionSerializer(revision).data if revision else None,
+            }
+        )
 
 
 class ServiceIndividualConsentRecordDraftView(ConsentGovStackAPIView):
@@ -1316,13 +1407,18 @@ class ServiceIndividualConsentRecordDraftView(ConsentGovStackAPIView):
       ?individualId=<uuid>  required
       ?dataAgreementId=<id> required
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
 
-    def post(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def post(self, request):  # noqa: ANN001, ANN201
         """DRAFT — GovStack serviceIndividualConsentRecordDraftCreate"""
-        individual_id = request.query_params.get("individualId") or request.query_params.get("individual_id")
-        agreement_id = request.query_params.get("dataAgreementId") or request.query_params.get("data_agreement_id")
+        individual_id = request.query_params.get("individualId") or request.query_params.get(
+            "individual_id"
+        )
+        agreement_id = request.query_params.get("dataAgreementId") or request.query_params.get(
+            "data_agreement_id"
+        )
 
         # Both params are required per spec
         if not individual_id:
@@ -1334,13 +1430,12 @@ class ServiceIndividualConsentRecordDraftView(ConsentGovStackAPIView):
         try:
             category = ConsentCategory.objects.get(pk=agreement_id, is_active=True)
         except ConsentCategory.DoesNotExist:
-            raise ValidationError({"dataAgreementId": "DataAgreement not found or inactive."})
+            raise ValidationError({"dataAgreementId": "DataAgreement not found or inactive."})  # noqa: B904
 
         # F5 fix: non-admin callers may only request a draft for themselves.
         # Admins (is_staff or consent_admins group) may request for any individual.
         is_admin = (
-            request.user.is_staff
-            or request.user.groups.filter(name="consent_admins").exists()
+            request.user.is_staff or request.user.groups.filter(name="consent_admins").exists()
         )
         if not is_admin and str(request.user.pk) != str(individual_id):
             raise PermissionDenied("You may only request a draft for yourself.")
@@ -1348,7 +1443,7 @@ class ServiceIndividualConsentRecordDraftView(ConsentGovStackAPIView):
         try:
             individual = User.objects.get(pk=individual_id)
         except (User.DoesNotExist, ValueError):
-            raise ValidationError({"individualId": "Individual not found."})
+            raise ValidationError({"individualId": "Individual not found."})  # noqa: B904
 
         # GovStack spec: optional ?revisionId= selects a specific DataAgreement revision.
         revision_id = request.query_params.get("revisionId")
@@ -1360,7 +1455,7 @@ class ServiceIndividualConsentRecordDraftView(ConsentGovStackAPIView):
                     object_id=str(category.pk),
                 )
             except ConsentRevision.DoesNotExist:
-                raise NotFound("Revision not found for this DataAgreement.")
+                raise NotFound("Revision not found for this DataAgreement.")  # noqa: B904
         else:
             revision = ConsentService._get_latest_revision(category)
 
@@ -1382,21 +1477,23 @@ class ServiceIndividualConsentRecordDraftView(ConsentGovStackAPIView):
             "state": "unsigned",
             "signature": None,
         }
-        return Response({
-            "consentRecord": draft,
-            # Stub signature — all 8 required GovStack Signature schema fields present.
-            # The individual signs this client-side and submits via POST /signature/.
-            "signature": {
-                "id": None,
-                "payload": "",
-                "signature": None,
-                "verificationMethod": "string",
-                "verificationPayload": None,
-                "verificationPayloadHash": None,
-                "verificationSignedBy": None,
-                "timestamp": None,
-            },
-        })
+        return Response(
+            {
+                "consentRecord": draft,
+                # Stub signature — all 8 required GovStack Signature schema fields present.
+                # The individual signs this client-side and submits via POST /signature/.
+                "signature": {
+                    "id": None,
+                    "payload": "",
+                    "signature": None,
+                    "verificationMethod": "string",
+                    "verificationPayload": None,
+                    "verificationPayloadHash": None,
+                    "verificationSignedBy": None,
+                    "timestamp": None,
+                },
+            }
+        )
 
 
 class ServiceIndividualRightToBeForgottenView(ConsentGovStackAPIView):
@@ -1404,11 +1501,12 @@ class ServiceIndividualRightToBeForgottenView(ConsentGovStackAPIView):
     DELETE /service/individual/record/
            Right to Be Forgotten — cascading delete of forgettable records.
     """
+
     authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
 
     @extend_schema(responses={200: None})
-    def delete(self, request):
+    def delete(self, request):  # noqa: ANN001, ANN201
         """DELETE — GovStack serviceIndividualConsentRecordDeleteAll"""
         result = ConsentService.right_to_be_forgotten(
             citizen=request.user,
@@ -1423,32 +1521,41 @@ class ServiceIndividualRightToBeForgottenView(ConsentGovStackAPIView):
 #                 /audit/data-agreements/, /audit/data-agreement/{id}/
 # ===========================================================================
 
+
 class AuditConsentRecordListView(ConsentGovStackAPIView):
     """GET /audit/consent-records/ — list all consent records"""
+
     authentication_classes = _AUTH
     # C-01 fix: "any valid token" in GovStack spec means a valid authenticated request,
     # not unrestricted citizen access. Citizens have /service/ endpoints; data consumers
     # have /service/verification/ endpoints. Allowing citizen JWTs here would let any
     # user enumerate all other citizens' consent records — a PIPEDA violation.
-    permission_classes = [IsAuthenticated, IsAuditorUser]
+    permission_classes = [IsAuthenticated, IsAuditorUser]  # noqa: RUF012
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack auditConsentRecordList"""
-        qs = ConsentRecord.objects.all().select_related("category", "citizen", "signature_obj", "data_agreement_revision")
+        qs = ConsentRecord.objects.all().select_related(
+            "category", "citizen", "signature_obj", "data_agreement_revision"
+        )
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        return Response({
-            "consentRecords": ConsentRecordGovStackSerializer(qs[offset: offset + limit], many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "consentRecords": ConsentRecordGovStackSerializer(
+                    qs[offset : offset + limit], many=True
+                ).data,
+                "total": qs.count(),
+            }
+        )
 
 
 class AuditConsentRecordDetailView(ConsentGovStackAPIView):
     """GET /audit/consent-record/{id}/ — read a single consent record"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsAuditorUser]
 
-    def get(self, request, consent_record_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsAuditorUser]  # noqa: RUF012
+
+    def get(self, request, consent_record_id):  # noqa: ANN001, ANN201
         """READ — GovStack auditConsentRecordRead"""
         consent_record_id = _parse_uuid_param(consent_record_id, "consentRecordId")
         try:
@@ -1456,38 +1563,44 @@ class AuditConsentRecordDetailView(ConsentGovStackAPIView):
                 pk=consent_record_id
             )
         except ConsentRecord.DoesNotExist:
-            raise NotFound("ConsentRecord not found.")
+            raise NotFound("ConsentRecord not found.")  # noqa: B904
         return Response({"consentRecord": ConsentRecordGovStackSerializer(record).data})
 
 
 class AuditDataAgreementListView(ConsentGovStackAPIView):
     """GET /audit/data-agreements/ — list all data agreements"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsAuditorUser]
 
-    def get(self, request):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsAuditorUser]  # noqa: RUF012
+
+    def get(self, request):  # noqa: ANN001, ANN201
         """LIST — GovStack auditDataAgreementList"""
         qs = ConsentCategory.objects.all().order_by("sort_order", "slug").select_related("policy")
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
-        return Response({
-            "dataAgreements": DataAgreementSerializer(qs[offset: offset + limit], many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "dataAgreements": DataAgreementSerializer(
+                    qs[offset : offset + limit], many=True
+                ).data,
+                "total": qs.count(),
+            }
+        )
 
 
 class AuditDataAgreementDetailView(ConsentGovStackAPIView):
     """GET /audit/data-agreement/{id}/ — read a single data agreement"""
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated, IsAuditorUser]
 
-    def get(self, request, data_agreement_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated, IsAuditorUser]  # noqa: RUF012
+
+    def get(self, request, data_agreement_id):  # noqa: ANN001, ANN201
         """READ — GovStack auditDataAgreementRead"""
         data_agreement_id = _parse_int_param(data_agreement_id, "dataAgreementId")
         try:
             category = ConsentCategory.objects.get(pk=data_agreement_id)
         except ConsentCategory.DoesNotExist:
-            raise NotFound("DataAgreement not found.")
+            raise NotFound("DataAgreement not found.")  # noqa: B904
         return Response({"dataAgreement": DataAgreementSerializer(category).data})
 
 
@@ -1497,11 +1610,12 @@ class AuditConsentLogView(ConsentGovStackAPIView):
     CivicOS extension: full consent audit trail with chain-integrity data.
     Satisfies GovStack Section 6.3 REQUIRED (tamper-proof audit).
     """
+
     authentication_classes = _AUTH
     # CivicOS extension endpoint — not in GovStack spec, keep auditor-only
-    permission_classes = [IsAuthenticated, IsAuditorUser]
+    permission_classes = [IsAuthenticated, IsAuditorUser]  # noqa: RUF012
 
-    def get(self, request):
+    def get(self, request):  # noqa: ANN001, ANN201
         qs = ConsentAuditEntry.objects.all().order_by("-timestamp")
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
@@ -1509,16 +1623,21 @@ class AuditConsentLogView(ConsentGovStackAPIView):
         if individual_id:
             individual_id = _parse_int_param(individual_id, "individualId")
             qs = qs.filter(citizen_id=individual_id)
-        return Response({
-            "consentLog": ConsentAuditEntrySerializer(qs[offset: offset + limit], many=True).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "consentLog": ConsentAuditEntrySerializer(
+                    qs[offset : offset + limit], many=True
+                ).data,
+                "total": qs.count(),
+            }
+        )
 
 
 # ===========================================================================
 # Service API — ConsentRecord Signature
 # GovStack paths: /service/individual/record/consent-record/{id}/signature/
 # ===========================================================================
+
 
 class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
     """
@@ -1545,18 +1664,19 @@ class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
         distinguishes the two shapes by checking whether the top-level
         ``"signature"`` key is itself a dict.
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
 
-    def _get_record(self, request, pk):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def _get_record(self, request, pk):  # noqa: ANN001, ANN202
         pk = _parse_uuid_param(pk, "consentRecordId")
         try:
             return ConsentRecord.objects.get(pk=pk, citizen=request.user)
         except ConsentRecord.DoesNotExist:
-            raise NotFound("ConsentRecord not found.")
+            raise NotFound("ConsentRecord not found.")  # noqa: B904
 
     @staticmethod
-    def _extract_signature_payload(request_data):
+    def _extract_signature_payload(request_data):  # noqa: ANN001, ANN205
         """
         Bug 6 fix: distinguish the CivicOS nested envelope from a spec-
         conformant flat Signature body.
@@ -1575,7 +1695,7 @@ class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
             return nested
         return request_data
 
-    def post(self, request, consent_record_id):
+    def post(self, request, consent_record_id):  # noqa: ANN001, ANN201
         """CREATE — GovStack serviceIndividualConsentRecordSignatureCreate"""
         record = self._get_record(request, consent_record_id)
 
@@ -1599,14 +1719,14 @@ class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
 
         return Response({"signature": SignatureSerializer(sig).data})
 
-    def put(self, request, consent_record_id):
+    def put(self, request, consent_record_id):  # noqa: ANN001, ANN201
         """UPDATE — GovStack serviceIndividualConsentRecordSignatureUpdate"""
         record = self._get_record(request, consent_record_id)
 
         try:
             sig = ConsentSignature.objects.get(consent_record=record)
         except ConsentSignature.DoesNotExist:
-            raise NotFound("No signature found for this ConsentRecord. Use POST to create one.")
+            raise NotFound("No signature found for this ConsentRecord. Use POST to create one.")  # noqa: B904
 
         payload = self._extract_signature_payload(request.data)
         serializer = SignatureSerializer(sig, data=payload, partial=True)
@@ -1627,6 +1747,7 @@ class ServiceConsentRecordSignatureView(ConsentGovStackAPIView):
 # GovStack path: /service/individual/record/data-agreement/{id}/all/
 # ===========================================================================
 
+
 class ServiceIndividualDataAgreementAllConsentRecordsView(ConsentGovStackAPIView):
     """
     GET /service/individual/record/data-agreement/{dataAgreementId}/all/
@@ -1639,15 +1760,16 @@ class ServiceIndividualDataAgreementAllConsentRecordsView(ConsentGovStackAPIView
 
     GovStack operationId: serviceIndividualDataAgreementConsentRecordList
     """
-    authentication_classes = _AUTH
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request, data_agreement_id):
+    authentication_classes = _AUTH
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def get(self, request, data_agreement_id):  # noqa: ANN001, ANN201
         data_agreement_id = _parse_int_param(data_agreement_id, "dataAgreementId")
         try:
             category = ConsentCategory.objects.get(pk=data_agreement_id)
         except ConsentCategory.DoesNotExist:
-            raise NotFound("DataAgreement not found.")
+            raise NotFound("DataAgreement not found.")  # noqa: B904
 
         # Spec: individual scope — always scoped to the authenticated user.
         qs = ConsentRecord.objects.filter(
@@ -1658,12 +1780,14 @@ class ServiceIndividualDataAgreementAllConsentRecordsView(ConsentGovStackAPIView
         offset = _safe_int(request.query_params.get("offset"), default=0)
         limit = _safe_int(request.query_params.get("limit"), default=50, max_val=500)
 
-        return Response({
-            "consentRecords": ConsentRecordGovStackSerializer(
-                qs[offset: offset + limit], many=True
-            ).data,
-            "total": qs.count(),
-        })
+        return Response(
+            {
+                "consentRecords": ConsentRecordGovStackSerializer(
+                    qs[offset : offset + limit], many=True
+                ).data,
+                "total": qs.count(),
+            }
+        )
 
 
 # ===========================================================================

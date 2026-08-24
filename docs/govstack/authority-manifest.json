@@ -1,0 +1,111 @@
+{
+  "network_access": false,
+  "repositories": [
+    {
+      "artifacts": [
+        {
+          "path": "README.md",
+          "sha256": "c041820c150fbe1a0b994d9e0c27c93f543d90844223379a95b8b132e6030207"
+        },
+        {
+          "path": "api/consent-openapi.yaml",
+          "sha256": "5d35ed438e60293046522cb69229133ddb0bf23fccafec4d1e9fcf11e0b542cf"
+        },
+        {
+          "path": "spec/8-service-apis.md",
+          "sha256": "dc57267575425806eee34d0ff5ffe0428e93909c6b88d623688ce609f7bf7d40"
+        },
+        {
+          "path": "test/plan.md",
+          "sha256": "d78589fa642a50118173895463e4b1791980cb1200e8498ac276cbea41155e68"
+        }
+      ],
+      "commit": "7af4b62a1c0b0d7073d42b37c71b0f08bea63dda",
+      "comparison_status": "explicit CivicOS implementation; official wire conformance unverified",
+      "repository": "bb-consent"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "README.md",
+          "sha256": "b609eea350e0cbd0f55154cf253674a1ae55ca94bbaaeb582a172851d0403639"
+        },
+        {
+          "path": "api/G2P API YAMLs/BulkPayment.yml",
+          "sha256": "54b6f592db67f386729b13f80dae55319403a8057eff76f7859d0dec9e815777"
+        },
+        {
+          "path": "spec/.gitbook/assets/Mobile_Money_API_v1.1.2-Specification_Definition (1) (1).yaml",
+          "sha256": "035c736365af394db9eeb956fe4509a04962d20095c24d0a7680a17f6b82161d"
+        },
+        {
+          "path": "test/openAPI/plan.md",
+          "sha256": "e964831441ae0c43a61c5f528593a721520865208870e202680d47cc1dbe4876"
+        },
+        {
+          "path": "test/openAPI/test_entrypoint.sh",
+          "sha256": "b419cfbb4590c59f89340bb7ddb5fd7b5209c47196f13c68c6c575ea4bdbc164"
+        }
+      ],
+      "commit": "4b63a6b5efbb20123c442e0b09fb44ec2d7e6b6a",
+      "comparison_status": "explicit CivicOS implementation; official wire conformance unverified",
+      "repository": "bb-payments"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "README.md",
+          "sha256": "67a7be10068386f3e85ef3194dea0a17b4a13cfacd163d0a0b2d22ff5be371a2"
+        },
+        {
+          "path": "api/Govstack_scheduler_BB_APIs.json",
+          "sha256": "dd3496578468e9368809bb79641ac9b6fba2dc75cbdb3c0af1ca65a455c0b847"
+        },
+        {
+          "path": "spec/8-service-apis.md",
+          "sha256": "5858a5c7e009cdcb70bdeb58da11007a4136788d2d60e9387aba4691cc46d60f"
+        },
+        {
+          "path": "test/plan.md",
+          "sha256": "e964831441ae0c43a61c5f528593a721520865208870e202680d47cc1dbe4876"
+        },
+        {
+          "path": "test/openAPI/test_entrypoint.sh",
+          "sha256": "b419cfbb4590c59f89340bb7ddb5fd7b5209c47196f13c68c6c575ea4bdbc164"
+        }
+      ],
+      "commit": "d425be5cc0d6c606f351e5bf89be6d5c6c83c468",
+      "comparison_status": "explicit CivicOS implementation through Appointments; official wire conformance unverified",
+      "repository": "bb-scheduler"
+    },
+    {
+      "artifacts": [
+        {
+          "path": "README.md",
+          "sha256": "5ccc0ed8005c3cfb4cbe0e04f879463461343a5efc879005e8bc0278597193af"
+        },
+        {
+          "path": "api/swagger.yaml",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "spec/8-service-apis.md",
+          "sha256": "2ba677c415e630b8a750c6615ac22263704be751bf1d758eb7ea8c1ec881286b"
+        },
+        {
+          "path": "test/plan.md",
+          "sha256": "e964831441ae0c43a61c5f528593a721520865208870e202680d47cc1dbe4876"
+        },
+        {
+          "path": "test/openAPI/test_entrypoint.sh",
+          "sha256": "b419cfbb4590c59f89340bb7ddb5fd7b5209c47196f13c68c6c575ea4bdbc164"
+        }
+      ],
+      "commit": "cf50bf4952491bd1ede775aa3c90a228319c3977",
+      "comparison_status": "explicit CivicOS implementation through Documents; official wire conformance unverified",
+      "repository": "bb-file-management"
+    }
+  ],
+  "schema_version": 1,
+  "source": "reviewed offline GovStack source snapshots"
+}

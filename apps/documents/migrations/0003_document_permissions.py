@@ -4,14 +4,21 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('documents', '0002_staff_only_flag'),
+    dependencies = [  # noqa: RUF012
+        ("documents", "0002_staff_only_flag"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterModelOptions(
-            name='document',
-            options={'ordering': ['-created_at'], 'permissions': [('upload_document', 'Can upload documents to public categories'), ('upload_staff_document', 'Can upload documents to staff-only categories')], 'verbose_name': 'Document', 'verbose_name_plural': 'Documents'},
+            name="document",
+            options={
+                "ordering": ["-created_at"],
+                "permissions": [
+                    ("upload_document", "Can upload documents to public categories"),
+                    ("upload_staff_document", "Can upload documents to staff-only categories"),
+                ],
+                "verbose_name": "Document",
+                "verbose_name_plural": "Documents",
+            },
         ),
     ]

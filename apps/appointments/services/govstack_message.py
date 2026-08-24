@@ -29,6 +29,7 @@ PIPEDA note:
   personal data about a specific citizen). Regardless, no message content is
   ever logged here — only PKs.
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,6 +49,7 @@ _LIST_PAGE_CAP = 500
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _validate_category_length(category: str) -> None:
     """Raise ValueError if category exceeds GovStackMessage.category's max_length."""
@@ -82,6 +84,7 @@ def _resolve_entity(entity_id: str | int) -> Organization:
 # Public service functions
 # ---------------------------------------------------------------------------
 
+
 def message_create(
     entity_id: str | int,
     category: str = "",
@@ -102,9 +105,7 @@ def message_create(
         category=category or "",
         message_body=message_body or "",
     )
-    logger.debug(
-        "message_create: created message pk=%s entity_id=%s", message.pk, entity_id
-    )
+    logger.debug("message_create: created message pk=%s entity_id=%s", message.pk, entity_id)
     return message
 
 
@@ -139,9 +140,7 @@ def message_modify(
     if update_fields:
         update_fields.append("updated_at")
         message.save(update_fields=update_fields)
-        logger.debug(
-            "message_modify: updated message pk=%s fields=%r", message.pk, update_fields
-        )
+        logger.debug("message_modify: updated message pk=%s fields=%r", message.pk, update_fields)
     else:
         logger.debug("message_modify: no fields changed for message pk=%s", message.pk)
 

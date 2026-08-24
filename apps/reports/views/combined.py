@@ -8,6 +8,7 @@ Views:
 Requires staff login + reports.view_reportsnapshot permission.
 PIPEDA: no volunteer or donor PII — economic aggregates only.
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,7 +28,7 @@ def _current_toronto_year() -> int:
     return timezone.localtime(timezone.now()).year
 
 
-def _parse_year(request) -> int | None:
+def _parse_year(request) -> int | None:  # noqa: ANN001
     """Parse ?year=YYYY from GET params. Returns int or None on error."""
     try:
         year = int(request.GET["year"])
@@ -54,17 +55,18 @@ class CombinedImpactView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
     raise_exception = True  # 403 for authenticated users without permission
     template_name = "reports/combined/impact.html"
 
-    def dispatch(self, request, *args, **kwargs):
+    def dispatch(self, request, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN201
         # H6: is_staff guard — PermissionRequiredMixin only checks the explicit permission;
         # a staff admin could grant reports.view_reportsnapshot to a non-staff user.
         if request.user.is_authenticated and not request.user.is_staff:
             raise PermissionDenied
         return super().dispatch(request, *args, **kwargs)
 
-    def handle_no_permission(self):
+    def handle_no_permission(self):  # noqa: ANN201
         """Redirect unauthenticated users to login; raise 403 for authenticated users."""
         from django.conf import settings
         from django.contrib.auth.views import redirect_to_login
+
         if not self.request.user.is_authenticated:
             return redirect_to_login(
                 self.request.get_full_path(),
@@ -72,7 +74,7 @@ class CombinedImpactView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
             )
         return super().handle_no_permission()
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
 
         year = _parse_year(self.request) or _current_toronto_year()
@@ -80,11 +82,15 @@ class CombinedImpactView(LoginRequiredMixin, PermissionRequiredMixin, TemplateVi
 
         logger.info(
             "reports.views.combined.impact user_pk=%s year=%s combined_value_cad=%s",
-            self.request.user.pk, year, impact.get("combined_value_cad"),
+            self.request.user.pk,
+            year,
+            impact.get("combined_value_cad"),
         )
 
-        ctx.update({
-            "year": year,
-            "impact": impact,
-        })
+        ctx.update(
+            {
+                "year": year,
+                "impact": impact,
+            }
+        )
         return ctx

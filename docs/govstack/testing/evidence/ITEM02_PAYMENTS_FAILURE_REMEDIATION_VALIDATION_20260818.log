@@ -1,0 +1,14 @@
+== Item 02 migration drift check ==
+No changes detected in app 'payments'
+== Item 02 focused and GovStack regression suite ==
+Creating test database for alias 'default'...
+..................../usr/local/lib/python3.12/dist-packages/django/core/handlers/base.py:61: UserWarning: No directory at: /home/ubuntu/item02-payments/current-integration-worktree/staticfiles/
+  mw_instance = middleware(adapted_handler)
+........................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 220 tests in 2.116s
+
+OK
+Destroying test database for alias 'default'...
+Found 220 test(s).
+System check identified no issues (0 silenced).

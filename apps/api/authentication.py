@@ -24,7 +24,7 @@ class CivicOSTokenAuthentication(TokenAuthentication):
     - Structured audit-friendly logging (PK only, no PII).
     """
 
-    def authenticate(self, request):
+    def authenticate(self, request):  # noqa: ANN001, ANN201
         """
         Authenticate the request.
 

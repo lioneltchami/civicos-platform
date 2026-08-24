@@ -5,17 +5,19 @@ EncryptedCharField: Fernet/AES-128-CBC symmetric encryption at rest.
 Transparent to the ORM: reads/writes plain text; the DB column holds encrypted bytes.
 Import from here in all apps — do NOT duplicate this class.
 """
+
 from __future__ import annotations
+
 import base64
 import warnings
-from functools import lru_cache
+from functools import cache
 
 from cryptography.fernet import Fernet, MultiFernet
 from django.conf import settings
 from django.db import models
 
 
-@lru_cache(maxsize=None)
+@cache
 def _get_fernet() -> MultiFernet:
     """
     Build a MultiFernet instance from FERNET_KEYS setting.
@@ -52,6 +54,7 @@ def _get_fernet() -> MultiFernet:
             fernets.append(Fernet(raw))
         except Exception:
             import hashlib
+
             derived = base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
             fernets.append(Fernet(derived))
     return MultiFernet(fernets)
@@ -69,17 +72,17 @@ class EncryptedCharField(models.BinaryField):
 
     description = "Fernet-encrypted character field"
 
-    def __init__(self, max_length: int = 255, **kwargs):
+    def __init__(self, max_length: int = 255, **kwargs) -> None:  # noqa: ANN003
         self._char_max_length = max_length
         kwargs.setdefault("editable", True)
         super().__init__(**kwargs)
 
-    def deconstruct(self):
+    def deconstruct(self):  # noqa: ANN201
         name, path, args, kwargs = super().deconstruct()
         kwargs["max_length"] = self._char_max_length
         return name, path, args, kwargs
 
-    def from_db_value(self, value, expression, connection):
+    def from_db_value(self, value, expression, connection):  # noqa: ANN001, ANN201
         if value is None or value == b"" or value == "":
             return ""
         try:
@@ -88,14 +91,14 @@ class EncryptedCharField(models.BinaryField):
         except Exception:
             return ""  # corrupt/missing data: return empty rather than crash
 
-    def get_prep_value(self, value):
+    def get_prep_value(self, value):  # noqa: ANN001, ANN201
         if value is None or value == "":
             return b""
-        if isinstance(value, (bytes, memoryview)):
+        if isinstance(value, bytes | memoryview):
             return value  # already encrypted (guard)
         return _get_fernet().encrypt(value.encode("utf-8"))
 
-    def to_python(self, value):
-        if isinstance(value, (bytes, memoryview)):
+    def to_python(self, value):  # noqa: ANN001, ANN201
+        if isinstance(value, bytes | memoryview):
             return self.from_db_value(value, None, None)
         return value or ""

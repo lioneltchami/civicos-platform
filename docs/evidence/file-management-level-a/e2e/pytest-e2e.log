@@ -1,0 +1,268 @@
+COMMAND: /home/ubuntu/civicos-pr1-candidate-venv/bin/python -m pytest apps/documents/tests/test_views_citizen.py apps/documents/tests/test_views_http_contract.py apps/documents/tests/test_views_staff.py apps/documents/tests/test_wave5_views.py apps/documents/tests/test_wcag.py --color=no --junitxml /home/ubuntu/pr1-ruff-file-management-rerun-20260824/e2e/junit-e2e.xml --cov=apps.documents --cov-report=xml:/home/ubuntu/pr1-ruff-file-management-rerun-20260824/e2e/coverage-e2e.xml --cov-report=term-missing --cov-fail-under=0
+LAYER: e2e
+COLLECTED: 205
+
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.3, pluggy-1.6.0
+django: version: 5.2.17, settings: config.settings.test (from env)
+rootdir: <workspace>
+configfile: pyproject.toml
+plugins: anyio-4.14.2, time-machine-2.16.0, Faker-33.0.0, xdist-3.6.1, django-4.9.0, cov-6.0.0
+collected 205 items
+
+apps/documents/tests/test_views_citizen.py ............................. [ 14%]
+...........                                                              [ 19%]
+apps/documents/tests/test_views_http_contract.py ....................... [ 30%]
+........                                                                 [ 34%]
+apps/documents/tests/test_views_staff.py ............................    [ 48%]
+apps/documents/tests/test_wave5_views.py ............................... [ 63%]
+..........................................                               [ 83%]
+apps/documents/tests/test_wcag.py .................................      [100%]
+
+=============================== warnings summary ===============================
+apps/payments/models.py:195
+  <workspace>/apps/payments/models.py:195: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:199
+  <workspace>/apps/payments/models.py:199: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:352
+  <workspace>/apps/payments/models.py:352: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:356
+  <workspace>/apps/payments/models.py:356: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:360
+  <workspace>/apps/payments/models.py:360: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:364
+  <workspace>/apps/payments/models.py:364: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:500
+  <workspace>/apps/payments/models.py:500: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:700
+  <workspace>/apps/payments/models.py:700: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1013
+  <workspace>/apps/payments/models.py:1013: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1017
+  <workspace>/apps/payments/models.py:1017: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1205
+  <workspace>/apps/payments/models.py:1205: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1209
+  <workspace>/apps/payments/models.py:1209: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1591
+  <workspace>/apps/payments/models.py:1591: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1595
+  <workspace>/apps/payments/models.py:1595: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1599
+  <workspace>/apps/payments/models.py:1599: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1603
+  <workspace>/apps/payments/models.py:1603: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1607
+  <workspace>/apps/payments/models.py:1607: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1847
+  <workspace>/apps/payments/models.py:1847: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1851
+  <workspace>/apps/payments/models.py:1851: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1860
+  <workspace>/apps/payments/models.py:1860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:547
+  <workspace>/apps/volunteers/models.py:547: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:860
+  <workspace>/apps/volunteers/models.py:860: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1084
+  <workspace>/apps/volunteers/models.py:1084: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1588
+  <workspace>/apps/volunteers/models.py:1588: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1796
+  <workspace>/apps/volunteers/models.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1136
+  <workspace>/apps/payments/govstack_models.py:1136: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1281
+  <workspace>/apps/payments/govstack_models.py:1281: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+../civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    return form_class(**defaults)
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/consent/migrations/0007_govstack_alignment.py:377: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:24: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0009_add_refund_and_servicefeepayment_constraints.py:31: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0005_add_receipt_amount_constraints.py:27: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1030: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1638: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1645: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1656: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1663: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1684: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1736: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1743: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1750: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1757: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1764: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1789: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0001_initial.py:1796: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0020_govstack_p2g_models.py:148: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/payments/migrations/0020_govstack_p2g_models.py:296: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/volunteers/migrations/0001_initial.py:648: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/volunteers/migrations/0001_initial.py:863: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/volunteers/migrations/0001_initial.py:1152: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/volunteers/migrations/0002_wave1_fixes.py:95: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py::DocumentListViewEdgeCaseTests::test_pagination_page_2_has_remainder
+  <workspace>/apps/volunteers/migrations/0002_wave1_fixes.py:121: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    constraint=models.CheckConstraint(
+
+apps/documents/tests/test_views_citizen.py: 40 warnings
+apps/documents/tests/test_views_http_contract.py: 31 warnings
+apps/documents/tests/test_views_staff.py: 28 warnings
+apps/documents/tests/test_wave5_views.py: 73 warnings
+apps/documents/tests/test_wcag.py: 33 warnings
+  /home/ubuntu/civicos-pr1-candidate-venv/lib/python3.12/site-packages/django/core/handlers/base.py:61: UserWarning: No directory at: <workspace>/staticfiles/
+    mw_instance = middleware(adapted_handler)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/ubuntu/pr1-ruff-file-management-rerun-20260824/e2e/junit-e2e.xml -
+
+---------- coverage: platform linux, python 3.12.3-final-0 -----------
+Name                                                           Stmts   Miss  Cover   Missing
+--------------------------------------------------------------------------------------------
+apps/documents/admin.py                                           71     16    77%   55, 258, 267, 271, 278, 282-291, 322, 327, 332, 367, 371, 376, 380
+apps/documents/apps.py                                            38     14    63%   68-92
+apps/documents/forms.py                                           73      6    92%   134, 150, 156, 166, 236, 346
+apps/documents/management/commands/manage_legal_hold.py           53     53     0%   35-172
+apps/documents/management/commands/migrate_existing_files.py     191    191     0%   24-610
+apps/documents/models.py                                         143     28    80%   84-94, 114-126, 275, 278-279, 606, 627, 630-656, 748, 829, 834-836
+apps/documents/receivers.py                                       14      4    71%   55, 91, 128-129
+apps/documents/services/download.py                              116     69    41%   121-204, 282-283, 296, 299, 321-322, 338, 375-417, 440-456, 481, 484-489, 498-505, 530-541
+apps/documents/services/retention.py                             238    220     8%   92-119, 168-273, 322-504, 559-699, 738-824, 866-939, 969-1019
+apps/documents/services/upload.py                                336    282    16%   64-65, 72-73, 207-350, 388-578, 612-617, 641-661, 670, 675, 698-707, 738, 794-809, 842-941, 963, 980-983, 993-1011, 1025-1032, 1050-1053, 1058-1075, 1085-1098, 1121-1124, 1129-1142, 1152-1165, 1211-1262, 1285-1334, 1380-1434
+apps/documents/services/versioning.py                            123    111    10%   102-441, 499-517
+apps/documents/signals.py                                          9      0   100%
+apps/documents/tasks.py                                          416    373    10%   158-231, 245-250, 270-340, 365-368, 442-567, 580-627, 660-720, 755-836, 859-943, 999-1079, 1137-1193, 1246-1304, 1360-1412, 1469-1570, 1603-1613, 1719-1732
+apps/documents/urls.py                                             6      0   100%
+apps/documents/views/citizen.py                                  146     13    91%   94-95, 446-454, 543-548, 558-563
+apps/documents/views/staff.py                                    122      2    98%   247-248
+--------------------------------------------------------------------------------------------
+TOTAL                                                           2095   1382    34%
+Coverage XML written to file /home/ubuntu/pr1-ruff-file-management-rerun-20260824/e2e/coverage-e2e.xml
+
+================ 205 passed, 258 warnings in 107.32s (0:01:47) =================
+
+EXIT_CODE: 0

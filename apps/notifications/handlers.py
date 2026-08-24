@@ -19,16 +19,17 @@ logger = logging.getLogger(__name__)
 
 
 @receiver(form_submission_received)
-def notify_on_form_submission(sender, form_page, submission, request, **kwargs):
+def notify_on_form_submission(sender, form_page, submission, request, **kwargs) -> None:  # noqa: ANN001, ANN003
     """Send confirmation email to submitter when a form is submitted."""
     from .tasks import send_form_submission_confirmation
+
     user = getattr(request, "user", None)
     if user and user.is_authenticated:
         _user_id = str(user.pk)
         _form_title = str(form_page)
         _submission_id = str(submission.pk)
 
-        def _enqueue():
+        def _enqueue() -> None:
             try:
                 send_form_submission_confirmation.delay(
                     user_id=_user_id,
@@ -43,5 +44,3 @@ def notify_on_form_submission(sender, form_page, submission, request, **kwargs):
                 )
 
         transaction.on_commit(_enqueue)
-
-

@@ -1,12 +1,13 @@
 """
 Custom allauth forms for CivicOS citizen authentication.
 """
+
 from __future__ import annotations
+
 from django import forms
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
 
 LANGUAGE_CHOICES = [
     ("en", _("English")),
@@ -19,6 +20,7 @@ class CitizenSignupForm(forms.Form):
     Extra fields collected during citizen sign-up.
     allauth calls signup(request, user) after creating the user.
     """
+
     preferred_language = forms.ChoiceField(
         choices=LANGUAGE_CHOICES,
         initial="en",
@@ -39,7 +41,7 @@ class CitizenSignupForm(forms.Form):
         },
     )
 
-    def signup(self, request, user) -> None:
+    def signup(self, request, user) -> None:  # noqa: ANN001
         """Called by allauth after the user record is created."""
         user.preferred_language = self.cleaned_data.get("preferred_language", "en")
         user.terms_accepted_at = timezone.now()
@@ -51,16 +53,16 @@ class ProfileUpdateForm(forms.ModelForm):
 
     class Meta:
         model = get_user_model()
-        fields = ["first_name", "last_name", "phone_number", "preferred_language"]
-        widgets = {
+        fields = ["first_name", "last_name", "phone_number", "preferred_language"]  # noqa: RUF012
+        widgets = {  # noqa: RUF012
             "preferred_language": forms.RadioSelect(choices=LANGUAGE_CHOICES),
         }
-        labels = {
+        labels = {  # noqa: RUF012
             "first_name": _("First name / Prénom"),
             "last_name": _("Last name / Nom de famille"),
             "phone_number": _("Phone number / Numéro de téléphone"),
             "preferred_language": _("Preferred language / Langue préférée"),
         }
-        help_texts = {
+        help_texts = {  # noqa: RUF012
             "phone_number": _("Optional. Include country code, e.g. +1 613 555 0100"),
         }

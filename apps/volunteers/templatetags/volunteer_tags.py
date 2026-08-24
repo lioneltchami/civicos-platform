@@ -1,13 +1,14 @@
 """
 Volunteer Management BB — Custom template filters and tags.
 """
+
 from django import template
 
 register = template.Library()
 
 
 @register.filter(name="get_item")
-def get_item(dictionary, key):
+def get_item(dictionary, key):  # noqa: ANN001, ANN201
     """
     Retrieve a value from a dict by key in a Django template.
 

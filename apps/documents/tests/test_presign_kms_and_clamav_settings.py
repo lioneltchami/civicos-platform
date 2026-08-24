@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
-from apps.documents.models import Document, DocumentCategory
+from apps.documents.models import DocumentCategory
 from apps.documents.services.upload import (
     _generate_s3_presigned_post,
     _make_storage_key,
@@ -130,13 +130,9 @@ class PresignedPostKmsResolutionTests(TestCase):
         fields, conditions = self._call()
 
         self.assertEqual(fields.get("x-amz-server-side-encryption"), "aws:kms")
-        self.assertEqual(
-            fields.get("x-amz-server-side-encryption-aws-kms-key-id"), _KMS_ARN
-        )
+        self.assertEqual(fields.get("x-amz-server-side-encryption-aws-kms-key-id"), _KMS_ARN)
         self.assertIn({"x-amz-server-side-encryption": "aws:kms"}, conditions)
-        self.assertIn(
-            {"x-amz-server-side-encryption-aws-kms-key-id": _KMS_ARN}, conditions
-        )
+        self.assertIn({"x-amz-server-side-encryption-aws-kms-key-id": _KMS_ARN}, conditions)
 
     @override_settings(
         STORAGES={
@@ -144,9 +140,7 @@ class PresignedPostKmsResolutionTests(TestCase):
                 "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
                 "OPTIONS": {"object_parameters": {"SSEKMSKeyId": _KMS_ARN}},
             },
-            "staticfiles": {
-                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
-            },
+            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
         },
         AWS_STORAGE_BUCKET_NAME="civicos-docs",
     )
@@ -155,9 +149,7 @@ class PresignedPostKmsResolutionTests(TestCase):
         fields, conditions = self._call()
 
         self.assertEqual(fields.get("x-amz-server-side-encryption"), "aws:kms")
-        self.assertEqual(
-            fields.get("x-amz-server-side-encryption-aws-kms-key-id"), _KMS_ARN
-        )
+        self.assertEqual(fields.get("x-amz-server-side-encryption-aws-kms-key-id"), _KMS_ARN)
         self.assertIn({"x-amz-server-side-encryption": "aws:kms"}, conditions)
 
     @override_settings(
@@ -170,9 +162,7 @@ class PresignedPostKmsResolutionTests(TestCase):
         fields, conditions = self._call()
 
         self.assertNotIn("x-amz-server-side-encryption", fields)
-        self.assertNotIn(
-            "x-amz-server-side-encryption-aws-kms-key-id", fields
-        )
+        self.assertNotIn("x-amz-server-side-encryption-aws-kms-key-id", fields)
         for condition in conditions:
             if isinstance(condition, dict):
                 self.assertNotIn("x-amz-server-side-encryption", condition)
@@ -190,12 +180,13 @@ class PresignedPostKmsResolutionTests(TestCase):
         """
         fields, conditions = self._call()
 
-        sse_fields = {k: v for k, v in fields.items() if k.startswith("x-amz-server-side-encryption")}
+        sse_fields = {
+            k: v for k, v in fields.items() if k.startswith("x-amz-server-side-encryption")
+        }
         sse_conditions = [
             c
             for c in conditions
-            if isinstance(c, dict)
-            and any(k.startswith("x-amz-server-side-encryption") for k in c)
+            if isinstance(c, dict) and any(k.startswith("x-amz-server-side-encryption") for k in c)
         ]
         self.assertEqual(len(sse_fields), 2)
         self.assertEqual(len(sse_conditions), 2)

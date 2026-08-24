@@ -23,12 +23,36 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.8.4
       - name: Ruff lint
         run: ruff check .
       - name: Ruff format check
         run: ruff format --check .
 
+  # ------------------------------------------------------------------
+  # Frontend quality
+  # ------------------------------------------------------------------
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: civicos-site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: civicos-site/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Lint frontend
+        run: npm run lint
+      - name: Build frontend
+        run: npm run build
+      - name: Check frontend/API contract
+        run: npm run contract-smoke
   # ------------------------------------------------------------------
   # Security scan
   # ------------------------------------------------------------------
@@ -92,6 +116,14 @@ jobs:
           GC_NOTIFY_API_KEY: ""
           DJANGO_SETTINGS_MODULE: config.settings.test
         run: python manage.py migrate --noinput
+      - name: Check migration consistency
+        env:
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+          DJANGO_SETTINGS_MODULE: config.settings.test
+        run: |
+          python manage.py makemigrations --check --dry-run --settings=config.settings.test
+          python manage.py showmigrations --plan --settings=config.settings.test
       - name: Run tests
         env:
           DATABASE_URL: postgres://civicos:ci_test_password@localhost:5432/civicos_test
@@ -100,7 +132,117 @@ jobs:
           GC_NOTIFY_API_KEY: ""
           DJANGO_SETTINGS_MODULE: config.settings.test
         run: python manage.py test --verbosity=2 --parallel 2>&1
+      - name: Run File Management scoped runner
+        env:
+          DATABASE_URL: postgres://civicos:ci_test_password@localhost:5432/civicos_test
+          REDIS_URL: redis://localhost:6379/1
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+          DJANGO_SETTINGS_MODULE: config.settings.test
+        run: make test-file-management
+      - name: Upload File Management test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: file-management-test-results
+          path: test-results/file-management/
+          if-no-files-found: error
 
+      - name: Generate and validate OpenAPI schema
+        env:
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+          DJANGO_SETTINGS_MODULE: config.settings.test
+        run: python manage.py spectacular --file /tmp/civicos-schema.yml --validate --settings=config.settings.test
+
+  # ------------------------------------------------------------------
+  # Service-backed integration verification
+  # ------------------------------------------------------------------
+  integration-contracts:
+    name: PostgreSQL Redis Celery contracts
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: civicos_test
+          POSTGRES_USER: civicos
+          POSTGRES_PASSWORD: ci_test_password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install test dependencies
+        run: pip install -r requirements/test.txt
+      - name: Migrate against PostgreSQL
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.integration
+          POSTGRES_DB: civicos_test
+          POSTGRES_USER: civicos
+          POSTGRES_PASSWORD: ci_test_password
+          REDIS_URL: redis://localhost:6379/15
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+        run: python manage.py migrate --noinput --settings=config.settings.integration
+      - name: Run service-backed contract checks
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.integration
+          POSTGRES_DB: civicos_test
+          POSTGRES_USER: civicos
+          POSTGRES_PASSWORD: ci_test_password
+          REDIS_URL: redis://localhost:6379/15
+          DJANGO_SECRET_KEY: ci-not-for-production
+          GC_NOTIFY_API_KEY: ""
+        run: python manage.py test tests.test_medium_priority_contracts --settings=config.settings.integration --verbosity=2
+  # ------------------------------------------------------------------
+  # Production settings guardrail
+  # ------------------------------------------------------------------
+  production-check:
+    name: Production settings deploy check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: pip install -r requirements/production.txt
+      - name: Run production system checks
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.production
+          DJANGO_SECRET_KEY: ci-guardrail-secret-key-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ-abcdef
+          DJANGO_ALLOWED_HOSTS: localhost
+          CSRF_TRUSTED_ORIGINS: https://localhost
+          WAGTAILADMIN_BASE_URL: https://localhost
+          SITE_URL: https://localhost
+          AWS_ACCESS_KEY_ID: ci-dummy-access-key
+          AWS_SECRET_ACCESS_KEY: ci-dummy-secret-key
+          AWS_STORAGE_BUCKET_NAME: ci-dummy-bucket
+          AWS_S3_REGION_NAME: ca-central-1
+          AWS_SSE_KMS_KEY_ID: ci-dummy-kms-key
+          JWT_PRIVATE_KEY: ci-not-for-production-private-key
+          JWT_PUBLIC_KEY: ci-not-for-production-public-key
+          REDIS_URL: redis://localhost:6379/15
+          FERNET_KEYS: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          VOLUNTEER_SIN_FERNET_KEYS: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          GC_NOTIFY_API_KEY: ""
+          CLAMAV_REQUIRED: "false"
+        run: python manage.py check --deploy --settings=config.settings.production
   # ------------------------------------------------------------------
   # Docker build
   # ------------------------------------------------------------------

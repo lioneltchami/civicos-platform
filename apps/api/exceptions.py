@@ -22,7 +22,6 @@ Register in settings.py:
 import logging
 
 from rest_framework import status
-from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,7 @@ _STATUS_CODE_MAP: dict[int, str] = {
 }
 
 
-def civicos_exception_handler(exc, context):
+def civicos_exception_handler(exc, context):  # noqa: ANN001, ANN201
     """
     DRF exception handler that normalises all error responses.
 

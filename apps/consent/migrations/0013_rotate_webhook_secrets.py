@@ -12,12 +12,13 @@ ConsentWebhook and stores it properly encrypted.
 Production action required: notify each webhook subscriber that their shared
 HMAC secret has been rotated and they must retrieve the new value from the API.
 """
+
 import secrets as _secrets
 
 from django.db import migrations, models
 
 
-def rotate_webhook_secrets(apps, schema_editor):
+def rotate_webhook_secrets(apps, schema_editor) -> None:  # noqa: ANN001
     """Re-encrypt all ConsentWebhook secrets using Fernet."""
     from apps.core.fields import _get_fernet
 
@@ -29,25 +30,24 @@ def rotate_webhook_secrets(apps, schema_editor):
         return
 
     for webhook in webhooks:
-        new_secret = _secrets.token_hex(32)          # 256 bits of entropy
+        new_secret = _secrets.token_hex(32)  # 256 bits of entropy
         encrypted = fernet.encrypt(new_secret.encode("utf-8"))
         # Use QuerySet.update() to bypass historical model field descriptors
         # and write raw encrypted bytes directly to the BinaryField column.
         ConsentWebhook.objects.filter(pk=webhook.pk).update(secret_key=encrypted)
 
 
-def noop(apps, schema_editor):
+def noop(apps, schema_editor) -> None:  # noqa: ANN001
     """Cannot restore original plaintext secrets — webhook owners must re-register."""
     pass
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
+    dependencies = [  # noqa: RUF012
         ("consent", "0012_codex_audit_fixes"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         # Add index on ConsentWebhook.is_disabled for efficient webhook dispatch queries
         migrations.AlterField(
             model_name="consentwebhook",

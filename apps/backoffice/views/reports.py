@@ -8,7 +8,7 @@ All queries use ORM aggregation — no raw SQL.
 import logging
 from datetime import timedelta
 
-from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q
+from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F
 from django.db.models.functions import TruncDay
 from django.utils import timezone
 from django.views.generic import TemplateView
@@ -31,7 +31,7 @@ class ReportsView(StaffRequiredMixin, TemplateView):
 
     template_name = "backoffice/reports/overview.html"
 
-    def get_context_data(self, **kwargs):
+    def get_context_data(self, **kwargs):  # noqa: ANN003, ANN201
         ctx = super().get_context_data(**kwargs)
 
         thirty_days_ago = timezone.now() - timedelta(days=30)
@@ -42,24 +42,19 @@ class ReportsView(StaffRequiredMixin, TemplateView):
 
         # Requests by status
         sr_by_status = (
-            ServiceRequest.objects
-            .values("status")
-            .annotate(count=Count("id"))
-            .order_by("status")
+            ServiceRequest.objects.values("status").annotate(count=Count("id")).order_by("status")
         )
 
         # Top 10 services by request count
         sr_by_service = (
-            ServiceRequest.objects
-            .values("service_name")
+            ServiceRequest.objects.values("service_name")
             .annotate(count=Count("id"))
             .order_by("-count")[:10]
         )
 
         # Daily request counts for the last 30 days
         sr_recent = (
-            ServiceRequest.objects
-            .filter(created_at__gte=thirty_days_ago)
+            ServiceRequest.objects.filter(created_at__gte=thirty_days_ago)
             .annotate(day=TruncDay("created_at"))
             .values("day")
             .annotate(count=Count("id"))
@@ -75,8 +70,7 @@ class ReportsView(StaffRequiredMixin, TemplateView):
 
         # SLA breaches by priority
         sla_breaches = (
-            WorkItem.objects
-            .filter(sla_breached_at__isnull=False)
+            WorkItem.objects.filter(sla_breached_at__isnull=False)
             .values("priority")
             .annotate(count=Count("id"))
             .order_by("priority")
@@ -86,8 +80,7 @@ class ReportsView(StaffRequiredMixin, TemplateView):
         avg_completion = None
         try:
             avg_completion = (
-                WorkItem.objects
-                .filter(
+                WorkItem.objects.filter(
                     status=WorkItemStatus.COMPLETED,
                     completed_at__isnull=False,
                 )
@@ -109,17 +102,11 @@ class ReportsView(StaffRequiredMixin, TemplateView):
         # -----------------------------------------------------------------------
 
         notif_by_channel = (
-            Notification.objects
-            .values("channel")
-            .annotate(count=Count("id"))
-            .order_by("channel")
+            Notification.objects.values("channel").annotate(count=Count("id")).order_by("channel")
         )
 
         notif_by_status = (
-            Notification.objects
-            .values("status")
-            .annotate(count=Count("id"))
-            .order_by("status")
+            Notification.objects.values("status").annotate(count=Count("id")).order_by("status")
         )
 
         notif_total = Notification.objects.count()

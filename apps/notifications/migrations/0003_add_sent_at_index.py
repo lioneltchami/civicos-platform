@@ -4,20 +4,21 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-        ('notifications', '0002_add_inbox_composite_index'),
+    dependencies = [  # noqa: RUF012
+        ("notifications", "0002_add_inbox_composite_index"),
     ]
 
-    operations = [
+    operations = [  # noqa: RUF012
         migrations.AlterField(
-            model_name='notification',
-            name='created_at',
-            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name='Created at'),
+            model_name="notification",
+            name="created_at",
+            field=models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Created at"),
         ),
         migrations.AlterField(
-            model_name='notification',
-            name='sent_at',
-            field=models.DateTimeField(blank=True, db_index=True, null=True, verbose_name='Sent at'),
+            model_name="notification",
+            name="sent_at",
+            field=models.DateTimeField(
+                blank=True, db_index=True, null=True, verbose_name="Sent at"
+            ),
         ),
     ]

@@ -8,6 +8,7 @@ receipt creation entirely.
 Fix: use .get(status=RECEIPT_STATUS_ISSUED) + .create() instead of
 get_or_create so that non-issued receipts do not block new receipt generation.
 """
+
 import uuid
 from datetime import date
 from decimal import Decimal
@@ -17,13 +18,13 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from apps.payments.models import (
+    DONATION_STATUS_COMPLETED,
     CharitySettings,
     Donation,
     DonationCampaign,
     OfficialDonationReceipt,
     Payment,
     PaymentIntent,
-    DONATION_STATUS_COMPLETED,
 )
 
 User = get_user_model()
@@ -32,6 +33,7 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixture helpers (mirrors test_donation_receivers.py to keep tests independent)
 # ---------------------------------------------------------------------------
+
 
 def _make_user(email=None, **kwargs):
     email = email or f"user_{uuid.uuid4().hex[:6]}@example.com"
@@ -102,6 +104,7 @@ def _make_donation(donor, payment_intent, eligible_amount=Decimal("100.00"), **k
 
 def _make_payment(intent, **kwargs):
     from django.utils import timezone
+
     defaults = {
         "intent": intent,
         "gateway_charge_id": f"ch_{uuid.uuid4().hex[:8]}",
@@ -150,6 +153,7 @@ def _make_bare_receipt(donation, status, serial=None, **kwargs):
 # H-H regression test class
 # ---------------------------------------------------------------------------
 
+
 class ReceiptStatusFilterRegressionTests(TestCase):
     """
     H-H: on_donation_completed must look at status='issued' only.
@@ -184,6 +188,7 @@ class ReceiptStatusFilterRegressionTests(TestCase):
                 _counter[0] += 1
                 receipt_instance.serial_number = f"2026-{str(_counter[0]).zfill(6)}"
             from django.db.models import Model
+
             Model.save(receipt_instance, *args, **kwargs)
 
         d = donation or self.donation
