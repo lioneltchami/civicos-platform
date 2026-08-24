@@ -13,4 +13,4 @@ websockets==14.1
 # Error tracking
 sentry-sdk[django]==2.18.0
 certifi==2024.8.30
-urllib3==2.2.3
+urllib3==2.7.0

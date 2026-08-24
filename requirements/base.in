@@ -1,6 +1,6 @@
 # Core framework
-Django==5.2.*
-wagtail==6.4.*
+Django==5.2.17
+wagtail==7.4.3
 
 # Database
 psycopg[binary]==3.2.*
@@ -9,7 +9,7 @@ psycopg[binary]==3.2.*
 django-environ==0.11.*
 
 # Authentication
-django-allauth==65.*
+django-allauth==65.14.1
 django-otp==1.5.*
 django-two-factor-auth==1.16.*
 qrcode[pil]==8.*
@@ -19,12 +19,15 @@ argon2-cffi==23.*
 
 # Security
 django-csp==3.8.*
+cryptography==50.0.0
+cffi==2.0.0
+sqlparse==0.6.0
 django-ratelimit==4.*
 django-ipware==7.*
 
 # File storage
 django-storages[s3]==1.14.*
-Pillow==11.*
+Pillow==12.3.0
 
 # Documents BB — upload security pipeline (Layers 5/5b/8 in apps/documents/services/upload.py)
 pyClamd==0.4.*        # ClamAV daemon scanning via scan_stream() (apps/documents/tasks.py)
@@ -43,6 +46,7 @@ django-celery-results==2.5.*
 
 # Static files
 whitenoise[brotli]==6.*
+Brotli==1.2.0
 
 # Export
 openpyxl==3.1.*
