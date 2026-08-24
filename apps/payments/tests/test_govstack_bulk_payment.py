@@ -1487,8 +1487,13 @@ class BulkPaymentAndPrepaymentAuthTest(TestCase):
 
     @override_settings(GOVSTACK_REQUIRE_REGISTERED_BB=True)
     def test_g4_bulk_payment_registered_header_production_mode_returns_200(self):
-        GovStackRegisteredBB.objects.create(bb_id="REGISTERED-BB", is_active=True)
+        GovStackRegisteredBB.objects.create(
+            bb_id="REGISTERED-BB",
+            is_active=True,
+            allowed_platform_tenant_ids=["TENANT-GOV"],
+        )
         self.client.defaults["HTTP_X_REGISTERING_INSTITUTION_ID"] = "REGISTERED-BB"
+        self.client.defaults["HTTP_X_PLATFORM_TENANTID"] = "TENANT-GOV"
         resp = self.client.post(BULK_PAYMENT_URL, data=_bulk_body(), format="json")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["ResponseCode"], "00")

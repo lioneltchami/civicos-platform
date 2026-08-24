@@ -65,15 +65,19 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 
+from apps.payments.govstack_failure_services import PaymentLifecycleService
 from apps.payments.govstack_models import (
     BulkPaymentBatch,
+    CallbackDelivery,
     CreditInstruction,
+    GovStackBatchDecision,
     GovStackBeneficiary,
     GovStackPaymentAuditEntry,
     PrepaymentValidationRequest,
 )
 from apps.payments.govstack_tasks import (
     _is_safe_callback_url,
+    _post_callback,
     process_bulk_payment_batch,
     validate_prepayment_async,
 )
@@ -234,7 +238,7 @@ class GovStackCeleryTasksTest(TestCase):
             callback_url=callback_url,
             total_amount=Decimal("100.00"),  # matches the single CreditInstruction below
         )
-        CreditInstruction.objects.create(
+        instruction = CreditInstruction.objects.create(
             batch=batch,
             instruction_id="GInstrIDtask01",
             # payee_functional_id has no validator on CreditInstruction — any string
@@ -254,7 +258,45 @@ class GovStackCeleryTasksTest(TestCase):
                 source_bb_id="GSourceBBtask",
                 is_active=True,
             )
+            self._bind_verified_finality(batch, instruction, outcome="settled")
         return batch
+
+    @staticmethod
+    def _bind_verified_finality(
+        batch: BulkPaymentBatch, instruction: CreditInstruction, *, outcome: str
+    ) -> None:
+        attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+            tenant_id="",
+            operation="g2p_bulk_instruction",
+            request_id=f"{batch.request_id}:{instruction.instruction_id}",
+            payload={
+                "batch_pk": str(batch.pk),
+                "instruction_pk": str(instruction.pk),
+                "amount": str(instruction.amount),
+                "currency": instruction.currency,
+            },
+            amount=instruction.amount,
+            currency=instruction.currency,
+            correlation_id=batch.correlation_id,
+            source_bb_id=batch.source_bb_id,
+        )
+        PaymentLifecycleService.bind_credit_instruction_attempt(instruction, attempt)
+        PaymentLifecycleService.record_observation(
+            attempt,
+            tenant_id="",
+            observation_kind="provider",
+            observation_id=f"test-{outcome}-{instruction.pk}",
+            outcome=outcome,
+            amount=instruction.amount,
+            currency=instruction.currency,
+            verified=True,
+            verification_method="govstack_tasks_test",
+            binding_hash=PaymentLifecycleService.binding_hash(
+                "", attempt, instruction.amount, instruction.currency
+            ),
+        )
+        attempt.refresh_from_db()
+        PaymentLifecycleService.reconcile(attempt, provider_status=outcome)
 
     def _make_pvr(
         self,
@@ -290,13 +332,16 @@ class GovStackCeleryTasksTest(TestCase):
         via transaction.on_commit() — not inline — so the task only runs after
         the BulkPaymentBatch record has been committed to the database.
         """
-        with patch.object(process_bulk_payment_batch, "delay") as mock_delay:
-            with self.captureOnCommitCallbacks(execute=True):
-                resp = self.client.post(
-                    BULK_PAYMENT_URL,
-                    data=json.dumps(_bulk_body()),
-                    content_type="application/json",
-                )
+        with (
+            patch.object(process_bulk_payment_batch, "delay") as mock_delay,
+            patch("apps.payments.provider_runtime_tasks.orchestrate_attempt_task.delay"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            resp = self.client.post(
+                BULK_PAYMENT_URL,
+                data=json.dumps(_bulk_body()),
+                content_type="application/json",
+            )
         self.assertEqual(resp.status_code, 200)
         mock_delay.assert_called_once()
         # The single argument must be a UUID string for an existing BulkPaymentBatch.
@@ -372,9 +417,10 @@ class GovStackCeleryTasksTest(TestCase):
     def test_g4_process_batch_writes_audit_entry(self):
         batch = self._make_batch(batch_id="GBatchIDtask4")
         process_bulk_payment_batch.apply(args=[str(batch.pk)])
+        decision = GovStackBatchDecision.objects.get(batch=batch)
         entry_count = GovStackPaymentAuditEntry.objects.filter(
-            action=GovStackPaymentAuditEntry.ACTION_BATCH_COMPLETED,
-            object_pk=str(batch.pk),
+            action=GovStackPaymentAuditEntry.ACTION_BATCH_DECISION_RECORDED,
+            object_pk=str(decision.pk),
         ).count()
         self.assertEqual(entry_count, 1)
 
@@ -387,13 +433,11 @@ class GovStackCeleryTasksTest(TestCase):
             batch_id="GBatchIDtask5",
             callback_url="https://example.com/callback",
         )
-        with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=200)
-            process_bulk_payment_batch.apply(args=[str(batch.pk)])
+        process_bulk_payment_batch.apply(args=[str(batch.pk)])
 
-        mock_post.assert_called_once()
-        call_url = mock_post.call_args[0][0]
-        self.assertEqual(call_url, "https://example.com/callback")
+        delivery = CallbackDelivery.objects.get(callback_url="https://example.com/callback")
+        self.assertEqual(delivery.status, CallbackDelivery.STATUS_PENDING)
+        self.assertEqual(delivery.payload["Status"], "TERMINAL")
 
     # ------------------------------------------------------------------
     # G6 — Task does NOT post when callback_url is empty
@@ -423,13 +467,11 @@ class GovStackCeleryTasksTest(TestCase):
             batch_id="GBatchIDtask7",
             callback_url="https://example.com/callback",
         )
-        with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=200)
-            process_bulk_payment_batch.apply(args=[str(batch.pk)])
+        process_bulk_payment_batch.apply(args=[str(batch.pk)])
 
-        mock_post.assert_called_once()
-        # Extract the JSON body from the call — it is passed as `json=` kwarg.
-        payload = mock_post.call_args[1].get("json") or mock_post.call_args[0][1]
+        delivery = CallbackDelivery.objects.get(callback_url="https://example.com/callback")
+        self.assertEqual(delivery.status, CallbackDelivery.STATUS_PENDING)
+        payload = delivery.payload
         payload_str = json.dumps(payload)
         self.assertNotIn(
             "payee_functional_id",
@@ -447,8 +489,8 @@ class GovStackCeleryTasksTest(TestCase):
         # All instructions COMPLETED (beneficiary registered) → "COMPLETED".
         self.assertEqual(
             payload.get("Status"),
-            "COMPLETED",
-            "Callback Status must be 'COMPLETED' when all instructions succeed.",
+            "TERMINAL",
+            "Callback Status must be 'TERMINAL' for the durable terminal decision.",
         )
 
     # ------------------------------------------------------------------
@@ -467,10 +509,11 @@ class GovStackCeleryTasksTest(TestCase):
         batch.refresh_from_db()
         self.assertEqual(batch.status, BulkPaymentBatch.STATUS_COMPLETED)
 
-        # Exactly one ACTION_BATCH_COMPLETED audit entry.
+        # Exactly one durable batch-decision audit entry across both invocations.
+        decision = GovStackBatchDecision.objects.get(batch=batch)
         completed_entries = GovStackPaymentAuditEntry.objects.filter(
-            action=GovStackPaymentAuditEntry.ACTION_BATCH_COMPLETED,
-            object_pk=str(batch.pk),
+            action=GovStackPaymentAuditEntry.ACTION_BATCH_DECISION_RECORDED,
+            object_pk=str(decision.pk),
         ).count()
         self.assertEqual(
             completed_entries,
@@ -494,47 +537,23 @@ class GovStackCeleryTasksTest(TestCase):
         """
         batch = self._make_batch(
             batch_id="GBatchG3Update",
-            with_beneficiary=False,  # no beneficiary → FAILED path
+            with_beneficiary=False,
         )
         process_bulk_payment_batch.apply(args=[str(batch.pk)])
 
         instr = CreditInstruction.objects.get(batch=batch)
         self.assertEqual(
             instr.status,
-            CreditInstruction.STATUS_FAILED,
-            "Instruction must be FAILED when no matching beneficiary exists.",
+            CreditInstruction.STATUS_VALIDATED,
+            "An ID-mapper miss remains non-final until provider evidence is available.",
         )
-        self.assertIn(
-            "PayeeFunctionalID not found",
-            instr.failure_reason,
-            "failure_reason must be set to a non-PII message.",
-        )
-        # Per-instruction ACTION_INSTRUCTION_FAILED audit entry must exist.
-        audit_count = GovStackPaymentAuditEntry.objects.filter(
-            action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
-            object_pk=str(instr.pk),
-        ).count()
-        self.assertEqual(
-            audit_count,
-            1,
-            "Exactly one ACTION_INSTRUCTION_FAILED audit entry expected.",
-        )
-        # The audit entry must NOT expose payee_functional_id.
-        entry = GovStackPaymentAuditEntry.objects.get(
-            action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
-            object_pk=str(instr.pk),
-        )
-        details_str = json.dumps(entry.details)
-        # Check that neither the field name nor the actual value leaks into audit details.
-        self.assertNotIn(
-            "payee_functional_id",
-            details_str.lower(),
-            "ACTION_INSTRUCTION_FAILED audit details must never contain payee_functional_id key.",
-        )
-        self.assertNotIn(
-            "GPayeeIDtask1234",
-            details_str,
-            "Actual payee_functional_id value must not appear in audit details.",
+        self.assertEqual(instr.failure_reason, "")
+        self.assertFalse(
+            GovStackPaymentAuditEntry.objects.filter(
+                action=GovStackPaymentAuditEntry.ACTION_INSTRUCTION_FAILED,
+                object_pk=str(instr.pk),
+            ).exists(),
+            "A non-final mapper result must not create a terminal failure audit.",
         )
 
     # ------------------------------------------------------------------
@@ -564,7 +583,7 @@ class GovStackCeleryTasksTest(TestCase):
             source_bb_id="GSourceBBtask",
             is_active=True,
         )
-        CreditInstruction.objects.create(
+        instruction_a = CreditInstruction.objects.create(
             batch=batch,
             instruction_id="GInstrNew1A",
             payee_functional_id="gpayeenew1ok",
@@ -573,7 +592,7 @@ class GovStackCeleryTasksTest(TestCase):
             status=CreditInstruction.STATUS_PENDING,
         )
         # Instruction B — will fail: no beneficiary registered for this ID.
-        CreditInstruction.objects.create(
+        instruction_b = CreditInstruction.objects.create(
             batch=batch,
             instruction_id="GInstrNew1B",
             payee_functional_id="GPayeeNew1Miss",  # 14 chars, no beneficiary
@@ -582,6 +601,8 @@ class GovStackCeleryTasksTest(TestCase):
             status=CreditInstruction.STATUS_PENDING,
         )
 
+        self._bind_verified_finality(batch, instruction_a, outcome="settled")
+        self._bind_verified_finality(batch, instruction_b, outcome="rejected")
         process_bulk_payment_batch.apply(args=[str(batch.pk)])
         batch.refresh_from_db()
 
@@ -620,6 +641,8 @@ class GovStackCeleryTasksTest(TestCase):
             batch_id="GBatchGNew0002",
             with_beneficiary=False,  # no beneficiary → all instructions FAILED
         )
+        instruction = CreditInstruction.objects.get(batch=batch)
+        self._bind_verified_finality(batch, instruction, outcome="rejected")
         process_bulk_payment_batch.apply(args=[str(batch.pk)])
         batch.refresh_from_db()
 
@@ -628,10 +651,11 @@ class GovStackCeleryTasksTest(TestCase):
             BulkPaymentBatch.STATUS_FAILED,
             "batch.status must be FAILED when all instructions fail the ID Mapper lookup.",
         )
-        # The batch-level audit entry must use ACTION_BATCH_FAILED.
+        # The terminal policy outcome is recorded against the durable decision.
+        decision = GovStackBatchDecision.objects.get(batch=batch)
         batch_audit_count = GovStackPaymentAuditEntry.objects.filter(
-            action=GovStackPaymentAuditEntry.ACTION_BATCH_FAILED,
-            object_pk=str(batch.pk),
+            action=GovStackPaymentAuditEntry.ACTION_BATCH_DECISION_RECORDED,
+            object_pk=str(decision.pk),
         ).count()
         self.assertEqual(
             batch_audit_count,
@@ -655,6 +679,8 @@ class GovStackCeleryTasksTest(TestCase):
             batch_id="GBatchGNew0003",
             with_beneficiary=False,  # one instruction, amount=100.00, will FAIL
         )
+        instruction = CreditInstruction.objects.get(batch=batch)
+        self._bind_verified_finality(batch, instruction, outcome="rejected")
         process_bulk_payment_batch.apply(args=[str(batch.pk)])
         batch.refresh_from_db()
 
@@ -935,6 +961,39 @@ class GovStackCallbackSSRFGuardTest(TestCase):
             batch_id="GBatchIDtaskSSRF1",
             callback_url="https://169.254.169.254/latest/meta-data/iam/",
         )
+        instruction = CreditInstruction.objects.get(batch=batch)
+        attempt, _ = PaymentLifecycleService.get_or_create_attempt(
+            tenant_id="",
+            operation="g2p_bulk_instruction",
+            request_id=f"{batch.request_id}:{instruction.instruction_id}",
+            payload={
+                "batch_pk": str(batch.pk),
+                "instruction_pk": str(instruction.pk),
+                "amount": str(instruction.amount),
+                "currency": instruction.currency,
+            },
+            amount=instruction.amount,
+            currency=instruction.currency,
+            correlation_id=batch.correlation_id,
+            source_bb_id=batch.source_bb_id,
+        )
+        PaymentLifecycleService.bind_credit_instruction_attempt(instruction, attempt)
+        PaymentLifecycleService.record_observation(
+            attempt,
+            tenant_id="",
+            observation_kind="provider",
+            observation_id="g18-verified-settled",
+            outcome="settled",
+            amount=instruction.amount,
+            currency=instruction.currency,
+            verified=True,
+            verification_method="g18_test",
+            binding_hash=PaymentLifecycleService.binding_hash(
+                "", attempt, instruction.amount, instruction.currency
+            ),
+        )
+        attempt.refresh_from_db()
+        PaymentLifecycleService.reconcile(attempt, provider_status="settled")
         with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
             process_bulk_payment_batch.apply(args=[str(batch.pk)])
 
@@ -1007,14 +1066,18 @@ class GovStackCallbackSSRFGuardTest(TestCase):
     # ------------------------------------------------------------------
 
     def test_g20_post_callback_disables_redirects(self):
-        batch = self._make_batch(
-            batch_id="GBatchIDtaskSSRF20",
-            callback_url="https://example.com/callback",
-        )
-        with patch("apps.payments.govstack_tasks.requests.post") as mock_post:
+        with (
+            patch("apps.payments.govstack_tasks._is_safe_callback_url", return_value=True),
+            patch("apps.payments.govstack_tasks.requests.post") as mock_post,
+        ):
             mock_post.return_value = MagicMock(status_code=200)
-            process_bulk_payment_batch.apply(args=[str(batch.pk)])
+            delivered, status_code, error = _post_callback(
+                "https://example.com/callback", {"status": "completed"}
+            )
 
+        self.assertTrue(delivered)
+        self.assertEqual(status_code, 200)
+        self.assertEqual(error, "")
         mock_post.assert_called_once()
         self.assertEqual(
             mock_post.call_args[1].get("allow_redirects"),
@@ -1043,25 +1106,22 @@ class GovStackCallbackSSRFGuardTest(TestCase):
         The task itself must still complete normally — a callback failure
         (3xx included) is always non-fatal.
         """
-        batch = self._make_batch(
-            batch_id="GBatchIDtaskG21",
-            callback_url="https://example.com/callback-redirects",
-        )
         with (
+            patch("apps.payments.govstack_tasks._is_safe_callback_url", return_value=True),
             patch("apps.payments.govstack_tasks.requests.post") as mock_post,
             self.assertLogs("apps.payments.govstack_tasks", level="WARNING") as logs,
         ):
             mock_post.return_value = MagicMock(status_code=302)
-            process_bulk_payment_batch.apply(args=[str(batch.pk)])
+            delivered, status_code, error = _post_callback(
+                "https://example.com/callback-redirects", {"status": "completed"}
+            )
 
+        self.assertFalse(delivered)
+        self.assertIsNone(status_code)
+        self.assertEqual(error, "HTTPError")
         mock_post.assert_called_once()
         # The failure path (govstack.callback_post_failed) must have logged —
         # NOT the success path (govstack.callback_posted).
         joined_logs = "\n".join(logs.output)
         self.assertIn("govstack.callback_post_failed", joined_logs)
         self.assertNotIn("govstack.callback_posted", joined_logs)
-
-        # The batch itself must still be in its terminal state — a callback
-        # failure (3xx included) never rolls back or retries the task.
-        batch.refresh_from_db()
-        self.assertEqual(batch.status, BulkPaymentBatch.STATUS_COMPLETED)

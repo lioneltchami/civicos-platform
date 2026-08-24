@@ -75,7 +75,7 @@ from .govstack_exceptions import (
     govstack_exception_handler,
     govstack_g2p_exception_handler,
 )
-from .govstack_models import GovStackVoucher, PaymentAttempt
+from .govstack_models import BulkPaymentBatch, GovStackVoucher, PaymentAttempt
 from .govstack_serializers import (
     BillTransferRequestSerializer,
     BulkPaymentRequestSerializer,
@@ -690,6 +690,11 @@ class BulkPaymentView(GovStackG2PView):
             return self._g2p_bad(request, str(exc))
 
         if replayed:
+            # Preserve a harmless command replay when no batch was persisted, but
+            # classify a persisted duplicate BatchID through the documented G2P
+            # error contract rather than returning a successful replay response.
+            if BulkPaymentBatch.objects.filter(batch_id=d["BatchID"]).exists():
+                return self._g2p_bad(request, "Batch ID has already been received.")
             return self._g2p_ok(request, "Bulk payment batch was already received.")
 
         try:
