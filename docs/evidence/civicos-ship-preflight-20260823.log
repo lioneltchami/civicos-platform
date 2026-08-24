@@ -14,7 +14,7 @@ RANGE_THEME_SUMMARY=BB remediation; Level A validators/evidence; GovStack/stagin
 SUSPECTED_SECRETS=FAIL
 SUSPECTED_MATCH_1=validation script source contains a sensitive-value scan expression; not proof of a credential
 SUSPECTED_MATCH_2=canonical artifact script source contains a sensitive-token detection expression; not proof of a credential
-SUSPECTED_MATCH_3=test fixture/source contains password="not-used"; requires review before shipment
+SUSPECTED_MATCH_3=test fixture/source contains a fixed test-only password fixture; requires review before shipment
 NETWORK_ACTIONS=NONE
 GIT_FETCH=NOT_RUN
 GIT_PUSH=NOT_RUN

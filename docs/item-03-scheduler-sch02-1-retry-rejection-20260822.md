@@ -19,7 +19,7 @@ The discarded candidate was limited to SCH-02.1: a durable publisher-state vocab
 
 ## Commands and environment identity
 
-The database engine was the Compose `db` service, `postgres:16-alpine`, with `POSTGRES_DB=civicos`, `POSTGRES_USER=civicos`, and `POSTGRES_PASSWORD=civicos`. Validation used disposable databases named `civicos_sch02`, `civicos_sch02_test`, and, after discard, `civicos_sch02_baseline`. The containerized Django runner used the repository image, PostgreSQL host `db`, an ephemeral non-production `DJANGO_SECRET_KEY`, and `DJANGO_SETTINGS_MODULE=config.settings.sch02_postgres` for the candidate migration and ten-method suite. The restored-baseline confirmation used `config.settings.integration`.
+The database engine was the Compose `db` service, `postgres:16-alpine`, with a named non-production database and user with a test-environment password supplied separately. Validation used disposable databases named `civicos_sch02`, `civicos_sch02_test`, and, after discard, `civicos_sch02_baseline`. The containerized Django runner used the repository image, PostgreSQL host `db`, an ephemeral non-production `DJANGO_SECRET_KEY`, and `DJANGO_SETTINGS_MODULE=config.settings.sch02_postgres` for the candidate migration and ten-method suite. The restored-baseline confirmation used `config.settings.integration`.
 
 ```sh
 # Candidate fresh migration and model-drift gate

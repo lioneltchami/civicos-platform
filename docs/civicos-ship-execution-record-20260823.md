@@ -36,7 +36,7 @@ The retained concise pre-flight output is `docs/evidence/civicos-ship-preflight-
 
 ## Fail-closed suspected-secret stop
 
-A heuristic scan over the candidate diff matched three source/test patterns: two sensitive-value detection expressions embedded in validation/artifact scripts and one `password="not-used"` test-fixture/source value. This record does **not** classify any match as a real credential. The required action is a human security review of those matches, including confirmation that no real secret is in the intended range, followed by a fresh explicit ship authorization and a new clean pre-flight.
+A heuristic scan over the candidate diff matched three source/test patterns: two sensitive-value detection expressions embedded in validation/artifact scripts and one test-only fixed password-fixture value. This record does **not** classify any match as a real credential. The required action is a human security review of those matches, including confirmation that no real secret is in the intended range, followed by a fresh explicit ship authorization and a new clean pre-flight.
 
 No attempt was made to weaken, suppress, bypass, or rerun the failing scan. The pending evidence-record commit itself also means a future authorized shipping attempt must repeat the clean-worktree pre-flight from the then-current commit.
 
