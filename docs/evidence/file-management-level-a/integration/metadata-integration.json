@@ -1,0 +1,21 @@
+{
+  "collected": 637,
+  "django_settings_module": "config.settings.test",
+  "layer": "integration",
+  "official_harness_executed": false,
+  "runner": "local/CI File Management candidate runner",
+  "selector": [
+    "apps/documents/tests/test_admin.py",
+    "apps/documents/tests/test_api.py",
+    "apps/documents/tests/test_audit.py",
+    "apps/documents/tests/test_integration.py",
+    "apps/documents/tests/test_pipeda.py",
+    "apps/documents/tests/test_presign_kms_and_clamav_settings.py",
+    "apps/documents/tests/test_scan_audit_and_promotion.py",
+    "apps/documents/tests/test_upload_content_gating.py",
+    "apps/documents/tests/test_wave3_clamav.py",
+    "apps/documents/tests/test_wave3_download.py",
+    "apps/documents/tests/test_wave4_retention.py",
+    "apps/documents/tests/test_wave6_integration.py"
+  ]
+}

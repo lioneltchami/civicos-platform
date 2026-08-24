@@ -1,0 +1,439 @@
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_creates_record
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_for_active_document_is_valid
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_linked_to_correct_document
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_linked_to_correct_user
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_non_owner_writes_access_denied_audit_event
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_raises_404_for_deleted_document
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_raises_404_for_non_owner
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_raises_404_for_pending_upload
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_raises_404_for_quarantined_document
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_raises_404_for_scanning_document
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_staff_coordinator_can_download_any
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTests::test_issue_token_superuser_can_download_any
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenIPMaskingTests::test_ipv4_127_0_0_1_masked
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenIPMaskingTests::test_ipv4_last_octet_zeroed
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenIPMaskingTests::test_ipv6_masked_to_48_prefix
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenIPMaskingTests::test_none_ip_stored_as_none
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenIPMaskingTests::test_unparseable_ip_stored_as_none
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenAuditTests::test_issue_token_audit_actor_is_user
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenAuditTests::test_issue_token_audit_no_original_filename
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenAuditTests::test_issue_token_audit_no_storage_key
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenAuditTests::test_issue_token_writes_audit_record
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTTLTests::test_token_default_ttl_300_seconds
+apps/documents/tests/test_access_tokens.py::IssueAccessTokenTTLTests::test_token_ttl_from_settings
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_is_invalid_after_use
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_marks_used_at
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_raises_404_on_expired_token
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_raises_404_on_nonexistent_token
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_raises_404_on_used_token
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_raises_404_wrong_user
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_returns_document
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_used_at_is_recent
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_writes_audit_record
+apps/documents/tests/test_access_tokens.py::ConsumeAccessTokenTests::test_consume_token_wrong_user_writes_access_denied_audit_event
+apps/documents/tests/test_access_tokens.py::PurgeExpiredTokensTests::test_purge_deletes_expired_tokens
+apps/documents/tests/test_access_tokens.py::PurgeExpiredTokensTests::test_purge_deletes_used_tokens
+apps/documents/tests/test_access_tokens.py::PurgeExpiredTokensTests::test_purge_dry_run_does_not_delete
+apps/documents/tests/test_access_tokens.py::PurgeExpiredTokensTests::test_purge_mixed_batch
+apps/documents/tests/test_access_tokens.py::PurgeExpiredTokensTests::test_purge_preserves_valid_tokens
+apps/documents/tests/test_access_tokens.py::PurgeExpiredTokensTests::test_purge_returns_count_of_deleted
+apps/documents/tests/test_models.py::DocumentCategoryStrTests::test_str_not_name_en
+apps/documents/tests/test_models.py::DocumentCategoryStrTests::test_str_returns_slug
+apps/documents/tests/test_models.py::DocumentCategoryCleanTests::test_clean_error_message_contains_values
+apps/documents/tests/test_models.py::DocumentCategoryCleanTests::test_clean_ok_when_equal
+apps/documents/tests/test_models.py::DocumentCategoryCleanTests::test_clean_ok_when_min_less_than_max
+apps/documents/tests/test_models.py::DocumentCategoryCleanTests::test_clean_raises_when_min_exceeds_max
+apps/documents/tests/test_models.py::DocumentCategoryDefaultsTests::test_default_security_classification_is_protected_b
+apps/documents/tests/test_models.py::DocumentCategoryDefaultsTests::test_is_transitory_defaults_false
+apps/documents/tests/test_models.py::DocumentCategoryDefaultsTests::test_max_size_bytes_default_zero
+apps/documents/tests/test_models.py::DocumentCategoryDefaultsTests::test_min_retention_days_default
+apps/documents/tests/test_models.py::DocumentCategoryDefaultsTests::test_staff_only_defaults_false
+apps/documents/tests/test_models.py::DocumentStrTests::test_str_contains_pk
+apps/documents/tests/test_models.py::DocumentStrTests::test_str_contains_scan_status
+apps/documents/tests/test_models.py::DocumentStrTests::test_str_contains_version_number
+apps/documents/tests/test_models.py::DocumentStrTests::test_str_does_not_contain_original_filename
+apps/documents/tests/test_models.py::DocumentStrTests::test_str_format
+apps/documents/tests/test_models.py::DocumentCleanTests::test_clean_no_root_version2_raises
+apps/documents/tests/test_models.py::DocumentCleanTests::test_clean_self_root_raises
+apps/documents/tests/test_models.py::DocumentCleanTests::test_clean_version1_no_root_ok
+apps/documents/tests/test_models.py::DocumentCleanTests::test_clean_version1_with_root_raises
+apps/documents/tests/test_models.py::DocumentCleanTests::test_clean_version2_with_root_ok
+apps/documents/tests/test_models.py::DocumentCleanTests::test_clean_version_number_negative_raises
+apps/documents/tests/test_models.py::DocumentCleanTests::test_clean_version_number_zero_raises
+apps/documents/tests/test_models.py::DocumentQuerySetActiveTests::test_active_excludes_deleted_status
+apps/documents/tests/test_models.py::DocumentQuerySetActiveTests::test_active_excludes_pending_upload
+apps/documents/tests/test_models.py::DocumentQuerySetActiveTests::test_active_excludes_purged
+apps/documents/tests/test_models.py::DocumentQuerySetActiveTests::test_active_excludes_quarantined
+apps/documents/tests/test_models.py::DocumentQuerySetActiveTests::test_active_excludes_scanning
+apps/documents/tests/test_models.py::DocumentQuerySetActiveTests::test_active_excludes_soft_deleted
+apps/documents/tests/test_models.py::DocumentQuerySetActiveTests::test_active_returns_active_non_deleted
+apps/documents/tests/test_models.py::DocumentQuerySetLatestVersionsTests::test_latest_versions_combined_with_active
+apps/documents/tests/test_models.py::DocumentQuerySetLatestVersionsTests::test_latest_versions_excludes_non_latest
+apps/documents/tests/test_models.py::DocumentQuerySetLatestVersionsTests::test_latest_versions_returns_is_latest_true
+apps/documents/tests/test_models.py::DocumentQuerySetPendingDisposalTests::test_pending_disposal_eligible
+apps/documents/tests/test_models.py::DocumentQuerySetPendingDisposalTests::test_pending_disposal_excludes_already_deleted
+apps/documents/tests/test_models.py::DocumentQuerySetPendingDisposalTests::test_pending_disposal_excludes_future_expires_at
+apps/documents/tests/test_models.py::DocumentQuerySetPendingDisposalTests::test_pending_disposal_excludes_future_retain_until
+apps/documents/tests/test_models.py::DocumentQuerySetPendingDisposalTests::test_pending_disposal_excludes_legal_hold
+apps/documents/tests/test_models.py::DocumentQuerySetPendingDisposalTests::test_pending_disposal_excludes_null_expires_at
+apps/documents/tests/test_models.py::DocumentQuerySetPendingDisposalTests::test_pending_disposal_excludes_null_retain_until
+apps/documents/tests/test_models.py::DocumentQuerySetPendingHardDeleteTests::test_pending_hard_delete_custom_grace_days
+apps/documents/tests/test_models.py::DocumentQuerySetPendingHardDeleteTests::test_pending_hard_delete_eligible
+apps/documents/tests/test_models.py::DocumentQuerySetPendingHardDeleteTests::test_pending_hard_delete_excludes_active_status
+apps/documents/tests/test_models.py::DocumentQuerySetPendingHardDeleteTests::test_pending_hard_delete_excludes_legal_hold
+apps/documents/tests/test_models.py::DocumentQuerySetPendingHardDeleteTests::test_pending_hard_delete_excludes_null_deleted_at
+apps/documents/tests/test_models.py::DocumentQuerySetPendingHardDeleteTests::test_pending_hard_delete_excludes_purged
+apps/documents/tests/test_models.py::DocumentQuerySetPendingHardDeleteTests::test_pending_hard_delete_excludes_within_grace
+apps/documents/tests/test_models.py::DocumentPropertyTests::test_is_deleted_false_when_no_deleted_at
+apps/documents/tests/test_models.py::DocumentPropertyTests::test_is_deleted_true_when_deleted_at_set
+apps/documents/tests/test_models.py::DocumentPropertyTests::test_storage_key_format
+apps/documents/tests/test_models.py::DocumentPropertyTests::test_storage_key_is_not_empty
+apps/documents/tests/test_models.py::DocumentPropertyTests::test_storage_key_property_returns_storage_key_field
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_generate_token_is_hex_string
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_generate_token_returns_64_chars
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_generate_token_unique
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_is_valid_false_when_expired
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_is_valid_false_when_used
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_is_valid_false_when_used_and_expired
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_is_valid_true_when_unused_not_expired
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_str_contains_doc_id
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_str_contains_pk
+apps/documents/tests/test_models.py::DocumentAccessTokenTests::test_token_uniqueness_db_constraint
+apps/documents/tests/test_models.py::DocumentAttachmentStrTests::test_str_contains_document_pk
+apps/documents/tests/test_models.py::DocumentAttachmentStrTests::test_str_contains_object_id
+apps/documents/tests/test_models.py::DocumentAttachmentStrTests::test_str_format
+apps/documents/tests/test_models.py::ScanStatusChoicesTests::test_all_statuses_exist
+apps/documents/tests/test_models.py::ScanStatusChoicesTests::test_purged_is_terminal
+apps/documents/tests/test_models.py::SecurityClassificationTests::test_document_inherits_category_classification
+apps/documents/tests/test_models.py::SecurityClassificationTests::test_three_levels_exist
+apps/documents/tests/test_services_retention.py::ScheduleExpiryNonTransitoryTests::test_equal_min_max_retention
+apps/documents/tests/test_services_retention.py::ScheduleExpiryNonTransitoryTests::test_expires_at_is_after_retain_until
+apps/documents/tests/test_services_retention.py::ScheduleExpiryNonTransitoryTests::test_expires_at_set_to_created_at_plus_max_retention
+apps/documents/tests/test_services_retention.py::ScheduleExpiryNonTransitoryTests::test_privacy_act_minimum_730_days
+apps/documents/tests/test_services_retention.py::ScheduleExpiryNonTransitoryTests::test_retain_until_set_to_created_at_plus_min_retention_as_date
+apps/documents/tests/test_services_retention.py::ScheduleExpiryNonTransitoryTests::test_seven_year_category
+apps/documents/tests/test_services_retention.py::ScheduleExpiryNonTransitoryTests::test_short_max_retention
+apps/documents/tests/test_services_retention.py::ScheduleExpiryTransitoryTests::test_transitory_doc_not_in_pending_disposal_immediately
+apps/documents/tests/test_services_retention.py::ScheduleExpiryTransitoryTests::test_transitory_expires_at_is_none
+apps/documents/tests/test_services_retention.py::ScheduleExpiryTransitoryTests::test_transitory_retain_until_set_if_min_positive
+apps/documents/tests/test_services_retention.py::ScheduleExpiryTransitoryTests::test_transitory_zero_min_retention_both_none
+apps/documents/tests/test_services_retention.py::ScheduleExpiryZeroRetentionTests::test_zero_max_retention_non_transitory_expires_at_none
+apps/documents/tests/test_services_retention.py::ScheduleExpiryZeroRetentionTests::test_zero_min_retention_retain_until_is_none
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPersistenceTests::test_expires_at_saved_to_db
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPersistenceTests::test_idempotent_second_call
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPersistenceTests::test_retain_until_saved_to_db
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPersistenceTests::test_save_uses_update_fields
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPersistenceTests::test_schedule_expiry_only_touches_retention_fields
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPendingDisposalIntegrationTests::test_backdate_expires_at_and_retain_until_appears_in_pending
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPendingDisposalIntegrationTests::test_fresh_document_not_in_pending_disposal
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPendingDisposalIntegrationTests::test_legal_hold_blocks_pending_disposal
+apps/documents/tests/test_services_retention.py::ScheduleExpiryPendingDisposalIntegrationTests::test_only_expires_at_past_not_in_pending_disposal
+apps/documents/tests/test_services_upload.py::MakeStorageKeyTests::test_default_prefix_is_quarantine
+apps/documents/tests/test_services_upload.py::MakeStorageKeyTests::test_invalid_prefix_raises
+apps/documents/tests/test_services_upload.py::MakeStorageKeyTests::test_invalid_prefix_tmp_raises
+apps/documents/tests/test_services_upload.py::MakeStorageKeyTests::test_keys_are_unique
+apps/documents/tests/test_services_upload.py::MakeStorageKeyTests::test_no_original_filename_in_key
+apps/documents/tests/test_services_upload.py::MakeStorageKeyTests::test_valid_prefix_active
+apps/documents/tests/test_services_upload.py::MakeStorageKeyTests::test_valid_prefix_deleted
+apps/documents/tests/test_services_upload.py::MakeStorageKeyTests::test_valid_prefix_quarantine
+apps/documents/tests/test_services_upload.py::ValidateMagicBytesTests::test_allowed_mime_passes_and_returns_detected_mime
+apps/documents/tests/test_services_upload.py::ValidateMagicBytesTests::test_disallowed_mime_raises
+apps/documents/tests/test_services_upload.py::ValidateMagicBytesTests::test_magic_error_raises
+apps/documents/tests/test_services_upload.py::ValidateMagicBytesTests::test_magic_not_installed_dev_skip
+apps/documents/tests/test_services_upload.py::ValidateMagicBytesTests::test_magic_not_installed_required_raises_improperly_configured
+apps/documents/tests/test_services_upload.py::CheckZipBombTests::test_clean_zip_passes
+apps/documents/tests/test_services_upload.py::CheckZipBombTests::test_high_compression_ratio_raises
+apps/documents/tests/test_services_upload.py::CheckZipBombTests::test_invalid_zip_raises
+apps/documents/tests/test_services_upload.py::CheckZipBombTests::test_too_many_entries_raises
+apps/documents/tests/test_services_upload.py::CheckZipBombTests::test_truncated_zip_raises
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_anonymous_user_raises_permission_denied
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_case_insensitive_extension_accepted
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_category_allowed_mime_types_accepts_its_type
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_category_allowed_mime_types_overrides_global
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_category_max_size_bytes_override
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_category_not_found_raises_does_not_exist
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_doc_category_set_correctly
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_doc_created_in_pending_upload_state
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_doc_original_filename_stored
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_doc_uploader_set
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_double_extension_uses_last
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_empty_allowed_mimes_raises_improperly_configured
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_executable_extension_rejected
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_happy_path_returns_expected_keys
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_invalid_extension_raises
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_invalid_mime_type_raises
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_missing_extension_raises
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_no_document_created_on_empty_mime_error
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_no_document_created_on_extension_error
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_no_document_created_on_mime_error
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_schedule_expiry_called
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_security_classification_inherited_from_category
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_signal_fired_with_correct_kwargs
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_size_exactly_at_citizen_cap_passes
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_size_exceeds_citizen_cap_raises
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_size_exceeds_staff_cap_raises
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_size_negative_raises
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_size_one_byte_over_citizen_cap_fails
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_size_zero_raises
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_storage_key_never_in_response
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_superuser_may_upload_to_any_category
+apps/documents/tests/test_services_upload.py::ValidateUploadRequestTests::test_zip_extension_rejected
+apps/documents/tests/test_services_upload.py::StaffOnlyCategoryTests::test_citizen_allowed_to_public_category
+apps/documents/tests/test_services_upload.py::StaffOnlyCategoryTests::test_citizen_blocked_from_staff_only_category
+apps/documents/tests/test_services_upload.py::StaffOnlyCategoryTests::test_staff_with_upload_staff_document_perm_allowed
+apps/documents/tests/test_services_upload.py::StaffOnlyCategoryTests::test_superuser_allowed_to_staff_only_category
+apps/documents/tests/test_services_upload.py::StaffOnlyCategoryTests::test_user_with_only_upload_document_perm_blocked_from_staff_only
+apps/documents/tests/test_services_upload.py::CitizenCapPassedToS3Tests::test_category_override_takes_precedence_for_all_users
+apps/documents/tests/test_services_upload.py::CitizenCapPassedToS3Tests::test_citizen_max_size_passed_to_presigned_post
+apps/documents/tests/test_services_upload.py::CitizenCapPassedToS3Tests::test_staff_max_size_passed_to_presigned_post
+apps/documents/tests/test_services_upload.py::LocalFilePathContainmentTests::test_read_full_local_file_rejects_traversal
+apps/documents/tests/test_services_upload.py::LocalFilePathContainmentTests::test_read_local_first_bytes_rejects_traversal
+apps/documents/tests/test_services_upload.py::LocalFilePathContainmentTests::test_verify_local_file_exists_rejects_absolute_path
+apps/documents/tests/test_services_upload.py::LocalFilePathContainmentTests::test_verify_local_file_exists_rejects_traversal
+apps/documents/tests/test_services_upload.py::AppsReadyImportErrorTests::test_ready_does_not_raise_if_receivers_absent
+apps/documents/tests/test_services_upload.py::AppsReadyImportErrorTests::test_ready_raises_if_receivers_exists_but_broken
+apps/documents/tests/test_services_versioning.py::SQLiteGuardTest::test_soft_delete_guard_fires_before_sqlite_guard
+apps/documents/tests/test_services_versioning.py::SQLiteGuardTest::test_sqlite_guard_fires_before_permission_check
+apps/documents/tests/test_services_versioning.py::SQLiteGuardTest::test_sqlite_raises_improperly_configured
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_anonymous_user_denied
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_no_permissions_no_owner_denied
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_non_owner_with_upload_perm_denied
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_owner_staff_only_category_denied
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_owner_with_upload_perm_allowed
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_owner_without_upload_perm_denied
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_staff_upload_document_perm_allowed
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_superuser_allowed
+apps/documents/tests/test_services_versioning.py::UserMayVersionTest::test_superuser_allowed_for_other_owners_document
+apps/documents/tests/test_services_versioning.py::CreateNewVersionValidationTest::test_deleted_chain_raises_validation_error
+apps/documents/tests/test_services_versioning.py::CreateNewVersionValidationTest::test_disallowed_extension_raises_validation_error
+apps/documents/tests/test_services_versioning.py::CreateNewVersionValidationTest::test_disallowed_mime_raises_validation_error
+apps/documents/tests/test_services_versioning.py::CreateNewVersionValidationTest::test_negative_size_raises_validation_error
+apps/documents/tests/test_services_versioning.py::CreateNewVersionValidationTest::test_permission_denied_for_non_owner
+apps/documents/tests/test_services_versioning.py::CreateNewVersionValidationTest::test_size_zero_raises_validation_error
+apps/documents/tests/test_services_versioning.py::CreateNewVersionReturnContractTest::test_audit_event_detail_excludes_original_filename_in_source
+apps/documents/tests/test_services_versioning.py::CreateNewVersionReturnContractTest::test_function_source_excludes_storage_key_from_return
+apps/documents/tests/test_services_versioning.py::CreateNewVersionReturnContractTest::test_return_dict_has_no_storage_key
+apps/documents/tests/test_signals.py::SignalDeclarationTests::test_all_signals_are_django_signal_instances
+apps/documents/tests/test_signals.py::SignalDeclarationTests::test_no_extra_signals_exported
+apps/documents/tests/test_signals.py::SoftDeletedSignalTests::test_soft_delete_fires_signal
+apps/documents/tests/test_signals.py::SoftDeletedSignalTests::test_soft_delete_signal_document_pk_is_str
+apps/documents/tests/test_signals.py::SoftDeletedSignalTests::test_soft_delete_signal_has_deleted_by_id
+apps/documents/tests/test_signals.py::SoftDeletedSignalTests::test_soft_delete_signal_no_original_filename
+apps/documents/tests/test_signals.py::SoftDeletedSignalTests::test_soft_delete_signal_no_storage_key
+apps/documents/tests/test_signals.py::SoftDeletedSignalTests::test_soft_delete_signal_not_fired_before_commit
+apps/documents/tests/test_signals.py::SoftDeletedSignalTests::test_soft_delete_signal_system_deletion_deleted_by_id_none
+apps/documents/tests/test_signals.py::HardDeletedSignalTests::test_hard_delete_fires_signal
+apps/documents/tests/test_signals.py::HardDeletedSignalTests::test_hard_delete_signal_document_pk_is_str
+apps/documents/tests/test_signals.py::HardDeletedSignalTests::test_hard_delete_signal_has_category_slug
+apps/documents/tests/test_signals.py::HardDeletedSignalTests::test_hard_delete_signal_no_original_filename
+apps/documents/tests/test_signals.py::HardDeletedSignalTests::test_hard_delete_signal_no_storage_key
+apps/documents/tests/test_signals.py::LegalHoldChangedSignalTests::test_apply_legal_hold_fires_signal
+apps/documents/tests/test_signals.py::LegalHoldChangedSignalTests::test_apply_legal_hold_signal_document_pk_str
+apps/documents/tests/test_signals.py::LegalHoldChangedSignalTests::test_apply_legal_hold_signal_legal_hold_true
+apps/documents/tests/test_signals.py::LegalHoldChangedSignalTests::test_apply_legal_hold_signal_set_by_id
+apps/documents/tests/test_signals.py::LegalHoldChangedSignalTests::test_legal_hold_signal_no_email_in_kwargs
+apps/documents/tests/test_signals.py::LegalHoldChangedSignalTests::test_legal_hold_signal_no_storage_key
+apps/documents/tests/test_signals.py::LegalHoldChangedSignalTests::test_release_legal_hold_fires_signal
+apps/documents/tests/test_signals.py::LegalHoldChangedSignalTests::test_release_legal_hold_signal_legal_hold_false
+apps/documents/tests/test_signals.py::QuarantineSignalPIITests::test_document_quarantined_signal_exists
+apps/documents/tests/test_signals.py::QuarantineSignalPIITests::test_quarantined_signal_kwargs_documented_correctly
+apps/documents/tests/test_signals.py::QuarantineSignalPIITests::test_quarantined_signal_no_pii_from_real_dispatch_site
+apps/documents/tests/test_signals.py::UploadInitiatedSignalContractTests::test_upload_initiated_kwarg_contract
+apps/documents/tests/test_signals.py::UploadInitiatedSignalContractTests::test_upload_initiated_signal_exists
+apps/documents/tests/test_signals.py::DocumentConfirmedSignalContractTests::test_document_confirmed_kwarg_contract
+apps/documents/tests/test_signals.py::VersionCreatedSignalContractTests::test_version_created_kwarg_contract
+apps/documents/tests/test_signals.py::ScanCleanSignalContractTests::test_scan_clean_kwarg_contract
+apps/documents/tests/test_signals.py::SendRobustTests::test_faulty_signal_handler_does_not_propagate
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_dev_bypass_fires_document_scan_clean_signal
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_dev_bypass_marks_document_active
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_dev_bypass_raises_in_production
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_dev_bypass_sets_scan_completed_at
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_dev_bypass_sets_scan_engine_result_to_dev_bypass
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_dev_bypass_signal_no_uploader_pii
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_document_not_found_triggers_retry
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_idempotent_already_active
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_idempotent_already_deleted
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_idempotent_already_quarantined
+apps/documents/tests/test_tasks.py::ScanDocumentDevBypassTests::test_idempotent_does_not_fire_signal_when_already_active
+apps/documents/tests/test_tasks.py::ScanDocumentProdTests::test_clamav_connection_error_triggers_retry_not_active
+apps/documents/tests/test_tasks.py::ScanDocumentProdTests::test_clamav_path_does_not_use_dev_bypass
+apps/documents/tests/test_tasks.py::ScanDocumentProdTests::test_clean_clamav_scan_marks_document_active
+apps/documents/tests/test_tasks.py::ScanDocumentProdTests::test_infected_clamav_scan_marks_document_quarantined
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_deletes_stale_pending_upload_rows
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_keeps_active_documents_regardless_of_age
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_keeps_quarantined_documents
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_keeps_recent_pending_upload_rows
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_keeps_scanning_documents_regardless_of_age
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_mixed_stale_and_recent
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_respects_custom_ttl_setting
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_returns_count_of_deleted_rows
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsTests::test_returns_zero_when_nothing_to_clean
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsStorageTests::test_blank_storage_key_skips_storage_delete
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsStorageTests::test_deletes_storage_object_for_stale_pending_upload
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsStorageTests::test_missing_storage_object_does_not_block_db_cleanup
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsStorageTests::test_recent_pending_upload_storage_object_is_untouched
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsStorageTests::test_s3_backend_batch_deletes_orphaned_objects
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsStorageTests::test_s3_client_error_does_not_block_db_cleanup
+apps/documents/tests/test_tasks.py::CleanupStalePendingUploadsStorageTests::test_storage_error_does_not_block_db_cleanup
+apps/documents/tests/test_tasks.py::TaskDecoratorPropertyTests::test_cleanup_stale_pending_uploads_acks_late
+apps/documents/tests/test_tasks.py::TaskDecoratorPropertyTests::test_cleanup_stale_pending_uploads_reject_on_worker_lost
+apps/documents/tests/test_tasks.py::TaskDecoratorPropertyTests::test_scan_document_acks_late
+apps/documents/tests/test_tasks.py::TaskDecoratorPropertyTests::test_scan_document_reject_on_worker_lost
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_on_failure_empty_args_and_kwargs_does_not_call_quarantine
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_on_failure_extracts_doc_pk_from_kwargs
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_on_failure_extracts_doc_pk_from_positional_args
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_quarantine_doc_not_found_does_not_raise
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_quarantine_fires_document_quarantined_signal
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_quarantine_idempotent_if_not_scanning
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_quarantine_sets_scan_completed_at
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_quarantine_sets_scan_engine_result_from_exception_type
+apps/documents/tests/test_tasks.py::QuarantineOnScanFailureTests::test_quarantine_transitions_scanning_to_quarantined
+apps/documents/tests/test_upload_presign_template.py::UploadPresignTemplateFieldTests::test_no_unsigned_success_action_redirect_when_absent_from_upload_fields
+apps/documents/tests/test_upload_presign_template.py::UploadPresignTemplateFieldTests::test_rendered_hidden_inputs_match_upload_fields_exactly
+apps/documents/tests/test_upload_presign_template.py::UploadPresignTemplateFieldTests::test_signed_success_action_redirect_is_rendered_exactly_once
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_already_active_returns_doc_without_error
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_already_scanning_returns_doc_without_error
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_audit_actor_id_is_user_pk
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_audit_log_written_with_correct_fields
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_confirm_does_not_change_security_classification
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_document_confirmed_signal_no_storage_key_in_kwargs
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_file_not_found_does_not_advance_status
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_file_not_found_raises_validation_error
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_happy_path_dispatches_scan_task
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_happy_path_fires_document_confirmed_signal
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_happy_path_sets_scanning_status
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_idor_wrong_user_returns_404
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_magic_byte_failure_leaves_status_pending
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_magic_byte_mismatch_raises
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_nonexistent_doc_returns_404
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_pdf_skips_zip_bomb_check
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_zip_bomb_in_docx_raises
+apps/documents/tests/test_services_upload.py::ConfirmUploadTests::test_zip_bomb_in_xlsx_raises
+apps/documents/tests/test_services_upload.py::ConfirmUploadIdempotencyHighTests::test_active_doc_returns_silently
+apps/documents/tests/test_services_upload.py::ConfirmUploadIdempotencyHighTests::test_deleted_doc_raises_validation_error
+apps/documents/tests/test_services_upload.py::ConfirmUploadIdempotencyHighTests::test_quarantined_doc_raises_validation_error
+apps/documents/tests/test_services_upload.py::ConfirmUploadIdempotencyHighTests::test_scanning_doc_returns_silently
+apps/documents/tests/test_services_upload.py::AuditWriteFailureTests::test_audit_failure_raises
+apps/documents/tests/test_services_upload.py::AuditWriteFailureTests::test_audit_failure_rolls_back_to_pending_upload
+
+=============================== warnings summary ===============================
+../../../usr/local/lib/python3.12/dist-packages/wagtail/blocks/field_block.py:321
+../../../usr/local/lib/python3.12/dist-packages/wagtail/blocks/field_block.py:321
+  /usr/local/lib/python3.12/dist-packages/wagtail/blocks/field_block.py:321: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    self.field = forms.URLField(
+
+apps/payments/models.py:193
+  <workspace>/apps/payments/models.py:193: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:197
+  <workspace>/apps/payments/models.py:197: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:350
+  <workspace>/apps/payments/models.py:350: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:354
+  <workspace>/apps/payments/models.py:354: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:358
+  <workspace>/apps/payments/models.py:358: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:362
+  <workspace>/apps/payments/models.py:362: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:499
+  <workspace>/apps/payments/models.py:499: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:697
+  <workspace>/apps/payments/models.py:697: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1005
+  <workspace>/apps/payments/models.py:1005: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1009
+  <workspace>/apps/payments/models.py:1009: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1190
+  <workspace>/apps/payments/models.py:1190: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1194
+  <workspace>/apps/payments/models.py:1194: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1569
+  <workspace>/apps/payments/models.py:1569: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1573
+  <workspace>/apps/payments/models.py:1573: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1577
+  <workspace>/apps/payments/models.py:1577: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1581
+  <workspace>/apps/payments/models.py:1581: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1585
+  <workspace>/apps/payments/models.py:1585: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1819
+  <workspace>/apps/payments/models.py:1819: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1823
+  <workspace>/apps/payments/models.py:1823: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/models.py:1832
+  <workspace>/apps/payments/models.py:1832: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:565
+  <workspace>/apps/volunteers/models.py:565: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:889
+  <workspace>/apps/volunteers/models.py:889: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1118
+  <workspace>/apps/volunteers/models.py:1118: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1631
+  <workspace>/apps/volunteers/models.py:1631: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/volunteers/models.py:1836
+  <workspace>/apps/volunteers/models.py:1836: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1128
+  <workspace>/apps/payments/govstack_models.py:1128: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+apps/payments/govstack_models.py:1272
+  <workspace>/apps/payments/govstack_models.py:1272: RemovedInDjango60Warning: CheckConstraint.check is deprecated in favor of `.condition`.
+    models.CheckConstraint(
+
+../../../usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148
+../../../usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148
+  /usr/local/lib/python3.12/dist-packages/django/db/models/fields/__init__.py:1148: RemovedInDjango60Warning: The default scheme will be changed from 'http' to 'https' in Django 6.0. Pass the forms.URLField.assume_scheme argument to silence this warning, or set the FORMS_URLFIELD_ASSUME_HTTPS transitional setting to True to opt into using 'https' as the new default scheme.
+    return form_class(**defaults)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+317 tests collected in 0.47s
