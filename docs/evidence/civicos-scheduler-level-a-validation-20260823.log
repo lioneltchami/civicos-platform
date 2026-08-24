@@ -1,0 +1,7 @@
+SCHEDULER_LEVEL_A_VALIDATION=PASS
+SCH_01_SQLITE_SUITE=PASS (50 tests, 10 dedicated SCH-02.1 PostgreSQL skips)
+SCH_02_1_LOCAL_SOURCE_SAFETY=PASS
+SCH_02_1_POSTGRES_EVIDENCE=BLOCKED-EXTERNAL (SQLite environment; no PostgreSQL proof claimed in this record)
+SCH_02_2=NOT_READY_OUT_OF_SCOPE
+NON_CLAIMS=LEVEL_A_SCH_01_AND_SCH_02_1_ONLY; NOT_FULL_SCHEDULER_BB; NO_STAGING; NO_OFFICIAL_SUITE; NO_CERTIFICATION; NO_SUBMISSION; NO_RELEASE; NO_PRODUCTION_AUTHORIZATION; NO_SECRETS
+NOTE=The test output was produced in the retained isolated Django environment synchronized with the current Scheduler source. Test-generated credential values were redacted before evidence retention.
